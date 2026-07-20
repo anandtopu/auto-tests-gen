@@ -1,0 +1,7 @@
+{
+  "required": [
+    "source_repos",
+    "test_repos",
+    "confidence"
+  ]
+}\n

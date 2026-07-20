@@ -1,0 +1,6 @@
+{
+  "required": [
+    "fixtures",
+    "strategy"
+  ]
+}\n

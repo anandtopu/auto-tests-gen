@@ -1,0 +1,12 @@
+# Path 2 (Bitbucket) — same pipeline scripts, Bitbucket Pipelines syntax.
+image: ai-qe-sandbox:latest
+pipelines:
+  pull-requests:
+    '**':
+      - step:
+          name: AI QE — PR Test Sync
+          max-time: 25
+          script:
+            - git clone https://x-token-auth:${BITBUCKET_TOKEN}@bitbucket.org/workspace/ai-qe-control.git control
+            - cd control && bash sandbox/mcp-setup.sh
+            - SCM_KIND=bitbucket bash engine/pipeline.sh pr $BITBUCKET_REPO_SLUG $BITBUCKET_PR_ID

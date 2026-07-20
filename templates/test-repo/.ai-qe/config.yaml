@@ -1,0 +1,6 @@
+# Per-repo layer overrides (architecture §5.10 rule 4)
+framework: playwright            # playwright | playwright-api
+commands:
+  lint: npm run lint
+  test: npx playwright test
+gate_extra_checks: []            # repo-specific scripts run before commit

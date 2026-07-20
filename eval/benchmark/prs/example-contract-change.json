@@ -1,0 +1,6 @@
+{
+  "mode": "pr", "repo": "orders-api", "pr": 101,
+  "changed_files": ["app/discounts.py", "openapi/orders.yaml"],
+  "expected": { "test_repos": ["e2e-api-tests-1", "e2e-ui-tests-1"],
+                "impact": "create" }
+}

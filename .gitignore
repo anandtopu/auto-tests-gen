@@ -1,0 +1,6 @@
+.env
+out/
+reports/*.json
+__pycache__/
+*.pyc
+workspace/

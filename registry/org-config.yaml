@@ -1,0 +1,33 @@
+# Org-layer customization (architecture §5.10 rule 4)
+models:
+  triage: claude-haiku-4-5-20251001
+  resolve_llm: claude-haiku-4-5-20251001
+  generate: claude-sonnet-4-6
+  escalate: claude-opus-4-8          # after 2 failed generate attempts
+phases:
+  resolve:   { max_turns: 5,  allowed_tools: "Read" }
+  triage:    { max_turns: 5,  allowed_tools: "Read,Bash(git diff:*)" }
+  analyze:   { max_turns: 8,  allowed_tools: "Read" }
+  testplan:  { max_turns: 10, allowed_tools: "Read,Write" }
+  testdata:  { max_turns: 10, allowed_tools: "Read,Write" }
+  generate:  { max_turns: 25, allowed_tools: "Read,Write,Edit,Bash(npx playwright test:*),Bash(npm run lint:*)" }
+  validate:  { max_turns: 15, allowed_tools: "Read,Edit,Bash(npx playwright test:*)" , repair_loops: 3 }
+resolution:
+  confidence_threshold: 0.8
+  clarify_channels: [tracker, notify]   # post question to Jira + Slack when below threshold
+catalog:
+  auto_accept_confidence: 0.85
+  review_band: [0.5, 0.85]
+budgets:
+  max_cost_usd_single_suite: 2.0
+  max_cost_usd_cross_repo: 4.0
+knowledge:
+  confluence_max_pages: 3
+  confluence_max_tokens: 12000
+adapters:
+  scm: { github: adapters/scm/github.sh, bitbucket: adapters/scm/bitbucket.sh }
+  tracker: adapters/tracker/jira.sh
+  knowledge: adapters/knowledge/confluence.sh
+  cicd: adapters/cicd/jenkins.sh
+  notify: adapters/notify/slack.sh
+  telemetry: adapters/telemetry/splunk.sh

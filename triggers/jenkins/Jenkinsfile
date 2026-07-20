@@ -1,0 +1,27 @@
+// Path 3 — Jenkins trigger (architecture §5.10 Jenkins role 1).
+// Also see adapters/cicd/jenkins.sh for roles 2-3 (post-merge exec + results ingest).
+pipeline {
+  agent { docker { image 'ai-qe-sandbox:latest' } }   // sandbox/Dockerfile
+  parameters {
+    choice(name: 'MODE', choices: ['pr', 'jira'])
+    string(name: 'TARGET', description: 'source repo name (pr) or JIRA key (jira)')
+    string(name: 'PR', defaultValue: '', description: 'PR number when MODE=pr')
+  }
+  environment {
+    ANTHROPIC_API_KEY   = credentials('ai-qe-anthropic')
+    GITHUB_TOKEN        = credentials('ai-qe-github')
+    ATLASSIAN_MCP_TOKEN = credentials('ai-qe-atlassian')
+    SLACK_WEBHOOK_URL   = credentials('ai-qe-slack')
+  }
+  options { timeout(time: 25, unit: 'MINUTES') }
+  stages {
+    stage('Checkout control repo') { steps { git url: 'https://github.com/org/ai-qe-control.git' } }
+    stage('Run AI QE pipeline') {
+      steps {
+        sh 'bash sandbox/mcp-setup.sh'
+        sh "bash engine/pipeline.sh ${params.MODE} ${params.TARGET} ${params.PR}"
+      }
+    }
+  }
+  post { always { archiveArtifacts artifacts: 'out/*.json,reports/*.json', allowEmptyArchive: true } }
+}

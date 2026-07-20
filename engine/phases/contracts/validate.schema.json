@@ -1,0 +1,7 @@
+{
+  "required": [
+    "passed",
+    "failed",
+    "repair_loops"
+  ]
+}\n

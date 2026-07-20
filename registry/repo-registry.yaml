@@ -1,0 +1,95 @@
+source_repositories:
+- name: web-storefront-ui
+  type: frontend
+  scm: github
+  url: org/web-storefront-ui
+  domains:
+  - checkout
+  - catalog
+  - search
+  consumes_services:
+  - orders-api
+  - catalog-api
+  testable_paths:
+  - src/**
+  route_table: src/routes.tsx
+- name: admin-portal-ui
+  type: frontend
+  scm: github
+  url: org/admin-portal-ui
+  domains:
+  - admin
+  - catalog
+  consumes_services:
+  - catalog-api
+  - users-api
+  testable_paths:
+  - src/**
+  route_table: src/router/index.ts
+- name: orders-api
+  type: backend
+  scm: github
+  url: org/orders-api
+  domains:
+  - checkout
+  - orders
+  contract: openapi/orders.yaml
+  consumed_by:
+  - web-storefront-ui
+  testable_paths:
+  - app/**
+  - openapi/**
+- name: catalog-api
+  type: backend
+  scm: bitbucket
+  url: workspace/catalog-api
+  domains:
+  - catalog
+  - search
+  contract: openapi/catalog.yaml
+  consumed_by:
+  - web-storefront-ui
+  - admin-portal-ui
+  testable_paths:
+  - src/**
+  - openapi/**
+test_repositories:
+- name: e2e-api-tests-1
+  scm: github
+  url: org/e2e-api-tests-1
+  layer: api
+  framework: playwright-api
+  layout:
+    specs: suites/
+    fixtures: data/
+  jenkins_job: e2e-api-1-regression
+  covers:
+  - orders-api
+- name: e2e-ui-tests-1
+  scm: github
+  url: org/e2e-ui-tests-1
+  layer: ui
+  framework: playwright
+  layout:
+    specs: tests/
+    fixtures: fixtures/
+    pages: pages/
+  jenkins_job: e2e-ui-1-regression
+  covers:
+  - web-storefront-ui
+routing_hints:
+  jira_component_map:
+    Checkout:
+    - web-storefront-ui
+    - orders-api
+    Catalog:
+    - web-storefront-ui
+    - admin-portal-ui
+    - catalog-api
+  jira_label_map:
+    api-only:
+      restrict_layers:
+      - api
+    ui-only:
+      restrict_layers:
+      - ui

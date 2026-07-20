@@ -1,0 +1,32 @@
+{
+  "title": "TestCatalogEntry",
+  "required": [
+    "test_id",
+    "test_repo",
+    "file",
+    "title",
+    "layer",
+    "evidence",
+    "mapping"
+  ],
+  "properties": {
+    "mapping": {
+      "required": [
+        "app_repos",
+        "confidence",
+        "method",
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "confirmed",
+            "auto",
+            "needs_review",
+            "orphan"
+          ]
+        }
+      }
+    }
+  }
+}

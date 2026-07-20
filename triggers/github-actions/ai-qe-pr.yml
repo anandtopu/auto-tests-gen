@@ -1,0 +1,30 @@
+# Path 2 — GitHub Actions trigger. Copy into each source repo's .github/workflows/
+name: AI QE — PR Test Sync
+on:
+  pull_request:
+    types: [opened, synchronize, labeled]
+    paths: ['src/**', 'app/**', 'openapi/**']
+jobs:
+  test-sync:
+    if: contains(github.event.pull_request.labels.*.name, 'ai-tests') && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions: { contents: write, pull-requests: write }
+    concurrency:
+      group: ai-qe-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: org/ai-qe-control, path: control }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install -g @anthropic-ai/claude-code && pip install pyyaml
+      - name: Run pipeline
+        working-directory: control
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.AI_QE_DEPLOY_TOKEN }}
+          ATLASSIAN_MCP_TOKEN: ${{ secrets.ATLASSIAN_MCP_TOKEN }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SPLUNK_HEC_URL: ${{ secrets.SPLUNK_HEC_URL }}
+          SPLUNK_HEC_TOKEN: ${{ secrets.SPLUNK_HEC_TOKEN }}
+        run: bash engine/pipeline.sh pr ${{ github.event.repository.name }} ${{ github.event.pull_request.number }}
