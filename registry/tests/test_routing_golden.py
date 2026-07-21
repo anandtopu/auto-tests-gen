@@ -5,7 +5,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 def run_resolve(*args):
     r = subprocess.run([sys.executable, str(ROOT / "engine/phases/resolve.py"), *args],
-                       capture_output=True, text=True, cwd=ROOT)
+                       capture_output=True, text=True, cwd=ROOT, stdin=subprocess.DEVNULL)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout)
 

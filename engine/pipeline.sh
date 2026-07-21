@@ -4,10 +4,19 @@
 set -euo pipefail
 MODE=${1:?pr|jira}; export AIQE_ROOT="$PWD"; mkdir -p out workspace
 source .env 2>/dev/null || true
-SCM() { bash "$(python3 -c "import yaml;print(yaml.safe_load(open('registry/org-config.yaml'))['adapters']['scm']['${SCM_KIND:-github}'])")" "$@"; }
-TRACKER() { bash adapters/tracker/jira.sh "$@"; }
-NOTIFY() { bash adapters/notify/slack.sh "$@"; }
-TELEM() { bash adapters/telemetry/splunk.sh "$@"; }
+if [ "${AIQE_MOCK:-0}" = "1" ]; then
+  SCM() { bash adapters/mock/scm.sh "$@"; }
+  TRACKER() { bash adapters/mock/tracker.sh "$@"; }
+  NOTIFY() { bash adapters/mock/notify.sh "$@"; }
+  TELEM() { bash adapters/mock/telemetry.sh "$@"; }
+  PHASE() { bash engine/phases/mock_phase.sh "$1" "$KEY" workspace; }
+else
+  SCM() { bash "$(python3 -c "import yaml;print(yaml.safe_load(open('registry/org-config.yaml'))['adapters']['scm']['${SCM_KIND:-github}'])")" "$@"; }
+  TRACKER() { bash adapters/tracker/jira.sh "$@"; }
+  NOTIFY() { bash adapters/notify/slack.sh "$@"; }
+  TELEM() { bash adapters/telemetry/splunk.sh "$@"; }
+  PHASE() { bash engine/phases/run_phase.sh "$1" "prompts/$2" workspace "${@:3}"; }
+fi
 
 RUN_ID=$(date +%s)-$RANDOM
 if [ "$MODE" = "pr" ]; then
@@ -22,7 +31,8 @@ else
   LINKED=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('linked_repos',[])))")
   python3 engine/phases/resolve.py jira "$KEY" --components "$COMP" --labels "$LBL" --linked-repos "$LINKED" > out/resolve.contract.json
   # Knowledge port: pull linked Confluence pages (budgeted) as analyze context
-  bash adapters/knowledge/confluence.sh get_linked_docs out/ticket.json > out/confluence.md || true
+  if [ "${AIQE_MOCK:-0}" = "1" ]; then echo "## Linked PRD (mock): discounts must be 1-90%" > out/confluence.md; \
+  else bash adapters/knowledge/confluence.sh get_linked_docs out/ticket.json > out/confluence.md || true; fi
 fi
 
 if [ "$(python3 -c "import json;print(json.load(open('out/resolve.contract.json')).get('needs_clarification', False))")" = "True" ]; then
@@ -39,26 +49,42 @@ for t in $(python3 -c "import json;print(' '.join(json.load(open('out/resolve.co
   SCM clone_rw "$t" "workspace/tests/$t" "test/${KEY}-ai-qe"
 done
 
+# Refresh estate knowledge from the just-cloned sources so every LLM phase sees
+# CURRENT contracts/routes/coverage (AGENTS.md is passed as phase context below).
+python3 bin/gen_agents_md.py > /dev/null || true
+
 # Phase chain (Workflow A: triage->generate->validate; B: analyze->plan->data->generate->validate)
 if [ "$MODE" = "pr" ]; then
-  bash engine/phases/run_phase.sh triage   prompts/pr-triage.md    workspace out/resolve.contract.json
-  bash engine/phases/run_phase.sh generate prompts/pr-generate.md  workspace out/triage.contract.json
+  PHASE triage   pr-triage.md    AGENTS.md out/resolve.contract.json
+  PHASE generate pr-generate.md  AGENTS.md out/triage.contract.json
 else
-  bash engine/phases/run_phase.sh analyze  prompts/jira-analyze.md workspace out/ticket.json out/confluence.md
-  bash engine/phases/run_phase.sh testplan prompts/jira-testplan.md workspace out/analyze.contract.json
-  bash engine/phases/run_phase.sh testdata prompts/jira-testdata.md workspace out/testplan.contract.json
-  bash engine/phases/run_phase.sh generate prompts/pr-generate.md  workspace out/testplan.contract.json out/testdata.contract.json
+  PHASE analyze  jira-analyze.md AGENTS.md out/ticket.json out/confluence.md
+  PHASE testplan jira-testplan.md AGENTS.md out/analyze.contract.json
+  PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json
+  PHASE generate pr-generate.md  AGENTS.md out/testplan.contract.json out/testdata.contract.json
 fi
-bash engine/phases/run_phase.sh validate prompts/validate-repair.md workspace out/generate.contract.json
+PHASE validate validate-repair.md out/generate.contract.json
 
 # Per-test-repo gate; partial success is allowed and reported honestly (§5.8.5)
 SUMMARY="AI-QE run ${RUN_ID} for ${KEY}:"
+: > out/gate_results.tsv
 for t in workspace/tests/*/; do
   name=$(basename "$t")
-  ( cd "$t" && bash "$AIQE_ROOT/engine/gate/gate.sh" "$KEY" "$name" ) \
-    && SUMMARY+=$'\n'"- ${name}: committed ✅" \
-    || SUMMARY+=$'\n'"- ${name}: quarantined ❌ (see reports)"
+  GOUT=$( (cd "$t" && bash "$AIQE_ROOT/engine/gate/gate.sh" "$KEY" "$name") 2>&1 ) && GRC=0 || GRC=$?
+  echo "$GOUT" | sed "s/^/[gate:$name] /"
+  SHA=$(echo "$GOUT" | grep -oE "GATE_STATUS=COMMITTED [0-9a-f]+" | awk '{print $2}' || true)
+  if [ $GRC -eq 0 ] && echo "$GOUT" | grep -q "GATE_STATUS=COMMITTED"; then
+    SUMMARY+=$'\n'"- ${name}: committed ✅"; ST=committed
+  elif [ $GRC -eq 0 ]; then
+    SUMMARY+=$'\n'"- ${name}: no changes ➖"; ST=no_changes
+  else
+    SUMMARY+=$'\n'"- ${name}: quarantined ❌ (exit $GRC, see reports)"; ST=quarantined
+  fi
+  printf '%s\t%s\t%s\t%s\n' "$name" "$ST" "$GRC" "$SHA" >> out/gate_results.tsv
 done
 [ "$MODE" = "jira" ] && TRACKER comment "$KEY" "$SUMMARY"
 NOTIFY post "$SUMMARY"
-python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY" | TELEM emit_event
+# Run record: persisted for QA monitoring (reports/runs/) AND emitted as telemetry
+mkdir -p reports/runs
+python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY" \
+  | tee "reports/runs/${RUN_ID}.json" | TELEM emit_event

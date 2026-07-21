@@ -4,3 +4,8 @@ commands:
   lint: npm run lint
   test: npx playwright test
 gate_extra_checks: []            # repo-specific scripts run before commit
+test_env:
+  mode: compose                  # compose (hermetic, docker-compose.yaml) or shared (QA env URL)
+  app_repo: <source-repo-name>
+  app_entry: docker-compose.yaml
+  base_url_env: BASE_URL

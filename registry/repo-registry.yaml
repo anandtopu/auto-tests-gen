@@ -8,8 +8,8 @@ source_repositories:
   - catalog
   - search
   consumes_services:
-  - orders-api
   - catalog-api
+  - orders-api
   testable_paths:
   - src/**
   route_table: src/routes.tsx
@@ -33,6 +33,7 @@ source_repositories:
   domains:
   - checkout
   - orders
+  - zz-test
   contract: openapi/orders.yaml
   consumed_by:
   - web-storefront-ui
@@ -53,6 +54,18 @@ source_repositories:
   testable_paths:
   - src/**
   - openapi/**
+- name: payments-api
+  type: backend
+  scm: bitbucket
+  url: workspace/payments-api
+  domains:
+  - payments
+  testable_paths:
+  - src/**
+  - app/**
+  - openapi/**
+  contract: openapi/payments.yaml
+  consumed_by: []
 test_repositories:
 - name: e2e-api-tests-1
   scm: github
@@ -77,6 +90,14 @@ test_repositories:
   jenkins_job: e2e-ui-1-regression
   covers:
   - web-storefront-ui
+- name: e2e-api-tests-2
+  scm: github
+  url: org/e2e-api-tests-2
+  layer: api
+  framework: node-test
+  layout:
+    specs: suites/
+  covers: []
 routing_hints:
   jira_component_map:
     Checkout:

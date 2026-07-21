@@ -7,8 +7,8 @@ Usage:
   resolve.py pr   <source_repo> --changed-files files.txt
   resolve.py jira <KEY> --components "Checkout,Catalog" --labels "api-only" [--linked-repos "orders-api"]
 """
-import argparse, fnmatch, json, sys
-sys.path.insert(0, __file__.rsplit("/phases", 1)[0] + "/lib")
+import argparse, fnmatch, json, pathlib, sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "lib"))
 from registry import load_registry, load_org_config, source_repo, test_repos_for
 
 def resolve_pr(reg, repo_name, changed):

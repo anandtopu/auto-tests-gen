@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Generate reports/dashboard.html — the QA monitoring & mapping dashboard.
+Self-contained (no external assets); reads reports/runs/*.json, catalog/*.jsonl,
+and registry/repo-registry.yaml. Regenerate any time: make dashboard."""
+import glob, html, json, pathlib, sys, time
+
+sys.stdout.reconfigure(encoding="utf-8")
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "engine/lib"))
+from registry import load_registry
+
+esc = html.escape
+
+runs = []
+for f in glob.glob(str(ROOT / "reports/runs/*.json")):
+    try:
+        runs.append(json.load(open(f, encoding="utf-8")))
+    except (json.JSONDecodeError, OSError):
+        pass
+runs.sort(key=lambda r: r.get("ts", 0), reverse=True)
+
+catalog = []
+for f in sorted(glob.glob(str(ROOT / "catalog/*.jsonl"))):
+    if pathlib.Path(f).name == "catalog.sample.jsonl":
+        continue
+    for line in open(f, encoding="utf-8"):
+        if line.strip():
+            catalog.append(json.loads(line))
+
+reg = load_registry()
+sources = [s["name"] for s in reg["source_repositories"]]
+trepos = reg["test_repositories"]
+
+# ---- aggregates -------------------------------------------------------------
+n_committed = sum(1 for r in runs if r.get("overall") == "committed")
+n_quar = sum(1 for r in runs if r.get("overall") == "quarantined")
+by_status = {}
+for e in catalog:
+    by_status[e["mapping"]["status"]] = by_status.get(e["mapping"]["status"], 0) + 1
+mapped = by_status.get("auto", 0) + by_status.get("confirmed", 0)
+counts = {}
+for e in catalog:
+    if e["mapping"]["status"] in ("confirmed", "auto"):
+        for app in e["mapping"]["app_repos"]:
+            counts[(app, e["test_repo"])] = counts.get((app, e["test_repo"]), 0) + 1
+uncovered = [s for s in sources
+             if not any(counts.get((s, t["name"])) or s in t.get("covers", []) for t in trepos)]
+
+STATUS = {  # gate/run + mapping states -> (icon, css class, label)
+    "committed":   ("&#10003;", "good", "committed"),
+    "no_changes":  ("&#8212;",  "muted", "no changes"),
+    "quarantined": ("&#9888;",  "critical", "quarantined"),
+    "auto":        ("&#10003;", "good", "auto"),
+    "confirmed":   ("&#10003;", "good", "confirmed"),
+    "needs_review":("&#9998;",  "warning", "needs review"),
+    "orphan":      ("&#9888;",  "critical", "orphan"),
+}
+def chip(status):
+    icon, cls, label = STATUS.get(status, ("", "muted", status))
+    return f'<span class="chip {cls}">{icon} {esc(label)}</span>'
+
+def tile(value, label, cls=""):
+    return (f'<div class="tile {cls}"><div class="v">{value}</div>'
+            f'<div class="l">{esc(label)}</div></div>')
+
+# ---- sections ---------------------------------------------------------------
+runs_rows = ""
+for r in runs[:25]:
+    ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(r.get("ts", 0)))
+    gates = "".join(
+        f'<div>{chip(g["status"])} {esc(g["test_repo"])}'
+        + (f' <code>{esc(g["commit"][:7])}</code>' if g.get("commit") else "")
+        + (f' <a href="{esc(pathlib.PurePosixPath(g["log"]).name)}">log</a>'
+           if g["status"] == "quarantined" else "") + "</div>"
+        for g in r.get("gates", []))
+    runs_rows += (f'<tr><td><code>{esc(r["run_id"])}</code></td>'
+                  f'<td>{esc(r["trigger"]["type"])}</td>'
+                  f'<td><strong>{esc(r["trigger"]["key"])}</strong></td>'
+                  f'<td>{ts}</td><td>{chip(r.get("overall", "?"))}</td>'
+                  f'<td>{gates or "&#8212;"}</td></tr>')
+
+matrix_head = "".join(f"<th>{esc(t['name'])}</th>" for t in trepos)
+matrix_rows = ""
+for s in sources:
+    cells = ""
+    for t in trepos:
+        n = counts.get((s, t["name"]), 0)
+        cells += (f'<td class="num">{n}</td>' if n
+                  else '<td class="num covers">&#10003;</td>' if s in t.get("covers", [])
+                  else '<td class="num dim">&middot;</td>')
+    cls = ' class="gap"' if s in uncovered else ""
+    matrix_rows += f"<tr{cls}><th>{esc(s)}</th>{cells}</tr>"
+
+cat_rows = ""
+for e in sorted(catalog, key=lambda e: (e["test_repo"], e["file"])):
+    m = e["mapping"]
+    ev = e["evidence"]["endpoints"] or e["evidence"]["ui_routes"] or []
+    cat_rows += (f'<tr data-repo="{esc(e["test_repo"])}" data-status="{esc(m["status"])}">'
+                 f'<td>{esc(e["test_repo"])}</td>'
+                 f'<td><code>{esc(e["file"])}</code></td>'
+                 f'<td>{esc(e["title"])}</td>'
+                 f'<td>{esc(", ".join(m["app_repos"])) or "&#8212;"}</td>'
+                 f'<td class="num">{m["confidence"]}</td>'
+                 f'<td>{esc(", ".join(m["method"]))}</td>'
+                 f'<td>{chip(m["status"])}</td></tr>')
+
+repo_opts = "".join(f'<option>{esc(t["name"])}</option>' for t in trepos)
+gen_ts = time.strftime("%Y-%m-%d %H:%M:%S")
+
+page = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI QE — QA Dashboard</title>
+<style>
+:root {{ --bg:#ffffff; --ink:#1a1a19; --ink2:#5f5e5b; --line:#e4e2de; --card:#f7f6f4;
+        --good:#0ca30c; --warning:#b27400; --critical:#d03b3b; }}
+@media (prefers-color-scheme: dark) {{
+  :root {{ --bg:#1a1a19; --ink:#f0efec; --ink2:#a5a39e; --line:#3a3936; --card:#242422;
+          --warning:#fab219; }} }}
+* {{ box-sizing:border-box }}
+body {{ margin:0; padding:24px; background:var(--bg); color:var(--ink);
+       font:14px/1.5 ui-sans-serif,system-ui,sans-serif }}
+h1 {{ font-size:20px; margin:0 0 4px }} h2 {{ font-size:15px; margin:32px 0 10px }}
+.sub {{ color:var(--ink2); margin-bottom:20px }}
+.tiles {{ display:flex; flex-wrap:wrap; gap:12px }}
+.tile {{ background:var(--card); border:1px solid var(--line); border-radius:8px;
+        padding:12px 18px; min-width:130px }}
+.tile .v {{ font-size:26px; font-weight:650 }} .tile .l {{ color:var(--ink2); font-size:12px }}
+.tile.alert .v {{ color:var(--critical) }}
+table {{ border-collapse:collapse; width:100%; font-size:13px }}
+.scroll {{ overflow-x:auto }}
+th,td {{ text-align:left; padding:6px 10px; border-bottom:1px solid var(--line);
+        vertical-align:top }}
+thead th {{ color:var(--ink2); font-weight:600; font-size:12px }}
+td.num {{ text-align:right; font-variant-numeric:tabular-nums }}
+td.dim {{ color:var(--line) }} td.covers {{ color:var(--ink2) }}
+tr.gap th {{ color:var(--critical) }}
+code {{ background:var(--card); padding:1px 5px; border-radius:4px; font-size:12px }}
+.chip {{ white-space:nowrap; font-size:12px; font-weight:600 }}
+.chip.good {{ color:var(--good) }} .chip.warning {{ color:var(--warning) }}
+.chip.critical {{ color:var(--critical) }} .chip.muted {{ color:var(--ink2) }}
+.filters {{ display:flex; gap:10px; margin:0 0 10px; align-items:center }}
+select,input {{ background:var(--card); color:var(--ink); border:1px solid var(--line);
+               border-radius:6px; padding:5px 8px; font-size:13px }}
+a {{ color:inherit }}
+</style></head><body>
+<h1>AI QE &mdash; QA Dashboard</h1>
+<div class="sub">Generated {gen_ts} &middot; regenerate with <code>make dashboard</code></div>
+
+<div class="tiles">
+{tile(len(runs), "pipeline runs")}
+{tile(n_committed, "runs committed")}
+{tile(n_quar, "runs quarantined", "alert" if n_quar else "")}
+{tile(len(catalog), "tests cataloged")}
+{tile(mapped, "mapped (auto+confirmed)")}
+{tile(by_status.get("needs_review", 0), "needs review",
+      "alert" if by_status.get("needs_review") else "")}
+{tile(by_status.get("orphan", 0), "orphans", "alert" if by_status.get("orphan") else "")}
+{tile(len(uncovered), "uncovered app repos", "alert" if uncovered else "")}
+</div>
+
+<h2>Recent runs</h2>
+<div class="scroll"><table>
+<thead><tr><th>run</th><th>trigger</th><th>key</th><th>time</th><th>overall</th>
+<th>per test repo</th></tr></thead>
+<tbody>{runs_rows or '<tr><td colspan="6">no runs recorded yet</td></tr>'}</tbody>
+</table></div>
+
+<h2>Coverage matrix &mdash; app repos &times; E2E test repos</h2>
+<div class="sub">Numbers = mapped tests (auto/confirmed). &#10003; = registry coverage
+without cataloged tests yet. Rows in red have no E2E coverage at all.</div>
+<div class="scroll"><table>
+<thead><tr><th></th>{matrix_head}</tr></thead><tbody>{matrix_rows}</tbody>
+</table></div>
+
+<h2>Test knowledge catalog</h2>
+<div class="filters">
+  <label>repo <select id="frepo"><option value="">all</option>{repo_opts}</select></label>
+  <label>status <select id="fstatus"><option value="">all</option>
+    <option>auto</option><option>confirmed</option>
+    <option>needs_review</option><option>orphan</option></select></label>
+  <label>search <input id="fq" placeholder="title / file / app repo"></label>
+  <span class="sub" id="fcount"></span>
+</div>
+<div class="scroll"><table id="cat">
+<thead><tr><th>test repo</th><th>file</th><th>title</th><th>app repos</th>
+<th>conf</th><th>evidence</th><th>status</th></tr></thead>
+<tbody>{cat_rows or '<tr><td colspan="7">catalog empty — run make demo-bootstrap</td></tr>'}</tbody>
+</table></div>
+
+<script>
+const frepo=document.getElementById('frepo'), fstatus=document.getElementById('fstatus'),
+      fq=document.getElementById('fq'), fcount=document.getElementById('fcount'),
+      rows=[...document.querySelectorAll('#cat tbody tr')];
+function apply() {{
+  const q=fq.value.toLowerCase(); let n=0;
+  rows.forEach(r => {{
+    const ok=(!frepo.value || r.dataset.repo===frepo.value)
+      && (!fstatus.value || r.dataset.status===fstatus.value)
+      && (!q || r.textContent.toLowerCase().includes(q));
+    r.style.display = ok ? '' : 'none'; if (ok) n++;
+  }});
+  fcount.textContent = n + ' / ' + rows.length + ' tests';
+}}
+[frepo,fstatus].forEach(x=>x.addEventListener('change',apply));
+fq.addEventListener('input',apply); apply();
+</script>
+</body></html>"""
+
+out = ROOT / "reports/dashboard.html"
+out.write_text(page, encoding="utf-8")
+print(f"dashboard written: {out} ({len(runs)} runs, {len(catalog)} catalog entries)")

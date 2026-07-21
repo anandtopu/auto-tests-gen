@@ -1,0 +1,9 @@
+framework: node-test
+commands:
+  lint: "true"                      # demo: no linter; real repos: npm run lint
+  test: "node --test"
+test_env:                            # G5: environment provisioning, consumed by bin/with-env.sh
+  mode: compose                      # hermetic app-under-test per run
+  app_repo: orders-api               # resolved via workspace/src/ then demo/
+  app_entry: app/server.js           # real estate: docker-compose.yaml
+  base_url_env: API_BASE_URL

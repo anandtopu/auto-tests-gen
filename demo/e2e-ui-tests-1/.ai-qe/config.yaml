@@ -1,0 +1,3 @@
+framework: node-test                 # real estate: playwright (browsers unavailable in this sandbox)
+commands: { lint: "true", test: "node --test" }
+test_env: { mode: shared, base_url_env: UI_BASE_URL, url: "http://localhost:4600" }

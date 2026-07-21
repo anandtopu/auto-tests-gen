@@ -1,0 +1,2 @@
+test_id,title,status,confidence,proposed_app_repos,evidence_endpoints,decision(app_repos or ORPHAN)
+e2e-api-tests-1::suites/legacy/old-inventory.spec.js::old-inventory.spec,old-inventory.spec,orphan,0.0,,,

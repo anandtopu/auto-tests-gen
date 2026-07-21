@@ -22,6 +22,7 @@ fi
 python3 catalog/bootstrap/tier.py "$WS" > "catalog/${TREPO}.jsonl"
 python3 catalog/review/export_review_queue.py "catalog/${TREPO}.jsonl" > "catalog/review/${TREPO}-queue.csv"
 bash adapters/notify/slack.sh post "Catalog bootstrap ${TREPO}: $(wc -l < catalog/${TREPO}.jsonl) tests cataloged; review queue: catalog/review/${TREPO}-queue.csv" || true
-# Stage 5: regenerate registry coverage maps
+# Stage 5: regenerate registry coverage maps + estate knowledge
 python3 catalog/bootstrap/regen_coverage.py
+python3 bin/gen_agents_md.py
 echo "Bootstrap complete for ${TREPO}"

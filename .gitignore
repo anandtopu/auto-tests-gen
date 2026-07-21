@@ -1,6 +1,11 @@
 .env
 out/
 reports/*.json
+reports/*.log
 __pycache__/
 *.pyc
 workspace/
+reports/dashboard.html
+eval/results/
+.idea/
+.pytest_cache/
