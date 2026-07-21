@@ -12,6 +12,8 @@ Endpoints:
   GET  /api/export/plan?key=K&format=md|html|docx|pdf   download the ticket's test plan
   POST /api/export/confluence {"key","space"?,"title"?}  publish the plan to Confluence
   POST /api/export/attach     {"key","format"?}          attach the plan to the JIRA ticket
+  POST /api/review            {"key","status","by"?,"note"?}  set team-review status
+                              (the dashboard's Approve button; statuses per review_state.VALID)
   POST /api/queue             {"mode","target","pr","release"} -> enqueue
   POST /api/queue/inline      {"text","key"?,"components"?,"labels"?,"repos"?,"type"?}
                               -> synthesize a ticket from pasted JIRA context + enqueue
@@ -176,6 +178,16 @@ class Handler(BaseHTTPRequestHandler):
                                              inline_file=path)
                 self._send(200, {"queued": fresh, "key": ticket["key"], "item": item})
             except (KeyError, json.JSONDecodeError, ValueError, SystemExit) as e:
+                self._send(400, {"error": str(e)})
+        elif self.path == "/api/review":
+            try:
+                p = json.loads(body or b"{}")
+                entry = review_state.set_status(p["key"], p["status"],
+                                                p.get("by", "dashboard"), p.get("note", ""))
+                self._send(200, {"ok": True, "key": p["key"], "status": entry["status"]})
+            except (KeyError, json.JSONDecodeError) as e:
+                self._send(400, {"error": str(e)})
+            except SystemExit as e:                     # invalid status
                 self._send(400, {"error": str(e)})
         elif self.path in ("/api/export/confluence", "/api/export/attach"):
             try:

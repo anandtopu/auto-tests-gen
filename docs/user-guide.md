@@ -280,13 +280,20 @@ the release; changing it appends to the key's history with its source (`jira`/`m
 make serve        # http://localhost:4999 — the dashboard with live actions
 ```
 
-Served (rather than opened as a file), the dashboard's **Fetch & queue work** section
-becomes active: pick a release, *Fetch items* lists the JIRA tickets targeting that
-fixVersion (via the Tracker port's `search_release` verb — JQL in real mode, benchmark
-fixtures in mock) plus known PRs whose tracked release matches, and each row has a
-*queue* button. *Run queue* drains the queue — items run through `engine/pipeline.sh`
+The dashboard (implemented from the "QA Dashboard" Claude Design) is a five-view app
+with sidebar navigation: **Overview** (KPI tiles, a needs-attention feed, the coverage
+matrix), **Intake & queue**, **Runs & reviews**, **Artifacts**, and **Test catalog** —
+with toast feedback and pending-work badges on the nav.
+
+Served (rather than opened as a file), the **Intake & queue** view becomes active:
+pick a release, *Fetch items* lists the JIRA tickets targeting that fixVersion (via
+the Tracker port's `search_release` verb — JQL in real mode, benchmark fixtures in
+mock) plus known PRs whose tracked release matches, and each row has a *Queue*
+button. *Run queue* drains the queue — items run through `engine/pipeline.sh`
 sequentially, statuses (`queued → running → done|failed`) refresh live, and finished
-runs appear in Recent runs on reload. The queue table's *actions* column lets you
+runs appear under Runs & reviews on reload. That view also has release/review filters
+and an **Approve** button per pending run (`POST /api/review` — the dashboard
+equivalent of `qa.py mark <KEY> approved`). The queue table's *actions* column lets you
 **re-queue** a failed item (fresh attempt, previous result cleared) or **remove** any
 non-running item (`work_queue.py requeue|remove <id>` from the CLI).
 
