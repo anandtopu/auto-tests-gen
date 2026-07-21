@@ -35,5 +35,18 @@
     "finished": 1784656338.8180084,
     "exit_code": 0,
     "inline_file": "C:\\Users\\anand\\Downloads\\POC\\auto-tests-gen\\reports\\inline\\ADHOC-UI1.json"
+  },
+  {
+    "id": "q1784661271-4",
+    "mode": "jira",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "taskevent",
+    "status": "done",
+    "ts": 1784661271.9260898,
+    "finished": 1784661308.744525,
+    "exit_code": 0,
+    "inline_file": null
   }
 ]

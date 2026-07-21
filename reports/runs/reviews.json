@@ -13,6 +13,20 @@
     "status": "pending_review",
     "updated": 1784656267.6277497
   },
+  "ADHOC-E2E": {
+    "history": [
+      {
+        "note": "new AI-generated artifacts committed",
+        "reviewer": "pipeline",
+        "status": "pending_review",
+        "ts": 1784661245.2604556
+      }
+    ],
+    "note": "new AI-generated artifacts committed",
+    "reviewer": "pipeline",
+    "status": "pending_review",
+    "updated": 1784661245.2604556
+  },
   "ADHOC-UI1": {
     "history": [
       {
