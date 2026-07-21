@@ -68,6 +68,7 @@ PHASE validate validate-repair.md out/generate.contract.json
 # Per-test-repo gate; partial success is allowed and reported honestly (§5.8.5)
 SUMMARY="AI-QE run ${RUN_ID} for ${KEY}:"
 : > out/gate_results.tsv
+mkdir -p reports/runs
 for t in workspace/tests/*/; do
   name=$(basename "$t")
   GOUT=$( (cd "$t" && bash "$AIQE_ROOT/engine/gate/gate.sh" "$KEY" "$name") 2>&1 ) && GRC=0 || GRC=$?
@@ -75,6 +76,8 @@ for t in workspace/tests/*/; do
   SHA=$(echo "$GOUT" | grep -oE "GATE_STATUS=COMMITTED [0-9a-f]+" | awk '{print $2}' || true)
   if [ $GRC -eq 0 ] && echo "$GOUT" | grep -q "GATE_STATUS=COMMITTED"; then
     SUMMARY+=$'\n'"- ${name}: committed ✅"; ST=committed
+    # Archive the generated-test commit as a reviewable diff (workspace is ephemeral)
+    git -C "$t" show HEAD > "reports/runs/${RUN_ID}-${name}.diff" 2>/dev/null || true
   elif [ $GRC -eq 0 ]; then
     SUMMARY+=$'\n'"- ${name}: no changes ➖"; ST=no_changes
   else
@@ -85,6 +88,5 @@ done
 [ "$MODE" = "jira" ] && TRACKER comment "$KEY" "$SUMMARY"
 NOTIFY post "$SUMMARY"
 # Run record: persisted for QA monitoring (reports/runs/) AND emitted as telemetry
-mkdir -p reports/runs
 python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY" \
   | tee "reports/runs/${RUN_ID}.json" | TELEM emit_event

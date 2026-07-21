@@ -88,6 +88,7 @@ correctly restricts routing to the API test repo, and the summary is posted back
 ### After the demos: monitor, query, manage
 
 ```bash
+python3 bin/qa.py artifacts PROJ-301 --full   # view the generated plan + test code
 make status          # the two runs you just made, with per-repo gate outcomes + SHAs
 make dashboard       # QA dashboard -> reports/dashboard.html (open in a browser)
 make coverage        # app-repo x test-repo matrix; gaps called out explicitly

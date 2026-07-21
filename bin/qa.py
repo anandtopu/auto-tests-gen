@@ -4,6 +4,7 @@ app-repo <-> test-repo mappings. All data comes from reports/runs/, catalog/*.js
 and registry/repo-registry.yaml; mapping edits always regenerate the coverage map.
 
   bin/qa.py status   [-n 10]                    recent pipeline runs + gate outcomes
+  bin/qa.py artifacts <KEY> [--full] [--all]    view generated plan/data/tests for a PR or story
   bin/qa.py coverage                            app-repo x test-repo coverage matrix
   bin/qa.py tests    [--app R] [--repo T] [--status S] [--layer L]
   bin/qa.py review                              pending review queue (all repos)
@@ -119,6 +120,76 @@ def cmd_tests(args):
     print(f"\n{shown} test(s)")
 
 
+def _runs_for_key(key):
+    runs = []
+    for f in glob.glob(str(ROOT / "reports/runs/*.json")):
+        try:
+            r = json.load(open(f, encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        k = r.get("trigger", {}).get("key", "")
+        if key.lower() in (k.lower(), k.lower().replace("pr-", "")):
+            runs.append(r)
+    return sorted(runs, key=lambda r: r.get("ts", 0), reverse=True)
+
+
+def cmd_artifacts(args):
+    """Everything a run generated for one PR key or JIRA story, newest run first."""
+    runs = _runs_for_key(args.key)
+    if not runs:
+        keys = sorted({json.load(open(f, encoding="utf-8"))["trigger"]["key"]
+                       for f in glob.glob(str(ROOT / "reports/runs/*.json"))})
+        sys.exit(f"no runs recorded for '{args.key}'. Known keys: {', '.join(keys) or 'none'}")
+    for r in runs if args.all else runs[:1]:
+        key = r["trigger"]["key"]
+        print(f"=== run {r['run_id']}  ({r['trigger']['type']}:{key})  "
+              f"overall={r['overall']} ===")
+        contracts = {p["name"]: p["contract"] for p in r.get("phases", [])}
+
+        plan = ROOT / f"testplans/{key}.md"
+        if plan.exists():
+            print(f"\nTest plan: testplans/{key}.md")
+            if args.full:
+                print("  | " + plan.read_text(encoding="utf-8").replace("\n", "\n  | "))
+        for s in contracts.get("testplan", {}).get("scenarios", []):
+            print(f"  scenario {s['id']}: {s['title']}  [{s['layer']}] -> {s['target_repo']}")
+
+        data_dir = ROOT / f"testdata/{key}"
+        if data_dir.exists():
+            print("\nTest data:")
+            for p in sorted(data_dir.rglob("*")):
+                if p.is_file():
+                    print(f"  testdata/{key}/{p.relative_to(data_dir).as_posix()}")
+
+        gen = contracts.get("generate", {})
+        if gen.get("tests"):
+            print("\nGenerated tests:")
+            for t in gen["tests"]:
+                print(f"  {t.get('action', '?'):<8} {t['file']}   ({t.get('name', '')})")
+        for q in gen.get("open_questions", []) or contracts.get("testplan", {}).get("open_questions", []):
+            print(f"  open question: {q}")
+
+        v = contracts.get("validate", {})
+        if v:
+            print(f"\nValidation: {v.get('passed', '?')} passed, {v.get('failed', '?')} failed, "
+                  f"{v.get('repair_loops', '?')} repair loop(s)")
+
+        print("\nCommits & diffs:")
+        for g in r.get("gates", []):
+            line = f"  {g['test_repo']}: {g['status']}"
+            if g.get("commit"):
+                line += f" @ {g['commit']}"
+            if g.get("diff"):
+                line += f"   diff: {g['diff']}"
+            print(line)
+            if args.full and g.get("diff") and (ROOT / g["diff"]).exists():
+                print("  | " + (ROOT / g["diff"]).read_text(encoding="utf-8", errors="replace")
+                      .replace("\n", "\n  | "))
+        print()
+    if not args.full:
+        print("(--full prints the plan and the generated test code; --all shows every run)")
+
+
 def cmd_review(args):
     pending = [(f, e) for f, e in load_catalog()
                if e["mapping"]["status"] in ("needs_review", "orphan")]
@@ -201,6 +272,11 @@ if __name__ == "__main__":
     s = sub.add_parser("tests")
     s.add_argument("--app"); s.add_argument("--repo"); s.add_argument("--status"); s.add_argument("--layer")
     s.set_defaults(fn=cmd_tests)
+    s = sub.add_parser("artifacts")
+    s.add_argument("key", help="PR key (PR-<repo>-<n> or <repo>-<n>) or JIRA key")
+    s.add_argument("--full", action="store_true", help="print plan + generated test code")
+    s.add_argument("--all", action="store_true", help="every run for the key, not just latest")
+    s.set_defaults(fn=cmd_artifacts)
     s = sub.add_parser("review"); s.set_defaults(fn=cmd_review)
     s = sub.add_parser("apply-review"); s.add_argument("csv"); s.set_defaults(fn=cmd_apply_review)
     s = sub.add_parser("map"); s.add_argument("test_id"); s.add_argument("--repos", required=True)

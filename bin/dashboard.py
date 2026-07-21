@@ -104,6 +104,52 @@ for e in sorted(catalog, key=lambda e: (e["test_repo"], e["file"])):
                  f'<td>{esc(", ".join(m["method"]))}</td>'
                  f'<td>{chip(m["status"])}</td></tr>')
 
+# Generated artifacts per key (latest run per trigger key)
+latest_by_key = {}
+for r in runs:                                   # runs sorted newest-first
+    latest_by_key.setdefault(r["trigger"]["key"], r)
+art_blocks = ""
+for key, r in latest_by_key.items():
+    contracts = {p["name"]: p["contract"] for p in r.get("phases", [])}
+    inner = ""
+    plan = ROOT / f"testplans/{key}.md"
+    if plan.exists():
+        inner += (f"<h4>Test plan &mdash; <code>testplans/{esc(key)}.md</code></h4>"
+                  f"<pre>{esc(plan.read_text(encoding='utf-8'))}</pre>")
+    scen = contracts.get("testplan", {}).get("scenarios", [])
+    if scen:
+        inner += ("<h4>Scenarios</h4><ul>"
+                  + "".join(f"<li><code>{esc(s['id'])}</code> {esc(s['title'])} "
+                            f"[{esc(s['layer'])}] &rarr; {esc(s['target_repo'])}</li>"
+                            for s in scen) + "</ul>")
+    data_dir = ROOT / f"testdata/{key}"
+    if data_dir.exists():
+        files = [p for p in sorted(data_dir.rglob("*")) if p.is_file()]
+        inner += ("<h4>Test data</h4><ul>"
+                  + "".join(f"<li><code>testdata/{esc(key)}/"
+                            f"{esc(p.relative_to(data_dir).as_posix())}</code></li>"
+                            for p in files) + "</ul>")
+    gen = contracts.get("generate", {})
+    if gen.get("tests"):
+        inner += ("<h4>Generated tests</h4><ul>"
+                  + "".join(f"<li><code>{esc(t['file'])}</code> ({esc(t.get('action', '?'))})</li>"
+                            for t in gen["tests"]) + "</ul>")
+    v = contracts.get("validate", {})
+    if v:
+        inner += (f"<h4>Validation</h4><p>{v.get('passed', '?')} passed &middot; "
+                  f"{v.get('failed', '?')} failed &middot; "
+                  f"{v.get('repair_loops', '?')} repair loop(s)</p>")
+    for g in r.get("gates", []):
+        if g.get("diff") and (ROOT / g["diff"]).exists():
+            diff_text = (ROOT / g["diff"]).read_text(encoding="utf-8", errors="replace")
+            inner += (f"<details><summary>Generated test code &mdash; "
+                      f"{esc(g['test_repo'])} @ <code>{esc(g.get('commit') or '')}</code>"
+                      f"</summary><pre>{esc(diff_text)}</pre></details>")
+    if inner:
+        art_blocks += (f"<details class='art'><summary><strong>{esc(key)}</strong> "
+                       f"&mdash; run {esc(r['run_id'])} &middot; {chip(r.get('overall', '?'))}"
+                       f"</summary>{inner}</details>")
+
 repo_opts = "".join(f'<option>{esc(t["name"])}</option>' for t in trepos)
 gen_ts = time.strftime("%Y-%m-%d %H:%M:%S")
 
@@ -143,6 +189,13 @@ code {{ background:var(--card); padding:1px 5px; border-radius:4px; font-size:12
 select,input {{ background:var(--card); color:var(--ink); border:1px solid var(--line);
                border-radius:6px; padding:5px 8px; font-size:13px }}
 a {{ color:inherit }}
+details.art {{ background:var(--card); border:1px solid var(--line); border-radius:8px;
+              padding:10px 14px; margin:8px 0 }}
+details.art h4 {{ margin:12px 0 4px; font-size:13px }}
+details.art pre {{ background:var(--bg); border:1px solid var(--line); border-radius:6px;
+                  padding:10px; overflow-x:auto; font-size:12px; line-height:1.45 }}
+details.art summary {{ cursor:pointer }}
+details details {{ margin:8px 0 }}
 </style></head><body>
 <h1>AI QE &mdash; QA Dashboard</h1>
 <div class="sub">Generated {gen_ts} &middot; regenerate with <code>make dashboard</code></div>
@@ -165,6 +218,11 @@ a {{ color:inherit }}
 <th>per test repo</th></tr></thead>
 <tbody>{runs_rows or '<tr><td colspan="6">no runs recorded yet</td></tr>'}</tbody>
 </table></div>
+
+<h2>Generated artifacts &mdash; test plans &amp; E2E tests per PR / story</h2>
+<div class="sub">Latest run per key. Expand a key for the plan, scenarios, data, and the
+committed test code (also via <code>bin/qa.py artifacts &lt;KEY&gt; --full</code>).</div>
+{art_blocks or '<p class="sub">no artifacts yet — run make demo-pr / demo-jira</p>'}
 
 <h2>Coverage matrix &mdash; app repos &times; E2E test repos</h2>
 <div class="sub">Numbers = mapped tests (auto/confirmed). &#10003; = registry coverage

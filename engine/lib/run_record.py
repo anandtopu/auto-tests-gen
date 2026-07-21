@@ -16,9 +16,11 @@ if os.path.exists("out/gate_results.tsv"):
         if not line.strip():
             continue
         repo, status, exit_code, sha = (line.rstrip("\n").split("\t") + ["", "", "", ""])[:4]
+        diff = f"reports/runs/{run_id}-{repo}.diff"
         gates.append({"test_repo": repo, "status": status, "exit_code": int(exit_code),
                       "commit": sha or None,
-                      "log": f"reports/{key}-{repo}.log"})
+                      "log": f"reports/{key}-{repo}.log",
+                      "diff": diff if os.path.exists(diff) else None})
 
 overall = ("quarantined" if any(g["status"] == "quarantined" for g in gates)
            else "committed" if any(g["status"] == "committed" for g in gates)

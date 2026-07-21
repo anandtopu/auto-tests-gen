@@ -177,6 +177,26 @@ KPI tiles (runs, quarantines, catalog health, uncovered repos), the recent-runs 
 the app-repo × test-repo coverage matrix, and the full catalog with client-side
 repo/status/text filtering. Regenerate any time; it needs no server.
 
+### Viewing generated artifacts (test plans & E2E tests per PR / story)
+
+```bash
+python3 bin/qa.py artifacts PROJ-301           # what did the latest run generate?
+python3 bin/qa.py artifacts orders-api-201     # PR keys work with or without PR- prefix
+python3 bin/qa.py artifacts PROJ-301 --full    # print the plan AND the generated test code
+python3 bin/qa.py artifacts PROJ-301 --all     # every recorded run for the key
+```
+
+One view per key: the test plan (`testplans/<KEY>.md`) and its scenario table, canonical
+test data (`testdata/<KEY>/`), the generated spec list with create/update actions, open
+questions, validation results (passed/failed/repair loops), and per-repo commits.
+Because `workspace/` is ephemeral, every gate commit is archived as a reviewable diff in
+`reports/runs/<RUN_ID>-<repo>.diff` — `--full` prints it, so the exact generated test
+code is reviewable long after the run (and in real estates, before merging the
+`test/<KEY>-ai-qe` branch).
+
+The dashboard has the same view: the **Generated artifacts** section lists the latest
+run per key with expandable plan, scenarios, data, and test-code blocks.
+
 ### Repository & test knowledge (the catalog as a queryable index)
 
 ```bash

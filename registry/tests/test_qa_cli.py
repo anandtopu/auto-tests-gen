@@ -57,3 +57,20 @@ def test_qa_status_and_coverage_run_clean():
                            capture_output=True, text=True, cwd=ROOT,
                            stdin=subprocess.DEVNULL)
         assert r.returncode == 0, f"qa.py {sub} failed: {r.stderr}"
+
+
+def test_qa_artifacts_view():
+    """artifacts <KEY> shows plan/scenarios/tests for a recorded run (JIRA + PR keys)."""
+    r = subprocess.run([sys.executable, str(ROOT / "bin/qa.py"), "artifacts", "PROJ-301"],
+                       capture_output=True, text=True, cwd=ROOT, stdin=subprocess.DEVNULL)
+    assert r.returncode == 0, r.stderr
+    assert "testplans/PROJ-301.md" in r.stdout
+    assert "Generated tests:" in r.stdout
+    # PR keys resolve with or without the PR- prefix
+    r2 = subprocess.run([sys.executable, str(ROOT / "bin/qa.py"), "artifacts", "orders-api-201"],
+                        capture_output=True, text=True, cwd=ROOT, stdin=subprocess.DEVNULL)
+    assert r2.returncode == 0 and "PR-orders-api-201" in r2.stdout
+    # unknown key fails with the known-key hint, not a traceback
+    r3 = subprocess.run([sys.executable, str(ROOT / "bin/qa.py"), "artifacts", "NOPE-1"],
+                        capture_output=True, text=True, cwd=ROOT, stdin=subprocess.DEVNULL)
+    assert r3.returncode != 0 and "Known keys" in (r3.stdout + r3.stderr)
