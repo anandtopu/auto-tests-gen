@@ -146,6 +146,7 @@ for key, r in latest_by_key.items():
                   + "".join(f' <a href="/api/export/plan?key={esc(key)}&amp;format={f}">{f}</a>'
                             for f in ("md", "html", "docx", "pdf"))
                   + f' &middot; <button class="pubconf" data-key="{esc(key)}">publish to Confluence</button>'
+                  + f' <button class="attachjira" data-key="{esc(key)}">attach to JIRA (pdf)</button>'
                   + f"</span></h4>"
                   f"<pre>{esc(plan.read_text(encoding='utf-8'))}</pre>")
     scen = contracts.get("testplan", {}).get("scenarios", [])
@@ -434,14 +435,20 @@ document.getElementById('qrun').addEventListener('click', async () => {{
 }});
 refreshQueue();
 
-document.querySelectorAll('button.pubconf').forEach(b => b.addEventListener('click', async () => {{
-  b.disabled = true; b.textContent = 'publishing...';
-  try {{
-    const r = await api('/api/export/confluence', {{method:'POST',
-      headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{key: b.dataset.key}})}});
-    b.textContent = 'published'; say(r.result);
-  }} catch (e) {{ b.disabled = false; b.textContent = 'publish to Confluence'; say(e.message); }}
-}}));
+function wireAction(selector, path, payload, busy, done, idle) {{
+  document.querySelectorAll(selector).forEach(b => b.addEventListener('click', async () => {{
+    b.disabled = true; b.textContent = busy;
+    try {{
+      const r = await api(path, {{method:'POST', headers:{{'Content-Type':'application/json'}},
+        body: JSON.stringify(payload(b))}});
+      b.textContent = done; say(r.result);
+    }} catch (e) {{ b.disabled = false; b.textContent = idle; say(e.message); }}
+  }}));
+}}
+wireAction('button.pubconf', '/api/export/confluence', b => ({{key: b.dataset.key}}),
+           'publishing...', 'published', 'publish to Confluence');
+wireAction('button.attachjira', '/api/export/attach', b => ({{key: b.dataset.key, format: 'pdf'}}),
+           'attaching...', 'attached', 'attach to JIRA (pdf)');
 </script>
 </body></html>"""
 

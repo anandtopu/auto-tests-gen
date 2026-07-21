@@ -11,6 +11,7 @@ Endpoints:
   GET  /api/queue             queue contents
   GET  /api/export/plan?key=K&format=md|html|docx|pdf   download the ticket's test plan
   POST /api/export/confluence {"key","space"?,"title"?}  publish the plan to Confluence
+  POST /api/export/attach     {"key","format"?}          attach the plan to the JIRA ticket
   POST /api/queue             {"mode","target","pr","release"} -> enqueue
   POST /api/queue/run         drain the queue in a background process
   POST /api/queue/requeue     {"id"} -> put a failed item back in the queue
@@ -134,15 +135,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"queued": fresh, "item": item})
             except (KeyError, json.JSONDecodeError, SystemExit) as e:
                 self._send(400, {"error": str(e)})
-        elif self.path == "/api/export/confluence":
+        elif self.path in ("/api/export/confluence", "/api/export/attach"):
             try:
                 p = json.loads(body or b"{}")
-                result = export_plan.publish_to_confluence(
-                    p["key"], p.get("space"), p.get("title"))
+                if self.path.endswith("confluence"):
+                    result = export_plan.publish_to_confluence(
+                        p["key"], p.get("space"), p.get("title"))
+                else:
+                    result = export_plan.attach_to_jira(p["key"], p.get("format", "pdf"))
                 self._send(200, {"ok": True, "result": result})
             except (KeyError, json.JSONDecodeError) as e:
                 self._send(400, {"error": str(e)})
-            except SystemExit as e:                     # no plan / publish failure
+            except SystemExit as e:                     # no plan / publish or attach failure
                 self._send(409, {"error": str(e)})
         elif self.path in ("/api/queue/requeue", "/api/queue/remove"):
             try:

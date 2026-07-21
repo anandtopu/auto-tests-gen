@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .PHONY: deps test-routing bootstrap run-pr run-jira eval conformance \
         status coverage dashboard review-queue reviews repos agents parity-pr parity-jira \
-        serve queue-run export-plan publish-plan
+        serve queue-run export-plan publish-plan attach-plan
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -73,6 +73,9 @@ export-plan:
 
 publish-plan:
 	python3 bin/qa.py publish-plan $(KEY)
+
+attach-plan:
+	python3 bin/qa.py attach-plan $(KEY) --format $(or $(FORMAT),pdf)
 
 # --- repo configuration & estate knowledge ---
 repos:

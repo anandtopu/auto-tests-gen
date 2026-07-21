@@ -99,6 +99,24 @@ def test_publish_plan_mock_roundtrip(tmp_path):
     assert r.returncode != 0 and "PROJ-301" in (r.stdout + r.stderr)
 
 
+def test_attach_plan_mock_roundtrip():
+    import os, subprocess
+    env = {**os.environ, "AIQE_MOCK": "1"}
+    r = subprocess.run([sys.executable, str(ROOT / "bin/qa.py"), "attach-plan",
+                        "PROJ-301", "--format", "pdf"],
+                       capture_output=True, text=True, cwd=ROOT, env=env,
+                       stdin=subprocess.DEVNULL)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "[mock-jira] attached to PROJ-301" in r.stdout
+    attached = ROOT / "out/mock-jira-attachments/PROJ-301-PROJ-301-testplan.pdf"
+    assert attached.exists() and attached.read_bytes()[:5] == b"%PDF-"
+    # unknown key fails helpfully
+    r = subprocess.run([sys.executable, str(ROOT / "bin/qa.py"), "attach-plan", "NOPE-1"],
+                       capture_output=True, text=True, cwd=ROOT, env=env,
+                       stdin=subprocess.DEVNULL)
+    assert r.returncode != 0 and "PROJ-301" in (r.stdout + r.stderr)
+
+
 def test_cli_export_writes_files(tmp_path):
     out_md = tmp_path / "plan.md"
     r = run_cli(["export-plan", "PROJ-301", "--out", str(out_md)])

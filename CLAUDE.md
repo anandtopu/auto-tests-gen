@@ -30,6 +30,7 @@ make serve               # interactive dashboard (bin/dashboard_server.py, :4999
 make queue-run           # drain the manual work queue (engine/lib/work_queue.py)
 make export-plan KEY=... [FORMAT=html|docx|pdf]  # export a ticket's test plan (engine/lib/export_plan.py -> reports/exports/, gitignored; docx/pdf writers are stdlib-only)
 make publish-plan KEY=...  # one-way mirror the plan to Confluence (Knowledge port publish_doc; mock -> out/mock-confluence/)
+make attach-plan KEY=... [FORMAT=pdf]  # export + attach the plan to the JIRA ticket (Tracker port attach; mock -> out/mock-jira-attachments/)
 make repos               # list configured app repos (bin/repos.py: show/set/link/unlink/remove)
 make agents              # regenerate AGENTS.md estate knowledge (bin/gen_agents_md.py)
 make run-pr REPO=... PR=...   # real (non-mock) Workflow A — needs .env credentials

@@ -2,7 +2,7 @@
 set -euo pipefail
 VERB=${1:?verb}; shift || true
 
-# Tracker port: get_item | search | comment
+# Tracker port: get_item | search_release | comment | attach
 # Primary path: Atlassian Remote MCP inside the Claude Code session (registered in
 # sandbox/mcp-setup.sh). This CLI adapter is the pipeline-side fallback via REST.
 J="https://your-domain.atlassian.net/rest/api/3"
@@ -27,6 +27,14 @@ r=json.load(sys.stdin)
 print(json.dumps([{'key':i['key'],'summary':i['fields']['summary'],
  'fix_versions':[v['name'] for v in i['fields'].get('fixVersions',[])]}
  for i in r.get('issues',[])]))" ;;
+  attach)  # attach <KEY> <file> — upload as a Jira issue attachment
+    curl -s -X POST -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
+      -H "X-Atlassian-Token: no-check" \
+      -F "file=@$2" "$J/issue/$1/attachments" \
+      | python3 -c "
+import json,sys
+r=json.load(sys.stdin)
+print('attached: ' + ', '.join(a['filename'] for a in r))" ;;
   comment) curl -s -X POST -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
     -H 'Content-Type: application/json' \
     -d "{\"body\":{\"type\":\"doc\",\"version\":1,\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"$2\"}]}]}}" \

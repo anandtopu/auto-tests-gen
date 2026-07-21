@@ -242,6 +242,21 @@ def publish_to_confluence(key, space=None, title=None):
     return r.stdout.strip()
 
 
+def attach_to_jira(key, fmt="pdf"):
+    """Export the plan and attach it to the JIRA ticket via the Tracker port
+    (mock unless AIQE_MOCK=0)."""
+    import os, subprocess
+    import work_queue
+    path = export(key, fmt)                       # reports/exports/<KEY>-testplan.<fmt>
+    mock = os.environ.get("AIQE_MOCK", "1") == "1"
+    adapter = ROOT / ("adapters/mock/tracker.sh" if mock else "adapters/tracker/jira.sh")
+    r = subprocess.run([work_queue.bash_exe(), str(adapter), "attach", key, str(path)],
+                       cwd=ROOT, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    if r.returncode != 0:
+        sys.exit(f"attach failed: {r.stdout}{r.stderr}".strip())
+    return r.stdout.strip()
+
+
 # --- DOCX (OOXML zip, stdlib only) ----------------------------------------------
 
 _W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'

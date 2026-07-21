@@ -294,6 +294,19 @@ It goes through the Knowledge port: the mock adapter (default) writes the page t
 set, the real adapter creates-or-updates the page by (space, title) via the Confluence
 REST API and prints the page link. Re-publishing after a new run updates the same page.
 
+**Attaching to the JIRA ticket** uploads the exported plan (PDF by default) as an
+issue attachment through the Tracker port:
+
+```bash
+make attach-plan KEY=PROJ-301                 # exports the PDF and attaches it
+make attach-plan KEY=PROJ-301 FORMAT=docx
+python3 bin/qa.py attach-plan PROJ-301 --format docx
+```
+
+The served dashboard's artifact cards have an **attach to JIRA (pdf)** button next to
+*publish to Confluence*. Mock mode drops the file in `out/mock-jira-attachments/`;
+real mode POSTs it to `/issue/<KEY>/attachments` with the existing Jira credentials.
+
 ### Repository & test knowledge (the catalog as a queryable index)
 
 ```bash
