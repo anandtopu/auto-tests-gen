@@ -20,9 +20,17 @@ Operating, configuring, and integrating the AI QE Platform. For first-run setup 
   happens. Everything an LLM produced must pass through it.
 - **Ports & adapters:** the engine calls six vendor-free ports (Scm, Tracker, Knowledge,
   Cicd, Notify, Telemetry). Real adapters and mock adapters implement identical verbs.
-- **AGENTS.md** (repo root): generated estate knowledge — live endpoints/routes,
-  coverage index, conventions — injected into every LLM phase and auto-refreshed by
-  runs, config changes, and mapping edits. Never hand-edited.
+- **AGENTS.md** (repo root): generated estate knowledge — live endpoints/routes with
+  `[NO TEST]` coverage-gap annotations, coverage index, conventions — injected into
+  every LLM phase and auto-refreshed by runs, config changes, and mapping edits.
+  Never hand-edited.
+- **Work queue + TaskEvent receiver:** runs are started by CI webhooks →
+  `bin/taskevent_receiver.py` (validated, deduped), the served dashboard (fetch by
+  release / pasted JIRA text), or the CLI — all feeding one locked queue drained by
+  `make queue-run`.
+- **Per-key tracking:** every PR/JIRA key carries team-review status and target
+  release; plans export to md/HTML/Word/PDF, mirror to Confluence, and attach to the
+  ticket.
 - **Mock mode (`AIQE_MOCK=1`):** LLM phases and external tools stubbed; resolver, gate,
   environment provisioning, git mechanics all real. This is what the `demo-*` targets use.
 

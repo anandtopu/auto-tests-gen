@@ -21,9 +21,12 @@ JIRA-triggered test authoring (Workflow B) across a multi-repo estate, powered b
 
 ```
 registry/    Repo registry + org config + routing golden tests
-bin/         Operator CLIs: qa.py (monitor/mappings), repos.py (repo config),
-             onboard.sh, dashboard.py, gen_agents_md.py, with-env.sh
-catalog/     Test Catalog schema, bootstrap pipeline (extract→correlate→classify→review)
+bin/         Operator CLIs & services: qa.py (monitoring/mappings/exports/inline runs),
+             repos.py (repo config), dashboard_server.py (interactive UI),
+             taskevent_receiver.py (webhook endpoint), smoke-openhands.sh,
+             onboard.sh, gen_agents_md.py, with-env.sh
+catalog/     Test Catalog schema, bootstrap pipeline (extract→correlate→classify→review),
+             health.json (CI pass rates), SQLite index builder
 engine/      Core pipeline: resolver, phase runner (claude -p wrapper), deterministic gate
 prompts/     Versioned phase prompts (tool-agnostic; adapters injected at runtime)
 skills/      Claude Code skills per test discipline (UI / API conventions)
@@ -37,25 +40,35 @@ eval/        Benchmark replay harness + scorecard
 ## Quick start
 
 ```bash
-cp .env.example .env            # fill in credentials
-make deps                       # python deps + playwright (host dev only)
-make test-routing               # golden tests for the resolver
-make bootstrap REPO=e2e-api-tests-1   # catalog bootstrap for one test repo
-make demo-pr                          # Workflow A end-to-end (mock LLM, real gate/env)
-make demo-jira                        # Workflow B end-to-end
-make demo-bootstrap                   # live catalog bootstrap on the demo estate
-make review                           # all four review passes
-make run-jira KEY=PROJ-123            # Workflow B locally
-make eval                       # replay benchmark set + scorecard
-make status                     # recent runs + per-repo gate outcomes
-make coverage                   # app-repo x test-repo mapping matrix + gaps
-make dashboard                  # QA dashboard -> reports/dashboard.html
-make repos                      # configured application repositories (bin/repos.py)
-make agents                     # regenerate AGENTS.md estate knowledge
+# Demo (no credentials needed)
+make deps                       # python deps
+make demo-bootstrap             # catalog bootstrap on the demo estate
+make demo-pr                    # Workflow A end-to-end (mock LLM, real gate/env/git)
+make demo-jira                  # Workflow B end-to-end
+make review                     # full regression: goldens + conformance + gate attacks + eval
+
+# Real runs (cp .env.example .env, fill credentials)
+make parity-pr / parity-jira    # real claude -p phases against the demo estate (~$2)
+make run-pr REPO=... PR=...     # real Workflow A     make run-jira KEY=PROJ-123
+make smoke-openhands            # staged live smoke test of the OpenHands integration
+python3 bin/qa.py run-inline "<pasted JIRA text>" --repos orders-api --type Bug
+
+# QA operations (bin/qa.py + services)
+make serve                      # interactive dashboard :4999 (fetch by release, queue, exports)
+make hook-server                # TaskEvent webhook receiver :4998 (dedupe + enqueue)
+make status / reviews / coverage / gaps    # runs, team review board, matrix, coverage gaps
+make queue-run                  # drain the manual work queue
+make ingest-results FILE=junit.xml         # CI results -> per-test health/flakiness
+
+# Sharing & knowledge
+make export-plan KEY=... [FORMAT=pdf|docx|html]   # shareable test-plan export
+make publish-plan KEY=...       # one-way mirror to Confluence
+make attach-plan KEY=...        # attach the plan to the JIRA ticket
+make agents / repos / catalog-db / prune   # estate knowledge, repo config, index, retention
 ```
 
-QA operations (monitoring, catalog queries, mapping management) live in `bin/qa.py` —
-see [docs/user-guide.md](docs/user-guide.md) §5.
+QA operations (monitoring, review/release tracking, work queue, exports, inline runs)
+live in `bin/qa.py` — see [docs/user-guide.md](docs/user-guide.md) §5.
 
 ## Demo state
 The registry ships with `covers:` pre-seeded from `catalog/catalog.sample.jsonl` so the

@@ -8,37 +8,43 @@ Section references (§) point there. GitHub and most IDEs render these natively.
 ```mermaid
 flowchart TB
     subgraph TRIGGERS["Trigger layer — all paths normalize to one TaskEvent"]
-        GH["GitHub / Bitbucket webhook<br/>(PR labeled 'ai-tests')"]
+        GH["SCM webhook (GitHub /<br/>Bitbucket / Stash)<br/>PR labeled 'ai-tests'"]
         JIRA["JIRA Automation webhook<br/>(ticket labeled 'ai-test-gen')"]
-        JENK["Jenkins generic webhook"]
+        UI["Dashboard (make serve)<br/>fetch by release · queue ·<br/>pasted JIRA text (inline)"]
+        HOOK["TaskEvent receiver :4998<br/>validate · dedupe (idempotent) ·<br/>enqueue"]
     end
 
-    subgraph ORCH["Orchestration — OpenHands Agent Server"]
-        Q["Task queue + dedup<br/>(idempotency keys)"]
-        SB["Sandbox provisioning<br/>(ephemeral Docker)"]
+    subgraph ORCH["Orchestration"]
+        OH["OpenHands Agent Server<br/>(sandbox per run)"]
+        WQ["Work queue<br/>(reports/runs/queue.json,<br/>locked, re-queue/remove)"]
     end
 
-    subgraph EXEC["Execution — engine/pipeline.sh inside sandbox"]
+    subgraph EXEC["Execution — engine/pipeline.sh (per-checkout run lock)"]
         R0["Phase 0: Resolve<br/>(rules-first, registry)"]
         CLONE["Workspace clone<br/>src/ read-only · tests/ writable"]
-        KB["AGENTS.md regenerated<br/>(estate knowledge from fresh clones)"]
-        PHASES["LLM phase chain<br/>(claude -p, per-phase allowedTools,<br/>AGENTS.md as context)"]
-        GATE["Deterministic gate<br/>(the ONLY git push)"]
+        CTX["Context refresh: AGENTS.md ·<br/>PR diff · coverage gaps ·<br/>issue-type guidance · Confluence bodies"]
+        PHASES["LLM phase chain<br/>(claude -p, per-phase allowedTools)"]
+        GATE["Deterministic gates — PARALLEL<br/>per test repo (the ONLY git push)"]
     end
 
     subgraph OUT["Outputs"]
         BR["test/&lt;KEY&gt;-ai-qe branches<br/>+ born-mapped catalog entries"]
-        CMT["PR / JIRA comments"]
-        TEL["Run records → Splunk<br/>Slack notifications"]
+        CMT["PR / JIRA comments +<br/>ai-qe build status on the PR head"]
+        REC["Run records + archived diffs ·<br/>review/release tracking ·<br/>Splunk / Slack"]
     end
 
-    GH --> Q
-    JIRA --> Q
-    JENK --> Q
-    Q --> SB --> R0 --> CLONE --> KB --> PHASES --> GATE
+    GH --> HOOK
+    JIRA --> HOOK
+    GH -.-> OH
+    JIRA -.-> OH
+    UI --> WQ
+    HOOK --> WQ
+    OH --> R0
+    WQ --> R0
+    R0 --> CLONE --> CTX --> PHASES --> GATE
     GATE --> BR
     GATE --> CMT
-    GATE --> TEL
+    GATE --> REC
 ```
 
 ## 2. Ports & adapters — the reusable platform (§5.10)
@@ -75,20 +81,26 @@ sequenceDiagram
 
     Dev->>SCM: open PR (label ai-tests)
     SCM->>P: webhook → pr <repo> <number>
+    P->>SCM: changed_files + diff (the real patch hunks)
     P->>RES: changed files + registry
     RES-->>P: source_repos, test_repos, cross_repo_impact, confidence
     alt confidence below threshold
         P->>SCM: clarifying comment (candidates) — run ends
     end
     P->>P: clone src/ (read-only), tests/ (branch test/KEY-ai-qe)
-    P->>LLM: triage → generate specs + catalog sidecar → validate
-    P->>G: per test repo
-    G->>ENV: boot app-under-test (random port)
-    ENV-->>G: BASE_URL exported
-    G->>G: scope ✓ born-mapped ✓ lint ✓ run new specs ✓ secret scan ✓
-    ENV-->>ENV: teardown (trap — guaranteed)
-    G-->>P: GATE_STATUS=COMMITTED sha
+    P->>P: refresh AGENTS.md + coverage gaps (surface with NO test)
+    P->>LLM: triage (diff + catalog slice + gaps) → generate specs + sidecar → validate
+    par one gate per test repo (parallel)
+        P->>G: gate.sh KEY repo
+        G->>ENV: boot app-under-test (OS-assigned free port)
+        ENV-->>G: BASE_URL exported
+        G->>G: scope ✓ born-mapped ✓ lint ✓ run new specs ✓ secret scan ✓
+        ENV-->>ENV: teardown (trap — guaranteed)
+        G-->>P: GATE_STATUS=COMMITTED sha
+    end
     P->>SCM: aggregated summary comment
+    P->>SCM: set_status: ai-qe success|failure on the PR head commit
+    Note over P: diff archived to reports/runs/ · review state → pending_review
 ```
 
 ## 4. Workflow B — JIRA-triggered test authoring (§5.2)
@@ -104,16 +116,19 @@ sequenceDiagram
 
     QE->>J: label ticket ai-test-gen
     J->>P: webhook → jira PROJ-301
-    P->>J: get_item → components, labels, linked repos
-    P->>C: get_linked_docs (PRD, budgeted, untrusted data)
+    alt pasted JIRA context (no ticket)
+        Note over P: AIQE_INLINE_FILE — qa.py run-inline /<br/>dashboard textarea synthesizes the ticket
+    end
+    P->>J: get_item → components, labels, linked repos, fixVersions, issue type
+    P->>P: release captured (fixVersions) · issue-type guidance selected<br/>(story | bug regression | security negative-tests)
+    P->>C: get_linked_docs (PRD page BODIES, budgeted, untrusted data)
     P->>P: resolve (component map + label restrictions, e.g. api-only)
-    P->>LLM: analyze → testplan (testplans/KEY.md)
-    P->>LLM: testdata (canonical cases, testdata/KEY/)
-    P->>LLM: generate specs per test repo → validate
-    P->>G: per test repo (same gate as Workflow A)
+    P->>LLM: analyze (guidance + ticket + Confluence)
+    P->>LLM: testplan (+ coverage gaps) → testdata → generate → validate
+    P->>G: parallel gates (same as Workflow A)
     G-->>P: GATE_STATUS per repo
     P->>J: comment: plan link, tests, per-repo status
-    Note over P: + Slack summary, Splunk run record
+    Note over P: + Slack summary · Splunk run record ·<br/>review state → pending_review · plan exportable<br/>(pdf/docx/Confluence/JIRA attach)
 ```
 
 ## 5. The deterministic gate (§5.5)
@@ -205,46 +220,74 @@ flowchart TD
         BS["catalog bootstrap"]
     end
 
+    CI["CI results ingest<br/>(JUnit / Jenkins testReport)"] --> HL["catalog/health.json<br/>(pass rate · flakiness)"]
+
     RP --> REG
     OB --> REG
     QA --> CAT
     BS --> CAT
     CAT -- "regen_coverage.py" --> REG
 
+    REG --> GAPS["coverage_gaps.py<br/>surface vs evidence"]
+    CAT --> GAPS
+    ART --> GAPS
     REG --> GEN["bin/gen_agents_md.py"]
     CAT --> GEN
     ART --> GEN
+    GAPS -- "[NO TEST] annotations" --> GEN
     GEN --> AG["AGENTS.md<br/>(estate knowledge)"]
     AG --> PH["LLM phases: triage · analyze ·<br/>testplan · testdata · generate"]
+    GAPS -- "out/coverage-gaps.md" --> PH
+    CAT --> DB["index_db.py →<br/>reports/catalog.db<br/>(SQLite query index)"]
+    HL --> DB
     RP -. "re-runs routing goldens" .-> GT["registry/tests goldens"]
 ```
 
-## 10. QA monitoring & mapping-review loop
+## 10. QA monitoring, review & release tracking
 
 ```mermaid
 flowchart LR
     subgraph RUNTIME["Every pipeline run"]
-        P["pipeline.sh"] --> RR["reports/runs/&lt;RUN_ID&gt;.json<br/>(phases + per-repo gate outcomes)"]
+        P["pipeline.sh"] --> RR["reports/runs/&lt;RUN_ID&gt;.json<br/>+ archived gate-commit .diff"]
+        P --> RS["reviews.json (locked):<br/>team review + release per key<br/>(commit resets approval → pending)"]
         P --> TEL["Telemetry port → Splunk"]
-        P --> LOGS["reports/&lt;KEY&gt;-&lt;repo&gt;.log"]
     end
 
     subgraph SURFACES["QA surfaces"]
-        ST["make status<br/>(recent runs CLI)"]
-        DB["make dashboard<br/>reports/dashboard.html"]
-        CV["make coverage<br/>(matrix + gap warnings)"]
+        ST["make status / reviews<br/>(review + release columns)"]
+        DB["make serve — authed dashboard:<br/>runs per E2E repo · release filter ·<br/>artifact cards · CI health · queue"]
+        AR["qa.py artifacts &lt;KEY&gt;<br/>plan · data · tests · diffs"]
+        SC["eval/scorecard.py: commit rate ·<br/>repair loops · update-vs-create ·<br/>acceptance · flakiness"]
     end
 
     RR --> ST
     RR --> DB
-    LOGS --> DB
+    RR --> AR
+    RR --> SC
+    RS --> ST
+    RS --> DB
+    RS --> SC
+    TEAM["QE: qa.py mark / release"] --> RS
 
     subgraph REVIEW["Mapping review loop"]
         Q1["catalog/review/&lt;repo&gt;-queue.csv"] --> Q2["QE fills decision column"]
-        Q2 --> Q3["bin/qa.py apply-review"]
-        Q3 --> Q4["catalog updated<br/>covers[] + AGENTS.md regenerated"]
+        Q2 --> Q3["bin/qa.py apply-review / map"]
+        Q3 --> Q4["catalog updated → covers[] +<br/>AGENTS.md + catalog.db regenerated"]
     end
 
-    Q4 --> CV
     Q4 --> DB
+```
+
+## 11. Sharing the test plan
+
+```mermaid
+flowchart LR
+    PLAN["testplans/&lt;KEY&gt;.md<br/>(source of truth, in Git)"] --> X["export_plan.py<br/>+ run metadata: release · review ·<br/>scenarios · data · tests · validation · commits"]
+    X --> MD["Markdown / standalone HTML"]
+    X --> DOCX["Word .docx<br/>(stdlib OOXML writer)"]
+    X --> PDF["PDF<br/>(stdlib native writer, searchable)"]
+    X --> CONF["Confluence page<br/>(publish_doc: create-or-update,<br/>one-way mirror + do-not-edit note)"]
+    X --> ATT["JIRA issue attachment<br/>(Tracker attach verb)"]
+    UI2["Dashboard artifact card:<br/>export links + publish/attach buttons"] -.-> X
+    CLI["make export-plan / publish-plan /<br/>attach-plan · qa.py"] -.-> X
 ```

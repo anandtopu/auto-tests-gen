@@ -89,11 +89,15 @@ correctly restricts routing to the API test repo, and the summary is posted back
 
 ```bash
 python3 bin/qa.py artifacts PROJ-301 --full   # view the generated plan + test code
-make status          # the two runs you just made, with per-repo gate outcomes + SHAs
-make dashboard       # QA dashboard -> reports/dashboard.html (open in a browser)
-make coverage        # app-repo x test-repo matrix; gaps called out explicitly
-make repos           # configured application repositories
-make review-queue    # catalog mappings awaiting a human decision
+make status          # runs with per-repo gate outcomes, team review + release columns
+make serve           # interactive dashboard :4999 — fetch by release, queue runs,
+                     #   run from pasted JIRA text, export/publish/attach plans
+make reviews         # team-review board (qa.py mark <KEY> approved --by you)
+make coverage        # app-repo x test-repo matrix; make gaps for uncovered surface
+make export-plan KEY=PROJ-301 FORMAT=pdf      # shareable export (also docx/html/md)
+python3 bin/qa.py run-inline "Bug: ...\nAC-1: ..." --repos orders-api --type Bug
+make ingest-results FILE=eval/benchmark/results/junit-sample.xml   # CI health demo
+python3 bin/qa.py sql "SELECT title, pass_rate FROM tests"         # catalog index
 ```
 
 Also notice `AGENTS.md` at the repo root — the auto-generated estate-knowledge file
@@ -119,10 +123,10 @@ Four passes in sequence — all must be green:
 | `workspace/` | Per-run clones — `src/` read-only sources, `tests/` writable test repos (gitignored scratch) |
 | `out/` | Phase JSON contracts, resolution output, mock adapter logs (gitignored) |
 | `reports/` | Gate execution logs per run: `<KEY>-<test_repo>.log` |
-| `reports/runs/` | Persistent structured run records (committable — QA run history) |
-| `reports/dashboard.html` | Generated QA dashboard (gitignored; `make dashboard`) |
-| `catalog/` | Test catalog JSONL per test repo + human review queues |
-| `AGENTS.md` | Generated estate knowledge injected into LLM phases (never hand-edit) |
+| `reports/runs/` | Persistent run records + archived gate-commit diffs (committable QA history); also holds the locked state files `reviews.json` (team review + release), `queue.json` (work queue), `hooks-seen.json` (webhook dedupe) |
+| `reports/dashboard.html`, `reports/catalog.db`, `reports/exports/` | Generated dashboard, SQLite catalog index, plan exports (all gitignored, regenerable) |
+| `catalog/` | Test catalog JSONL per test repo + review queues + `health.json` (CI pass rates/flakiness) |
+| `AGENTS.md` | Generated estate knowledge injected into LLM phases, with `[NO TEST]` coverage-gap annotations (never hand-edit) |
 | `testplans/`, `testdata/` | Workflow B artifacts (ticket-keyed) |
 
 ## Troubleshooting
