@@ -275,7 +275,7 @@ queue — the pipeline processes items in order. Interactive only when served vi
 <tbody></tbody></table></div>
 <h3 style="font-size:14px;margin:16px 0 6px">Queue</h3>
 <div class="scroll"><table id="qtable">
-<thead><tr><th>id</th><th>status</th><th>type</th><th>key</th><th>release</th><th>requested by</th></tr></thead>
+<thead><tr><th>id</th><th>status</th><th>type</th><th>key</th><th>release</th><th>requested by</th><th>actions</th></tr></thead>
 <tbody></tbody></table></div>
 
 <h2>Recent runs</h2>
@@ -362,14 +362,30 @@ async function api(path, opts) {{
 }}
 function keyOf(i) {{ return i.mode==='pr' ? 'PR-'+i.target+'-'+i.pr : i.target; }}
 
+async function qAction(path, id) {{
+  try {{ await api(path, {{method:'POST', headers:{{'Content-Type':'application/json'}},
+                          body: JSON.stringify({{id}})}}); }}
+  catch (e) {{ say(e.message); }}
+  refreshQueue();
+}}
+
 async function refreshQueue() {{
   if (!served) return;
   const q = await api('/api/queue');
-  qtable.tBodies[0].innerHTML = q.length ? q.map(i =>
-    '<tr><td><code>'+i.id+'</code></td><td>'+i.status+'</td><td>'+i.mode+'</td>'+
-    '<td><strong>'+keyOf(i)+'</strong></td><td>'+(i.release||'&#8212;')+'</td>'+
-    '<td>'+(i.requested_by||'&#8212;')+'</td></tr>').join('')
-    : '<tr><td colspan="6">queue is empty</td></tr>';
+  qtable.tBodies[0].innerHTML = q.length ? q.map(i => {{
+    const acts = [];
+    if (i.status === 'failed')
+      acts.push('<button data-act="requeue" data-id="'+i.id+'">re-queue</button>');
+    if (i.status !== 'running')
+      acts.push('<button data-act="remove" data-id="'+i.id+'">remove</button>');
+    return '<tr><td><code>'+i.id+'</code></td><td>'+i.status+
+      (i.status==='failed' && i.exit_code!=null ? ' (exit '+i.exit_code+')' : '')+'</td>'+
+      '<td>'+i.mode+'</td><td><strong>'+keyOf(i)+'</strong></td>'+
+      '<td>'+(i.release||'&#8212;')+'</td><td>'+(i.requested_by||'&#8212;')+'</td>'+
+      '<td>'+(acts.join(' ')||'&#8212;')+'</td></tr>';
+  }}).join('') : '<tr><td colspan="7">queue is empty</td></tr>';
+  qtable.tBodies[0].querySelectorAll('button').forEach(b =>
+    b.addEventListener('click', () => qAction('/api/queue/'+b.dataset.act, b.dataset.id)));
   return q;
 }}
 

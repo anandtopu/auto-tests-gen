@@ -11,6 +11,8 @@ Endpoints:
   GET  /api/queue             queue contents
   POST /api/queue             {"mode","target","pr","release"} -> enqueue
   POST /api/queue/run         drain the queue in a background process
+  POST /api/queue/requeue     {"id"} -> put a failed item back in the queue
+  POST /api/queue/remove      {"id"} -> delete a non-running item
 """
 import glob, json, os, pathlib, re, subprocess, sys, threading, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -111,6 +113,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"queued": fresh, "item": item})
             except (KeyError, json.JSONDecodeError, SystemExit) as e:
                 self._send(400, {"error": str(e)})
+        elif self.path in ("/api/queue/requeue", "/api/queue/remove"):
+            try:
+                item_id = json.loads(body or b"{}")["id"]
+                fn = work_queue.requeue if self.path.endswith("requeue") else work_queue.remove
+                self._send(200, {"ok": True, "item": fn(item_id)})
+            except (KeyError, json.JSONDecodeError) as e:
+                self._send(400, {"error": str(e)})
+            except SystemExit as e:          # library rejections (wrong status, unknown id)
+                self._send(409, {"error": str(e)})
         elif self.path == "/api/queue/run":
             if run_lock.locked():
                 self._send(409, {"error": "queue is already running"})

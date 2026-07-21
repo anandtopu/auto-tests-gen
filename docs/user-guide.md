@@ -243,7 +243,9 @@ fixVersion (via the Tracker port's `search_release` verb — JQL in real mode, b
 fixtures in mock) plus known PRs whose tracked release matches, and each row has a
 *queue* button. *Run queue* drains the queue — items run through `engine/pipeline.sh`
 sequentially, statuses (`queued → running → done|failed`) refresh live, and finished
-runs appear in Recent runs on reload.
+runs appear in Recent runs on reload. The queue table's *actions* column lets you
+**re-queue** a failed item (fresh attempt, previous result cleared) or **remove** any
+non-running item (`work_queue.py requeue|remove <id>` from the CLI).
 
 The queue is also scriptable (state in `reports/runs/queue.json`, committable):
 

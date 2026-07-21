@@ -1,17 +1,5 @@
 [
   {
-    "id": "q1784612606-1",
-    "mode": "jira",
-    "target": "PROJ-301",
-    "pr": null,
-    "release": "2026.08",
-    "requested_by": "cli-test",
-    "status": "done",
-    "ts": 1784612606.6692579,
-    "finished": 1784612754.2654526,
-    "exit_code": 0
-  },
-  {
     "id": "q1784612782-2",
     "mode": "pr",
     "target": "orders-api",

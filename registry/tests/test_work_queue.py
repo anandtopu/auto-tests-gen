@@ -39,6 +39,46 @@ sys.path.insert(0, str(ROOT / "engine/lib"))
 import work_queue
 
 
+def _seed(tmp_path, status):
+    qf = tmp_path / "queue.json"
+    items = [{"id": "q1-1", "mode": "jira", "target": "PROJ-9", "pr": None,
+              "release": "", "requested_by": "t", "status": status,
+              "ts": 1.0, "finished": 2.0, "exit_code": 1 if status == "failed" else None}]
+    qf.write_text(json.dumps(items))
+    return {"AIQE_QUEUE_FILE": str(qf)}, qf
+
+
+def test_requeue_failed_item(tmp_path):
+    env, qf = _seed(tmp_path, "failed")
+    r = run([WQ, "requeue", "q1-1"], env)
+    assert r.returncode == 0 and "re-queued: PROJ-9" in r.stdout
+    item = json.load(open(qf))[0]
+    assert item["status"] == "queued" and item["exit_code"] is None and item["finished"] is None
+
+
+def test_requeue_rejects_non_failed(tmp_path):
+    env, _ = _seed(tmp_path, "done")
+    r = run([WQ, "requeue", "q1-1"], env)
+    assert r.returncode != 0 and "only failed" in (r.stdout + r.stderr)
+
+
+def test_remove_item(tmp_path):
+    env, qf = _seed(tmp_path, "failed")
+    r = run([WQ, "remove", "q1-1"], env)
+    assert r.returncode == 0 and "removed: PROJ-9" in r.stdout
+    assert json.load(open(qf)) == []
+    # unknown id is a clean error
+    r = run([WQ, "remove", "nope"], env)
+    assert r.returncode != 0 and "no such" in (r.stdout + r.stderr)
+
+
+def test_remove_refuses_running(tmp_path):
+    env, qf = _seed(tmp_path, "running")
+    r = run([WQ, "remove", "q1-1"], env)
+    assert r.returncode != 0 and "running" in (r.stdout + r.stderr)
+    assert len(json.load(open(qf))) == 1
+
+
 def test_search_release_mock_adapter():
     # must use bash_exe(): plain "bash" from a Python subprocess resolves to
     # WSL's System32 stub outside Git Bash (the exact bug bash_exe() fixes)

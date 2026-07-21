@@ -9,7 +9,9 @@ must skip this file (like reviews.json).
 CLI:
   work_queue.py add <pr|jira> <target> [pr_number] [release] [requested_by]
   work_queue.py list
-  work_queue.py run          process every queued item (AIQE_MOCK=1 unless set)
+  work_queue.py run             process every queued item (AIQE_MOCK=1 unless set)
+  work_queue.py requeue <id>    put a failed item back in the queue
+  work_queue.py remove  <id>    delete a non-running item from the queue
 """
 import json, os, pathlib, shutil, subprocess, sys, time
 
@@ -81,6 +83,30 @@ def _mark(items, item, **kw):
     save(items)
 
 
+def requeue(item_id):
+    """Put a failed item back in the queue (fresh attempt, previous result cleared)."""
+    items = load()
+    item = next((i for i in items if i["id"] == item_id), None)
+    if item is None:
+        sys.exit(f"no such queue item: {item_id}")
+    if item["status"] != "failed":
+        sys.exit(f"only failed items can be re-queued ({item_id} is {item['status']})")
+    _mark(items, item, status="queued", finished=None, exit_code=None, ts=time.time())
+    return item
+
+
+def remove(item_id):
+    """Delete a queued, failed, or done item; a running item cannot be removed."""
+    items = load()
+    item = next((i for i in items if i["id"] == item_id), None)
+    if item is None:
+        sys.exit(f"no such queue item: {item_id}")
+    if item["status"] == "running":
+        sys.exit(f"{item_id} is running - wait for it to finish")
+    save([i for i in items if i["id"] != item_id])
+    return item
+
+
 def run_all():
     """Process queued items in order. Mock mode unless AIQE_MOCK is set by the caller."""
     env = {**os.environ}
@@ -123,5 +149,11 @@ if __name__ == "__main__":
                   f"release={it.get('release') or '-'}")
     elif cmd == "run":
         run_all()
+    elif cmd == "requeue":
+        item = requeue(sys.argv[2])
+        print(f"re-queued: {key_of(item)} ({item['id']})")
+    elif cmd == "remove":
+        item = remove(sys.argv[2])
+        print(f"removed: {key_of(item)} ({item['id']})")
     else:
         sys.exit(__doc__)
