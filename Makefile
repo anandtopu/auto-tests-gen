@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 .PHONY: deps test-routing bootstrap run-pr run-jira eval conformance \
-        status coverage dashboard review-queue repos agents
+        status coverage dashboard review-queue repos agents parity-pr parity-jira
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -34,6 +34,13 @@ demo-pr:
 
 demo-jira:
 	AIQE_MOCK=1 bash engine/pipeline.sh jira PROJ-301
+
+# Real-LLM parity: claude -p phases, demo estate + mock adapters (REVIEW.md item 1)
+parity-pr:
+	AIQE_MOCK=1 AIQE_REAL_LLM=1 bash engine/pipeline.sh pr orders-api 201
+
+parity-jira:
+	AIQE_MOCK=1 AIQE_REAL_LLM=1 bash engine/pipeline.sh jira PROJ-301
 
 review:
 	python3 -m pytest registry/tests -q && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash eval/replay.sh && python3 eval/scorecard.py

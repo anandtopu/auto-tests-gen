@@ -9,7 +9,12 @@ if [ "${AIQE_MOCK:-0}" = "1" ]; then
   TRACKER() { bash adapters/mock/tracker.sh "$@"; }
   NOTIFY() { bash adapters/mock/notify.sh "$@"; }
   TELEM() { bash adapters/mock/telemetry.sh "$@"; }
-  PHASE() { bash engine/phases/mock_phase.sh "$1" "$KEY" workspace; }
+  if [ "${AIQE_REAL_LLM:-0}" = "1" ]; then
+    # Parity mode: REAL claude -p phases against the demo estate + mock adapters
+    PHASE() { bash engine/phases/run_phase.sh "$1" "prompts/$2" workspace "${@:3}"; }
+  else
+    PHASE() { bash engine/phases/mock_phase.sh "$1" "$KEY" workspace; }
+  fi
 else
   SCM() { bash "$(python3 -c "import yaml;print(yaml.safe_load(open('registry/org-config.yaml'))['adapters']['scm']['${SCM_KIND:-github}'])")" "$@"; }
   TRACKER() { bash adapters/tracker/jira.sh "$@"; }
@@ -20,11 +25,11 @@ fi
 
 RUN_ID=$(date +%s)-$RANDOM
 if [ "$MODE" = "pr" ]; then
-  REPO=$2; PR=$3; KEY="PR-${REPO}-${PR}"
+  REPO=$2; PR=$3; export KEY="PR-${REPO}-${PR}"
   SCM changed_files "$REPO" "$PR" > out/changed.txt
   python3 engine/phases/resolve.py pr "$REPO" --changed-files out/changed.txt > out/resolve.contract.json
 else
-  KEY=$2
+  export KEY=$2
   TRACKER get_item "$KEY" > out/ticket.json
   COMP=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('components',[])))")
   LBL=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('labels',[])))")
@@ -53,9 +58,12 @@ done
 # CURRENT contracts/routes/coverage (AGENTS.md is passed as phase context below).
 python3 bin/gen_agents_md.py > /dev/null || true
 
+# Catalog slice: existing-test knowledge handed to the phases (P2)
+grep -h . catalog/e2e-*.jsonl 2>/dev/null > out/catalog-slice.jsonl || true
+
 # Phase chain (Workflow A: triage->generate->validate; B: analyze->plan->data->generate->validate)
 if [ "$MODE" = "pr" ]; then
-  PHASE triage   pr-triage.md    AGENTS.md out/resolve.contract.json
+  PHASE triage   pr-triage.md    AGENTS.md out/resolve.contract.json out/changed.txt out/catalog-slice.jsonl
   PHASE generate pr-generate.md  AGENTS.md out/triage.contract.json
 else
   PHASE analyze  jira-analyze.md AGENTS.md out/ticket.json out/confluence.md
@@ -64,6 +72,12 @@ else
   PHASE generate pr-generate.md  AGENTS.md out/testplan.contract.json out/testdata.contract.json
 fi
 PHASE validate validate-repair.md out/generate.contract.json
+
+# Control-repo artifacts (test plans, canonical data) belong at the root; real phases
+# run with cwd=workspace so relocate anything written there (no-op in mock mode).
+for d in testplans testdata; do
+  if [ -d "workspace/$d" ]; then mkdir -p "$d"; cp -r "workspace/$d/." "$d/"; rm -rf "workspace/$d"; fi
+done
 
 # Per-test-repo gate; partial success is allowed and reported honestly (§5.8.5)
 SUMMARY="AI-QE run ${RUN_ID} for ${KEY}:"

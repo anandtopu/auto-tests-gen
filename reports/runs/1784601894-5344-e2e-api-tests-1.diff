@@ -1,0 +1,89 @@
+commit 406092627e497a8371151f83a50da79b0633f9b4
+Author: anandtopu <anand.goud.2020@gmail.com>
+Date:   Mon Jul 20 21:49:56 2026 -0500
+
+    test(PR-orders-api-201): AI-generated E2E updates
+    
+    Co-Authored-By: ai-qe-agent <ai-qe@company.com>
+
+diff --git a/suites/orders/discount.spec.js b/suites/orders/discount.spec.js
+index f4f31a0..3d0b78c 100644
+--- a/suites/orders/discount.spec.js
++++ b/suites/orders/discount.spec.js
+@@ -1,4 +1,5 @@
+ // PROJ-88: discount application
++// @PR-orders-api-201
+ const { test } = require('node:test');
+ const assert = require('node:assert');
+ const BASE = process.env.API_BASE_URL || 'http://localhost:4600';
+@@ -10,3 +11,40 @@ test('PROJ-88: applies % discount', async () => {
+   const body = await r.json();
+   assert.strictEqual(body.total, 90);
+ });
++
++// @PR-orders-api-201
++test('PR-orders-api-201: rejects discount with missing code', async () => {
++  const r = await fetch(`${BASE}/v1/orders/1/discounts`, { method: 'POST',
++    headers: {'Content-Type':'application/json'}, body: JSON.stringify({ pct: 10 }) });
++  assert.strictEqual(r.status, 400);
++});
++
++// @PR-orders-api-201
++test('PR-orders-api-201: rejects discount with zero pct', async () => {
++  const r = await fetch(`${BASE}/v1/orders/1/discounts`, { method: 'POST',
++    headers: {'Content-Type':'application/json'}, body: JSON.stringify({ code: 'ZERO', pct: 0 }) });
++  assert.strictEqual(r.status, 400);
++});
++
++// @PR-orders-api-201
++test('PR-orders-api-201: rejects discount with pct above maximum (91)', async () => {
++  const r = await fetch(`${BASE}/v1/orders/1/discounts`, { method: 'POST',
++    headers: {'Content-Type':'application/json'}, body: JSON.stringify({ code: 'OVER90', pct: 91 }) });
++  assert.strictEqual(r.status, 400);
++});
++
++// @PR-orders-api-201
++test('PR-orders-api-201: accepts discount at maximum valid pct (90)', async () => {
++  const r = await fetch(`${BASE}/v1/orders/1/discounts`, { method: 'POST',
++    headers: {'Content-Type':'application/json'}, body: JSON.stringify({ code: 'MAX90', pct: 90 }) });
++  assert.strictEqual(r.status, 200);
++  const body = await r.json();
++  assert.strictEqual(body.total, 10);
++});
++
++// @PR-orders-api-201
++test('PR-orders-api-201: returns 404 applying discount to unknown order', async () => {
++  const r = await fetch(`${BASE}/v1/orders/999/discounts`, { method: 'POST',
++    headers: {'Content-Type':'application/json'}, body: JSON.stringify({ code: 'SAVE10', pct: 10 }) });
++  assert.strictEqual(r.status, 404);
++});
+diff --git a/suites/orders/get-order.spec.js b/suites/orders/get-order.spec.js
+index 2c3189f..959bf40 100644
+--- a/suites/orders/get-order.spec.js
++++ b/suites/orders/get-order.spec.js
+@@ -1,4 +1,5 @@
+ // PROJ-61: order retrieval
++// @PR-orders-api-201
+ const { test } = require('node:test');
+ const assert = require('node:assert');
+ const BASE = process.env.API_BASE_URL || 'http://localhost:4600';
+@@ -7,3 +8,19 @@ test('PROJ-61: gets an order by id', async () => {
+   const r = await fetch(`${BASE}/v1/orders/1`);
+   assert.strictEqual(r.status, 200);
+ });
++
++// @PR-orders-api-201
++test('PR-orders-api-201: get order response includes required fields', async () => {
++  const r = await fetch(`${BASE}/v1/orders/1`);
++  assert.strictEqual(r.status, 200);
++  const body = await r.json();
++  assert.ok('id' in body, 'response must include id');
++  assert.ok('total' in body, 'response must include total');
++  assert.ok(Array.isArray(body.discounts), 'response must include discounts array');
++});
++
++// @PR-orders-api-201
++test('PR-orders-api-201: get order returns 404 for unknown id', async () => {
++  const r = await fetch(`${BASE}/v1/orders/999`);
++  assert.strictEqual(r.status, 404);
++});

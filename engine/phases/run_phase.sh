@@ -8,18 +8,20 @@ MODEL=$(python3 -c "import yaml;c=yaml.safe_load(open('$CFG'));m=c['models'];pri
 TURNS=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['phases']['$PHASE']['max_turns'])")
 TOOLS=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['phases']['$PHASE']['allowed_tools'])")
 mkdir -p out
+# Substitute the run key into the prompt template ({{KEY}} placeholders)
+PROMPT_TEXT=$(sed "s/{{KEY}}/${KEY:-}/g" "$PROMPT")
 CONTEXT=""
 for f in "$@"; do CONTEXT+=$'\n\n--- CONTEXT FILE: '"$f"$' ---\n'"$(cat "$f")"; done
 
-cd "$WORKDIR"
-claude -p "$(cat "$OLDPWD/$PROMPT")$CONTEXT" \
+# Run from the engine root: prompts reference workspace/tests/, catalog/, testplans/
+# relative to here (P3: cwd=workspace made every documented path miss).
+claude -p "$PROMPT_TEXT$CONTEXT" \
   --output-format json \
   --max-turns "$TURNS" \
   --allowedTools "$TOOLS" \
   --model "$MODEL" \
   --dangerously-skip-permissions \
-  | tee "$OLDPWD/out/${PHASE}.json"
-cd "$OLDPWD"
+  | tee "out/${PHASE}.json"
 # Extract the trailing JSON contract the prompt requires the agent to print:
 python3 engine/lib/extract_contract.py "out/${PHASE}.json" "engine/phases/contracts/${PHASE}.schema.json" \
   > "out/${PHASE}.contract.json"

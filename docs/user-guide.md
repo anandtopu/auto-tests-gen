@@ -245,6 +245,10 @@ coverage regenerates → `make test-routing` still pins routing behavior.
 
 ## 6. Integration guide
 
+Tool-specific step-by-step guides live in [integrations/](integrations/README.md):
+[OpenHands](integrations/openhands.md) · [Jira + Confluence](integrations/jira.md) ·
+[Bitbucket Cloud & Stash/Server](integrations/bitbucket-stash.md).
+
 ### 6.1 Trigger paths (all call the same `engine/pipeline.sh`)
 
 | Path | Config | When to use |
@@ -310,6 +314,21 @@ write a thin CLI adapter implementing only that port's verbs (unknown verbs must
 `prompts/`, or `catalog/` changes.
 
 ## 7. Going real (`AIQE_MOCK=0`)
+
+### Step one: the parity run (no credentials beyond claude CLI auth)
+
+```bash
+make parity-pr     # Workflow A: real claude -p phases, demo estate, mock adapters (~$0.30)
+make parity-jira   # Workflow B (~$1.60)
+```
+
+`AIQE_REAL_LLM=1` (with `AIQE_MOCK=1`) swaps only the LLM phases for real `claude -p`
+calls — adapters, estate, gate, and environment stay as in the demo. This validated
+prompt quality end-to-end (see REVIEW.md Pass 5): real triage classification, generated
+boundary tests executing against the live app, the repair loop, and never-guess open
+questions. Run it after any prompt or org-config change.
+
+### Full real mode
 
 1. `cp .env.example .env` and fill in what your estate uses:
    `ANTHROPIC_API_KEY` (LLM phases), `GITHUB_TOKEN`/`BITBUCKET_TOKEN` (scoped:

@@ -6,8 +6,8 @@ models:
   escalate: claude-opus-4-8          # after 2 failed generate attempts
 phases:
   resolve:   { max_turns: 5,  allowed_tools: "Read" }
-  triage:    { max_turns: 5,  allowed_tools: "Read,Bash(git diff:*)" }
-  analyze:   { max_turns: 8,  allowed_tools: "Read" }
+  triage:    { max_turns: 12, allowed_tools: "Read,Bash(git diff:*)" }   # 5 was too tight for real tool use (parity finding P1)
+  analyze:   { max_turns: 12, allowed_tools: "Read" }
   testplan:  { max_turns: 10, allowed_tools: "Read,Write" }
   testdata:  { max_turns: 10, allowed_tools: "Read,Write" }
   generate:  { max_turns: 25, allowed_tools: "Read,Write,Edit,Bash(npx playwright test:*),Bash(npm run lint:*)" }
@@ -25,7 +25,7 @@ knowledge:
   confluence_max_pages: 3
   confluence_max_tokens: 12000
 adapters:
-  scm: { github: adapters/scm/github.sh, bitbucket: adapters/scm/bitbucket.sh }
+  scm: { github: adapters/scm/github.sh, bitbucket: adapters/scm/bitbucket.sh, stash: adapters/scm/stash.sh }
   tracker: adapters/tracker/jira.sh
   knowledge: adapters/knowledge/confluence.sh
   cicd: adapters/cicd/jenkins.sh

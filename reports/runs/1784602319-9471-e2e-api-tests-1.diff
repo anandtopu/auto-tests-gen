@@ -1,0 +1,183 @@
+commit c046f311ef4ed9ade3709de81e5336b927f0f897
+Author: anandtopu <anand.goud.2020@gmail.com>
+Date:   Mon Jul 20 22:03:08 2026 -0500
+
+    test(PROJ-301): AI-generated E2E updates
+    
+    Co-Authored-By: ai-qe-agent <ai-qe@company.com>
+
+diff --git a/data/PROJ-301-discount-cases.json b/data/PROJ-301-discount-cases.json
+new file mode 100644
+index 0000000..f5afb6e
+--- /dev/null
++++ b/data/PROJ-301-discount-cases.json
+@@ -0,0 +1,55 @@
++{
++  "_note": "Materialized from testdata/PROJ-301/discount-cases.json — synthetic data only. Maps 1-to-1 to testplan scenarios. Uses pct field to match existing orders-api contract (see discount.spec.js). OQ-2: recalculated-total response field is TBD; extend-PROJ-88 entry carries fixme flag. OQ-3: 400 body schema unknown; out-of-range entries assert HTTP status only.",
++  "cases": [
++    {
++      "scenario": "extend PROJ-88",
++      "label": "recalculated-total-fixme",
++      "order_id": "1",
++      "body": { "code": "SAVE10", "pct": 10 },
++      "expect_status": 200,
++      "fixme": true,
++      "fixme_reason": "OQ-2: response field name for recalculated total is unspecified — skeleton only until AC-1 is resolved"
++    },
++    {
++      "scenario": "PROJ-301-S1",
++      "label": "lower-boundary",
++      "order_id": "1",
++      "body": { "code": "SAVE1", "pct": 1 },
++      "expect_status": 200
++    },
++    {
++      "scenario": "PROJ-301-S2",
++      "label": "upper-boundary",
++      "order_id": "1",
++      "body": { "code": "SAVE90", "pct": 90 },
++      "expect_status": 200
++    },
++    {
++      "scenario": "PROJ-301-S3",
++      "label": "below-lower-bound",
++      "order_id": "1",
++      "body": { "code": "SAVE0", "pct": 0 },
++      "expect_status": 400,
++      "assert_body": false,
++      "assert_body_reason": "OQ-3: 400 body schema unknown"
++    },
++    {
++      "scenario": "PROJ-301-S4",
++      "label": "above-upper-bound",
++      "order_id": "1",
++      "body": { "code": "SAVE91", "pct": 91 },
++      "expect_status": 400,
++      "assert_body": false,
++      "assert_body_reason": "OQ-3: 400 body schema unknown"
++    },
++    {
++      "scenario": "PROJ-301-S5",
++      "label": "negative-value",
++      "order_id": "1",
++      "body": { "code": "SAVENEG", "pct": -1 },
++      "expect_status": 400,
++      "assert_body": false,
++      "assert_body_reason": "OQ-3: 400 body schema unknown"
++    }
++  ]
++}
+diff --git a/data/PROJ-301-orders.json b/data/PROJ-301-orders.json
+new file mode 100644
+index 0000000..99a804a
+--- /dev/null
++++ b/data/PROJ-301-orders.json
+@@ -0,0 +1,31 @@
++{
++  "_note": "Materialized from testdata/PROJ-301/orders.json — synthetic data only, no PII. total_cents = 2*5000 + 10000 = 20000 ($200.00 known pre-discount baseline).",
++  "orders": [
++    {
++      "id": "1",
++      "customer_ref": "cust-fake-001",
++      "customer_email": "testbuyer@example-fake.invalid",
++      "shipping_address": {
++        "line1": "1 Fake Street",
++        "city": "Testville",
++        "postcode": "T3ST-001",
++        "country": "XX"
++      },
++      "line_items": [
++        {
++          "sku": "SKU-FAKE-A",
++          "description": "Synthetic Widget Alpha",
++          "qty": 2,
++          "unit_price_cents": 5000
++        },
++        {
++          "sku": "SKU-FAKE-B",
++          "description": "Synthetic Widget Beta",
++          "qty": 1,
++          "unit_price_cents": 10000
++        }
++      ],
++      "total_cents": 20000
++    }
++  ]
++}
+diff --git a/suites/orders/discount.spec.js b/suites/orders/discount.spec.js
+index f4f31a0..3ef052d 100644
+--- a/suites/orders/discount.spec.js
++++ b/suites/orders/discount.spec.js
+@@ -1,8 +1,26 @@
+ // PROJ-88: discount application
++// PROJ-301: discount validation — boundary and out-of-range values @PROJ-301
+ const { test } = require('node:test');
+ const assert = require('node:assert');
+ const BASE = process.env.API_BASE_URL || 'http://localhost:4600';
+ 
++const PROJ301_ORDERS = require('../../data/PROJ-301-orders.json');
++const PROJ301_CASES = require('../../data/PROJ-301-discount-cases.json');
++
++const ORDER_ID = PROJ301_ORDERS.orders[0].id; // order-proj301-001, total_cents=20000
++
++function discountCase(scenario) {
++  return PROJ301_CASES.cases.find(c => c.scenario === scenario);
++}
++
++async function postDiscount(orderId, body) {
++  return fetch(`${BASE}/v1/orders/${orderId}/discounts`, {
++    method: 'POST',
++    headers: { 'Content-Type': 'application/json' },
++    body: JSON.stringify(body),
++  });
++}
++
+ test('PROJ-88: applies % discount', async () => {
+   const r = await fetch(`${BASE}/v1/orders/1/discounts`, { method: 'POST',
+     headers: {'Content-Type':'application/json'}, body: JSON.stringify({ code: 'SAVE10', pct: 10 }) });
+@@ -10,3 +28,45 @@ test('PROJ-88: applies % discount', async () => {
+   const body = await r.json();
+   assert.strictEqual(body.total, 90);
+ });
++
++// OQ-2: response field name for recalculated total is unspecified — skeleton until AC-1 resolved
++test('PROJ-301: extend PROJ-88 — assert recalculated order total in 2xx response',
++  { todo: 'OQ-2: response field name for recalculated total is unspecified — pending AC-1 clarification' },
++  async () => {
++    const c = discountCase('extend PROJ-88');
++    const r = await postDiscount(ORDER_ID, c.body);
++    assert.strictEqual(r.status, 200);
++    // TODO(OQ-2): assert body.<recalculated_total_field> once AC-1 names the response field
++  }
++);
++
++test('PROJ-301: lower boundary discount value 1 is accepted (2xx)', async () => {
++  const c = discountCase('PROJ-301-S1');
++  const r = await postDiscount(ORDER_ID, c.body);
++  assert.ok(r.status >= 200 && r.status < 300, `expected 2xx, got ${r.status}`);
++});
++
++test('PROJ-301: upper boundary discount value 90 is accepted (2xx)', async () => {
++  const c = discountCase('PROJ-301-S2');
++  const r = await postDiscount(ORDER_ID, c.body);
++  assert.ok(r.status >= 200 && r.status < 300, `expected 2xx, got ${r.status}`);
++});
++
++// OQ-3: 400 body schema unknown — asserting HTTP status only for out-of-range cases
++test('PROJ-301: discount value 0 (one below lower bound) returns 400', async () => {
++  const c = discountCase('PROJ-301-S3');
++  const r = await postDiscount(ORDER_ID, c.body);
++  assert.strictEqual(r.status, 400);
++});
++
++test('PROJ-301: discount value 91 (one above upper bound) returns 400', async () => {
++  const c = discountCase('PROJ-301-S4');
++  const r = await postDiscount(ORDER_ID, c.body);
++  assert.strictEqual(r.status, 400);
++});
++
++test('PROJ-301: negative discount value returns 400', async () => {
++  const c = discountCase('PROJ-301-S5');
++  const r = await postDiscount(ORDER_ID, c.body);
++  assert.strictEqual(r.status, 400);
++});

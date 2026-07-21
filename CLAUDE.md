@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-AI QE Platform PoC: an agentic test-engineering pipeline that (A) syncs E2E tests when a PR changes a source repo and (B) authors tests from a JIRA ticket, across a multi-repo estate. Orchestration is plain bash + Python; LLM phases run `claude -p` headlessly. `docs/architecture.md` (v2.1) is the authoritative design doc — section references like §5.8 in code comments point there. `implementation-plan.md` maps build phases B1–B5, and `REVIEW.md` records the multi-pass review and open items. User-facing docs: `docs/getting-started.md` (demo walkthrough + troubleshooting), `docs/user-guide.md` (configuration reference, gate protocol, integration/onboarding), `docs/diagrams.md` (Mermaid architecture diagrams — keep in sync when pipeline/gate behavior changes).
+AI QE Platform PoC: an agentic test-engineering pipeline that (A) syncs E2E tests when a PR changes a source repo and (B) authors tests from a JIRA ticket, across a multi-repo estate. Orchestration is plain bash + Python; LLM phases run `claude -p` headlessly. `docs/architecture.md` (v2.1) is the authoritative design doc — section references like §5.8 in code comments point there. `implementation-plan.md` maps build phases B1–B5, and `REVIEW.md` records the multi-pass review and open items. User-facing docs: `docs/getting-started.md` (demo walkthrough + troubleshooting), `docs/user-guide.md` (configuration reference, gate protocol, integration/onboarding), `docs/diagrams.md` (Mermaid architecture diagrams — keep in sync when pipeline/gate behavior changes), `docs/integrations/` (per-tool setup: OpenHands, Jira, Bitbucket Cloud + Stash/Server — `adapters/scm/stash.sh` is the Bitbucket Server/DC adapter, selected via `SCM_KIND=stash`).
 
 ## Commands
 
@@ -14,6 +14,8 @@ Requires bash (Git Bash on Windows), GNU make, python3 + `pyyaml`/`pytest` (`mak
 make test-routing        # resolver golden tests (pytest registry/tests)
 make demo-pr             # Workflow A end-to-end: mock LLM, real gate/env/git
 make demo-jira           # Workflow B end-to-end (fixture ticket PROJ-301)
+make parity-pr           # Workflow A with REAL claude -p phases + mock adapters (costs ~$0.3)
+make parity-jira         # Workflow B with real phases (costs ~$1.6; needs claude CLI auth)
 make demo-bootstrap      # live catalog bootstrap on both demo test repos
 make test-gate           # adversarial gate regression (4 attacks, tests/gate-adversarial.sh)
 make conformance         # adapter verb-coverage checks

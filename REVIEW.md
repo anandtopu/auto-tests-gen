@@ -45,10 +45,34 @@ Also verified: env teardown guaranteed via trap even on failure paths; idempoten
 | Post-onboard regression (goldens + both fixtures) | ✅ all green with 6 source + 3 test repos registered |
 | Templates + onboarding docs updated to new `test_env` schema | ✅ |
 
+## Pass 5 — Real-LLM parity run (July 2026, closes open item 1)
+Executed via `make parity-pr` / `make parity-jira` (`AIQE_MOCK=1 AIQE_REAL_LLM=1`: real
+`claude -p` phases — Haiku triage, Sonnet 4.6 generate/plan/validate — against the demo
+estate with mock adapters). **Both workflows green end-to-end**; total LLM cost ≈ $1.90.
+
+| Check | Result |
+|---|---|
+| Workflow A: triage → generate → validate → gate | ✅ 7 boundary tests generated, executed against the live app, committed |
+| Triage quality | ✅ correct `update` classification, exact catalog test_ids, contract fan-out reasoning |
+| Workflow B: analyze → plan → data → generate → validate → gate | ✅ 6-scenario plan (incl. "extend PROJ-88" — update-vs-create working), canonical data, 5 tests passed, 1 repair loop exercised, committed |
+| Never-guess behavior | ✅ 6 open questions raised (stacking semantics, missing response schemas, 400 body format) instead of invented assertions |
+| JSON contract extraction + schema validation (real path) | ✅ after fixes below — closes the Pass 2 deviation for the real path |
+
+**Parity findings (all fixed in-flight):**
+P1 `triage`/`analyze` max_turns 5/8 too tight for real tool use → 12 · P2 triage was never
+given the changed-file list or catalog slice as context · P3 phases ran with cwd=workspace
+while prompts reference root-relative paths (every documented path missed) · P4 all seven
+contract schema files contained a literal trailing `\n` — invalid JSON, never caught because
+mocks bypass validation · P5 gate passed a newline-separated spec list to `bash -c`, executing
+file 2+ as shell commands (surfaced only when the real LLM updated multiple specs) ·
+P6 `extract_contract.py` read files with cp1252 on Windows · P7 contract extraction regex
+grabbed the last brace-blob (often a code snippet in prose) → rewritten to parse the last
+valid JSON object carrying the schema's required keys.
+
 ## Open items (ticketed, not blocking)
-1. Real-LLM parity run (`AIQE_MOCK=0`) once an API key is available — mechanics proven, prompt quality unmeasured here.
-2. Mock stubs should pass through `extract_contract.py` for full schema parity (Pass 2 deviation).
+1. ~~Real-LLM parity run~~ — **done, Pass 5 above.** Full `AIQE_MOCK=0` (real adapters) still needs estate credentials.
+2. Mock stubs still bypass `extract_contract.py` (real path now proven; stub passthrough remains cosmetic).
 3. Playwright execution unproven in this sandbox (browser CDN blocked) — framework abstraction verified via node-test; validate Playwright path in week 1 of real rollout.
 4. OpenHands Path-1 live wiring (weeks 3–4 of the delivery plan); Path-2 mechanics fully proven.
 
-**Verdict: build phases B1–B5 complete; all four review passes green; PoC is integration-ready by demonstration, not assertion.**
+**Verdict: build phases B1–B5 complete; five review passes green including real-LLM parity; PoC is integration-ready by demonstration, not assertion.**

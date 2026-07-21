@@ -1,0 +1,31 @@
+{
+  "_note": "Canonical order fixtures for PROJ-301 — synthetic data only, no PII. total_cents = 2*5000 + 10000 = 20000 ($200.00 known pre-discount baseline).",
+  "orders": [
+    {
+      "id": "order-proj301-001",
+      "customer_ref": "cust-fake-001",
+      "customer_email": "testbuyer@example-fake.invalid",
+      "shipping_address": {
+        "line1": "1 Fake Street",
+        "city": "Testville",
+        "postcode": "T3ST-001",
+        "country": "XX"
+      },
+      "line_items": [
+        {
+          "sku": "SKU-FAKE-A",
+          "description": "Synthetic Widget Alpha",
+          "qty": 2,
+          "unit_price_cents": 5000
+        },
+        {
+          "sku": "SKU-FAKE-B",
+          "description": "Synthetic Widget Beta",
+          "qty": 1,
+          "unit_price_cents": 10000
+        }
+      ],
+      "total_cents": 20000
+    }
+  ]
+}

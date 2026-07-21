@@ -37,7 +37,8 @@ done
 bash -c "$LINT_CMD"
 
 # 4. Execute exactly the new/changed specs, inside the provisioned environment
-SPECS=$(echo "$CHANGED" | grep -E '\.spec\.(ts|js)$' || true)
+# (single line — a newline-separated list would make `bash -c` execute file 2+ as commands)
+SPECS=$(echo "$CHANGED" | grep -E '\.spec\.(ts|js)$' | tr '\n' ' ' || true)
 if [ -n "$SPECS" ]; then
   bash "$ROOT/bin/with-env.sh" . -- bash -c "$TEST_CMD $SPECS" \
     > "$REPORT_DIR/${KEY}-${TREPO}.log" 2>&1 || { echo "TESTS_FAILED"; tail -5 "$REPORT_DIR/${KEY}-${TREPO}.log"; exit 5; }
