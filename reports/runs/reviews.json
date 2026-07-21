@@ -11,10 +11,15 @@
         "release": "2026.08",
         "source": "manual",
         "ts": 1784608404.078866
+      },
+      {
+        "release": "2026.09",
+        "source": "manual",
+        "ts": 1784610849.2996473
       }
     ],
     "note": "new AI-generated artifacts committed",
-    "release": "2026.08",
+    "release": "2026.09",
     "reviewer": "pipeline",
     "status": "pending_review",
     "updated": 1784608021.0058577

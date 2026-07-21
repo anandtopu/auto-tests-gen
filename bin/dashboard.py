@@ -83,8 +83,10 @@ for r in runs[:25]:
     ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(r.get("ts", 0)))
     gates = r.get("gates", []) or [{"test_repo": "—", "status": "?", "exit_code": 0}]
     span = len(gates)
+    run_release = reviews.get(r["trigger"]["key"], {}).get("release", "")
     for i, g in enumerate(gates):
-        row = "<tr>"
+        # every row of the group carries the run's release so the filter hides whole runs
+        row = (f'<tr data-run="{esc(r["run_id"])}" data-release="{esc(run_release)}">')
         if i == 0:  # run-level cells span all of this run's test-repo rows
             row += (f'<td rowspan="{span}"><code>{esc(r["run_id"])}</code></td>'
                     f'<td rowspan="{span}">{esc(r["trigger"]["type"])}</td>'
@@ -187,6 +189,9 @@ for key, r in latest_by_key.items():
                        f"</summary>{rev_line}{inner}</details>")
 
 repo_opts = "".join(f'<option>{esc(t["name"])}</option>' for t in trepos)
+release_opts = "".join(
+    f"<option>{esc(v)}</option>"
+    for v in sorted({e["release"] for e in reviews.values() if e.get("release")}))
 gen_ts = time.strftime("%Y-%m-%d %H:%M:%S")
 
 page = f"""<!doctype html>
@@ -255,7 +260,12 @@ details details {{ margin:8px 0 }}
 </div>
 
 <h2>Recent runs</h2>
-<div class="scroll"><table>
+<div class="filters">
+  <label>release <select id="frel"><option value="">all</option>{release_opts}
+    <option value="__none__">(no release)</option></select></label>
+  <span class="sub" id="frelcount"></span>
+</div>
+<div class="scroll"><table id="runs">
 <thead><tr><th>run</th><th>trigger</th><th>key</th><th>time</th><th>overall</th>
 <th>team review</th><th>release</th><th>E2E test repository</th><th>gate result</th></tr></thead>
 <tbody>{runs_rows or '<tr><td colspan="9">no runs recorded yet</td></tr>'}</tbody>
@@ -304,6 +314,20 @@ function apply() {{
 }}
 [frepo,fstatus].forEach(x=>x.addEventListener('change',apply));
 fq.addEventListener('input',apply); apply();
+
+const frel=document.getElementById('frel'), frelcount=document.getElementById('frelcount'),
+      runRows=[...document.querySelectorAll('#runs tbody tr')];
+function applyRel() {{
+  const v=frel.value, shown=new Set(), all=new Set();
+  runRows.forEach(r => {{
+    all.add(r.dataset.run);
+    const rel=r.dataset.release||'';
+    const ok = !v || (v==='__none__' ? rel==='' : rel===v);
+    r.style.display = ok ? '' : 'none'; if (ok) shown.add(r.dataset.run);
+  }});
+  frelcount.textContent = shown.size + ' / ' + all.size + ' runs';
+}}
+frel.addEventListener('change',applyRel); applyRel();
 </script>
 </body></html>"""
 

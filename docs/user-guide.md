@@ -225,8 +225,9 @@ captures it at resolve time; the real Jira adapter and the demo fixture both sup
 python3 bin/qa.py release PR-orders-api-201 2026.08
 ```
 
-The release appears in `make status`, `make reviews`, the dashboard's *release* column,
-and the artifact cards — so the team can answer "which release does this generated test
+The release appears in `make status`, `make reviews`, the dashboard's *release* column
+(with a **release filter** above Recent runs — pick a version or "(no release)" to
+narrow the table), and the artifact cards — so the team can answer "which release does this generated test
 work belong to, and has it been reviewed?" in one view. Status transitions never touch
 the release; changing it appends to the key's history with its source (`jira`/`manual`).
 
