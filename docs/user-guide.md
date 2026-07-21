@@ -280,10 +280,10 @@ the release; changing it appends to the key's history with its source (`jira`/`m
 make serve        # http://localhost:4999 — the dashboard with live actions
 ```
 
-The dashboard (implemented from the "QA Dashboard" Claude Design) is a five-view app
+The dashboard (implemented from the "QA Dashboard" Claude Design) is a six-view app
 with sidebar navigation: **Overview** (KPI tiles, a needs-attention feed, the coverage
-matrix), **Intake & queue**, **Runs & reviews**, **Artifacts**, and **Test catalog** —
-with toast feedback and pending-work badges on the nav.
+matrix), **Intake & queue**, **Runs & reviews**, **Artifacts**, **Test catalog**, and
+**Settings** — with toast feedback and pending-work badges on the nav.
 
 Served (rather than opened as a file), the **Intake & queue** view becomes active:
 pick a release, *Fetch items* lists the JIRA tickets targeting that fixVersion (via
@@ -307,6 +307,28 @@ make queue-run          # drain (AIQE_MOCK=1 unless you export otherwise)
 
 Duplicate pending items are deduped. The server runs mock adapters by default; export
 `AIQE_MOCK=0` (with credentials) before `make serve` for real estates.
+
+### Settings: configure integrations from the UI
+
+The served dashboard's **Settings** view edits the gitignored `.env` — the same file
+every real adapter reads — so JIRA, Confluence, GitHub / Bitbucket Cloud / Stash,
+OpenHands, Jenkins, Slack/Splunk, budgets, adapter mode (`AIQE_MOCK`) and SCM kind
+can all be configured without a text editor (`GET`/`POST /api/settings`, backed by
+`engine/lib/settings_store.py`). Secrets are **write-only**: the UI shows only
+whether a token is set (`•••••• set`), never its value — type a new value to replace
+it, leave the field blank to keep it. Values save on *Save settings*; adapter-mode
+or SCM changes apply to the next pipeline run (restart `make serve` to switch the
+server's own fetch source). The editable keys are exactly those documented in
+`.env.example` (conformance-tested).
+
+The view's **danger zone** has *Clear demo data* (`POST /api/demo/clear`, or
+`make clear-demo` / `DRY=1` from the CLI — `engine/lib/demo_data.py`): it deletes
+everything the pipeline *generated* — run history + archived diffs,
+review/queue/webhook state, test plans, test data, exports, logs, `out/`,
+`workspace/`, the SQLite index and CI-health ingest — while keeping everything the
+estate *is* (repo registry, test catalog, `AGENTS.md`, demo repos, prompts). It
+refuses to run while a pipeline holds the run lock. Rebuild demo state afterwards
+with `make demo-bootstrap && make demo-pr`.
 
 ### Exporting a ticket's test plan
 

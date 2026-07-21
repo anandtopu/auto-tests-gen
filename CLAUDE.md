@@ -26,7 +26,8 @@ make status              # recent runs from reports/runs/*.json (bin/qa.py statu
 make coverage            # app-repo x test-repo matrix + gap warnings (bin/qa.py coverage)
 make dashboard           # regenerate reports/dashboard.html (bin/dashboard.py, gitignored)
 make reviews             # team-review board; bin/qa.py mark <KEY> <status> transitions it
-make serve               # interactive dashboard (bin/dashboard_server.py, :4999): fetch by release + work queue
+make serve               # interactive dashboard (bin/dashboard_server.py, :4999): fetch by release + work queue + Settings view (edits .env via engine/lib/settings_store.py; secrets write-only)
+make clear-demo [DRY=1]  # delete generated demo data (run history, plans, exports, scratch; estate registry/catalog/AGENTS.md kept — engine/lib/demo_data.py)
 make queue-run           # drain the manual work queue (engine/lib/work_queue.py)
 make export-plan KEY=... [FORMAT=html|docx|pdf]  # export a ticket's test plan (engine/lib/export_plan.py -> reports/exports/, gitignored; docx/pdf writers are stdlib-only)
 make publish-plan KEY=...  # one-way mirror the plan to Confluence (Knowledge port publish_doc; mock -> out/mock-confluence/)

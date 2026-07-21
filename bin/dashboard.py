@@ -2,8 +2,8 @@
 """Generate reports/dashboard.html — the QA operations dashboard.
 
 Implements the "QA Dashboard" Claude Design (project: QA Dashboard UI redesign):
-sidebar navigation over five views (Overview, Intake & queue, Runs & reviews,
-Artifacts, Test catalog), SentinelRAG design tokens (light + dark), semantic
+sidebar navigation over six views (Overview, Intake & queue, Runs & reviews,
+Artifacts, Test catalog, Settings), SentinelRAG design tokens (light + dark), semantic
 status chips, a needs-attention feed, and toast feedback. Self-contained HTML,
 server-rendered from real state; interactive actions light up when served by
 bin/dashboard_server.py (make serve). Regenerate: make dashboard.
@@ -323,10 +323,10 @@ gen_ts = time.strftime("%Y-%m-%d %H:%M")
 
 NAV = [("overview", "◧", "Overview"), ("queue", "⇥", "Intake & queue"),
        ("runs", "▶", "Runs & reviews"), ("artifacts", "❏", "Artifacts"),
-       ("catalog", "☰", "Test catalog")]
+       ("catalog", "☰", "Test catalog"), ("settings", "⚙", "Settings")]
 TITLES = {"overview": "Overview", "queue": "Intake & work queue",
           "runs": "Runs & team reviews", "artifacts": "Generated artifacts",
-          "catalog": "Test knowledge catalog"}
+          "catalog": "Test knowledge catalog", "settings": "Settings & integrations"}
 nav_html = "".join(
     f'<button class="nav-item{" active" if vid == "overview" else ""}" data-go="{vid}">'
     f'<span class="nav-ic">{icon}</span><span class="nav-lb">{esc(label)}</span>'
@@ -480,6 +480,13 @@ label.stack { display:flex; flex-direction:column; gap:4px; font-size:12px; colo
 .gate-line { display:flex; align-items:center; gap:8px; margin:2px 0; }
 .gate-line .repo { min-width:130px; display:inline-block; }
 
+.set-sec { padding:14px 0; border-bottom:1px solid var(--sr-border); }
+.set-sec:first-child { padding-top:0; } .set-sec:last-of-type { border-bottom:none; }
+.set-sec h3 { margin:0 0 2px; font-size:13px; font-weight:600; }
+.set-sec .hint { font-size:12px; color:var(--sr-fg-muted); margin-bottom:10px; }
+.danger-row { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
+.danger-row .grow { flex:1; min-width:240px; }
+
 .art-layout { display:grid; grid-template-columns:260px 1fr; gap:20px; align-items:start; }
 .art-list { position:sticky; top:80px; }
 .art-list-h { padding:12px 16px; border-bottom:1px solid var(--sr-border); font-size:12px;
@@ -543,7 +550,8 @@ async function api(path, opts) {
   return r.json();
 }
 const TITLES = { overview: 'Overview', queue: 'Intake & work queue',
-  runs: 'Runs & team reviews', artifacts: 'Generated artifacts', catalog: 'Test knowledge catalog' };
+  runs: 'Runs & team reviews', artifacts: 'Generated artifacts',
+  catalog: 'Test knowledge catalog', settings: 'Settings & integrations' };
 function go(view) {
   $$('[data-view]').forEach(v => v.classList.toggle('on', v.dataset.view === view));
   $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.go === view));
@@ -743,6 +751,65 @@ $('#inl-queue').addEventListener('click', async () => {
   } catch (err) { toast(err.message); }
 });
 refreshQueue();
+
+// ---- settings
+const escAttr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+async function loadSettings() {
+  if (!served) return;
+  try {
+    const secs = await api('/api/settings');
+    $('#settings-body').innerHTML = secs.map(s =>
+      '<div class="set-sec"><h3>' + escAttr(s.section) + '</h3>' +
+      '<div class="hint">' + escAttr(s.hint) + '</div><div class="form-grid">' +
+      s.fields.map(f => {
+        if (f.options) {
+          return '<label class="stack">' + escAttr(f.label) +
+            '<select data-env="' + f.env + '">' + f.options.map(o =>
+              '<option value="' + o[0] + '"' + (f.value === o[0] ? ' selected' : '') +
+              '>' + escAttr(o[1]) + '</option>').join('') + '</select></label>';
+        }
+        const ph = f.secret ? (f.set ? '•••••• set — type to replace'
+                                     : 'not set') : (f.help || '');
+        return '<label class="stack">' + escAttr(f.label) + (f.secret ? ' 🔒' : '') +
+          '<input data-env="' + f.env + '"' + (f.secret ? ' type="password" autocomplete="new-password"' : '') +
+          ' value="' + escAttr(f.value || '') + '" placeholder="' + escAttr(ph) + '"></label>';
+      }).join('') + '</div></div>').join('') +
+      '<div style="padding-top:14px"><button class="btn btn-primary" id="save-settings" ' +
+      'style="height:36px">Save settings</button></div>';
+    $$('#settings-body [data-env]').forEach(el => { el.dataset.init = el.value; });
+  } catch (err) { $('#settings-body').innerHTML = '<div class="empty">' + escAttr(err.message) + '</div>'; }
+}
+document.addEventListener('click', async e => {
+  if (e.target.id !== 'save-settings') return;
+  const updates = {};
+  $$('#settings-body [data-env]').forEach(el => {
+    // secrets: an empty password field means "keep the stored value"
+    if (el.value !== el.dataset.init && !(el.type === 'password' && !el.value))
+      updates[el.dataset.env] = el.value;
+  });
+  if (!Object.keys(updates).length) { toast('Nothing changed'); return; }
+  e.target.disabled = true;
+  try {
+    const r = await api('/api/settings', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates }) });
+    toast('Saved ' + r.updated.length + ' setting(s) to .env');
+    loadSettings();
+  } catch (err) { e.target.disabled = false; toast(err.message); }
+});
+$('#clear-demo').addEventListener('click', async () => {
+  if (needsServer()) return;
+  if (!confirm('Delete ALL generated demo data?\\n\\nRemoves run history, archived ' +
+    'diffs, review/queue/webhook state, test plans, test data, exports, logs and ' +
+    'scratch dirs. The registry, catalog and demo repos are kept.\\n\\nThis cannot be undone.')) return;
+  const b = $('#clear-demo');
+  b.disabled = true;
+  try {
+    const r = await api('/api/demo/clear', { method: 'POST' });
+    toast('Cleared ' + r.removed + ' generated file(s) — reload to see the reset dashboard');
+  } catch (err) { toast(err.message); }
+  b.disabled = false;
+});
+loadSettings();
 """
 
 # ---------------------------------------------------------------- page assembly
@@ -878,6 +945,33 @@ page = f"""<!doctype html>
         <thead><tr><th>test repo</th><th>file / title</th><th>app repos</th>
           <th class="num">conf</th><th>evidence</th><th>mapping</th><th>CI health</th></tr></thead>
         <tbody>{cat_rows}</tbody></table></div>
+    </section>
+  </div>
+
+  <div data-view="settings">
+    <section class="card">
+      <div class="card-h"><div><h2>Integrations</h2>
+        <div class="sub">Stored in the gitignored <code>.env</code> — the same file
+        the adapters read. Secrets are write-only: a set secret shows as
+        <code>••••••</code>; type a new value to replace it, leave blank to keep it.
+        Adapter-mode and SCM changes take effect on the next run;
+        restart <code>make serve</code> to switch the server's fetch source.</div></div></div>
+      <div class="card-b" id="settings-body">
+        <div class="empty">Start the server (<code>make serve</code>) to view and
+        edit integration settings.</div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="card-h"><div><h2>Danger zone</h2>
+        <div class="sub">Destructive operations — these cannot be undone.</div></div></div>
+      <div class="card-b danger-row">
+        <div class="grow"><div class="strong">Clear demo data</div>
+          <div class="sm muted">Deletes all generated data: run history &amp; archived
+          diffs, review/queue/webhook state, test plans, test data, exports, logs and
+          scratch dirs. The estate itself (repo registry, test catalog, AGENTS.md,
+          demo repos) is kept — rebuild demo state with <code>make demo-bootstrap</code>.</div></div>
+        <button class="btn danger" id="clear-demo">Clear demo data</button>
+      </div>
     </section>
   </div>
 

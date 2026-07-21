@@ -5,7 +5,7 @@ VERB=${1:?verb}; shift || true
 # Tracker port: get_item | search_release | comment | attach
 # Primary path: Atlassian Remote MCP inside the Claude Code session (registered in
 # sandbox/mcp-setup.sh). This CLI adapter is the pipeline-side fallback via REST.
-J="https://your-domain.atlassian.net/rest/api/3"
+J="${JIRA_URL:-https://your-domain.atlassian.net}/rest/api/3"
 case "$VERB" in
   get_item) curl -s -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" "$J/issue/$1" \
     | python3 -c "

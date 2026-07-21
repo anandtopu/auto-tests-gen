@@ -20,13 +20,17 @@ Endpoints:
   POST /api/queue/run         drain the queue in a background process
   POST /api/queue/requeue     {"id"} -> put a failed item back in the queue
   POST /api/queue/remove      {"id"} -> delete a non-running item
+  GET  /api/settings          integration settings (secrets masked to set/unset)
+  POST /api/settings          {"updates": {ENV: value}} -> merge into .env
+  POST /api/demo/clear        delete generated demo data (run history, plans,
+                              exports, scratch; estate registry/catalog kept)
 """
 import glob, json, os, pathlib, re, subprocess, sys, threading, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import export_plan, inline_ticket, review_state, work_queue
+import demo_data, export_plan, inline_ticket, review_state, settings_store, work_queue
 
 MOCK = os.environ.get("AIQE_MOCK", "1") == "1"
 TRACKER = ROOT / ("adapters/mock/tracker.sh" if MOCK else "adapters/tracker/jira.sh")
@@ -123,6 +127,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, items)
         elif url.path == "/api/queue":
             self._send(200, work_queue.load())
+        elif url.path == "/api/settings":
+            self._send(200, settings_store.get_settings())
         elif url.path == "/api/export/plan":
             q = urllib.parse.parse_qs(url.query)
             key = q.get("key", [""])[0]
@@ -210,6 +216,19 @@ class Handler(BaseHTTPRequestHandler):
             except (KeyError, json.JSONDecodeError) as e:
                 self._send(400, {"error": str(e)})
             except SystemExit as e:          # library rejections (wrong status, unknown id)
+                self._send(409, {"error": str(e)})
+        elif self.path == "/api/settings":
+            try:
+                p = json.loads(body or b"{}")
+                self._send(200, {"ok": True, **settings_store.save(p["updates"])})
+            except (KeyError, json.JSONDecodeError) as e:
+                self._send(400, {"error": str(e)})
+            except SystemExit as e:                     # unknown key / bad value
+                self._send(400, {"error": str(e)})
+        elif self.path == "/api/demo/clear":
+            try:
+                self._send(200, {"ok": True, **demo_data.clear()})
+            except SystemExit as e:                     # pipeline run in progress
                 self._send(409, {"error": str(e)})
         elif self.path == "/api/queue/run":
             if run_lock.locked():

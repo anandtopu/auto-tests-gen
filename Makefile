@@ -2,7 +2,7 @@ SHELL := /bin/bash
 .PHONY: deps test-routing bootstrap run-pr run-jira eval conformance \
         status coverage dashboard review-queue reviews repos agents parity-pr parity-jira \
         serve queue-run export-plan publish-plan attach-plan hook-server prune \
-        gaps catalog-db ingest-results smoke-openhands
+        gaps catalog-db ingest-results smoke-openhands clear-demo
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -74,6 +74,9 @@ smoke-openhands:
 
 prune:
 	python3 bin/qa.py prune --keep $(or $(KEEP),200)
+
+clear-demo:
+	python3 engine/lib/demo_data.py $(if $(DRY),--dry,)
 
 gaps:
 	python3 bin/qa.py gaps
