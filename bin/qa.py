@@ -22,6 +22,8 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
   bin/qa.py attach-plan <KEY> [--format pdf|docx|md|html]
       export the plan and attach it to the JIRA ticket (Tracker port;
       mock adapter unless AIQE_MOCK=0)
+  bin/qa.py prune [--keep 200]                  retention: delete the oldest run
+      records + their diffs beyond --keep (never touches reviews/queue state)
   bin/qa.py run-inline "<pasted JIRA context>" [--key K] [--components a,b]
       [--labels x,y] [--repos r1,r2] [--type Story|Bug|Security] [--queue]
       run Workflow B from pasted text (no ticket needed); --queue enqueues
@@ -65,7 +67,7 @@ def regen_coverage():
 def _run_record_files():
     """reports/runs/*.json minus the state files that share the directory."""
     return [f for f in glob.glob(str(ROOT / "reports/runs/*.json"))
-            if pathlib.Path(f).name not in ("reviews.json", "queue.json")]
+            if pathlib.Path(f).name not in ("reviews.json", "queue.json", "hooks-seen.json")]
 
 
 def cmd_status(args):
@@ -276,6 +278,30 @@ def cmd_attach_plan(args):
     print(export_plan.attach_to_jira(args.key, args.format))
 
 
+def cmd_prune(args):
+    runs_dir = pathlib.Path(args.dir) if args.dir else ROOT / "reports/runs"
+    records = []
+    for f in runs_dir.glob("*.json"):
+        if f.name in ("reviews.json", "queue.json", "hooks-seen.json"):
+            continue
+        try:
+            records.append((json.load(open(f, encoding="utf-8")).get("ts", 0), f))
+        except (json.JSONDecodeError, OSError):
+            continue
+    records.sort(reverse=True)                      # newest first
+    doomed = records[args.keep:]
+    removed = 0
+    for _, f in doomed:
+        stem = f.stem                               # <RUN_ID>
+        for d in runs_dir.glob(f"{stem}-*.diff"):
+            d.unlink(missing_ok=True)
+            removed += 1
+        f.unlink(missing_ok=True)
+        removed += 1
+    print(f"kept {min(len(records), args.keep)} run record(s); "
+          f"removed {len(doomed)} old record(s) ({removed} files)")
+
+
 def cmd_run_inline(args):
     import os, subprocess
     import inline_ticket, work_queue
@@ -404,6 +430,10 @@ if __name__ == "__main__":
     s.add_argument("key")
     s.add_argument("--format", choices=["md", "html", "docx", "pdf"], default="pdf")
     s.set_defaults(fn=cmd_attach_plan)
+    s = sub.add_parser("prune")
+    s.add_argument("--keep", type=int, default=200)
+    s.add_argument("--dir", help=argparse.SUPPRESS)   # test override
+    s.set_defaults(fn=cmd_prune)
     s = sub.add_parser("run-inline")
     s.add_argument("text")
     s.add_argument("--key"); s.add_argument("--components"); s.add_argument("--labels")

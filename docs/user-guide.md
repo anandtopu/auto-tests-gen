@@ -388,6 +388,31 @@ QE fills the `decision` column (app repos, or `ORPHAN`) in any spreadsheet tool 
 `human_review`, unknown repo names are rejected with a pointer to `bin/onboard.sh`) →
 coverage regenerates → `make test-routing` still pins routing behavior.
 
+### Team-scale operations (P1)
+
+- **Run isolation & parallel gates:** the pipeline takes an exclusive per-checkout lock
+  (`out/.pipeline.lock` — waits up to 2 min, breaks stale locks after 30) because
+  `workspace/` and `out/` are shared scratch; parallel capacity comes from one
+  sandbox/checkout per run (OpenHands). *Within* a run, per-test-repo gates execute in
+  parallel, each booting its own app instance on an OS-assigned free port.
+- **Dashboard auth:** set `AIQE_UI_TOKEN` before `make serve` and every request needs
+  the token — first browser visit via `/?token=<value>` (sets an HttpOnly cookie),
+  API clients via `Authorization: Bearer <value>`. Unset = auth off (localhost dev).
+- **State-store locking:** `reviews.json` and `queue.json` mutations go through a
+  cross-platform advisory lock (`engine/lib/fs_lock.py`), so multiple queue workers,
+  the dashboard server, and CLI calls can't corrupt them; queue workers claim items
+  atomically.
+- **Run-record retention:** `make prune [KEEP=200]` deletes the oldest run records and
+  their diffs beyond the keep-count (state files are never touched).
+- **TaskEvent receiver:** `make hook-server` (port 4998) exposes
+  `POST /hooks/taskevent` — the normalized trigger endpoint
+  ([triggers/task-event-schema.json](../triggers/task-event-schema.json)) for Jira
+  Automation rules, Bitbucket/Stash webhooks, and OpenHands. Events are validated,
+  **deduplicated on `sha256(mode|repo|pr|key|updated|workflow_version)`** (webhook
+  redeliveries are no-ops, NFR-6), and enqueued; `AIQE_HOOK_AUTORUN=1` drains the
+  queue after each accepted event, `AIQE_HOOK_TOKEN` requires an `X-AIQE-Token`
+  header from senders.
+
 ## 6. Integration guide
 
 Tool-specific step-by-step guides live in [integrations/](integrations/README.md):

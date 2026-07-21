@@ -19,6 +19,9 @@ CLI (used by pipeline.sh and bin/qa.py):
 """
 import json, os, pathlib, sys, time
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import fs_lock
+
 VALID = ["pending_review", "in_review", "approved", "changes_requested"]
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FILE = pathlib.Path(os.environ.get("AIQE_REVIEWS_FILE", ROOT / "reports/runs/reviews.json"))
@@ -40,29 +43,31 @@ def save(data):
 def set_status(key, status, reviewer="", note="", ts=None):
     if status not in VALID:
         sys.exit(f"invalid status '{status}' (valid: {', '.join(VALID)})")
-    data = load()
-    entry = data.get(key, {"history": []})
-    entry["history"].append({"status": status, "reviewer": reviewer, "note": note,
-                             "ts": ts if ts is not None else time.time()})
-    entry.update(status=status, reviewer=reviewer, note=note,
-                 updated=entry["history"][-1]["ts"])
-    data[key] = entry
-    save(data)
+    with fs_lock.lock(FILE):
+        data = load()
+        entry = data.get(key, {"history": []})
+        entry["history"].append({"status": status, "reviewer": reviewer, "note": note,
+                                 "ts": ts if ts is not None else time.time()})
+        entry.update(status=status, reviewer=reviewer, note=note,
+                     updated=entry["history"][-1]["ts"])
+        data[key] = entry
+        save(data)
     return entry
 
 
 def set_release(key, release, source="manual", ts=None):
     """Record the target release version for a key (idempotent on same value)."""
-    data = load()
-    entry = data.get(key, {"history": []})
-    if entry.get("release") == release:
-        return entry
-    entry["history"].append({"release": release, "source": source,
-                             "ts": ts if ts is not None else time.time()})
-    entry["release"] = release
-    entry.setdefault("status", "")            # release may arrive before any commit
-    data[key] = entry
-    save(data)
+    with fs_lock.lock(FILE):
+        data = load()
+        entry = data.get(key, {"history": []})
+        if entry.get("release") == release:
+            return entry
+        entry["history"].append({"release": release, "source": source,
+                                 "ts": ts if ts is not None else time.time()})
+        entry["release"] = release
+        entry.setdefault("status", "")        # release may arrive before any commit
+        data[key] = entry
+        save(data)
     return entry
 
 

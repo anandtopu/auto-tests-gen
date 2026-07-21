@@ -63,6 +63,13 @@ run the pipeline this way on a shared host.
 Idempotency: the receiver dedupes on `sha256(key + updated + workflow_version)` for
 tickets and `(repo, PR#, head SHA)` for PRs — webhook redeliveries are no-ops.
 
+The platform now ships that receiver as code: `make hook-server` runs
+[bin/taskevent_receiver.py](../../bin/taskevent_receiver.py) (`POST /hooks/taskevent`,
+schema in [triggers/task-event-schema.json](../../triggers/task-event-schema.json),
+`X-AIQE-Token` auth, dedupe + enqueue + optional auto-drain). Point the Jira
+Automation web request — or any webhook source — at it directly when you are not
+using the OpenHands-native trigger path.
+
 ## Step 5 — Verify
 
 1. Open a trivial PR against a registered source repo touching a `testable_path`; label

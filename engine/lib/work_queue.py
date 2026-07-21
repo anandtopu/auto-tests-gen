@@ -15,6 +15,9 @@ CLI:
 """
 import json, os, pathlib, shutil, subprocess, sys, time
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import fs_lock
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 FILE = pathlib.Path(os.environ.get("AIQE_QUEUE_FILE", ROOT / "reports/runs/queue.json"))
 
@@ -63,19 +66,20 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None):
         sys.exit("mode must be pr|jira")
     if mode == "pr" and not pr:
         sys.exit("pr mode needs a PR number")
-    items = load()
-    sig = (mode, target, str(pr or ""))
-    for it in items:
-        if (it["mode"], it["target"], str(it.get("pr") or "")) == sig \
-                and it["status"] in ("queued", "running"):
-            return it, False                       # already pending — dedupe
-    item = {"id": f"q{int(time.time())}-{len(items) + 1}", "mode": mode,
-            "target": target, "pr": str(pr) if pr else None, "release": release,
-            "requested_by": requested_by, "status": "queued", "ts": time.time(),
-            "finished": None, "exit_code": None,
-            "inline_file": str(inline_file) if inline_file else None}
-    items.append(item)
-    save(items)
+    with fs_lock.lock(FILE):
+        items = load()
+        sig = (mode, target, str(pr or ""))
+        for it in items:
+            if (it["mode"], it["target"], str(it.get("pr") or "")) == sig \
+                    and it["status"] in ("queued", "running"):
+                return it, False                   # already pending — dedupe
+        item = {"id": f"q{int(time.time())}-{len(items) + 1}", "mode": mode,
+                "target": target, "pr": str(pr) if pr else None, "release": release,
+                "requested_by": requested_by, "status": "queued", "ts": time.time(),
+                "finished": None, "exit_code": None,
+                "inline_file": str(inline_file) if inline_file else None}
+        items.append(item)
+        save(items)
     return item, True
 
 
@@ -86,25 +90,27 @@ def _mark(items, item, **kw):
 
 def requeue(item_id):
     """Put a failed item back in the queue (fresh attempt, previous result cleared)."""
-    items = load()
-    item = next((i for i in items if i["id"] == item_id), None)
-    if item is None:
-        sys.exit(f"no such queue item: {item_id}")
-    if item["status"] != "failed":
-        sys.exit(f"only failed items can be re-queued ({item_id} is {item['status']})")
-    _mark(items, item, status="queued", finished=None, exit_code=None, ts=time.time())
+    with fs_lock.lock(FILE):
+        items = load()
+        item = next((i for i in items if i["id"] == item_id), None)
+        if item is None:
+            sys.exit(f"no such queue item: {item_id}")
+        if item["status"] != "failed":
+            sys.exit(f"only failed items can be re-queued ({item_id} is {item['status']})")
+        _mark(items, item, status="queued", finished=None, exit_code=None, ts=time.time())
     return item
 
 
 def remove(item_id):
     """Delete a queued, failed, or done item; a running item cannot be removed."""
-    items = load()
-    item = next((i for i in items if i["id"] == item_id), None)
-    if item is None:
-        sys.exit(f"no such queue item: {item_id}")
-    if item["status"] == "running":
-        sys.exit(f"{item_id} is running - wait for it to finish")
-    save([i for i in items if i["id"] != item_id])
+    with fs_lock.lock(FILE):
+        items = load()
+        item = next((i for i in items if i["id"] == item_id), None)
+        if item is None:
+            sys.exit(f"no such queue item: {item_id}")
+        if item["status"] == "running":
+            sys.exit(f"{item_id} is running - wait for it to finish")
+        save([i for i in items if i["id"] != item_id])
     return item
 
 
@@ -114,11 +120,13 @@ def run_all():
     env.setdefault("AIQE_MOCK", "1")
     processed = 0
     while True:
-        items = load()                             # re-read: server may append mid-run
-        item = next((i for i in items if i["status"] == "queued"), None)
+        with fs_lock.lock(FILE):                   # claim atomically: multiple workers
+            items = load()                         # may drain the same queue
+            item = next((i for i in items if i["status"] == "queued"), None)
+            if item is not None:
+                _mark(items, item, status="running")
         if item is None:
             break
-        _mark(items, item, status="running")
         cmd = [bash_exe(), "engine/pipeline.sh", item["mode"], item["target"]]
         if item["mode"] == "pr":
             cmd.append(item["pr"])
@@ -127,11 +135,12 @@ def run_all():
             item_env["AIQE_INLINE_FILE"] = item["inline_file"]
         r = subprocess.run(cmd, cwd=ROOT, env=item_env, stdin=subprocess.DEVNULL,
                            capture_output=True, text=True)
-        items = load()
-        cur = next((i for i in items if i["id"] == item["id"]), None)
-        if cur:
-            _mark(items, cur, status="done" if r.returncode == 0 else "failed",
-                  finished=time.time(), exit_code=r.returncode)
+        with fs_lock.lock(FILE):
+            items = load()
+            cur = next((i for i in items if i["id"] == item["id"]), None)
+            if cur:
+                _mark(items, cur, status="done" if r.returncode == 0 else "failed",
+                      finished=time.time(), exit_code=r.returncode)
         print(f"{key_of(item)}: {'done' if r.returncode == 0 else f'failed (exit {r.returncode})'}")
         if r.returncode != 0:
             print(r.stdout[-800:] + r.stderr[-800:], file=sys.stderr)

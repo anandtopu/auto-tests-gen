@@ -28,7 +28,7 @@ CONTENT_TYPES = {
 def _latest_run(key):
     runs = []
     for f in glob.glob(str(ROOT / "reports/runs/*.json")):
-        if pathlib.Path(f).name in ("reviews.json", "queue.json"):
+        if pathlib.Path(f).name in ("reviews.json", "queue.json", "hooks-seen.json"):
             continue
         try:
             r = json.load(open(f, encoding="utf-8"))

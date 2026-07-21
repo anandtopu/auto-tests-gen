@@ -28,6 +28,7 @@ import export_plan, inline_ticket, review_state, work_queue
 
 MOCK = os.environ.get("AIQE_MOCK", "1") == "1"
 TRACKER = ROOT / ("adapters/mock/tracker.sh" if MOCK else "adapters/tracker/jira.sh")
+UI_TOKEN = os.environ.get("AIQE_UI_TOKEN", "")   # empty = auth off (localhost-only dev)
 run_lock = threading.Lock()
 
 
@@ -74,13 +75,36 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        if getattr(self, "_set_cookie", False):    # token arrived via ?token= — persist it
+            self.send_header("Set-Cookie", f"aiqe_token={UI_TOKEN}; HttpOnly; SameSite=Strict")
+            self._set_cookie = False
         self.end_headers()
         self.wfile.write(data)
 
     def log_message(self, fmt, *a):                       # quiet request log
         pass
 
+    def _authed(self):
+        """True when AIQE_UI_TOKEN is unset, or the request carries it (query param
+        on first visit -> cookie; Authorization: Bearer for API clients)."""
+        if not UI_TOKEN:
+            return True
+        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        self._set_cookie = q.get("token", [""])[0] == UI_TOKEN
+        if self._set_cookie:
+            return True
+        if self.headers.get("Authorization", "") == f"Bearer {UI_TOKEN}":
+            return True
+        cookies = self.headers.get("Cookie", "")
+        return f"aiqe_token={UI_TOKEN}" in cookies.replace(" ", "").split(";")
+
+    def _deny(self):
+        self._send(401, {"error": "unauthorized: open /?token=<AIQE_UI_TOKEN> "
+                                  "or send Authorization: Bearer <token>"})
+
     def do_GET(self):
+        if not self._authed():
+            return self._deny()
         url = urllib.parse.urlparse(self.path)
         if url.path in ("/", "/dashboard.html"):
             subprocess.run([sys.executable, str(ROOT / "bin/dashboard.py")],
@@ -128,6 +152,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
+        if not self._authed():
+            return self._deny()
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0)
         if self.path == "/api/queue":
             try:

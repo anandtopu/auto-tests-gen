@@ -4,6 +4,17 @@
 set -euo pipefail
 MODE=${1:?pr|jira}; export AIQE_ROOT="$PWD"; mkdir -p out workspace
 source .env 2>/dev/null || true
+
+# Run isolation: workspace/ and out/ are shared scratch, so one run at a time per
+# checkout (parallel capacity = one sandbox/checkout per run, e.g. OpenHands).
+# Waits up to 2 min; breaks locks older than 30 min (crashed holder).
+LOCK=out/.pipeline.lock
+for i in $(seq 1 120); do
+  if mkdir "$LOCK" 2>/dev/null; then trap 'rmdir "$LOCK" 2>/dev/null' EXIT; break; fi
+  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then rmdir "$LOCK" 2>/dev/null || true; continue; fi
+  if [ "$i" -eq 120 ]; then echo "PIPELINE_BUSY: another run holds $LOCK"; exit 75; fi
+  sleep 1
+done
 if [ "${AIQE_MOCK:-0}" = "1" ]; then
   SCM() { bash adapters/mock/scm.sh "$@"; }
   TRACKER() { bash adapters/mock/tracker.sh "$@"; }
@@ -97,13 +108,26 @@ for d in testplans testdata; do
   if [ -d "workspace/$d" ]; then mkdir -p "$d"; cp -r "workspace/$d/." "$d/"; rm -rf "workspace/$d"; fi
 done
 
-# Per-test-repo gate; partial success is allowed and reported honestly (§5.8.5)
+# Per-test-repo gate; partial success is allowed and reported honestly (§5.8.5).
+# Gates are independent (own repo dir, own app instance) — run them in PARALLEL.
 SUMMARY="AI-QE run ${RUN_ID} for ${KEY}:"
 : > out/gate_results.tsv
-mkdir -p reports/runs
+mkdir -p reports/runs out/gates
+GATE_NAMES=()
 for t in workspace/tests/*/; do
   name=$(basename "$t")
-  GOUT=$( (cd "$t" && bash "$AIQE_ROOT/engine/gate/gate.sh" "$KEY" "$name") 2>&1 ) && GRC=0 || GRC=$?
+  GATE_NAMES+=("$name")
+  (
+    rc=0
+    (cd "$t" && bash "$AIQE_ROOT/engine/gate/gate.sh" "$KEY" "$name") \
+      > "out/gates/$name.out" 2>&1 || rc=$?
+    echo "$rc" > "out/gates/$name.rc"
+  ) &
+done
+wait
+for name in "${GATE_NAMES[@]}"; do
+  t="workspace/tests/$name/"
+  GOUT=$(cat "out/gates/$name.out"); GRC=$(cat "out/gates/$name.rc")
   echo "$GOUT" | sed "s/^/[gate:$name] /"
   SHA=$(echo "$GOUT" | grep -oE "GATE_STATUS=COMMITTED [0-9a-f]+" | awk '{print $2}' || true)
   if [ $GRC -eq 0 ] && echo "$GOUT" | grep -q "GATE_STATUS=COMMITTED"; then

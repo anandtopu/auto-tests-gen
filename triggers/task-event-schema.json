@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TaskEvent",
+  "description": "Normalized trigger event (architecture §5.10 rule 3): GitHub/Bitbucket webhooks, Jira Automation payloads, and OpenHands conversation starters all translate to this shape before entering the platform.",
+  "type": "object",
+  "properties": {
+    "mode": { "enum": ["pr", "jira"] },
+    "repo": { "type": "string", "description": "source repo name (pr mode)" },
+    "pr": { "type": ["string", "integer"], "description": "pull request number (pr mode)" },
+    "key": { "type": "string", "description": "issue key (jira mode)" },
+    "updated": { "type": "string", "description": "issue updated timestamp / PR head SHA — part of the idempotency key" },
+    "workflow_version": { "type": "string", "default": "1" }
+  },
+  "required": ["mode"],
+  "allOf": [
+    { "if": { "properties": { "mode": { "const": "pr" } } },
+      "then": { "required": ["repo", "pr"] } },
+    { "if": { "properties": { "mode": { "const": "jira" } } },
+      "then": { "required": ["key"] } }
+  ]
+}

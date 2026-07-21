@@ -23,7 +23,8 @@ if [ "$MODE" = "compose" ]; then
     [ -f "$base/$APP_REPO/$APP_ENTRY" ] && APP="$base/$APP_REPO/$APP_ENTRY" && break
   done
   [ -z "$APP" ] && { echo "APP_REPO_NOT_FOUND: $APP_REPO"; exit 8; }
-  PORT=$(( 4600 + RANDOM % 200 ))
+  # OS-assigned free port (parallel gates each boot their own app instance)
+  PORT=$(python3 -c "import socket;s=socket.socket();s.bind(('127.0.0.1',0));print(s.getsockname()[1]);s.close()")
   ( exec env PORT=$PORT node "$APP" ) < /dev/null > /tmp/aiqe-env.log 2>&1 &
   PID=$!
   for i in $(seq 1 25); do

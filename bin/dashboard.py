@@ -14,7 +14,7 @@ esc = html.escape
 
 runs = []
 for f in glob.glob(str(ROOT / "reports/runs/*.json")):
-    if pathlib.Path(f).name in ("reviews.json", "queue.json"):  # state files, not run records
+    if pathlib.Path(f).name in ("reviews.json", "queue.json", "hooks-seen.json"):  # state files, not run records
         continue
     try:
         runs.append(json.load(open(f, encoding="utf-8")))
