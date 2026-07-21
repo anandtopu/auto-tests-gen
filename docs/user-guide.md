@@ -231,6 +231,31 @@ narrow the table), and the artifact cards — so the team can answer "which rele
 work belong to, and has it been reviewed?" in one view. Status transitions never touch
 the release; changing it appends to the key's history with its source (`jira`/`manual`).
 
+### Interactive dashboard: fetch by release & manual work queue
+
+```bash
+make serve        # http://localhost:4999 — the dashboard with live actions
+```
+
+Served (rather than opened as a file), the dashboard's **Fetch & queue work** section
+becomes active: pick a release, *Fetch items* lists the JIRA tickets targeting that
+fixVersion (via the Tracker port's `search_release` verb — JQL in real mode, benchmark
+fixtures in mock) plus known PRs whose tracked release matches, and each row has a
+*queue* button. *Run queue* drains the queue — items run through `engine/pipeline.sh`
+sequentially, statuses (`queued → running → done|failed`) refresh live, and finished
+runs appear in Recent runs on reload.
+
+The queue is also scriptable (state in `reports/runs/queue.json`, committable):
+
+```bash
+python3 engine/lib/work_queue.py add jira PROJ-301 "" 2026.08 anand
+python3 engine/lib/work_queue.py add pr orders-api 201 2026.09
+make queue-run          # drain (AIQE_MOCK=1 unless you export otherwise)
+```
+
+Duplicate pending items are deduped. The server runs mock adapters by default; export
+`AIQE_MOCK=0` (with credentials) before `make serve` for real estates.
+
 ### Repository & test knowledge (the catalog as a queryable index)
 
 ```bash

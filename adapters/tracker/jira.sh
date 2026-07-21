@@ -17,6 +17,16 @@ print(json.dumps({'key':i['key'],'summary':f['summary'],
  'fix_versions':[v['name'] for v in f.get('fixVersions',[])],
  'linked_repos':[],  # populated from dev-panel API if enabled
  'remote_links_url':'$J/issue/'+i['key']+'/remotelink'}))" ;;
+  search_release)  # JQL: tickets targeting a fixVersion (empty arg = all with any fixVersion)
+    JQL="fixVersion is not EMPTY"; [ -n "${1:-}" ] && JQL="fixVersion = \"$1\""
+    curl -s -G -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
+      --data-urlencode "jql=$JQL" --data-urlencode "fields=summary,fixVersions" \
+      "$J/search" | python3 -c "
+import json,sys
+r=json.load(sys.stdin)
+print(json.dumps([{'key':i['key'],'summary':i['fields']['summary'],
+ 'fix_versions':[v['name'] for v in i['fields'].get('fixVersions',[])]}
+ for i in r.get('issues',[])]))" ;;
   comment) curl -s -X POST -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
     -H 'Content-Type: application/json' \
     -d "{\"body\":{\"type\":\"doc\",\"version\":1,\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"$2\"}]}]}}" \

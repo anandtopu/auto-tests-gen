@@ -14,7 +14,7 @@ esc = html.escape
 
 runs = []
 for f in glob.glob(str(ROOT / "reports/runs/*.json")):
-    if pathlib.Path(f).name == "reviews.json":   # review state, not a run record
+    if pathlib.Path(f).name in ("reviews.json", "queue.json"):  # state files, not run records
         continue
     try:
         runs.append(json.load(open(f, encoding="utf-8")))
@@ -229,8 +229,9 @@ code {{ background:var(--card); padding:1px 5px; border-radius:4px; font-size:12
 .chip.good {{ color:var(--good) }} .chip.warning {{ color:var(--warning) }}
 .chip.critical {{ color:var(--critical) }} .chip.muted {{ color:var(--ink2) }}
 .filters {{ display:flex; gap:10px; margin:0 0 10px; align-items:center }}
-select,input {{ background:var(--card); color:var(--ink); border:1px solid var(--line);
+select,input,button {{ background:var(--card); color:var(--ink); border:1px solid var(--line);
                border-radius:6px; padding:5px 8px; font-size:13px }}
+button {{ cursor:pointer }} button:disabled {{ opacity:.5; cursor:default }}
 a {{ color:inherit }}
 details.art {{ background:var(--card); border:1px solid var(--line); border-radius:8px;
               padding:10px 14px; margin:8px 0 }}
@@ -258,6 +259,24 @@ details details {{ margin:8px 0 }}
       "alert" if any(e.get("status") in ("pending_review", "in_review")
                      for e in reviews.values()) else "")}
 </div>
+
+<h2>Fetch &amp; queue work</h2>
+<div class="sub">Fetch JIRA tickets and pull requests for a release, queue them, then run the
+queue — the pipeline processes items in order. Interactive only when served via
+<code>make serve</code>; as a static file this section is read-only.</div>
+<div class="filters">
+  <label>release <select id="qrel"><option value="">all</option>{release_opts}</select></label>
+  <button id="qfetch">Fetch items</button>
+  <button id="qrun">Run queue</button>
+  <span class="sub" id="qmsg"></span>
+</div>
+<div class="scroll"><table id="qitems" style="display:none">
+<thead><tr><th>type</th><th>key</th><th>summary</th><th>release</th><th></th></tr></thead>
+<tbody></tbody></table></div>
+<h3 style="font-size:14px;margin:16px 0 6px">Queue</h3>
+<div class="scroll"><table id="qtable">
+<thead><tr><th>id</th><th>status</th><th>type</th><th>key</th><th>release</th><th>requested by</th></tr></thead>
+<tbody></tbody></table></div>
 
 <h2>Recent runs</h2>
 <div class="filters">
@@ -328,6 +347,67 @@ function applyRel() {{
   frelcount.textContent = shown.size + ' / ' + all.size + ' runs';
 }}
 frel.addEventListener('change',applyRel); applyRel();
+
+// --- Fetch & queue (active only when served by bin/dashboard_server.py) ---
+const qrel=document.getElementById('qrel'), qmsg=document.getElementById('qmsg'),
+      qitems=document.getElementById('qitems'), qtable=document.getElementById('qtable');
+const served = location.protocol.startsWith('http');
+function say(t) {{ qmsg.textContent=t; }}
+if (!served) say('static file — start the server with: make serve');
+
+async function api(path, opts) {{
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error((await r.json()).error || r.status);
+  return r.json();
+}}
+function keyOf(i) {{ return i.mode==='pr' ? 'PR-'+i.target+'-'+i.pr : i.target; }}
+
+async function refreshQueue() {{
+  if (!served) return;
+  const q = await api('/api/queue');
+  qtable.tBodies[0].innerHTML = q.length ? q.map(i =>
+    '<tr><td><code>'+i.id+'</code></td><td>'+i.status+'</td><td>'+i.mode+'</td>'+
+    '<td><strong>'+keyOf(i)+'</strong></td><td>'+(i.release||'&#8212;')+'</td>'+
+    '<td>'+(i.requested_by||'&#8212;')+'</td></tr>').join('')
+    : '<tr><td colspan="6">queue is empty</td></tr>';
+  return q;
+}}
+
+document.getElementById('qfetch').addEventListener('click', async () => {{
+  if (!served) return say('static file — start the server with: make serve');
+  try {{
+    say('fetching...');
+    const items = await api('/api/items?release='+encodeURIComponent(qrel.value));
+    qitems.style.display='';
+    qitems.tBodies[0].innerHTML = items.length ? items.map((i,n) =>
+      '<tr><td>'+i.mode+'</td><td><strong>'+i.key+'</strong></td><td>'+i.summary+'</td>'+
+      '<td>'+(i.release||'&#8212;')+'</td><td><button data-n="'+n+'" '+(i.queued?'disabled':'')+'>'+
+      (i.queued?'queued':'queue')+'</button></td></tr>').join('')
+      : '<tr><td colspan="5">no items for this release</td></tr>';
+    qitems.tBodies[0].querySelectorAll('button').forEach(b => b.addEventListener('click', async () => {{
+      const i = items[+b.dataset.n];
+      await api('/api/queue', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+        body: JSON.stringify({{mode:i.mode, target:i.target, pr:i.pr, release:i.release}})}});
+      b.disabled = true; b.textContent = 'queued'; refreshQueue();
+    }}));
+    say(items.length+' item(s)');
+  }} catch (e) {{ say('fetch failed: '+e.message); }}
+}});
+
+document.getElementById('qrun').addEventListener('click', async () => {{
+  if (!served) return say('static file — start the server with: make serve');
+  try {{
+    await api('/api/queue/run', {{method:'POST'}});
+    say('queue running... (statuses refresh automatically)');
+    const t = setInterval(async () => {{
+      const q = await refreshQueue();
+      if (!q.some(i => i.status==='queued' || i.status==='running')) {{
+        clearInterval(t); say('queue drained — reload the page for new runs');
+      }}
+    }}, 3000);
+  }} catch (e) {{ say(e.message); }}
+}});
+refreshQueue();
 </script>
 </body></html>"""
 

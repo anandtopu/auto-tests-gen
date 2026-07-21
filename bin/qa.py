@@ -50,9 +50,9 @@ def regen_coverage():
 
 
 def _run_record_files():
-    """reports/runs/*.json minus the review-state file that shares the directory."""
+    """reports/runs/*.json minus the state files that share the directory."""
     return [f for f in glob.glob(str(ROOT / "reports/runs/*.json"))
-            if pathlib.Path(f).name != "reviews.json"]
+            if pathlib.Path(f).name not in ("reviews.json", "queue.json")]
 
 
 def cmd_status(args):
