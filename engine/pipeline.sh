@@ -89,14 +89,16 @@ python3 bin/gen_agents_md.py > /dev/null || true
 
 # Catalog slice: existing-test knowledge handed to the phases (P2)
 grep -h . catalog/e2e-*.jsonl 2>/dev/null > out/catalog-slice.jsonl || true
+# Coverage gaps: surface with NO test evidence — generation targets these first
+python3 engine/lib/coverage_gaps.py md > out/coverage-gaps.md 2>/dev/null || : > out/coverage-gaps.md
 
 # Phase chain (Workflow A: triage->generate->validate; B: analyze->plan->data->generate->validate)
 if [ "$MODE" = "pr" ]; then
-  PHASE triage   pr-triage.md    AGENTS.md out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl
-  PHASE generate pr-generate.md  AGENTS.md out/triage.contract.json out/pr.diff
+  PHASE triage   pr-triage.md    AGENTS.md out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md
+  PHASE generate pr-generate.md  AGENTS.md out/triage.contract.json out/pr.diff out/coverage-gaps.md
 else
   PHASE analyze  jira-analyze.md AGENTS.md out/issue-guidance.md out/ticket.json out/confluence.md
-  PHASE testplan jira-testplan.md AGENTS.md out/issue-guidance.md out/analyze.contract.json
+  PHASE testplan jira-testplan.md AGENTS.md out/issue-guidance.md out/analyze.contract.json out/coverage-gaps.md
   PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json
   PHASE generate pr-generate.md  AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json
 fi

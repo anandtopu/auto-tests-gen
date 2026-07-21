@@ -13,6 +13,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 from registry import load_registry, load_org_config
+import coverage_gaps
 
 reg = load_registry()
 org = load_org_config()
@@ -77,27 +78,33 @@ for r in reg["source_repositories"]:
         ", ".join(covering(r["name"])) or "**NONE — coverage gap**"))
 L.append("")
 
-L.append("### Live API surface (harvested from contracts)")
+gaps = coverage_gaps.compute()
+def annotated(name, items):
+    """Mark surface items that no test exercises — generation targets these first."""
+    uncovered = set(gaps.get(name, {}).get("uncovered", []))
+    return ", ".join(f"`{x}`" + (" **[NO TEST]**" if x in uncovered else "")
+                     for x in items)
+
+L.append("### Live API surface (harvested from contracts; [NO TEST] = coverage gap)")
 L.append("")
 for r in reg["source_repositories"]:
     if r["type"] != "backend":
         continue
     eps = harvest(r)
     if eps:
-        L.append(f"- **{r['name']}** (`{r['contract']}`): " + ", ".join(f"`{e}`" for e in eps))
+        L.append(f"- **{r['name']}** (`{r['contract']}`): " + annotated(r["name"], eps))
     else:
         L.append(f"- **{r['name']}**: contract `{r.get('contract', '?')}` not available locally "
                  "(clone appears at workspace/src/ during runs)")
 L.append("")
-L.append("### UI routes (harvested from route tables)")
+L.append("### UI routes (harvested from route tables; [NO TEST] = coverage gap)")
 L.append("")
 for r in reg["source_repositories"]:
     if r["type"] != "frontend":
         continue
     routes = harvest(r)
     if routes:
-        L.append(f"- **{r['name']}** (`{r['route_table']}`): "
-                 + ", ".join(f"`{x}`" for x in routes))
+        L.append(f"- **{r['name']}** (`{r['route_table']}`): " + annotated(r["name"], routes))
     else:
         L.append(f"- **{r['name']}**: route table `{r.get('route_table', '?')}` not available locally")
 L.append("")

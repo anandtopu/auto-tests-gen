@@ -22,6 +22,10 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
   bin/qa.py attach-plan <KEY> [--format pdf|docx|md|html]
       export the plan and attach it to the JIRA ticket (Tracker port;
       mock adapter unless AIQE_MOCK=0)
+  bin/qa.py gaps [--repo R]                     surface with NO test evidence (coverage gaps)
+  bin/qa.py ingest-results <junit.xml|jenkins.json>   CI results -> per-test health
+      (pass rate / flakiness in catalog/health.json; Jenkins role 3)
+  bin/qa.py sql "SELECT ..."                    query the SQLite catalog index (read-only)
   bin/qa.py prune [--keep 200]                  retention: delete the oldest run
       records + their diffs beyond --keep (never touches reviews/queue state)
   bin/qa.py run-inline "<pasted JIRA context>" [--key K] [--components a,b]
@@ -61,6 +65,8 @@ def regen_coverage():
     subprocess.run([sys.executable, str(ROOT / "catalog/bootstrap/regen_coverage.py")],
                    cwd=ROOT, check=True)
     subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")],
+                   cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+    subprocess.run([sys.executable, str(ROOT / "catalog/bootstrap/index_db.py")],
                    cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
 
 
@@ -138,6 +144,8 @@ def cmd_coverage(args):
 
 
 def cmd_tests(args):
+    import test_health
+    health = test_health.load()
     shown = 0
     for _, e in load_catalog():
         m = e["mapping"]
@@ -150,9 +158,12 @@ def cmd_tests(args):
         if args.layer and e["layer"] != args.layer:
             continue
         ev = e["evidence"]["endpoints"] or e["evidence"]["ui_routes"]
+        h = health.get(e["test_id"], {})
+        hcol = (f"pass={h['pass_rate']:.0%}" + ("(FLAKY)" if h.get("flaky") else "")
+                if h else "-")
         print(f"{m['status']:<13} conf={m['confidence']:<5} {e['test_repo']:<18} "
-              f"{e['title'][:44]:<46} -> {','.join(m['app_repos']) or '-':<20} "
-              f"{(ev[0] if ev else '')}")
+              f"{e['title'][:40]:<42} -> {','.join(m['app_repos']) or '-':<18} "
+              f"{hcol:<16} {(ev[0] if ev else '')}")
         shown += 1
     print(f"\n{shown} test(s)")
 
@@ -276,6 +287,36 @@ def cmd_publish_plan(args):
 def cmd_attach_plan(args):
     import export_plan
     print(export_plan.attach_to_jira(args.key, args.format))
+
+
+def cmd_gaps(args):
+    import coverage_gaps
+    print(coverage_gaps.to_markdown(args.repo))
+
+
+def cmd_ingest_results(args):
+    import test_health
+    matched, unmatched = test_health.ingest(args.file)
+    print(f"ingested: {matched} case(s) matched to catalog tests, {unmatched} unmatched")
+    regen_coverage()                              # health flows into catalog.db + AGENTS.md
+
+
+def cmd_sql(args):
+    import sqlite3
+    db = ROOT / "reports/catalog.db"
+    if not db.exists():
+        subprocess.run([sys.executable, str(ROOT / "catalog/bootstrap/index_db.py")],
+                       cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+    con = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
+    try:
+        cur = con.execute(args.query)
+        cols = [d[0] for d in cur.description or []]
+        if cols:
+            print(" | ".join(cols))
+        for row in cur.fetchall():
+            print(" | ".join("" if v is None else str(v) for v in row))
+    finally:
+        con.close()
 
 
 def cmd_prune(args):
@@ -430,6 +471,10 @@ if __name__ == "__main__":
     s.add_argument("key")
     s.add_argument("--format", choices=["md", "html", "docx", "pdf"], default="pdf")
     s.set_defaults(fn=cmd_attach_plan)
+    s = sub.add_parser("gaps"); s.add_argument("--repo"); s.set_defaults(fn=cmd_gaps)
+    s = sub.add_parser("ingest-results"); s.add_argument("file")
+    s.set_defaults(fn=cmd_ingest_results)
+    s = sub.add_parser("sql"); s.add_argument("query"); s.set_defaults(fn=cmd_sql)
     s = sub.add_parser("prune")
     s.add_argument("--keep", type=int, default=200)
     s.add_argument("--dir", help=argparse.SUPPRESS)   # test override

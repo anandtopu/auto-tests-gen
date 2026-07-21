@@ -34,6 +34,7 @@ python3 catalog/bootstrap/tier.py "$WS" > "catalog/${TREPO}.jsonl"
 python3 catalog/review/export_review_queue.py "catalog/${TREPO}.jsonl" > "catalog/review/${TREPO}-queue.csv"
 python3 catalog/bootstrap/regen_coverage.py
 python3 bin/gen_agents_md.py
+python3 catalog/bootstrap/index_db.py
 echo "--- catalog/${TREPO}.jsonl ---"
 python3 -c "
 import json,sys

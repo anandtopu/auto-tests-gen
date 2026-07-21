@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="e2e-api-1-regression" tests="4" failures="1">
+    <testcase classname="suites.orders.discount" name="PROJ-88: applies % discount" time="0.31"/>
+    <testcase classname="suites.orders.get-order" name="PROJ-61: gets an order by id" time="0.12">
+      <failure message="expected 200, got 502">env flake: upstream gateway restart</failure>
+    </testcase>
+    <testcase classname="tests.checkout.cart" name="PROJ-45: cart route is reachable" time="0.05"/>
+    <testcase classname="suites.misc" name="unrelated legacy case not in catalog" time="0.01"/>
+  </testsuite>
+</testsuites>

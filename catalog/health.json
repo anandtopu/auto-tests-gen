@@ -1,0 +1,26 @@
+{
+  "e2e-api-tests-1::suites/orders/discount.spec.js::PROJ-88: applies % discount": {
+    "failures": 0,
+    "flaky": false,
+    "last_status": "passed",
+    "pass_rate": 1.0,
+    "runs": 1,
+    "updated": 1784660394.2990763
+  },
+  "e2e-api-tests-1::suites/orders/get-order.spec.js::PROJ-61: gets an order by id": {
+    "failures": 1,
+    "flaky": false,
+    "last_status": "failed",
+    "pass_rate": 0.0,
+    "runs": 1,
+    "updated": 1784660394.2990866
+  },
+  "e2e-ui-tests-1::tests/checkout/cart.spec.js::PROJ-45: cart route is reachable": {
+    "failures": 0,
+    "flaky": false,
+    "last_status": "passed",
+    "pass_rate": 1.0,
+    "runs": 1,
+    "updated": 1784660394.299091
+  }
+}

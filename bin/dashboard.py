@@ -8,9 +8,10 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 from registry import load_registry
-import review_state
+import review_state, test_health
 
 esc = html.escape
+health = test_health.load()
 
 runs = []
 for f in glob.glob(str(ROOT / "reports/runs/*.json")):
@@ -118,6 +119,15 @@ for s in sources:
     cls = ' class="gap"' if s in uncovered else ""
     matrix_rows += f"<tr{cls}><th>{esc(s)}</th>{cells}</tr>"
 
+def health_cell(test_id):
+    h = health.get(test_id)
+    if not h:
+        return '<span class="chip muted">&#8212;</span>'
+    cls = "critical" if h.get("flaky") else ("good" if h.get("pass_rate", 0) >= 0.95
+                                             else "warning")
+    label = f"{h.get('pass_rate', 0):.0%} pass" + (" &middot; FLAKY" if h.get("flaky") else "")
+    return f'<span class="chip {cls}">{label}</span> <span class="chip muted">({h.get("runs", 0)} runs)</span>'
+
 cat_rows = ""
 for e in sorted(catalog, key=lambda e: (e["test_repo"], e["file"])):
     m = e["mapping"]
@@ -129,7 +139,8 @@ for e in sorted(catalog, key=lambda e: (e["test_repo"], e["file"])):
                  f'<td>{esc(", ".join(m["app_repos"])) or "&#8212;"}</td>'
                  f'<td class="num">{m["confidence"]}</td>'
                  f'<td>{esc(", ".join(m["method"]))}</td>'
-                 f'<td>{chip(m["status"])}</td></tr>')
+                 f'<td>{chip(m["status"])}</td>'
+                 f'<td>{health_cell(e["test_id"])}</td></tr>')
 
 # Generated artifacts per key (latest run per trigger key)
 latest_by_key = {}
@@ -334,8 +345,8 @@ without cataloged tests yet. Rows in red have no E2E coverage at all.</div>
 </div>
 <div class="scroll"><table id="cat">
 <thead><tr><th>test repo</th><th>file</th><th>title</th><th>app repos</th>
-<th>conf</th><th>evidence</th><th>status</th></tr></thead>
-<tbody>{cat_rows or '<tr><td colspan="7">catalog empty — run make demo-bootstrap</td></tr>'}</tbody>
+<th>conf</th><th>evidence</th><th>status</th><th>CI health</th></tr></thead>
+<tbody>{cat_rows or '<tr><td colspan="8">catalog empty — run make demo-bootstrap</td></tr>'}</tbody>
 </table></div>
 
 <script>

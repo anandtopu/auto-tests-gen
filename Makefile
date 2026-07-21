@@ -1,7 +1,8 @@
 SHELL := /bin/bash
 .PHONY: deps test-routing bootstrap run-pr run-jira eval conformance \
         status coverage dashboard review-queue reviews repos agents parity-pr parity-jira \
-        serve queue-run export-plan publish-plan attach-plan hook-server prune
+        serve queue-run export-plan publish-plan attach-plan hook-server prune \
+        gaps catalog-db ingest-results
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -70,6 +71,15 @@ hook-server:
 
 prune:
 	python3 bin/qa.py prune --keep $(or $(KEEP),200)
+
+gaps:
+	python3 bin/qa.py gaps
+
+catalog-db:
+	python3 catalog/bootstrap/index_db.py
+
+ingest-results:
+	python3 bin/qa.py ingest-results $(FILE)
 
 queue-run:
 	python3 engine/lib/work_queue.py run

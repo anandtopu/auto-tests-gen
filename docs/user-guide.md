@@ -388,6 +388,31 @@ QE fills the `decision` column (app repos, or `ORPHAN`) in any spreadsheet tool 
 `human_review`, unknown repo names are rejected with a pointer to `bin/onboard.sh`) →
 coverage regenerates → `make test-routing` still pins routing behavior.
 
+### Quality flywheel (P2)
+
+- **Coverage-gap analysis:** `make gaps` (or `bin/qa.py gaps [--repo R]`) compares each
+  app repo's harvested surface (OpenAPI endpoints, frontend routes) against catalog
+  evidence and lists what has **no test exercising it**. The pipeline feeds this to the
+  triage/generate/plan phases (`out/coverage-gaps.md`), and AGENTS.md annotates
+  uncovered surface with **[NO TEST]** — generation targets gaps first. Line-level
+  instrumentation remains an estate-specific add-on (`commands.coverage` hook).
+- **CI results ingest (Jenkins role 3):** `make ingest-results FILE=<junit.xml>` (also
+  accepts a Jenkins `testReport` JSON, e.g. from `adapters/cicd/jenkins.sh
+  get_results`) matches cases to catalog tests by title and maintains per-test health
+  in `catalog/health.json` — runs, pass rate, last status, and a flaky flag
+  (sometimes-passing over ≥3 runs). Health shows in `bin/qa.py tests`, the dashboard's
+  *CI health* column, and the scorecard.
+- **Scorecard metrics:** `python3 eval/scorecard.py` (also at the end of `make review`)
+  now reports routing accuracy, **commit rate**, average **repair loops**,
+  **update-vs-create share** (duplicate-prevention proxy), **team acceptance rate**
+  (from review decisions), and **test health/flakiness**.
+- **SQLite catalog index:** `make catalog-db` builds `reports/catalog.db` (gitignored;
+  JSONL stays the committed source of truth) — rebuilt automatically by bootstrap,
+  mapping edits, and results ingest. Ad-hoc queries:
+  `bin/qa.py sql "SELECT title, pass_rate FROM tests WHERE flaky=1"` (read-only).
+  Tree-sitter-based extraction stays a flagged real-estate upgrade (needs native
+  grammar packages the stdlib-only toolchain doesn't ship).
+
 ### Team-scale operations (P1)
 
 - **Run isolation & parallel gates:** the pipeline takes an exclusive per-checkout lock

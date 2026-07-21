@@ -11,3 +11,4 @@ eval/results/
 .idea/
 .pytest_cache/
 reports/inline/
+reports/catalog.db
