@@ -141,7 +141,11 @@ for key, r in latest_by_key.items():
     inner = ""
     plan = ROOT / f"testplans/{key}.md"
     if plan.exists():
-        inner += (f"<h4>Test plan &mdash; <code>testplans/{esc(key)}.md</code></h4>"
+        inner += (f"<h4>Test plan &mdash; <code>testplans/{esc(key)}.md</code>"
+                  f' <span class="served-only">&middot; export:'
+                  f' <a href="/api/export/plan?key={esc(key)}&amp;format=md">md</a>'
+                  f' <a href="/api/export/plan?key={esc(key)}&amp;format=html">html</a>'
+                  f"</span></h4>"
                   f"<pre>{esc(plan.read_text(encoding='utf-8'))}</pre>")
     scen = contracts.get("testplan", {}).get("scenarios", [])
     if scen:
@@ -353,7 +357,11 @@ const qrel=document.getElementById('qrel'), qmsg=document.getElementById('qmsg')
       qitems=document.getElementById('qitems'), qtable=document.getElementById('qtable');
 const served = location.protocol.startsWith('http');
 function say(t) {{ qmsg.textContent=t; }}
-if (!served) say('static file — start the server with: make serve');
+if (!served) {{
+  say('static file — start the server with: make serve');
+  // export links need the server; hide them in static mode
+  document.querySelectorAll('.served-only').forEach(e => e.style.display='none');
+}}
 
 async function api(path, opts) {{
   const r = await fetch(path, opts);

@@ -13,6 +13,9 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
       statuses: pending_review | in_review | approved | changes_requested
   bin/qa.py release <KEY> <version>             set the target release version for a PR/ticket
       (JIRA keys get this automatically from the ticket's fixVersions)
+  bin/qa.py export-plan <KEY> [--format md|html] [--out FILE]
+      export the ticket's generated test plan (+ scenarios, data, tests,
+      validation, review/release status) for sharing outside Git
   bin/qa.py apply-review <queue.csv>            apply QE decisions back into the catalog
   bin/qa.py map <test_id> --repos a,b|ORPHAN    set one mapping directly (confirmed)
 """
@@ -247,6 +250,12 @@ def cmd_release(args):
     print(f"{args.key} -> release {entry['release']}")
 
 
+def cmd_export_plan(args):
+    import export_plan
+    path = export_plan.export(args.key, args.format, args.out)
+    print(f"exported: {path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}")
+
+
 def cmd_review(args):
     pending = [(f, e) for f, e in load_catalog()
                if e["mapping"]["status"] in ("needs_review", "orphan")]
@@ -342,6 +351,10 @@ if __name__ == "__main__":
     s = sub.add_parser("release")
     s.add_argument("key"); s.add_argument("version")
     s.set_defaults(fn=cmd_release)
+    s = sub.add_parser("export-plan")
+    s.add_argument("key"); s.add_argument("--format", choices=["md", "html"], default="md")
+    s.add_argument("--out")
+    s.set_defaults(fn=cmd_export_plan)
     s = sub.add_parser("review"); s.set_defaults(fn=cmd_review)
     s = sub.add_parser("apply-review"); s.add_argument("csv"); s.set_defaults(fn=cmd_apply_review)
     s = sub.add_parser("map"); s.add_argument("test_id"); s.add_argument("--repos", required=True)

@@ -6,6 +6,7 @@ __pycache__/
 *.pyc
 workspace/
 reports/dashboard.html
+reports/exports/
 eval/results/
 .idea/
 .pytest_cache/

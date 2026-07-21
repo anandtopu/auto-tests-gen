@@ -9,6 +9,7 @@ Endpoints:
   GET  /<key>.log             gate logs (reports/)
   GET  /api/items?release=X   JIRA tickets (tracker search_release) + known PRs
   GET  /api/queue             queue contents
+  GET  /api/export/plan?key=K&format=md|html   download the ticket's test plan export
   POST /api/queue             {"mode","target","pr","release"} -> enqueue
   POST /api/queue/run         drain the queue in a background process
   POST /api/queue/requeue     {"id"} -> put a failed item back in the queue
@@ -19,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import review_state, work_queue
+import export_plan, review_state, work_queue
 
 MOCK = os.environ.get("AIQE_MOCK", "1") == "1"
 TRACKER = ROOT / ("adapters/mock/tracker.sh" if MOCK else "adapters/tracker/jira.sh")
@@ -92,6 +93,27 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, items)
         elif url.path == "/api/queue":
             self._send(200, work_queue.load())
+        elif url.path == "/api/export/plan":
+            q = urllib.parse.parse_qs(url.query)
+            key = q.get("key", [""])[0]
+            fmt = q.get("format", ["md"])[0]
+            if fmt not in export_plan.FORMATS or not re.fullmatch(r"[\w.-]+", key or ""):
+                self._send(400, {"error": "key and format=md|html required"})
+                return
+            try:
+                content = (export_plan.to_markdown(key) if fmt == "md"
+                           else export_plan.to_html(key)).encode()
+            except SystemExit as e:                     # no plan for this key
+                self._send(404, {"error": str(e)})
+                return
+            ctype = "text/html; charset=utf-8" if fmt == "html" else "text/markdown; charset=utf-8"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Disposition",
+                             f'attachment; filename="{key}-testplan.{fmt}"')
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
         elif url.path.startswith("/runs/"):
             f = ROOT / "reports/runs" / pathlib.PurePosixPath(url.path).name
             self._send(200, f.read_bytes(), "text/plain; charset=utf-8") \
