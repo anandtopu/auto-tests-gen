@@ -10,6 +10,7 @@ JIRA-triggered test authoring (Workflow B) across a multi-repo estate, powered b
 |---|---|
 | [docs/getting-started.md](docs/getting-started.md) | Zero-to-demo in two minutes, expected output, troubleshooting |
 | [docs/user-guide.md](docs/user-guide.md) | Operating the platform: configuration reference, gate protocol, catalog lifecycle, integration & onboarding, going real (`AIQE_MOCK=0`) |
+| [docs/integrations/](docs/integrations/README.md) | Step-by-step tool integration: OpenHands, Jira, Bitbucket Cloud & Stash/Server |
 | [docs/diagrams.md](docs/diagrams.md) | Rendered architecture diagrams (Mermaid) |
 | [docs/architecture.md](docs/architecture.md) | Full solution architecture (v2.1) — code comments cite its § numbers |
 | [docs/onboarding-new-team.md](docs/onboarding-new-team.md) | Adopting the platform for a new estate (≤1 day) |

@@ -5,6 +5,7 @@ set -u
 fail=0
 declare -A verbs=( [scm/github.sh]="clone_ro clone_rw changed_files comment"
                    [scm/bitbucket.sh]="clone_ro clone_rw changed_files comment"
+                   [scm/stash.sh]="clone_ro clone_rw changed_files comment"
                    [tracker/jira.sh]="get_item comment"
                    [knowledge/confluence.sh]="get_linked_docs publish_doc"
                    [cicd/jenkins.sh]="run_job get_results"
