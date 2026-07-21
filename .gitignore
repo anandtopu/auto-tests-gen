@@ -10,3 +10,4 @@ reports/exports/
 eval/results/
 .idea/
 .pytest_cache/
+reports/inline/

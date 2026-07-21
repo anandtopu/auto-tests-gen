@@ -24,6 +24,27 @@ case "$VERB" in
   clone_rw) req
     git clone "${CLONE_BASE}/$1.git" "$2" \
       && git -C "$2" checkout -B "$3" ;;
+  diff) req
+    # Server's diff API is JSON; flatten hunks to unified-style text for the phases
+    curl -s "${AUTH[@]}" "$S/repos/$1/pull-requests/$2/diff?contextLines=3" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+mark = {'ADDED': '+', 'REMOVED': '-', 'CONTEXT': ' '}
+for f in d.get('diffs', []):
+    src = (f.get('source') or {}).get('toString', '/dev/null')
+    dst = (f.get('destination') or {}).get('toString', '/dev/null')
+    print(f'--- a/{src}\n+++ b/{dst}')
+    for h in f.get('hunks') or []:
+        print(f\"@@ -{h['sourceLine']},{h['sourceSpan']} +{h['destinationLine']},{h['destinationSpan']} @@\")
+        for seg in h.get('segments', []):
+            p = mark.get(seg.get('type'), ' ')
+            for ln in seg.get('lines', []):
+                print(p + ln.get('line', ''))" ;;
+  set_status) req  # set_status <repo> <sha> <success|failure|pending> <description>
+    STATE=$(case "$3" in success) echo SUCCESSFUL;; failure) echo FAILED;; *) echo INPROGRESS;; esac)
+    curl -s "${AUTH[@]}" -H 'Content-Type: application/json' \
+      -d "{\"key\":\"ai-qe\",\"state\":\"$STATE\",\"name\":\"AI QE\",\"description\":\"$4\",\"url\":\"${AIQE_STATUS_URL:-https://ai-qe.invalid}\"}" \
+      "${STASH_URL}/rest/build-status/1.0/commits/$2" >/dev/null && echo ok ;;
   comment) req
     curl -s "${AUTH[@]}" -H 'Content-Type: application/json' \
       -d "{\"text\":\"$3\"}" "$S/repos/$1/pull-requests/$2/comments" >/dev/null && echo ok ;;

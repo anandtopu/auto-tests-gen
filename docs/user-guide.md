@@ -197,6 +197,41 @@ code is reviewable long after the run (and in real estates, before merging the
 The dashboard has the same view: the **Generated artifacts** section lists the latest
 run per key with expandable plan, scenarios, data, and test-code blocks.
 
+### Running from pasted JIRA context (no ticket needed)
+
+The requirement "pass JIRA context as text input" is served by inline runs — paste the
+story/bug/security-fix text and Workflow B runs without an existing ticket:
+
+```bash
+python3 bin/qa.py run-inline "Refund bug
+Refunds above the order total return 500 instead of 400.
+AC-1: refunds above total rejected with 400" \
+  --repos orders-api --labels api-only --type Bug
+```
+
+The first line becomes the summary; `AC-…` lines become acceptance criteria;
+`--components/--labels/--repos` drive routing exactly like a real ticket (give at
+least one or the run will ask for clarification, by design). `--queue` enqueues
+instead of running. The served dashboard has the same thing: **Run from pasted JIRA
+context** (textarea + routing fields) inside *Fetch & queue work*.
+
+### Issue-type-aware generation
+
+Workflow B adapts to the ticket's issue type (from Jira's `issuetype`, the inline
+`--type` flag, or a `security` label): **Story/Enhancement** → extend-first bias and
+per-AC boundary coverage; **Bug** → a regression test encoding the exact reproduction
+path plus surrounding boundaries; **Security** → negative/abuse-case tests that assert
+the fix without weaponizing the flaw. The guidance prompts live in
+`prompts/issue-types/` and are injected into the analyze/plan/generate phases.
+
+### PR review depth & merge-gate visibility
+
+Workflow A now feeds the triage and generate phases the **actual PR diff** (Scm `diff`
+verb: `gh pr diff` on GitHub, the raw diff endpoint on Bitbucket Cloud, flattened
+hunks on Stash) — not just the changed-file list. After the gate, the run posts a
+**build status** to the PR head commit (Scm `set_status`: success/failure as
+`ai-qe`), so quarantined runs are visible in the merge UI, not only in comments.
+
 ### Team-review tracking (who has looked at the generated tests?)
 
 Every PR / JIRA key whose run **commits** generated artifacts is automatically marked

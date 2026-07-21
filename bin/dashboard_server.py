@@ -13,6 +13,8 @@ Endpoints:
   POST /api/export/confluence {"key","space"?,"title"?}  publish the plan to Confluence
   POST /api/export/attach     {"key","format"?}          attach the plan to the JIRA ticket
   POST /api/queue             {"mode","target","pr","release"} -> enqueue
+  POST /api/queue/inline      {"text","key"?,"components"?,"labels"?,"repos"?,"type"?}
+                              -> synthesize a ticket from pasted JIRA context + enqueue
   POST /api/queue/run         drain the queue in a background process
   POST /api/queue/requeue     {"id"} -> put a failed item back in the queue
   POST /api/queue/remove      {"id"} -> delete a non-running item
@@ -22,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import export_plan, review_state, work_queue
+import export_plan, inline_ticket, review_state, work_queue
 
 MOCK = os.environ.get("AIQE_MOCK", "1") == "1"
 TRACKER = ROOT / ("adapters/mock/tracker.sh" if MOCK else "adapters/tracker/jira.sh")
@@ -134,6 +136,20 @@ class Handler(BaseHTTPRequestHandler):
                                              p.get("release", ""), "dashboard")
                 self._send(200, {"queued": fresh, "item": item})
             except (KeyError, json.JSONDecodeError, SystemExit) as e:
+                self._send(400, {"error": str(e)})
+        elif self.path == "/api/queue/inline":
+            try:
+                p = json.loads(body or b"{}")
+                csv_ = lambda s: [v.strip() for v in (s or "").split(",") if v.strip()]
+                ticket = inline_ticket.build(p["text"], p.get("key") or None,
+                                             csv_(p.get("components")), csv_(p.get("labels")),
+                                             csv_(p.get("repos")), p.get("type") or "Story")
+                path = inline_ticket.write(ticket)
+                item, fresh = work_queue.add("jira", ticket["key"], release="",
+                                             requested_by="dashboard-inline",
+                                             inline_file=path)
+                self._send(200, {"queued": fresh, "key": ticket["key"], "item": item})
+            except (KeyError, json.JSONDecodeError, ValueError, SystemExit) as e:
                 self._send(400, {"error": str(e)})
         elif self.path in ("/api/export/confluence", "/api/export/attach"):
             try:

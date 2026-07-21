@@ -58,7 +58,7 @@ def key_of(item):
             else item["target"])
 
 
-def add(mode, target, pr=None, release="", requested_by=""):
+def add(mode, target, pr=None, release="", requested_by="", inline_file=None):
     if mode not in ("pr", "jira"):
         sys.exit("mode must be pr|jira")
     if mode == "pr" and not pr:
@@ -72,7 +72,8 @@ def add(mode, target, pr=None, release="", requested_by=""):
     item = {"id": f"q{int(time.time())}-{len(items) + 1}", "mode": mode,
             "target": target, "pr": str(pr) if pr else None, "release": release,
             "requested_by": requested_by, "status": "queued", "ts": time.time(),
-            "finished": None, "exit_code": None}
+            "finished": None, "exit_code": None,
+            "inline_file": str(inline_file) if inline_file else None}
     items.append(item)
     save(items)
     return item, True
@@ -121,7 +122,10 @@ def run_all():
         cmd = [bash_exe(), "engine/pipeline.sh", item["mode"], item["target"]]
         if item["mode"] == "pr":
             cmd.append(item["pr"])
-        r = subprocess.run(cmd, cwd=ROOT, env=env, stdin=subprocess.DEVNULL,
+        item_env = {**env}
+        if item.get("inline_file"):                # pasted JIRA context, not a real ticket
+            item_env["AIQE_INLINE_FILE"] = item["inline_file"]
+        r = subprocess.run(cmd, cwd=ROOT, env=item_env, stdin=subprocess.DEVNULL,
                            capture_output=True, text=True)
         items = load()
         cur = next((i for i in items if i["id"] == item["id"]), None)

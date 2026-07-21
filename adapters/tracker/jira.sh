@@ -15,6 +15,7 @@ print(json.dumps({'key':i['key'],'summary':f['summary'],
  'components':[c['name'] for c in f.get('components',[])],
  'labels':f.get('labels',[]),
  'fix_versions':[v['name'] for v in f.get('fixVersions',[])],
+ 'issue_type':(f.get('issuetype') or {}).get('name',''),
  'linked_repos':[],  # populated from dev-panel API if enabled
  'remote_links_url':'$J/issue/'+i['key']+'/remotelink'}))" ;;
   search_release)  # JQL: tickets targeting a fixVersion (empty arg = all with any fixVersion)

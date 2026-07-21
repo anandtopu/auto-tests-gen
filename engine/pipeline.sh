@@ -27,10 +27,17 @@ RUN_ID=$(date +%s)-$RANDOM
 if [ "$MODE" = "pr" ]; then
   REPO=$2; PR=$3; export KEY="PR-${REPO}-${PR}"
   SCM changed_files "$REPO" "$PR" > out/changed.txt
+  # P0: the actual patch, not just the file list — triage reviews real hunks
+  SCM diff "$REPO" "$PR" > out/pr.diff 2>/dev/null || : > out/pr.diff
   python3 engine/phases/resolve.py pr "$REPO" --changed-files out/changed.txt > out/resolve.contract.json
 else
   export KEY=$2
-  TRACKER get_item "$KEY" > out/ticket.json
+  # P0: inline JIRA context ("pass JIRA context as text input") bypasses the tracker
+  if [ -n "${AIQE_INLINE_FILE:-}" ]; then
+    cp "$AIQE_INLINE_FILE" out/ticket.json
+  else
+    TRACKER get_item "$KEY" > out/ticket.json
+  fi
   COMP=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('components',[])))")
   LBL=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('labels',[])))")
   LINKED=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('linked_repos',[])))")
@@ -41,6 +48,14 @@ else
   # Knowledge port: pull linked Confluence pages (budgeted) as analyze context
   if [ "${AIQE_MOCK:-0}" = "1" ]; then echo "## Linked PRD (mock): discounts must be 1-90%" > out/confluence.md; \
   else bash adapters/knowledge/confluence.sh get_linked_docs out/ticket.json > out/confluence.md || true; fi
+  # P0: issue-type-aware generation — bug fixes get regression guidance,
+  # security fixes get negative/abuse-case guidance, stories the extend-first bias
+  ITYPE=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print((t.get('issue_type') or 'story').lower())")
+  GUID=prompts/issue-types/story.md
+  case "$ITYPE" in *bug*|*defect*) GUID=prompts/issue-types/bug.md ;; \
+                   *security*|*vulnerab*) GUID=prompts/issue-types/security.md ;; esac
+  if echo "$LBL" | grep -qi security; then GUID=prompts/issue-types/security.md; fi
+  cp "$GUID" out/issue-guidance.md
 fi
 
 if [ "$(python3 -c "import json;print(json.load(open('out/resolve.contract.json')).get('needs_clarification', False))")" = "True" ]; then
@@ -66,13 +81,13 @@ grep -h . catalog/e2e-*.jsonl 2>/dev/null > out/catalog-slice.jsonl || true
 
 # Phase chain (Workflow A: triage->generate->validate; B: analyze->plan->data->generate->validate)
 if [ "$MODE" = "pr" ]; then
-  PHASE triage   pr-triage.md    AGENTS.md out/resolve.contract.json out/changed.txt out/catalog-slice.jsonl
-  PHASE generate pr-generate.md  AGENTS.md out/triage.contract.json
+  PHASE triage   pr-triage.md    AGENTS.md out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl
+  PHASE generate pr-generate.md  AGENTS.md out/triage.contract.json out/pr.diff
 else
-  PHASE analyze  jira-analyze.md AGENTS.md out/ticket.json out/confluence.md
-  PHASE testplan jira-testplan.md AGENTS.md out/analyze.contract.json
+  PHASE analyze  jira-analyze.md AGENTS.md out/issue-guidance.md out/ticket.json out/confluence.md
+  PHASE testplan jira-testplan.md AGENTS.md out/issue-guidance.md out/analyze.contract.json
   PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json
-  PHASE generate pr-generate.md  AGENTS.md out/testplan.contract.json out/testdata.contract.json
+  PHASE generate pr-generate.md  AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json
 fi
 PHASE validate validate-repair.md out/generate.contract.json
 
@@ -104,6 +119,12 @@ for t in workspace/tests/*/; do
 done
 [ "$MODE" = "jira" ] && TRACKER comment "$KEY" "$SUMMARY"
 NOTIFY post "$SUMMARY"
+# P0: surface the outcome as a build status on the PR head (merge-gate visibility)
+if [ "$MODE" = "pr" ]; then
+  HEAD_SHA=$(git -C "workspace/src/$REPO" rev-parse HEAD 2>/dev/null || echo "")
+  STATE=success; echo "$SUMMARY" | grep -q quarantined && STATE=failure
+  if [ -n "$HEAD_SHA" ]; then SCM set_status "$REPO" "$HEAD_SHA" "$STATE" "AI-QE run ${RUN_ID}" || true; fi
+fi
 # Run record: persisted for QA monitoring (reports/runs/) AND emitted as telemetry
 python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY" \
   | tee "reports/runs/${RUN_ID}.json" | TELEM emit_event

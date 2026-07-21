@@ -279,6 +279,21 @@ queue — the pipeline processes items in order. Interactive only when served vi
 <div class="scroll"><table id="qitems" style="display:none">
 <thead><tr><th>type</th><th>key</th><th>summary</th><th>release</th><th></th></tr></thead>
 <tbody></tbody></table></div>
+<details style="margin:10px 0"><summary class="sub" style="cursor:pointer">Run from pasted
+JIRA context (no ticket needed)</summary>
+<div style="margin:10px 0">
+  <textarea id="inl-text" rows="5" style="width:100%;max-width:720px"
+    placeholder="Paste the story / bug / security-fix text here. First line becomes the summary; AC-1: ... lines become acceptance criteria."></textarea><br>
+  <div class="filters" style="margin-top:6px">
+    <input id="inl-key" placeholder="key (optional, e.g. ADHOC-1)" size="18">
+    <input id="inl-components" placeholder="components (csv)" size="16">
+    <input id="inl-labels" placeholder="labels (csv, e.g. api-only)" size="18">
+    <input id="inl-repos" placeholder="linked repos (csv)" size="16">
+    <select id="inl-type"><option>Story</option><option>Bug</option><option>Security</option></select>
+    <button id="inl-queue">Queue inline ticket</button>
+  </div>
+</div></details>
+
 <h3 style="font-size:14px;margin:16px 0 6px">Queue</h3>
 <div class="scroll"><table id="qtable">
 <thead><tr><th>id</th><th>status</th><th>type</th><th>key</th><th>release</th><th>requested by</th><th>actions</th></tr></thead>
@@ -449,6 +464,21 @@ wireAction('button.pubconf', '/api/export/confluence', b => ({{key: b.dataset.ke
            'publishing...', 'published', 'publish to Confluence');
 wireAction('button.attachjira', '/api/export/attach', b => ({{key: b.dataset.key, format: 'pdf'}}),
            'attaching...', 'attached', 'attach to JIRA (pdf)');
+
+document.getElementById('inl-queue').addEventListener('click', async () => {{
+  if (!served) return say('static file — start the server with: make serve');
+  const val = id => document.getElementById(id).value;
+  try {{
+    const r = await api('/api/queue/inline', {{method:'POST',
+      headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{text: val('inl-text'), key: val('inl-key'),
+        components: val('inl-components'), labels: val('inl-labels'),
+        repos: val('inl-repos'), type: val('inl-type')}})}});
+    say((r.queued ? 'queued inline ticket ' : 'already queued ') + r.key +
+        ' — press Run queue to execute');
+    refreshQueue();
+  }} catch (e) {{ say(e.message); }}
+}});
 </script>
 </body></html>"""
 

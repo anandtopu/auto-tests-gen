@@ -3,9 +3,9 @@
 # and each port's required verbs must be handled. Extend with golden tests per tool.
 set -u
 fail=0
-declare -A verbs=( [scm/github.sh]="clone_ro clone_rw changed_files comment"
-                   [scm/bitbucket.sh]="clone_ro clone_rw changed_files comment"
-                   [scm/stash.sh]="clone_ro clone_rw changed_files comment"
+declare -A verbs=( [scm/github.sh]="clone_ro clone_rw changed_files diff comment set_status"
+                   [scm/bitbucket.sh]="clone_ro clone_rw changed_files diff comment set_status"
+                   [scm/stash.sh]="clone_ro clone_rw changed_files diff comment set_status"
                    [tracker/jira.sh]="get_item comment search_release attach"
                    [knowledge/confluence.sh]="get_linked_docs publish_doc"
                    [cicd/jenkins.sh]="run_job get_results"

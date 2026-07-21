@@ -1,0 +1,39 @@
+--- a/openapi/orders.yaml
++++ b/openapi/orders.yaml
+@@ -18,6 +18,14 @@ paths:
+   /v1/orders/{id}/discounts:
+     post:
+       summary: Apply a discount to an order
++      description: |
++        Discount pct must be between 1 and 90 inclusive. Requests outside
++        that range, or missing a code, are rejected with 400.
+       requestBody:
+         content:
+           application/json:
+@@ -25,8 +33,12 @@ paths:
+             schema:
+               type: object
+               properties:
+                 code: { type: string }
+-                pct: { type: number }
++                pct: { type: number, minimum: 1, maximum: 90 }
++              required: [code, pct]
+       responses:
+         '200': { description: discount applied, total recalculated }
++        '400': { description: invalid discount (missing code or pct out of 1-90) }
+         '404': { description: order not found }
+--- a/app/server.js
++++ b/app/server.js
+@@ -14,9 +14,14 @@ const server = http.createServer((req, res) => {
+   if (req.method === 'POST' && m[2]) {
+     let body = '';
+     req.on('data', c => body += c);
+     req.on('end', () => {
+       const { code, pct } = JSON.parse(body || '{}');
++      if (!code || typeof pct !== 'number' || pct < 1 || pct > 90) {
++        return json(400, { error: 'invalid_discount' });
++      }
+       order.discounts.push({ code, pct });
+       order.total = 100 * (1 - pct / 100);
+       json(200, order);
+     });

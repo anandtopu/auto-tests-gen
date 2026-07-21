@@ -9,17 +9,54 @@ VERB=${1:?verb}; shift || true
 case "$VERB" in
   get_linked_docs)
     python3 - "$1" << 'PY'
-import json, os, sys, urllib.request
-t = json.load(open(sys.argv[1])); budget_pages = 3
+import json, os, re, sys, urllib.request
+t = json.load(open(sys.argv[1]))
+budget_pages, budget_tokens = 3, 12000
+try:
+    import yaml
+    k = yaml.safe_load(open("registry/org-config.yaml"))["knowledge"]
+    budget_pages, budget_tokens = k["confluence_max_pages"], k["confluence_max_tokens"]
+except Exception:
+    pass
+
+def get(url):
+    req = urllib.request.Request(url, headers={
+        "Authorization": "Bearer " + os.environ["ATLASSIAN_MCP_TOKEN"]})
+    return json.load(urllib.request.urlopen(req, timeout=20))
+
 url = t.get("remote_links_url")
-if not url: print(""); raise SystemExit
-req = urllib.request.Request(url, headers={"Authorization": "Bearer " + os.environ["ATLASSIAN_MCP_TOKEN"]})
-try: links = json.load(urllib.request.urlopen(req, timeout=20))
-except Exception: print(""); raise SystemExit
+if not url:
+    print(""); raise SystemExit
+try:
+    links = get(url)
+except Exception:
+    print(""); raise SystemExit
 pages = [l for l in links if "confluence" in l.get("object", {}).get("url", "")][:budget_pages]
+per_page_chars = (budget_tokens * 4) // max(1, len(pages))   # ~4 chars/token
+base = os.environ.get("CONFLUENCE_URL", "").rstrip("/")
 for p in pages:
-    print(f"## Linked doc: {p['object'].get('title','')}\n{p['object']['url']}\n")
-    # TODO: fetch page body via Confluence REST /wiki/api/v2/pages/{id}?body-format=storage
+    purl = p["object"]["url"]
+    print(f"## Linked doc: {p['object'].get('title','')}\n{purl}\n")
+    m = re.search(r"/pages/(\d+)", purl)
+    if not (m and base):
+        continue
+    body = ""
+    for api in (f"{base}/api/v2/pages/{m.group(1)}?body-format=storage",
+                f"{base}/rest/api/content/{m.group(1)}?expand=body.storage"):
+        try:
+            d = get(api)
+            body = (d.get("body", {}).get("storage", {}).get("value", "")
+                    or d.get("body", {}).get("storage", ""))
+            if isinstance(body, dict):
+                body = body.get("value", "")
+            if body:
+                break
+        except Exception:
+            continue
+    if body:
+        text = re.sub(r"<[^>]+>", " ", body)
+        text = re.sub(r"\s+", " ", text).strip()[:per_page_chars]
+        print(text + "\n")
 PY
     ;;
   publish_doc)

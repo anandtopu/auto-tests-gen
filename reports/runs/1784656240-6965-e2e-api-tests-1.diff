@@ -1,0 +1,36 @@
+commit 2c823503ebe71c5423ab0b5e075daeaf4a0412e5
+Author: anandtopu <anand.goud.2020@gmail.com>
+Date:   Tue Jul 21 12:51:00 2026 -0500
+
+    test(ADHOC-42): AI-generated E2E updates
+    
+    Co-Authored-By: ai-qe-agent <ai-qe@company.com>
+
+diff --git a/catalog/generated.jsonl b/catalog/generated.jsonl
+index e69de29..ea0825b 100644
+--- a/catalog/generated.jsonl
++++ b/catalog/generated.jsonl
+@@ -0,0 +1 @@
++{"test_id":"e2e-api-tests-1::suites/orders/ADHOC-42-discount-boundary.spec.js::ADHOC-42","file":"suites/orders/ADHOC-42-discount-boundary.spec.js","title":"ADHOC-42: discount boundary","layer":"api","mapping":{"app_repos":["orders-api"],"feature":"ADHOC-42","confidence":1.0,"method":["born_mapped"],"status":"confirmed"}}
+diff --git a/suites/orders/ADHOC-42-discount-boundary.spec.js b/suites/orders/ADHOC-42-discount-boundary.spec.js
+new file mode 100644
+index 0000000..3aa064d
+--- /dev/null
++++ b/suites/orders/ADHOC-42-discount-boundary.spec.js
+@@ -0,0 +1,16 @@
++// ADHOC-42: discount boundary validation (AI-generated)
++const { test } = require('node:test');
++const assert = require('node:assert');
++const BASE = process.env.API_BASE_URL || 'http://localhost:4600';
++
++test('ADHOC-42: rejects discount above 90%', async () => {
++  const r = await fetch(`${BASE}/v1/orders/1/discounts`, { method: 'POST',
++    headers: {'Content-Type':'application/json'}, body: JSON.stringify({ code: 'MEGA', pct: 95 }) });
++  assert.strictEqual(r.status, 400);
++});
++
++test('ADHOC-42: rejects zero-percent discount', async () => {
++  const r = await fetch(`${BASE}/v1/orders/1/discounts`, { method: 'POST',
++    headers: {'Content-Type':'application/json'}, body: JSON.stringify({ code: 'ZERO', pct: 0 }) });
++  assert.strictEqual(r.status, 400);
++});

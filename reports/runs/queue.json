@@ -22,5 +22,18 @@
     "ts": 1784650941.444562,
     "finished": 1784650963.9551365,
     "exit_code": 0
+  },
+  {
+    "id": "q1784656303-3",
+    "mode": "jira",
+    "target": "ADHOC-UI1",
+    "pr": null,
+    "release": "",
+    "requested_by": "dashboard-inline",
+    "status": "done",
+    "ts": 1784656303.5720587,
+    "finished": 1784656338.8180084,
+    "exit_code": 0,
+    "inline_file": "C:\\Users\\anand\\Downloads\\POC\\auto-tests-gen\\reports\\inline\\ADHOC-UI1.json"
   }
 ]

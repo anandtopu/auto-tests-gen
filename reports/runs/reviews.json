@@ -1,4 +1,32 @@
 {
+  "ADHOC-42": {
+    "history": [
+      {
+        "note": "new AI-generated artifacts committed",
+        "reviewer": "pipeline",
+        "status": "pending_review",
+        "ts": 1784656267.6277497
+      }
+    ],
+    "note": "new AI-generated artifacts committed",
+    "reviewer": "pipeline",
+    "status": "pending_review",
+    "updated": 1784656267.6277497
+  },
+  "ADHOC-UI1": {
+    "history": [
+      {
+        "note": "new AI-generated artifacts committed",
+        "reviewer": "pipeline",
+        "status": "pending_review",
+        "ts": 1784656338.7826955
+      }
+    ],
+    "note": "new AI-generated artifacts committed",
+    "reviewer": "pipeline",
+    "status": "pending_review",
+    "updated": 1784656338.7826955
+  },
   "PR-orders-api-201": {
     "history": [
       {

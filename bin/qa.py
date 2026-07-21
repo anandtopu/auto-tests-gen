@@ -22,6 +22,10 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
   bin/qa.py attach-plan <KEY> [--format pdf|docx|md|html]
       export the plan and attach it to the JIRA ticket (Tracker port;
       mock adapter unless AIQE_MOCK=0)
+  bin/qa.py run-inline "<pasted JIRA context>" [--key K] [--components a,b]
+      [--labels x,y] [--repos r1,r2] [--type Story|Bug|Security] [--queue]
+      run Workflow B from pasted text (no ticket needed); --queue enqueues
+      instead of running immediately
   bin/qa.py apply-review <queue.csv>            apply QE decisions back into the catalog
   bin/qa.py map <test_id> --repos a,b|ORPHAN    set one mapping directly (confirmed)
 """
@@ -272,6 +276,27 @@ def cmd_attach_plan(args):
     print(export_plan.attach_to_jira(args.key, args.format))
 
 
+def cmd_run_inline(args):
+    import os, subprocess
+    import inline_ticket, work_queue
+    csv_ = lambda s: [v.strip() for v in (s or "").split(",") if v.strip()]
+    ticket = inline_ticket.build(args.text, args.key, csv_(args.components),
+                                 csv_(args.labels), csv_(args.repos), args.type)
+    path = inline_ticket.write(ticket)
+    print(f"inline ticket: {ticket['key']} ({path.relative_to(ROOT)})")
+    if args.queue:
+        item, fresh = work_queue.add("jira", ticket["key"], release="",
+                                     requested_by="inline", inline_file=path)
+        print(f"{'queued' if fresh else 'already queued'}: {item['id']}  "
+              f"(drain with: make queue-run)")
+        return
+    env = {**os.environ, "AIQE_INLINE_FILE": str(path)}
+    env.setdefault("AIQE_MOCK", "1")
+    r = subprocess.run([work_queue.bash_exe(), "engine/pipeline.sh", "jira", ticket["key"]],
+                       cwd=ROOT, env=env, stdin=subprocess.DEVNULL)
+    sys.exit(r.returncode)
+
+
 def cmd_review(args):
     pending = [(f, e) for f, e in load_catalog()
                if e["mapping"]["status"] in ("needs_review", "orphan")]
@@ -379,6 +404,12 @@ if __name__ == "__main__":
     s.add_argument("key")
     s.add_argument("--format", choices=["md", "html", "docx", "pdf"], default="pdf")
     s.set_defaults(fn=cmd_attach_plan)
+    s = sub.add_parser("run-inline")
+    s.add_argument("text")
+    s.add_argument("--key"); s.add_argument("--components"); s.add_argument("--labels")
+    s.add_argument("--repos"); s.add_argument("--type", default="Story")
+    s.add_argument("--queue", action="store_true")
+    s.set_defaults(fn=cmd_run_inline)
     s = sub.add_parser("review"); s.set_defaults(fn=cmd_review)
     s = sub.add_parser("apply-review"); s.add_argument("csv"); s.set_defaults(fn=cmd_apply_review)
     s = sub.add_parser("map"); s.add_argument("test_id"); s.add_argument("--repos", required=True)
