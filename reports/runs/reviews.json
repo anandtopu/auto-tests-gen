@@ -54,12 +54,24 @@
         "reviewer": "pipeline",
         "status": "pending_review",
         "ts": 1784608403.5268
+      },
+      {
+        "note": "e2e demo verification",
+        "reviewer": "anand",
+        "status": "approved",
+        "ts": 1784650854.5805657
+      },
+      {
+        "note": "new AI-generated artifacts committed (resets previous status: approved)",
+        "reviewer": "pipeline",
+        "status": "pending_review",
+        "ts": 1784650963.9230623
       }
     ],
     "note": "new AI-generated artifacts committed (resets previous status: approved)",
     "release": "2026.08",
     "reviewer": "pipeline",
     "status": "pending_review",
-    "updated": 1784608403.5268
+    "updated": 1784650963.9230623
   }
 }

@@ -33,7 +33,6 @@ source_repositories:
   domains:
   - checkout
   - orders
-  - zz-test
   contract: openapi/orders.yaml
   consumed_by:
   - web-storefront-ui

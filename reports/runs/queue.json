@@ -10,5 +10,17 @@
     "ts": 1784612782.012543,
     "finished": 1784612821.7390738,
     "exit_code": 0
+  },
+  {
+    "id": "q1784650941-2",
+    "mode": "jira",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "2026.08",
+    "requested_by": "dashboard",
+    "status": "done",
+    "ts": 1784650941.444562,
+    "finished": 1784650963.9551365,
+    "exit_code": 0
   }
 ]
