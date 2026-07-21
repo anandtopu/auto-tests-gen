@@ -2,7 +2,7 @@ SHELL := /bin/bash
 .PHONY: deps test-routing bootstrap run-pr run-jira eval conformance \
         status coverage dashboard review-queue reviews repos agents parity-pr parity-jira \
         serve queue-run export-plan publish-plan attach-plan hook-server prune \
-        gaps catalog-db ingest-results
+        gaps catalog-db ingest-results smoke-openhands
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -68,6 +68,9 @@ serve:
 
 hook-server:
 	python3 bin/taskevent_receiver.py
+
+smoke-openhands:
+	bash bin/smoke-openhands.sh
 
 prune:
 	python3 bin/qa.py prune --keep $(or $(KEEP),200)

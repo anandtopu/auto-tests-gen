@@ -72,6 +72,24 @@ using the OpenHands-native trigger path.
 
 ## Step 5 — Verify
 
+Start with the staged smoke test — it tells you exactly what is missing and validates
+each layer of the chain with the credentials you have:
+
+```bash
+make smoke-openhands                       # all checks that have credentials
+bash bin/smoke-openhands.sh --dry          # plumbing only, no network
+AIQE_SMOKE_TRIGGER=1 make smoke-openhands  # ALSO starts a real conversation ($)
+```
+
+Stages: credentials → Agent Server reachability → sandbox image → live Jira read
+(`AIQE_SMOKE_TICKET`) → live PR read (`AIQE_SMOKE_REPO`/`AIQE_SMOKE_PR`, per
+`SCM_KIND`) → Confluence context → trigger config sanity → optional real conversation
+(endpoint path configurable via `OPENHANDS_CONVERSATIONS_PATH` for your OpenHands
+version). After a green Stage 8, confirm the PR/ticket comment, `make status`, and the
+gate commit.
+
+Then the end-to-end trigger path:
+
 1. Open a trivial PR against a registered source repo touching a `testable_path`; label
    it `ai-tests`.
 2. Watch the OpenHands conversation: it should clone the control repo, run the pipeline,
