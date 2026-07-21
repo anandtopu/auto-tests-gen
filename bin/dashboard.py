@@ -752,6 +752,17 @@ $('#inl-queue').addEventListener('click', async () => {
 });
 refreshQueue();
 
+// ---- team report
+document.addEventListener('click', e => {
+  const b = e.target.closest('button.report-dl');
+  if (!b) return;
+  if (needsServer()) return;
+  const days = $('#rep-days').value, rel = $('#rep-rel').value;
+  location.href = '/api/report?format=' + b.dataset.fmt +
+    (days ? '&days=' + days : '') + (rel ? '&release=' + encodeURIComponent(rel) : '');
+  toast('Generating team report (' + b.dataset.fmt + ')…');
+});
+
 // ---- settings
 const escAttr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 async function loadSettings() {
@@ -846,6 +857,22 @@ page = f"""<!doctype html>
       <div class="card-h"><h2>Needs attention</h2>
         <span class="sub">what a QA lead should look at first</span></div>
       <div>{attention_html}</div>
+    </section>
+    <section class="card">
+      <div class="card-h"><div><h2>Team report</h2>
+        <div class="sub">Completed work, review backlog, queue, throughput and estate
+        health in one shareable document (also: <code>make report</code>).</div></div>
+        <span class="grow"></span>
+        <label class="f">Period <select id="rep-days" class="h32">
+          <option value="7">last 7 days</option><option value="30">last 30 days</option>
+          <option value="90">last 90 days</option><option value="">all time</option>
+        </select></label>
+        <label class="f">Release <select id="rep-rel" class="h32">
+          <option value="">all</option>{release_opts}</select></label>
+        <span class="chips">{"".join(
+            f'<button class="btn btn-sm report-dl" data-fmt="{f}">{f}</button>'
+            for f in ("md", "html", "docx", "pdf"))}</span>
+      </div>
     </section>
     <section class="card">
       <div class="card-h"><h2>Coverage matrix</h2>

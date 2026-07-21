@@ -10,6 +10,7 @@ Endpoints:
   GET  /api/items?release=X   JIRA tickets (tracker search_release) + known PRs
   GET  /api/queue             queue contents
   GET  /api/export/plan?key=K&format=md|html|docx|pdf   download the ticket's test plan
+  GET  /api/report?days=N&release=X&format=md|html|docx|pdf   team status report
   POST /api/export/confluence {"key","space"?,"title"?}  publish the plan to Confluence
   POST /api/export/attach     {"key","format"?}          attach the plan to the JIRA ticket
   POST /api/review            {"key","status","by"?,"note"?}  set team-review status
@@ -30,7 +31,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import demo_data, export_plan, inline_ticket, review_state, settings_store, work_queue
+import demo_data, export_plan, inline_ticket, review_state, settings_store, \
+    team_report, work_queue
 
 MOCK = os.environ.get("AIQE_MOCK", "1") == "1"
 TRACKER = ROOT / ("adapters/mock/tracker.sh" if MOCK else "adapters/tracker/jira.sh")
@@ -145,6 +147,25 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Disposition",
                              f'attachment; filename="{key}-testplan.{fmt}"')
+            self.send_header("Content-Length", str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+        elif url.path == "/api/report":
+            q = urllib.parse.parse_qs(url.query)
+            fmt = q.get("format", ["md"])[0]
+            days = q.get("days", [""])[0]
+            release = q.get("release", [""])[0]
+            if fmt not in team_report.FORMATS or (days and not days.isdigit()) \
+                    or (release and not re.fullmatch(r"[\w.-]+", release)):
+                self._send(400, {"error": "format=md|html|docx|pdf; days must be a "
+                                          "number; release must be a version string"})
+                return
+            content, ctype = team_report.render(fmt, int(days) if days else None,
+                                                release or None)
+            name = "team-report" + (f"-{release}" if release else "") + f".{fmt}"
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Disposition", f'attachment; filename="{name}"')
             self.send_header("Content-Length", str(len(content)))
             self.end_headers()
             self.wfile.write(content)

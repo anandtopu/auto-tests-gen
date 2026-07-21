@@ -308,6 +308,31 @@ make queue-run          # drain (AIQE_MOCK=1 unless you export otherwise)
 Duplicate pending items are deduped. The server runs mock adapters by default; export
 `AIQE_MOCK=0` (with credentials) before `make serve` for real estates.
 
+### Team status reports
+
+One shareable document answering "what did the AI QE pipeline deliver, what's
+waiting on us, and how healthy is the estate" — for standups and release readouts:
+
+```bash
+make report                    # all-time report to stdout (markdown)
+make report DAYS=7             # rolling window
+make report RELEASE=2026.09    # only keys tracked against that fixVersion
+make report FORMAT=pdf         # write reports/exports/team-report-<date>.pdf (or html|docx)
+python3 bin/qa.py report --days 30 --format docx --out ~/standup.docx
+```
+
+Sections: **Summary** (runs, commit rate, tests generated new-vs-extended, avg
+repair loops, review backlog, queue backlog), **Completed work** (every committed
+run with repo@sha, release and review status), **Quarantined runs**, **Awaiting
+team review** (with waiting time), **Work queue**, **By release** rollup,
+**Throughput** (runs/day) and **Estate health** (catalog mapping tiers, coverage
+gaps, flaky tests from CI ingest). Built by `engine/lib/team_report.py` from the
+run records, review board, queue, catalog and CI-health state; HTML/DOCX/PDF
+reuse the test-plan exporter's stdlib renderers.
+
+On the served dashboard, the **Overview** view has a *Team report* card — pick a
+period and release, then download in any format (`GET /api/report`).
+
 ### Settings: configure integrations from the UI
 
 The served dashboard's **Settings** view edits the gitignored `.env` — the same file

@@ -23,6 +23,9 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
       export the plan and attach it to the JIRA ticket (Tracker port;
       mock adapter unless AIQE_MOCK=0)
   bin/qa.py gaps [--repo R]                     surface with NO test evidence (coverage gaps)
+  bin/qa.py report [--days N] [--release X] [--format md|html|docx|pdf] [--out F]
+                                                team status report: completed work, review
+                                                backlog, queue, throughput, estate health
   bin/qa.py ingest-results <junit.xml|jenkins.json>   CI results -> per-test health
       (pass rate / flakiness in catalog/health.json; Jenkins role 3)
   bin/qa.py sql "SELECT ..."                    query the SQLite catalog index (read-only)
@@ -294,6 +297,17 @@ def cmd_gaps(args):
     print(coverage_gaps.to_markdown(args.repo))
 
 
+def cmd_report(args):
+    import team_report
+    if args.out or args.format != "md":
+        path = team_report.export(args.format, args.days, args.release,
+                                  args.out and pathlib.Path(args.out))
+        print(f"report written: "
+              f"{path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}")
+    else:
+        print(team_report.to_markdown(args.days, args.release))
+
+
 def cmd_ingest_results(args):
     import test_health
     matched, unmatched = test_health.ingest(args.file)
@@ -472,6 +486,11 @@ if __name__ == "__main__":
     s.add_argument("--format", choices=["md", "html", "docx", "pdf"], default="pdf")
     s.set_defaults(fn=cmd_attach_plan)
     s = sub.add_parser("gaps"); s.add_argument("--repo"); s.set_defaults(fn=cmd_gaps)
+    s = sub.add_parser("report")
+    s.add_argument("--days", type=int); s.add_argument("--release")
+    s.add_argument("--format", default="md", choices=["md", "html", "docx", "pdf"])
+    s.add_argument("--out")
+    s.set_defaults(fn=cmd_report)
     s = sub.add_parser("ingest-results"); s.add_argument("file")
     s.set_defaults(fn=cmd_ingest_results)
     s = sub.add_parser("sql"); s.add_argument("query"); s.set_defaults(fn=cmd_sql)

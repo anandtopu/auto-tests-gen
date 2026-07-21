@@ -186,12 +186,14 @@ def _md_to_html(md):
     return "\n".join(out)
 
 
-def to_html(key):
-    body = _md_to_html(to_markdown(key))
+def md_to_html_doc(md, title):
+    """Standalone styled HTML document from any of our markdown (generic —
+    also used by team_report.py)."""
+    body = _md_to_html(md)
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Test Plan — {html.escape(key)}</title>
+<title>{html.escape(title)}</title>
 <style>
 :root {{ --bg:#fff; --ink:#1a1a19; --ink2:#5f5e5b; --line:#e4e2de; --card:#f7f6f4 }}
 @media (prefers-color-scheme: dark) {{
@@ -209,6 +211,10 @@ ul {{ padding-left:22px }}
 {body}
 </body></html>
 """
+
+
+def to_html(key):
+    return md_to_html_doc(to_markdown(key), f"Test Plan — {key}")
 
 
 # --- Confluence (storage-format body + publish via the Knowledge port) ----------
@@ -284,9 +290,10 @@ def _docx_p(text, style=None, bullet=False):
     return f"<w:p>{ppr}{body}</w:p>"
 
 
-def to_docx(key):
+def md_to_docx(md):
+    """DOCX bytes from any of our markdown (generic — also used by team_report.py)."""
     parts = []
-    for kind, payload in _blocks(to_markdown(key)):
+    for kind, payload in _blocks(md):
         if kind == "heading":
             n, text = payload
             parts.append(_docx_p(text, style=f"Heading{min(n, 3)}"))
@@ -348,6 +355,10 @@ def to_docx(key):
     return buf.getvalue()
 
 
+def to_docx(key):
+    return md_to_docx(to_markdown(key))
+
+
 # --- PDF (minimal native writer, stdlib only) -----------------------------------
 
 _PAGE_W, _PAGE_H, _MARGIN = 612, 792, 56          # US Letter, 1" margins-ish
@@ -374,10 +385,11 @@ def _wrap(text, size, width, char_w):
     return out or [""]
 
 
-def to_pdf(key):
+def md_to_pdf(md):
+    """PDF bytes from any of our markdown (generic — also used by team_report.py)."""
     # layout pass: (font, size, text) lines with per-line spacing
     lines = []                                     # (font, size, text, gap_before)
-    for kind, payload in _blocks(to_markdown(key)):
+    for kind, payload in _blocks(md):
         if kind == "heading":
             n, text = payload
             size = {1: 19, 2: 14, 3: 12, 4: 11}[n]
@@ -454,6 +466,10 @@ def to_pdf(key):
     out.write(f"trailer\n<< /Size {count} /Root 1 0 R >>\n"
               f"startxref\n{xref_at}\n%%EOF\n".encode())
     return out.getvalue()
+
+
+def to_pdf(key):
+    return md_to_pdf(to_markdown(key))
 
 
 # --- entry ----------------------------------------------------------------------

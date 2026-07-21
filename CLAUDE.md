@@ -28,6 +28,7 @@ make dashboard           # regenerate reports/dashboard.html (bin/dashboard.py, 
 make reviews             # team-review board; bin/qa.py mark <KEY> <status> transitions it
 make serve               # interactive dashboard (bin/dashboard_server.py, :4999): fetch by release + work queue + Settings view (edits .env via engine/lib/settings_store.py; secrets write-only)
 make clear-demo [DRY=1]  # delete generated demo data (run history, plans, exports, scratch; estate registry/catalog/AGENTS.md kept — engine/lib/demo_data.py)
+make report [DAYS=7] [RELEASE=x] [FORMAT=md|html|docx|pdf]  # team status report: completed work, review backlog, queue, throughput, estate health (engine/lib/team_report.py; also GET /api/report + Overview card)
 make queue-run           # drain the manual work queue (engine/lib/work_queue.py)
 make export-plan KEY=... [FORMAT=html|docx|pdf]  # export a ticket's test plan (engine/lib/export_plan.py -> reports/exports/, gitignored; docx/pdf writers are stdlib-only)
 make publish-plan KEY=...  # one-way mirror the plan to Confluence (Knowledge port publish_doc; mock -> out/mock-confluence/)
