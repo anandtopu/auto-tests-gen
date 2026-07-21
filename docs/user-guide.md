@@ -277,8 +277,22 @@ The export bundles the plan (`testplans/<KEY>.md`) with everything reviewers ask
 target release and team-review status, the scenario table, canonical test data files,
 the generated tests with validation results, commit SHAs/branches, and open questions.
 On the served dashboard (`make serve`), each artifact card's test-plan header has
-**export: md | html | docx | pdf** download links (hidden in static-file mode). Unknown keys list
-the available plans instead of erroring opaquely.
+**export: md | html | docx | pdf** download links plus a **publish to Confluence**
+button (hidden in static-file mode). Unknown keys list the available plans instead of
+erroring opaquely.
+
+**Publishing to Confluence** is a one-way mirror (the repo's `testplans/<KEY>.md`
+stays the source of truth — the page carries a do-not-edit note):
+
+```bash
+make publish-plan KEY=PROJ-301
+python3 bin/qa.py publish-plan PROJ-301 --space QA --title "Test Plan - PROJ-301"
+```
+
+It goes through the Knowledge port: the mock adapter (default) writes the page to
+`out/mock-confluence/`; with `AIQE_MOCK=0` + `CONFLUENCE_URL`/`ATLASSIAN_MCP_TOKEN`
+set, the real adapter creates-or-updates the page by (space, title) via the Confluence
+REST API and prints the page link. Re-publishing after a new run updates the same page.
 
 ### Repository & test knowledge (the catalog as a queryable index)
 

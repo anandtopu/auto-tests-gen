@@ -70,6 +70,35 @@ def test_render_returns_content_types():
         assert expect in ctype and len(data) > 500
 
 
+def test_confluence_body_is_storage_format():
+    body = export_plan.to_confluence("PROJ-301")
+    assert not body.startswith("<!doctype")            # body only, no document shell
+    assert "Mirrored one-way from Git" in body         # source-of-truth note
+    assert "testplans/PROJ-301.md" in body
+    assert "<table>" in body and "<h2>" in body
+    assert "<hr/>" in body                             # XHTML self-closing for storage format
+    assert "<hr>" not in body.replace("<hr/>", "")     # no bare <hr> left behind
+
+
+def test_publish_plan_mock_roundtrip(tmp_path):
+    import os, subprocess
+    env = {**os.environ, "AIQE_MOCK": "1"}
+    r = subprocess.run([sys.executable, str(ROOT / "bin/qa.py"), "publish-plan",
+                        "PROJ-301", "--space", "QA"],
+                       capture_output=True, text=True, cwd=ROOT, env=env,
+                       stdin=subprocess.DEVNULL)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "[mock-confluence] published" in r.stdout and "space QA" in r.stdout
+    published = ROOT / "out/mock-confluence"
+    files = list(published.glob("*.html"))
+    assert files and "Mirrored one-way" in files[0].read_text(encoding="utf-8")
+    # unknown key fails helpfully
+    r = subprocess.run([sys.executable, str(ROOT / "bin/qa.py"), "publish-plan", "NOPE-1"],
+                       capture_output=True, text=True, cwd=ROOT, env=env,
+                       stdin=subprocess.DEVNULL)
+    assert r.returncode != 0 and "PROJ-301" in (r.stdout + r.stderr)
+
+
 def test_cli_export_writes_files(tmp_path):
     out_md = tmp_path / "plan.md"
     r = run_cli(["export-plan", "PROJ-301", "--out", str(out_md)])

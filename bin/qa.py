@@ -16,6 +16,9 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
   bin/qa.py export-plan <KEY> [--format md|html|docx|pdf] [--out FILE]
       export the ticket's generated test plan (+ scenarios, data, tests,
       validation, review/release status) for sharing outside Git
+  bin/qa.py publish-plan <KEY> [--space QA] [--title T]
+      one-way mirror the plan to a Confluence page (Knowledge port;
+      mock adapter unless AIQE_MOCK=0 with CONFLUENCE_URL credentials)
   bin/qa.py apply-review <queue.csv>            apply QE decisions back into the catalog
   bin/qa.py map <test_id> --repos a,b|ORPHAN    set one mapping directly (confirmed)
 """
@@ -256,6 +259,11 @@ def cmd_export_plan(args):
     print(f"exported: {path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}")
 
 
+def cmd_publish_plan(args):
+    import export_plan
+    print(export_plan.publish_to_confluence(args.key, args.space, args.title))
+
+
 def cmd_review(args):
     pending = [(f, e) for f, e in load_catalog()
                if e["mapping"]["status"] in ("needs_review", "orphan")]
@@ -356,6 +364,9 @@ if __name__ == "__main__":
     s.add_argument("--format", choices=["md", "html", "docx", "pdf"], default="md")
     s.add_argument("--out")
     s.set_defaults(fn=cmd_export_plan)
+    s = sub.add_parser("publish-plan")
+    s.add_argument("key"); s.add_argument("--space"); s.add_argument("--title")
+    s.set_defaults(fn=cmd_publish_plan)
     s = sub.add_parser("review"); s.set_defaults(fn=cmd_review)
     s = sub.add_parser("apply-review"); s.add_argument("csv"); s.set_defaults(fn=cmd_apply_review)
     s = sub.add_parser("map"); s.add_argument("test_id"); s.add_argument("--repos", required=True)

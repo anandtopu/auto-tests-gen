@@ -72,8 +72,11 @@ the pipeline pulls Confluence pages linked from the ticket
 (`adapters/knowledge/confluence.sh get_linked_docs`), budgeted by
 `knowledge.confluence_max_pages` / `confluence_max_tokens` in `org-config.yaml`.
 Page text is treated as untrusted data under the same prompt-injection framing as
-ticket text. Optional outbound mirroring of test plans to a Confluence space is
-one-way (repo → Confluence) to avoid two-master drift (§5.10).
+ticket text. Outbound mirroring of test plans is one-way (repo → Confluence) to avoid
+two-master drift (§5.10): `make publish-plan KEY=<KEY>` (or the dashboard's *publish to
+Confluence* button) creates-or-updates a page by (space, title) — set `CONFLUENCE_URL`
+(e.g. `https://your-domain.atlassian.net/wiki`) and optionally `CONFLUENCE_SPACE` in
+`.env`; the same `ATLASSIAN_MCP_TOKEN` authenticates.
 
 ## Step 6 — Verify
 

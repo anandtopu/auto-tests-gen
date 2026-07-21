@@ -211,6 +211,37 @@ ul {{ padding-left:22px }}
 """
 
 
+# --- Confluence (storage-format body + publish via the Knowledge port) ----------
+
+def to_confluence(key):
+    """Confluence storage-format body (XHTML subset) — one-way mirror of the plan."""
+    note = ("<p><em>Mirrored one-way from Git by AI-QE — source of truth: "
+            f"<code>testplans/{html.escape(key)}.md</code>. Do not edit here.</em></p>")
+    return note + "<hr/>" + _md_to_html(to_markdown(key)).replace("<hr>", "<hr/>")
+
+
+def publish_to_confluence(key, space=None, title=None):
+    """Render + publish through the Knowledge port (mock unless AIQE_MOCK=0)."""
+    import os, subprocess
+    import work_queue
+    body = to_confluence(key)
+    tmp = ROOT / "out/confluence-publish.html"
+    tmp.parent.mkdir(exist_ok=True)
+    tmp.write_text(body, encoding="utf-8", newline="\n")
+    mock = os.environ.get("AIQE_MOCK", "1") == "1"
+    adapter = ROOT / ("adapters/mock/knowledge.sh" if mock
+                      else "adapters/knowledge/confluence.sh")
+    space = space or os.environ.get("CONFLUENCE_SPACE", "QA")
+    # ASCII default: non-ASCII titles mojibake through the Windows bash boundary
+    title = title or f"Test Plan - {key}"
+    r = subprocess.run([work_queue.bash_exe(), str(adapter), "publish_doc",
+                        space, title, str(tmp)],
+                       cwd=ROOT, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    if r.returncode != 0:
+        sys.exit(f"publish failed: {r.stdout}{r.stderr}".strip())
+    return r.stdout.strip()
+
+
 # --- DOCX (OOXML zip, stdlib only) ----------------------------------------------
 
 _W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
