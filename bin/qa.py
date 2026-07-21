@@ -7,7 +7,12 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
   bin/qa.py artifacts <KEY> [--full] [--all]    view generated plan/data/tests for a PR or story
   bin/qa.py coverage                            app-repo x test-repo coverage matrix
   bin/qa.py tests    [--app R] [--repo T] [--status S] [--layer L]
-  bin/qa.py review                              pending review queue (all repos)
+  bin/qa.py review                              pending mapping-review queue (all repos)
+  bin/qa.py reviews                             team-review board for PRs / JIRA tickets
+  bin/qa.py mark <KEY> <status> [--by] [--note] set team-review status
+      statuses: pending_review | in_review | approved | changes_requested
+  bin/qa.py release <KEY> <version>             set the target release version for a PR/ticket
+      (JIRA keys get this automatically from the ticket's fixVersions)
   bin/qa.py apply-review <queue.csv>            apply QE decisions back into the catalog
   bin/qa.py map <test_id> --repos a,b|ORPHAN    set one mapping directly (confirmed)
 """
@@ -17,6 +22,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 from registry import load_registry
+import review_state
 
 
 def load_catalog():
@@ -43,9 +49,15 @@ def regen_coverage():
                    cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
 
 
+def _run_record_files():
+    """reports/runs/*.json minus the review-state file that shares the directory."""
+    return [f for f in glob.glob(str(ROOT / "reports/runs/*.json"))
+            if pathlib.Path(f).name != "reviews.json"]
+
+
 def cmd_status(args):
     runs = []
-    for f in glob.glob(str(ROOT / "reports/runs/*.json")):
+    for f in _run_record_files():
         try:
             runs.append(json.load(open(f, encoding="utf-8")))
         except (json.JSONDecodeError, OSError):
@@ -55,18 +67,28 @@ def cmd_status(args):
         print("no run records yet - run a pipeline (make demo-pr / demo-jira) first")
         return
     ICON = {"committed": "OK ", "no_changes": "-- ", "quarantined": "!! "}
-    print(f"{'run_id':<18} {'trigger':<22} {'overall':<12} gates")
+    reviews = review_state.load()
+    print(f"{'run_id':<18} {'trigger':<22} {'overall':<12} {'team review':<18} {'release':<10} gates")
     for r in runs[: args.n]:
         gates = ", ".join(
             f"{g['test_repo']}={g['status']}"
             + (f"@{g['commit'][:7]}" if g.get("commit") else "")
             + ("" if g["exit_code"] == 0 else f"(exit {g['exit_code']})")
             for g in r.get("gates", [])) or "-"
-        trig = f"{r['trigger']['type']}:{r['trigger']['key']}"
-        print(f"{r['run_id']:<18} {trig:<22} {ICON.get(r['overall'], '') + r['overall']:<12} {gates}")
+        key = r["trigger"]["key"]
+        trig = f"{r['trigger']['type']}:{key}"
+        e = reviews.get(key, {})
+        rev = e.get("status") or "-"
+        rel = e.get("release") or "-"
+        print(f"{r['run_id']:<18} {trig:<22} {ICON.get(r['overall'], '') + r['overall']:<12} "
+              f"{rev:<18} {rel:<10} {gates}")
     quarantined = [r for r in runs[: args.n] if r["overall"] == "quarantined"]
     if quarantined:
         print(f"\n{len(quarantined)} quarantined run(s) need attention - logs under reports/")
+    pending = [k for k, v in reviews.items() if v.get("status") in ("pending_review", "in_review")]
+    if pending:
+        print(f"awaiting team review: {', '.join(sorted(pending))}   "
+              f"(bin/qa.py mark <KEY> approved --by <name>)")
 
 
 def cmd_coverage(args):
@@ -122,7 +144,7 @@ def cmd_tests(args):
 
 def _runs_for_key(key):
     runs = []
-    for f in glob.glob(str(ROOT / "reports/runs/*.json")):
+    for f in _run_record_files():
         try:
             r = json.load(open(f, encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
@@ -138,12 +160,18 @@ def cmd_artifacts(args):
     runs = _runs_for_key(args.key)
     if not runs:
         keys = sorted({json.load(open(f, encoding="utf-8"))["trigger"]["key"]
-                       for f in glob.glob(str(ROOT / "reports/runs/*.json"))})
+                       for f in _run_record_files()})
         sys.exit(f"no runs recorded for '{args.key}'. Known keys: {', '.join(keys) or 'none'}")
     for r in runs if args.all else runs[:1]:
         key = r["trigger"]["key"]
+        rev = review_state.load().get(key, {})
+        rev_note = ""
+        if rev:
+            rev_note = (f"  team-review={rev.get('status') or '-'}"
+                        + (f" by {rev['reviewer']}" if rev.get("reviewer") else "")
+                        + (f"  release={rev['release']}" if rev.get("release") else ""))
         print(f"=== run {r['run_id']}  ({r['trigger']['type']}:{key})  "
-              f"overall={r['overall']} ===")
+              f"overall={r['overall']}{rev_note} ===")
         contracts = {p["name"]: p["contract"] for p in r.get("phases", [])}
 
         plan = ROOT / f"testplans/{key}.md"
@@ -188,6 +216,35 @@ def cmd_artifacts(args):
         print()
     if not args.full:
         print("(--full prints the plan and the generated test code; --all shows every run)")
+
+
+def cmd_reviews(args):
+    """Team-review board: every tracked PR / JIRA key and where it stands."""
+    data = review_state.load()
+    if not data:
+        print("no review states yet - a run that commits generated tests marks its key pending_review")
+        return
+    import time as _t
+    order = {"pending_review": 0, "in_review": 1, "changes_requested": 2, "approved": 3}
+    print(f"{'key':<22} {'status':<18} {'release':<10} {'reviewer':<14} {'updated':<17} note")
+    for key, e in sorted(data.items(), key=lambda kv: (order.get(kv[1].get("status"), 9), kv[0])):
+        ts = _t.strftime("%Y-%m-%d %H:%M", _t.localtime(e.get("updated", 0)))
+        print(f"{key:<22} {e.get('status') or '-':<18} {e.get('release') or '-':<10} "
+              f"{e.get('reviewer') or '-':<14} {ts:<17} {e.get('note', '')[:50]}")
+    pending = sum(1 for e in data.values() if e["status"] in ("pending_review", "in_review"))
+    print(f"\n{pending} awaiting review. Transition: bin/qa.py mark <KEY> "
+          f"{'|'.join(review_state.VALID)} [--by NAME] [--note TEXT]")
+
+
+def cmd_mark(args):
+    entry = review_state.set_status(args.key, args.status, args.by or "", args.note or "")
+    print(f"{args.key} -> {entry['status']}"
+          + (f" (by {args.by})" if args.by else ""))
+
+
+def cmd_release(args):
+    entry = review_state.set_release(args.key, args.version)
+    print(f"{args.key} -> release {entry['release']}")
 
 
 def cmd_review(args):
@@ -277,6 +334,14 @@ if __name__ == "__main__":
     s.add_argument("--full", action="store_true", help="print plan + generated test code")
     s.add_argument("--all", action="store_true", help="every run for the key, not just latest")
     s.set_defaults(fn=cmd_artifacts)
+    s = sub.add_parser("reviews"); s.set_defaults(fn=cmd_reviews)
+    s = sub.add_parser("mark")
+    s.add_argument("key"); s.add_argument("status", choices=review_state.VALID)
+    s.add_argument("--by"); s.add_argument("--note")
+    s.set_defaults(fn=cmd_mark)
+    s = sub.add_parser("release")
+    s.add_argument("key"); s.add_argument("version")
+    s.set_defaults(fn=cmd_release)
     s = sub.add_parser("review"); s.set_defaults(fn=cmd_review)
     s = sub.add_parser("apply-review"); s.add_argument("csv"); s.set_defaults(fn=cmd_apply_review)
     s = sub.add_parser("map"); s.add_argument("test_id"); s.add_argument("--repos", required=True)

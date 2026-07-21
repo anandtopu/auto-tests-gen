@@ -8,11 +8,14 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 from registry import load_registry
+import review_state
 
 esc = html.escape
 
 runs = []
 for f in glob.glob(str(ROOT / "reports/runs/*.json")):
+    if pathlib.Path(f).name == "reviews.json":   # review state, not a run record
+        continue
     try:
         runs.append(json.load(open(f, encoding="utf-8")))
     except (json.JSONDecodeError, OSError):
@@ -46,7 +49,7 @@ for e in catalog:
 uncovered = [s for s in sources
              if not any(counts.get((s, t["name"])) or s in t.get("covers", []) for t in trepos)]
 
-STATUS = {  # gate/run + mapping states -> (icon, css class, label)
+STATUS = {  # gate/run + mapping + team-review states -> (icon, css class, label)
     "committed":   ("&#10003;", "good", "committed"),
     "no_changes":  ("&#8212;",  "muted", "no changes"),
     "quarantined": ("&#9888;",  "critical", "quarantined"),
@@ -54,7 +57,18 @@ STATUS = {  # gate/run + mapping states -> (icon, css class, label)
     "confirmed":   ("&#10003;", "good", "confirmed"),
     "needs_review":("&#9998;",  "warning", "needs review"),
     "orphan":      ("&#9888;",  "critical", "orphan"),
+    "pending_review":    ("&#9998;",  "warning",  "yet to be reviewed"),
+    "in_review":         ("&#9998;",  "warning",  "in review"),
+    "approved":          ("&#10003;", "good",     "reviewed + approved"),
+    "changes_requested": ("&#9888;",  "critical", "changes requested"),
 }
+reviews = review_state.load()
+def review_chip(key):
+    st = reviews.get(key, {}).get("status")
+    return chip(st) if st else '<span class="chip muted">&#8212;</span>'
+def release_cell(key):
+    rel = reviews.get(key, {}).get("release")
+    return f"<code>{esc(rel)}</code>" if rel else '<span class="chip muted">&#8212;</span>'
 def chip(status):
     icon, cls, label = STATUS.get(status, ("", "muted", status))
     return f'<span class="chip {cls}">{icon} {esc(label)}</span>'
@@ -67,17 +81,28 @@ def tile(value, label, cls=""):
 runs_rows = ""
 for r in runs[:25]:
     ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(r.get("ts", 0)))
-    gates = "".join(
-        f'<div>{chip(g["status"])} {esc(g["test_repo"])}'
-        + (f' <code>{esc(g["commit"][:7])}</code>' if g.get("commit") else "")
-        + (f' <a href="{esc(pathlib.PurePosixPath(g["log"]).name)}">log</a>'
-           if g["status"] == "quarantined" else "") + "</div>"
-        for g in r.get("gates", []))
-    runs_rows += (f'<tr><td><code>{esc(r["run_id"])}</code></td>'
-                  f'<td>{esc(r["trigger"]["type"])}</td>'
-                  f'<td><strong>{esc(r["trigger"]["key"])}</strong></td>'
-                  f'<td>{ts}</td><td>{chip(r.get("overall", "?"))}</td>'
-                  f'<td>{gates or "&#8212;"}</td></tr>')
+    gates = r.get("gates", []) or [{"test_repo": "—", "status": "?", "exit_code": 0}]
+    span = len(gates)
+    for i, g in enumerate(gates):
+        row = "<tr>"
+        if i == 0:  # run-level cells span all of this run's test-repo rows
+            row += (f'<td rowspan="{span}"><code>{esc(r["run_id"])}</code></td>'
+                    f'<td rowspan="{span}">{esc(r["trigger"]["type"])}</td>'
+                    f'<td rowspan="{span}"><strong>{esc(r["trigger"]["key"])}</strong></td>'
+                    f'<td rowspan="{span}">{ts}</td>'
+                    f'<td rowspan="{span}">{chip(r.get("overall", "?"))}</td>'
+                    f'<td rowspan="{span}">{review_chip(r["trigger"]["key"])}</td>'
+                    f'<td rowspan="{span}">{release_cell(r["trigger"]["key"])}</td>')
+        links = ""
+        if g.get("commit"):
+            links += f' <code>{esc(g["commit"][:7])}</code>'
+        if g.get("diff"):
+            links += f' <a href="runs/{esc(pathlib.PurePosixPath(g["diff"]).name)}">diff</a>'
+        if g.get("status") == "quarantined" and g.get("log"):
+            links += f' <a href="{esc(pathlib.PurePosixPath(g["log"]).name)}">log</a>'
+        row += (f'<td class="repo"><strong>{esc(g["test_repo"])}</strong></td>'
+                f'<td>{chip(g["status"])}{links}</td></tr>')
+        runs_rows += row
 
 matrix_head = "".join(f"<th>{esc(t['name'])}</th>" for t in trepos)
 matrix_rows = ""
@@ -146,9 +171,20 @@ for key, r in latest_by_key.items():
                       f"{esc(g['test_repo'])} @ <code>{esc(g.get('commit') or '')}</code>"
                       f"</summary><pre>{esc(diff_text)}</pre></details>")
     if inner:
+        rev = reviews.get(key, {})
+        rev_line = ""
+        if rev:
+            who = f" by {esc(rev['reviewer'])}" if rev.get("reviewer") else ""
+            note = f" &mdash; {esc(rev['note'])}" if rev.get("note") else ""
+            rel = (f" &middot; release <code>{esc(rev['release'])}</code>"
+                   if rev.get("release") else "")
+            rev_line = f"<p>Team review: {review_chip(key)}{who}{note}{rel}</p>"
+        rel_sum = (f" &middot; {release_cell(key)}"
+                   if reviews.get(key, {}).get("release") else "")
         art_blocks += (f"<details class='art'><summary><strong>{esc(key)}</strong> "
                        f"&mdash; run {esc(r['run_id'])} &middot; {chip(r.get('overall', '?'))}"
-                       f"</summary>{inner}</details>")
+                       f" &middot; {review_chip(key)}{rel_sum}"
+                       f"</summary>{rev_line}{inner}</details>")
 
 repo_opts = "".join(f'<option>{esc(t["name"])}</option>' for t in trepos)
 gen_ts = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -181,6 +217,8 @@ thead th {{ color:var(--ink2); font-weight:600; font-size:12px }}
 td.num {{ text-align:right; font-variant-numeric:tabular-nums }}
 td.dim {{ color:var(--line) }} td.covers {{ color:var(--ink2) }}
 tr.gap th {{ color:var(--critical) }}
+td.repo {{ white-space:nowrap }}
+td[rowspan] {{ vertical-align:top }}
 code {{ background:var(--card); padding:1px 5px; border-radius:4px; font-size:12px }}
 .chip {{ white-space:nowrap; font-size:12px; font-weight:600 }}
 .chip.good {{ color:var(--good) }} .chip.warning {{ color:var(--warning) }}
@@ -210,13 +248,17 @@ details details {{ margin:8px 0 }}
       "alert" if by_status.get("needs_review") else "")}
 {tile(by_status.get("orphan", 0), "orphans", "alert" if by_status.get("orphan") else "")}
 {tile(len(uncovered), "uncovered app repos", "alert" if uncovered else "")}
+{tile(sum(1 for e in reviews.values() if e.get("status") in ("pending_review", "in_review")),
+      "awaiting team review",
+      "alert" if any(e.get("status") in ("pending_review", "in_review")
+                     for e in reviews.values()) else "")}
 </div>
 
 <h2>Recent runs</h2>
 <div class="scroll"><table>
 <thead><tr><th>run</th><th>trigger</th><th>key</th><th>time</th><th>overall</th>
-<th>per test repo</th></tr></thead>
-<tbody>{runs_rows or '<tr><td colspan="6">no runs recorded yet</td></tr>'}</tbody>
+<th>team review</th><th>release</th><th>E2E test repository</th><th>gate result</th></tr></thead>
+<tbody>{runs_rows or '<tr><td colspan="9">no runs recorded yet</td></tr>'}</tbody>
 </table></div>
 
 <h2>Generated artifacts &mdash; test plans &amp; E2E tests per PR / story</h2>

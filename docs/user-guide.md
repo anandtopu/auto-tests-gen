@@ -197,6 +197,39 @@ code is reviewable long after the run (and in real estates, before merging the
 The dashboard has the same view: the **Generated artifacts** section lists the latest
 run per key with expandable plan, scenarios, data, and test-code blocks.
 
+### Team-review tracking (who has looked at the generated tests?)
+
+Every PR / JIRA key whose run **commits** generated artifacts is automatically marked
+`pending_review` ("yet to be reviewed") — including keys that were previously approved,
+because a new commit means new artifacts. The team then moves it through the lifecycle:
+
+```bash
+make reviews                                          # the review board
+python3 bin/qa.py mark PROJ-301 in_review --by anand
+python3 bin/qa.py mark PROJ-301 approved  --by anand --note "LGTM - boundary coverage"
+python3 bin/qa.py mark PR-orders-api-201 changes_requested --by anand --note "add 404 case"
+```
+
+Statuses: `pending_review` → `in_review` → `approved` | `changes_requested`.
+State lives in `reports/runs/reviews.json` (committable; full transition history per
+key). It surfaces everywhere: `make status` has a *team review* column, the dashboard
+shows a chip per run plus an "awaiting team review" KPI tile, and
+`bin/qa.py artifacts <KEY>` prints it in the header.
+
+**Release-version tracking** rides on the same store: each key carries the release it
+targets. JIRA keys get it **automatically** from the ticket's `fixVersions` (Workflow B
+captures it at resolve time; the real Jira adapter and the demo fixture both supply
+`fix_versions`). PRs set it manually:
+
+```bash
+python3 bin/qa.py release PR-orders-api-201 2026.08
+```
+
+The release appears in `make status`, `make reviews`, the dashboard's *release* column,
+and the artifact cards — so the team can answer "which release does this generated test
+work belong to, and has it been reviewed?" in one view. Status transitions never touch
+the release; changing it appends to the key's history with its source (`jira`/`manual`).
+
 ### Repository & test knowledge (the catalog as a queryable index)
 
 ```bash

@@ -1,3 +1,3 @@
 {"key":"PROJ-301","summary":"Discount validation hardening","description":"As a shopper I cannot apply invalid discounts.",
- "components":["Checkout"],"labels":["api-only"],"linked_repos":["orders-api"],
+ "components":["Checkout"],"labels":["api-only"],"linked_repos":["orders-api"],"fix_versions":["2026.08"],
  "acceptance_criteria":["AC-1: 1-90% accepted, total recalculated","AC-2: out-of-range rejected with 400","AC-3: stacking TBD"]}

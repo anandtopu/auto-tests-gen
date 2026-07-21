@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 .PHONY: deps test-routing bootstrap run-pr run-jira eval conformance \
-        status coverage dashboard review-queue repos agents parity-pr parity-jira
+        status coverage dashboard review-queue reviews repos agents parity-pr parity-jira
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -54,6 +54,9 @@ coverage:
 
 review-queue:
 	python3 bin/qa.py review
+
+reviews:
+	python3 bin/qa.py reviews
 
 dashboard:
 	python3 bin/dashboard.py

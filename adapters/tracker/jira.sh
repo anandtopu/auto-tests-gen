@@ -14,6 +14,7 @@ print(json.dumps({'key':i['key'],'summary':f['summary'],
  'description':str(f.get('description','')),
  'components':[c['name'] for c in f.get('components',[])],
  'labels':f.get('labels',[]),
+ 'fix_versions':[v['name'] for v in f.get('fixVersions',[])],
  'linked_repos':[],  # populated from dev-panel API if enabled
  'remote_links_url':'$J/issue/'+i['key']+'/remotelink'}))" ;;
   comment) curl -s -X POST -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \

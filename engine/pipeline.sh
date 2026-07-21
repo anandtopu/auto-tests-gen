@@ -35,6 +35,9 @@ else
   LBL=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('labels',[])))")
   LINKED=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('linked_repos',[])))")
   python3 engine/phases/resolve.py jira "$KEY" --components "$COMP" --labels "$LBL" --linked-repos "$LINKED" > out/resolve.contract.json
+  # Release tracking: capture the ticket's fixVersions as the key's target release
+  FIXV=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('fix_versions',[])))")
+  if [ -n "$FIXV" ]; then python3 engine/lib/review_state.py release "$KEY" "$FIXV" jira; fi
   # Knowledge port: pull linked Confluence pages (budgeted) as analyze context
   if [ "${AIQE_MOCK:-0}" = "1" ]; then echo "## Linked PRD (mock): discounts must be 1-90%" > out/confluence.md; \
   else bash adapters/knowledge/confluence.sh get_linked_docs out/ticket.json > out/confluence.md || true; fi
@@ -104,3 +107,5 @@ NOTIFY post "$SUMMARY"
 # Run record: persisted for QA monitoring (reports/runs/) AND emitted as telemetry
 python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY" \
   | tee "reports/runs/${RUN_ID}.json" | TELEM emit_event
+# Team-review tracking: committed artifacts put the key into pending_review
+python3 engine/lib/review_state.py auto "$KEY"

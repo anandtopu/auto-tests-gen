@@ -1,0 +1,60 @@
+{
+  "PR-orders-api-201": {
+    "history": [
+      {
+        "note": "new AI-generated artifacts committed",
+        "reviewer": "pipeline",
+        "status": "pending_review",
+        "ts": 1784608021.0058577
+      },
+      {
+        "release": "2026.08",
+        "source": "manual",
+        "ts": 1784608404.078866
+      }
+    ],
+    "note": "new AI-generated artifacts committed",
+    "release": "2026.08",
+    "reviewer": "pipeline",
+    "status": "pending_review",
+    "updated": 1784608021.0058577
+  },
+  "PROJ-301": {
+    "history": [
+      {
+        "note": "backfill: artifacts committed by run 1784602319-9471",
+        "reviewer": "pipeline",
+        "status": "pending_review",
+        "ts": 1784608021.4064512
+      },
+      {
+        "note": "reviewing boundary cases",
+        "reviewer": "anand",
+        "status": "in_review",
+        "ts": 1784608021.8320765
+      },
+      {
+        "note": "LGTM - boundary coverage complete",
+        "reviewer": "anand",
+        "status": "approved",
+        "ts": 1784608022.2668042
+      },
+      {
+        "release": "2026.08",
+        "source": "jira",
+        "ts": 1784608379.664668
+      },
+      {
+        "note": "new AI-generated artifacts committed (resets previous status: approved)",
+        "reviewer": "pipeline",
+        "status": "pending_review",
+        "ts": 1784608403.5268
+      }
+    ],
+    "note": "new AI-generated artifacts committed (resets previous status: approved)",
+    "release": "2026.08",
+    "reviewer": "pipeline",
+    "status": "pending_review",
+    "updated": 1784608403.5268
+  }
+}
