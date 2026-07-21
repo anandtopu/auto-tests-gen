@@ -9,7 +9,7 @@ Endpoints:
   GET  /<key>.log             gate logs (reports/)
   GET  /api/items?release=X   JIRA tickets (tracker search_release) + known PRs
   GET  /api/queue             queue contents
-  GET  /api/export/plan?key=K&format=md|html   download the ticket's test plan export
+  GET  /api/export/plan?key=K&format=md|html|docx|pdf   download the ticket's test plan
   POST /api/queue             {"mode","target","pr","release"} -> enqueue
   POST /api/queue/run         drain the queue in a background process
   POST /api/queue/requeue     {"id"} -> put a failed item back in the queue
@@ -98,15 +98,13 @@ class Handler(BaseHTTPRequestHandler):
             key = q.get("key", [""])[0]
             fmt = q.get("format", ["md"])[0]
             if fmt not in export_plan.FORMATS or not re.fullmatch(r"[\w.-]+", key or ""):
-                self._send(400, {"error": "key and format=md|html required"})
+                self._send(400, {"error": f"key and format={'|'.join(export_plan.FORMATS)} required"})
                 return
             try:
-                content = (export_plan.to_markdown(key) if fmt == "md"
-                           else export_plan.to_html(key)).encode()
+                content, ctype = export_plan.render(key, fmt)
             except SystemExit as e:                     # no plan for this key
                 self._send(404, {"error": str(e)})
                 return
-            ctype = "text/html; charset=utf-8" if fmt == "html" else "text/markdown; charset=utf-8"
             self.send_response(200)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Disposition",

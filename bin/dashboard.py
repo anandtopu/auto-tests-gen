@@ -143,9 +143,9 @@ for key, r in latest_by_key.items():
     if plan.exists():
         inner += (f"<h4>Test plan &mdash; <code>testplans/{esc(key)}.md</code>"
                   f' <span class="served-only">&middot; export:'
-                  f' <a href="/api/export/plan?key={esc(key)}&amp;format=md">md</a>'
-                  f' <a href="/api/export/plan?key={esc(key)}&amp;format=html">html</a>'
-                  f"</span></h4>"
+                  + "".join(f' <a href="/api/export/plan?key={esc(key)}&amp;format={f}">{f}</a>'
+                            for f in ("md", "html", "docx", "pdf"))
+                  + f"</span></h4>"
                   f"<pre>{esc(plan.read_text(encoding='utf-8'))}</pre>")
     scen = contracts.get("testplan", {}).get("scenarios", [])
     if scen:

@@ -1,18 +1,28 @@
 #!/usr/bin/env python3
-"""Export the generated test plan for a JIRA ticket as shareable Markdown or
-standalone HTML — the plan file (testplans/<KEY>.md) enriched with everything a
-stakeholder needs: release/review status, scenarios, canonical test data, the
-generated tests with validation results, and where the commits landed.
+"""Export the generated test plan for a JIRA ticket as shareable Markdown,
+standalone HTML, a Word document (.docx), or a PDF — the plan file
+(testplans/<KEY>.md) enriched with everything a stakeholder needs: release/review
+status, scenarios, canonical test data, the generated tests with validation
+results, and where the commits landed.
+
+Stdlib-only by design (this repo's toolchain is python3 + pyyaml): the .docx is
+assembled as the OOXML zip it really is, and the PDF via a minimal native writer.
 
 Used by bin/qa.py export-plan and the dashboard server's download endpoint.
 """
-import glob, html, json, pathlib, re, sys, time
+import glob, html, io, json, pathlib, re, sys, time, zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import review_state
 
-FORMATS = ("md", "html")
+FORMATS = ("md", "html", "docx", "pdf")
+CONTENT_TYPES = {
+    "md": "text/markdown; charset=utf-8",
+    "html": "text/html; charset=utf-8",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pdf": "application/pdf",
+}
 
 
 def _latest_run(key):
@@ -94,45 +104,85 @@ def to_markdown(key):
     return "\n".join(lines)
 
 
-def _md_to_html(md):
-    """Minimal markdown renderer (headings, tables, lists, hr, code spans, bold)."""
-    def inline(s):
-        s = html.escape(s)
-        s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
-        s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
-        return s
-    out, in_ul, in_table = [], False, False
-    for line in md.splitlines():
+# --- shared markdown block parser (feeds the html / docx / pdf writers) --------
+
+def _blocks(md):
+    """Yield (kind, payload): heading(level,text) | para(text) | li(text) |
+    table(list of row-lists) | hr."""
+    table = []
+    for line in md.splitlines() + [""]:
         s = line.strip()
-        if in_ul and not s.startswith("- "):
-            out.append("</ul>"); in_ul = False
-        if in_table and not s.startswith("|"):
-            out.append("</table>"); in_table = False
+        if table and not s.startswith("|"):
+            yield ("table", table)
+            table = []
         if not s:
             continue
         if s.startswith("|"):
             cells = [c.strip() for c in s.strip("|").split("|")]
-            if all(re.fullmatch(r":?-+:?", c) for c in cells):
-                continue                                   # separator row
-            tag = "th" if not in_table else "td"
-            if not in_table:
-                out.append("<table>"); in_table = True
-            out.append("<tr>" + "".join(f"<{tag}>{inline(c)}</{tag}>" for c in cells) + "</tr>")
+            if not all(re.fullmatch(r":?-+:?", c) for c in cells):
+                table.append(cells)
         elif s.startswith("#"):
             n = len(s) - len(s.lstrip("#"))
-            out.append(f"<h{min(n, 4)}>{inline(s.lstrip('# '))}</h{min(n, 4)}>")
+            yield ("heading", (min(n, 4), s.lstrip("# ")))
         elif s.startswith("- "):
+            yield ("li", s[2:])
+        elif s in ("---", "***"):
+            yield ("hr", None)
+        else:
+            yield ("para", s)
+
+
+def _runs(text):
+    """Split inline markdown into runs: (text, style) with style in '', 'bold', 'code'."""
+    out = []
+    for part in re.split(r"(\*\*[^*]+\*\*|`[^`]+`)", text):
+        if not part:
+            continue
+        if part.startswith("**") and part.endswith("**"):
+            out.append((part[2:-2], "bold"))
+        elif part.startswith("`") and part.endswith("`"):
+            out.append((part[1:-1], "code"))
+        else:
+            out.append((part, ""))
+    return out
+
+
+def _plain(text):
+    return "".join(t for t, _ in _runs(text))
+
+
+# --- HTML ----------------------------------------------------------------------
+
+def _md_to_html(md):
+    def inline(s):
+        return "".join(
+            f"<code>{html.escape(t)}</code>" if st == "code"
+            else f"<strong>{html.escape(t)}</strong>" if st == "bold"
+            else html.escape(t)
+            for t, st in _runs(s))
+    out, in_ul = [], False
+    for kind, payload in _blocks(md):
+        if in_ul and kind != "li":
+            out.append("</ul>"); in_ul = False
+        if kind == "heading":
+            n, text = payload
+            out.append(f"<h{n}>{inline(text)}</h{n}>")
+        elif kind == "para":
+            out.append(f"<p>{inline(payload)}</p>")
+        elif kind == "li":
             if not in_ul:
                 out.append("<ul>"); in_ul = True
-            out.append(f"<li>{inline(s[2:])}</li>")
-        elif s in ("---", "***"):
+            out.append(f"<li>{inline(payload)}</li>")
+        elif kind == "hr":
             out.append("<hr>")
-        else:
-            out.append(f"<p>{inline(s)}</p>")
+        elif kind == "table":
+            out.append("<table>")
+            for i, row in enumerate(payload):
+                tag = "th" if i == 0 else "td"
+                out.append("<tr>" + "".join(f"<{tag}>{inline(c)}</{tag}>" for c in row) + "</tr>")
+            out.append("</table>")
     if in_ul:
         out.append("</ul>")
-    if in_table:
-        out.append("</table>")
     return "\n".join(out)
 
 
@@ -161,13 +211,227 @@ ul {{ padding-left:22px }}
 """
 
 
-def export(key, fmt="md", out=None):
+# --- DOCX (OOXML zip, stdlib only) ----------------------------------------------
+
+_W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"'
+
+
+def _x(s):
+    return html.escape(s, quote=True)
+
+
+def _docx_runs(text):
+    out = []
+    for t, st in _runs(text):
+        rpr = ""
+        if st == "bold":
+            rpr = "<w:rPr><w:b/></w:rPr>"
+        elif st == "code":
+            rpr = '<w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas"/><w:sz w:val="19"/></w:rPr>'
+        out.append(f'<w:r>{rpr}<w:t xml:space="preserve">{_x(t)}</w:t></w:r>')
+    return "".join(out)
+
+
+def _docx_p(text, style=None, bullet=False):
+    ppr = f'<w:pPr><w:pStyle w:val="{style}"/></w:pPr>' if style else ""
+    body = _docx_runs(("• " + text) if bullet else text)
+    return f"<w:p>{ppr}{body}</w:p>"
+
+
+def to_docx(key):
+    parts = []
+    for kind, payload in _blocks(to_markdown(key)):
+        if kind == "heading":
+            n, text = payload
+            parts.append(_docx_p(text, style=f"Heading{min(n, 3)}"))
+        elif kind == "para":
+            parts.append(_docx_p(payload))
+        elif kind == "li":
+            parts.append(_docx_p(payload, bullet=True))
+        elif kind == "hr":
+            parts.append('<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" '
+                         'w:space="1" w:color="AAAAAA"/></w:pBdr></w:pPr></w:p>')
+        elif kind == "table":
+            rows = []
+            for i, row in enumerate(payload):
+                cells = "".join(
+                    '<w:tc><w:tcPr><w:tcW w:w="0" w:type="auto"/></w:tcPr>'
+                    + _docx_p(f"**{c}**" if i == 0 and c else c) + "</w:tc>"
+                    for c in row)
+                rows.append(f"<w:tr>{cells}</w:tr>")
+            parts.append(
+                '<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders>'
+                + "".join(f'<w:{s} w:val="single" w:sz="4" w:color="CCCCCC"/>'
+                          for s in ("top", "left", "bottom", "right", "insideH", "insideV"))
+                + "</w:tblBorders></w:tblPr>" + "".join(rows) + "</w:tbl>")
+    document = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                f'<w:document {_W}><w:body>{"".join(parts)}'
+                f"<w:sectPr/></w:body></w:document>")
+    styles = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles {_W}>'
+              + '<w:style w:type="paragraph" w:styleId="Normal" w:default="1">'
+                '<w:name w:val="Normal"/><w:rPr><w:sz w:val="21"/></w:rPr></w:style>'
+              + "".join(
+                  f'<w:style w:type="paragraph" w:styleId="Heading{n}">'
+                  f'<w:name w:val="heading {n}"/><w:basedOn w:val="Normal"/>'
+                  f'<w:pPr><w:spacing w:before="{60 * (4 - n)}" w:after="80"/></w:pPr>'
+                  f'<w:rPr><w:b/><w:sz w:val="{34 - 4 * n}"/></w:rPr></w:style>'
+                  for n in (1, 2, 3))
+              + "</w:styles>")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml",
+                   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                   '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+                   '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+                   '<Default Extension="xml" ContentType="application/xml"/>'
+                   '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+                   '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
+                   "</Types>")
+        z.writestr("_rels/.rels",
+                   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                   '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                   '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+                   "</Relationships>")
+        z.writestr("word/_rels/document.xml.rels",
+                   '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                   '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+                   '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+                   "</Relationships>")
+        z.writestr("word/styles.xml", styles)
+        z.writestr("word/document.xml", document)
+    return buf.getvalue()
+
+
+# --- PDF (minimal native writer, stdlib only) -----------------------------------
+
+_PAGE_W, _PAGE_H, _MARGIN = 612, 792, 56          # US Letter, 1" margins-ish
+
+
+def _pdf_escape(s):
+    s = s.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
+    return s.encode("cp1252", errors="replace").decode("cp1252")
+
+
+def _wrap(text, size, width, char_w):
+    max_chars = max(10, int(width / (size * char_w)))
+    words, line, out = text.split(), "", []
+    for w in words:
+        cand = f"{line} {w}".strip()
+        if len(cand) <= max_chars:
+            line = cand
+        else:
+            if line:
+                out.append(line)
+            line = w[:max_chars]
+    if line:
+        out.append(line)
+    return out or [""]
+
+
+def to_pdf(key):
+    # layout pass: (font, size, text) lines with per-line spacing
+    lines = []                                     # (font, size, text, gap_before)
+    for kind, payload in _blocks(to_markdown(key)):
+        if kind == "heading":
+            n, text = payload
+            size = {1: 19, 2: 14, 3: 12, 4: 11}[n]
+            for seg in _wrap(_plain(text), size, _PAGE_W - 2 * _MARGIN, 0.55):
+                lines.append(("F2", size, seg, 14 if n <= 2 else 10))
+        elif kind == "para":
+            for seg in _wrap(_plain(payload), 10.5, _PAGE_W - 2 * _MARGIN, 0.5):
+                lines.append(("F1", 10.5, seg, 4))
+        elif kind == "li":
+            for i, seg in enumerate(_wrap(_plain(payload), 10.5,
+                                          _PAGE_W - 2 * _MARGIN - 14, 0.5)):
+                lines.append(("F1", 10.5, ("• " if i == 0 else "   ") + seg, 2))
+        elif kind == "hr":
+            lines.append(("F1", 10.5, "_" * 78, 8))
+        elif kind == "table":
+            widths = [max(len(_plain(r[i])) if i < len(r) else 0 for r in payload)
+                      for i in range(max(len(r) for r in payload))]
+            for i, row in enumerate(payload):
+                cells = [_plain(c).ljust(widths[j])[:widths[j]]
+                         for j, c in enumerate(row)]
+                text = "  ".join(cells)
+                for seg in _wrap(text, 8.5, _PAGE_W - 2 * _MARGIN, 0.6):
+                    lines.append(("F3", 8.5, seg, 5 if i == 0 else 2))
+
+    # paginate into content streams
+    pages, stream, y = [], [], _PAGE_H - _MARGIN
+    for font, size, text, gap in lines:
+        lh = size * 1.35
+        if y - (gap + lh) < _MARGIN:
+            pages.append("\n".join(stream))
+            stream, y = [], _PAGE_H - _MARGIN
+        y -= gap + lh
+        stream.append(f"BT /{font} {size} Tf {_MARGIN} {y:.1f} Td"
+                      f" ({_pdf_escape(text)}) Tj ET")
+    pages.append("\n".join(stream))
+
+    # assemble objects: 1 catalog, 2 pages, then per-page (page, contents), fonts last
+    objs = {}
+    n_pages = len(pages)
+    font_ids = {"F1": 3 + 2 * n_pages, "F2": 4 + 2 * n_pages, "F3": 5 + 2 * n_pages}
+    kids = " ".join(f"{3 + 2 * i} 0 R" for i in range(n_pages))
+    objs[1] = "<< /Type /Catalog /Pages 2 0 R >>"
+    objs[2] = f"<< /Type /Pages /Kids [{kids}] /Count {n_pages} >>"
+    fonts_res = " ".join(f"/{k} {v} 0 R" for k, v in font_ids.items())
+    for i, content in enumerate(pages):
+        data = content.encode("cp1252", errors="replace")
+        objs[3 + 2 * i] = (f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {_PAGE_W} {_PAGE_H}]"
+                           f" /Resources << /Font << {fonts_res} >> >>"
+                           f" /Contents {4 + 2 * i} 0 R >>")
+        objs[4 + 2 * i] = (f"<< /Length {len(data)} >>\nstream\n", data, b"\nendstream")
+    for name, base in (("F1", "Helvetica"), ("F2", "Helvetica-Bold"), ("F3", "Courier")):
+        objs[font_ids[name]] = (f"<< /Type /Font /Subtype /Type1 /BaseFont /{base}"
+                                f" /Encoding /WinAnsiEncoding >>")
+
+    out, offsets = io.BytesIO(), {}
+    out.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    for num in sorted(objs):
+        offsets[num] = out.tell()
+        out.write(f"{num} 0 obj\n".encode())
+        body = objs[num]
+        if isinstance(body, tuple):
+            out.write(body[0].encode())
+            out.write(body[1])
+            out.write(body[2])
+        else:
+            out.write(body.encode())
+        out.write(b"\nendobj\n")
+    xref_at = out.tell()
+    count = max(objs) + 1
+    out.write(f"xref\n0 {count}\n".encode())
+    out.write(b"0000000000 65535 f \n")
+    for num in range(1, count):
+        out.write(f"{offsets[num]:010d} 00000 n \n".encode())
+    out.write(f"trailer\n<< /Size {count} /Root 1 0 R >>\n"
+              f"startxref\n{xref_at}\n%%EOF\n".encode())
+    return out.getvalue()
+
+
+# --- entry ----------------------------------------------------------------------
+
+def render(key, fmt):
+    """Return (bytes, content_type) for any supported format."""
     if fmt not in FORMATS:
         sys.exit(f"format must be one of: {', '.join(FORMATS)}")
-    content = to_markdown(key) if fmt == "md" else to_html(key)
+    if fmt == "md":
+        data = to_markdown(key).encode("utf-8")
+    elif fmt == "html":
+        data = to_html(key).encode("utf-8")
+    elif fmt == "docx":
+        data = to_docx(key)
+    else:
+        data = to_pdf(key)
+    return data, CONTENT_TYPES[fmt]
+
+
+def export(key, fmt="md", out=None):
+    data, _ = render(key, fmt)
     path = pathlib.Path(out) if out else ROOT / f"reports/exports/{key}-testplan.{fmt}"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8", newline="\n")
+    path.write_bytes(data)
     return path
 
 

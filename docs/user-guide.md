@@ -265,14 +265,19 @@ Share the generated plan with stakeholders outside Git:
 ```bash
 make export-plan KEY=PROJ-301                 # Markdown -> reports/exports/
 make export-plan KEY=PROJ-301 FORMAT=html     # standalone styled HTML (dark-mode aware)
-python3 bin/qa.py export-plan PROJ-301 --format html --out ~/PROJ-301-plan.html
+make export-plan KEY=PROJ-301 FORMAT=docx     # Word document (headings, tables, bullets)
+make export-plan KEY=PROJ-301 FORMAT=pdf      # PDF (paginated, searchable text)
+python3 bin/qa.py export-plan PROJ-301 --format pdf --out ~/PROJ-301-plan.pdf
 ```
+
+The Word and PDF writers are stdlib-only (the .docx is assembled as the OOXML zip it
+really is; the PDF via a minimal native writer) — no extra Python packages needed.
 
 The export bundles the plan (`testplans/<KEY>.md`) with everything reviewers ask for:
 target release and team-review status, the scenario table, canonical test data files,
 the generated tests with validation results, commit SHAs/branches, and open questions.
 On the served dashboard (`make serve`), each artifact card's test-plan header has
-**export: md | html** download links (hidden in static-file mode). Unknown keys list
+**export: md | html | docx | pdf** download links (hidden in static-file mode). Unknown keys list
 the available plans instead of erroring opaquely.
 
 ### Repository & test knowledge (the catalog as a queryable index)

@@ -13,7 +13,7 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
       statuses: pending_review | in_review | approved | changes_requested
   bin/qa.py release <KEY> <version>             set the target release version for a PR/ticket
       (JIRA keys get this automatically from the ticket's fixVersions)
-  bin/qa.py export-plan <KEY> [--format md|html] [--out FILE]
+  bin/qa.py export-plan <KEY> [--format md|html|docx|pdf] [--out FILE]
       export the ticket's generated test plan (+ scenarios, data, tests,
       validation, review/release status) for sharing outside Git
   bin/qa.py apply-review <queue.csv>            apply QE decisions back into the catalog
@@ -352,7 +352,8 @@ if __name__ == "__main__":
     s.add_argument("key"); s.add_argument("version")
     s.set_defaults(fn=cmd_release)
     s = sub.add_parser("export-plan")
-    s.add_argument("key"); s.add_argument("--format", choices=["md", "html"], default="md")
+    s.add_argument("key")
+    s.add_argument("--format", choices=["md", "html", "docx", "pdf"], default="md")
     s.add_argument("--out")
     s.set_defaults(fn=cmd_export_plan)
     s = sub.add_parser("review"); s.set_defaults(fn=cmd_review)

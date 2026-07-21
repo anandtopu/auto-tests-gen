@@ -28,7 +28,7 @@ make dashboard           # regenerate reports/dashboard.html (bin/dashboard.py, 
 make reviews             # team-review board; bin/qa.py mark <KEY> <status> transitions it
 make serve               # interactive dashboard (bin/dashboard_server.py, :4999): fetch by release + work queue
 make queue-run           # drain the manual work queue (engine/lib/work_queue.py)
-make export-plan KEY=... [FORMAT=html]  # export a ticket's test plan (engine/lib/export_plan.py -> reports/exports/, gitignored)
+make export-plan KEY=... [FORMAT=html|docx|pdf]  # export a ticket's test plan (engine/lib/export_plan.py -> reports/exports/, gitignored; docx/pdf writers are stdlib-only)
 make repos               # list configured app repos (bin/repos.py: show/set/link/unlink/remove)
 make agents              # regenerate AGENTS.md estate knowledge (bin/gen_agents_md.py)
 make run-pr REPO=... PR=...   # real (non-mock) Workflow A — needs .env credentials
