@@ -19,6 +19,11 @@ regenerates AGENTS.md so agent phases always see current estate knowledge.
       test repo is responsible for (covers regenerates as evidence UNION scope)
   bin/repos.py notes <repo> [--set "text" | --file F | --clear]
       per-repo agent guidance -> knowledge/repos/<repo>.md, merged into AGENTS.md
+  bin/repos.py sync [<repo>] [--ref REF]
+      pull each repo's own AGENTS.md/CLAUDE.md from the SCM (Bitbucket/GitHub/Stash)
+      into knowledge/synced/ and regenerate AGENTS.md; omit <repo> to sync every
+      application (ui + service) and E2E test repo
+  bin/repos.py sync-status              when each repo was last synced + what it carries
 
 Full onboarding (clone + templates + bootstrap) stays with bin/onboard.sh;
 add-app/add-test register the repo so mapping and routing work immediately.
@@ -197,6 +202,35 @@ def cmd_notes(args):
             print(f"repo-local guidance: {f['path']} ({f['chars']} chars)")
 
 
+def cmd_sync(args):
+    import guidance_sync
+    if args.name:
+        r = guidance_sync.sync_repo(args.name, args.ref)
+        guidance_sync.regenerate_agents_md()
+        print(f"{r['repo']}: synced {', '.join(r['files']) or '(no guidance in repo)'}"
+              + (f"; absent: {', '.join(r['missing'])}" if r["missing"] else "")
+              + " - AGENTS.md regenerated")
+    else:
+        r = guidance_sync.sync_all(args.ref)
+        guidance_sync.regenerate_agents_md()
+        print(f"synced {r['repos']} repo(s); {r['with_guidance']} carry guidance "
+              f"- AGENTS.md regenerated")
+        for x in r["results"]:
+            if x["files"]:
+                print(f"  {x['repo']}: {', '.join(x['files'])}")
+
+
+def cmd_sync_status(args):
+    import time
+    import guidance_sync
+    print(f"{'repo':<22} {'kind':<8} {'last sync':<17} guidance")
+    for x in guidance_sync.status():
+        when = (time.strftime("%Y-%m-%d %H:%M", time.localtime(x["synced_at"]))
+                if x["synced_at"] else "never")
+        print(f"{x['name']:<22} {x['kind']:<8} {when:<17} "
+              f"{', '.join(x['files']) or '-'}")
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -223,6 +257,9 @@ if __name__ == "__main__":
     s.add_argument("--scope"); s.set_defaults(fn=cmd_add_test)
     s = sub.add_parser("scope"); s.add_argument("test_repo"); s.add_argument("apps")
     s.set_defaults(fn=cmd_scope)
+    s = sub.add_parser("sync"); s.add_argument("name", nargs="?")
+    s.add_argument("--ref"); s.set_defaults(fn=cmd_sync)
+    s = sub.add_parser("sync-status"); s.set_defaults(fn=cmd_sync_status)
     s = sub.add_parser("notes"); s.add_argument("name")
     s.add_argument("--set"); s.add_argument("--file")
     s.add_argument("--clear", action="store_true"); s.set_defaults(fn=cmd_notes)

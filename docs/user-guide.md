@@ -345,9 +345,31 @@ each repo, both merged into the estate `AGENTS.md` (injected into every LLM phas
    guidance card or `bin/repos.py notes <repo> --set "..."` / `--file f.md` /
    `--clear`. Conventions, selectors, auth flows, data setup.
 2. **Repo-local files** — any `AGENTS.md` or `CLAUDE.md` committed inside the app or
-   test repo itself is picked up automatically (freshest checkout first:
-   `workspace/src|tests/<repo>/`, then `demo/<repo>/`). Teams own their guidance in
-   their own repos; the platform ingests it on every regeneration.
+   test repo itself. Teams own their guidance in their own repos; the platform ingests
+   it on every regeneration.
+
+#### Syncing repo guidance from the SCM
+
+Repo-local guidance is normally picked up from the workspace clone made during a run.
+To refresh it **on demand** — without waiting for a run — pull it straight from
+Bitbucket / GitHub / Stash through the Scm port's `fetch_file` verb (no clone):
+
+```bash
+make sync-guidance                    # every app repo (ui + service) AND test repo
+make sync-guidance REPO=orders-api    # one repo   (REF=<branch|sha> to pin a revision)
+make sync-status                      # when each repo was last synced + what it carries
+```
+
+Fetched files are cached under `knowledge/synced/<repo>/` and `AGENTS.md` is
+regenerated immediately, so the very next PR triage, JIRA plan, or test-generation run
+uses the latest guidance. On the served dashboard, the Repositories view's guidance
+card has **Sync all from SCM** and **Sync this repo** buttons, and shows each repo's
+last-sync time.
+
+Source precedence is **freshness-based**, not fixed: during a run the workspace clone
+(the exact revision under test) wins, while a just-completed sync beats a leftover
+clone from an earlier run — so clicking Sync is never silently a no-op. `demo/` is the
+last-resort fixture fallback.
 
 The merged section appears as "Repository guidance" in `AGENTS.md` with each
 source labeled; `demo/orders-api/CLAUDE.md` is a working example.

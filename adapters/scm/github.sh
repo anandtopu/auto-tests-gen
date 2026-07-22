@@ -13,6 +13,11 @@ case "$VERB" in
   clone_rw)  git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/org/$1.git" "$2" \
              && git -C "$2" checkout -B "$3" ;;
   comment)   gh pr comment "$2" --repo "org/$1" --body "$3" ;;
+  # fetch_file <repo> <path> [ref] — raw file without cloning.
+  # Exit 3 = file absent (callers treat that as "no such guidance in this repo").
+  fetch_file) gh api "repos/org/$1/contents/$2${3:+?ref=$3}" \
+                -H "Accept: application/vnd.github.raw" 2>/dev/null \
+              || { echo "NOT_FOUND: $1:$2" >&2; exit 3; } ;;
   open_pr)   gh pr create --repo "org/$1" --head "$2" --title "$3" --body "$4" ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

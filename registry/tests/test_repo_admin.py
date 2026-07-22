@@ -122,9 +122,11 @@ def test_repo_local_claude_md_reaches_generation_context():
     subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")], cwd=ROOT,
                    check=True, capture_output=True, stdin=subprocess.DEVNULL)
     agents = AGENTS.read_text(encoding="utf-8")
-    # freshest checkout wins: workspace clone during runs, demo estate otherwise
-    assert ("workspace/src/orders-api/CLAUDE.md" in agents
-            or "demo/orders-api/CLAUDE.md" in agents)
+    # Any legitimate source may supply it — workspace clone during a run, the
+    # knowledge/synced cache after an SCM sync, or the demo fixture.
+    assert any(src in agents for src in ("workspace/src/orders-api/CLAUDE.md",
+                                         "knowledge/synced/orders-api/CLAUDE.md",
+                                         "demo/orders-api/CLAUDE.md"))
     assert "invalid codes return **422**" in agents        # the file's content, merged
 
 

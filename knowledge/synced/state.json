@@ -1,0 +1,85 @@
+{
+  "admin-portal-ui": {
+    "files": [],
+    "missing": [
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "ref": "default",
+    "source": "mock",
+    "synced_at": 1784702399.924746
+  },
+  "catalog-api": {
+    "files": [],
+    "missing": [
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "ref": "default",
+    "source": "mock",
+    "synced_at": 1784702400.702566
+  },
+  "e2e-api-tests-1": {
+    "files": [
+      "CLAUDE.md"
+    ],
+    "missing": [
+      "AGENTS.md"
+    ],
+    "ref": "default",
+    "source": "mock",
+    "synced_at": 1784702401.5183089
+  },
+  "e2e-api-tests-2": {
+    "files": [],
+    "missing": [
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "ref": "default",
+    "source": "mock",
+    "synced_at": 1784702402.085103
+  },
+  "e2e-ui-tests-1": {
+    "files": [],
+    "missing": [
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "ref": "default",
+    "source": "mock",
+    "synced_at": 1784702401.7882156
+  },
+  "orders-api": {
+    "files": [
+      "CLAUDE.md"
+    ],
+    "missing": [
+      "AGENTS.md"
+    ],
+    "ref": "default",
+    "source": "mock",
+    "synced_at": 1784702400.379522
+  },
+  "payments-api": {
+    "files": [],
+    "missing": [
+      "AGENTS.md",
+      "CLAUDE.md"
+    ],
+    "ref": "default",
+    "source": "mock",
+    "synced_at": 1784702401.0600955
+  },
+  "web-storefront-ui": {
+    "files": [
+      "AGENTS.md"
+    ],
+    "missing": [
+      "CLAUDE.md"
+    ],
+    "ref": "default",
+    "source": "mock",
+    "synced_at": 1784702399.6691484
+  }
+}

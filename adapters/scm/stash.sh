@@ -23,6 +23,12 @@ case "$VERB" in
       | python3 -c "import json,sys;[print(v['path']['toString']) for v in json.load(sys.stdin)['values']]" ;;
   clone_ro) req
     git clone --depth 1 "${CLONE_BASE}/$1.git" "$2" ;;
+  # fetch_file <repo> <path> [ref] — raw file without cloning (Server raw endpoint).
+  # Exit 3 = file absent.
+  fetch_file) req
+    OUT=$(curl -sf "${AUTH[@]}" "$S/repos/$1/raw/$2${3:+?at=$3}") \
+      || { echo "NOT_FOUND: $1:$2" >&2; exit 3; }
+    printf '%s' "$OUT" ;;
   clone_rw) req
     git clone "${CLONE_BASE}/$1.git" "$2" \
       && git -C "$2" checkout -B "$3" ;;

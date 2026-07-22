@@ -35,6 +35,9 @@ Endpoints:
   POST /api/repos/test        add/edit a test repo (repo_admin.upsert_test fields)
   POST /api/repos/scope       {"test_repo","apps"} -> declared mapping; covers regen
   POST /api/repos/remove      {"name","section":"app"|"test","force"?}
+  GET  /api/repos/sync        per-repo guidance sync status (AGENTS.md/CLAUDE.md)
+  POST /api/repos/sync        {"repo"?}  pull guidance from the SCM (all repos when
+                              omitted) and regenerate AGENTS.md
   GET  /api/repos/notes?repo=R    per-repo agent guidance (+ repo-local files)
   POST /api/repos/notes       {"repo","text"} -> knowledge/repos/<R>.md + AGENTS.md
   GET  /api/settings          integration settings (secrets masked to set/unset)
@@ -47,8 +50,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import demo_data, email_notify, export_plan, inline_ticket, plan_state, \
-    repo_admin, review_state, settings_store, team_report, work_queue
+import demo_data, email_notify, export_plan, guidance_sync, inline_ticket, \
+    plan_state, repo_admin, review_state, settings_store, team_report, work_queue
 
 # The Settings view writes .env; honor it here too (explicit env still wins) so
 # adapter mode and credentials configured in the UI actually reach this server.
@@ -160,6 +163,8 @@ class Handler(BaseHTTPRequestHandler):
                                  **plan_state.get(key)})
         elif url.path == "/api/repos":
             self._send(200, repo_admin.summary())
+        elif url.path == "/api/repos/sync":
+            self._send(200, guidance_sync.status())
         elif url.path == "/api/repos/notes":
             repo = urllib.parse.parse_qs(url.query).get("repo", [""])[0]
             try:
@@ -298,6 +303,13 @@ class Handler(BaseHTTPRequestHandler):
                     result = fn(p["name"], force=bool(p.get("force")))
                 elif self.path == "/api/repos/notes":
                     result = repo_admin.set_notes(p["repo"], p.get("text", ""))
+                elif self.path == "/api/repos/sync":
+                    # Pull AGENTS.md/CLAUDE.md from the SCM, then refresh the estate
+                    # knowledge so the next generation run uses the latest guidance.
+                    repo = p.get("repo")
+                    result = (guidance_sync.sync_repo(repo, p.get("ref"))
+                              if repo else guidance_sync.sync_all(p.get("ref")))
+                    guidance_sync.regenerate_agents_md()
                 else:
                     self._send(404, {"error": "not found"})
                     return

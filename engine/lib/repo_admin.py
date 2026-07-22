@@ -276,18 +276,54 @@ def _known(name):
 
 
 def repo_local_files(name):
-    """AGENTS.md / CLAUDE.md inside the repo's own checkout — freshest first
-    (workspace clone during runs, demo estate as fallback)."""
+    """AGENTS.md / CLAUDE.md belonging to the repo itself.
+
+    Sources, in order of authority: the workspace clone (the exact revision under
+    test) and the knowledge/synced/ cache (last explicit pull from the SCM), with
+    demo/ as a last-resort fixture fallback.
+
+    Between the clone and the cache we take the FRESHER one rather than a fixed
+    winner: during a run the clone is newly made so it wins, while after a manual
+    sync the cache is newer so it wins. A fixed clone-wins rule let a leftover
+    clone from an earlier run silently shadow guidance the user had just synced."""
     out, seen = [], set()
-    for base in (ROOT / "workspace/src" / name, ROOT / "workspace/tests" / name,
-                 ROOT / "demo" / name):
-        for fname in GUIDANCE_FILES:
-            p = base / fname
-            if fname not in seen and p.exists():
-                seen.add(fname)
-                out.append({"path": p.relative_to(ROOT).as_posix(),
-                            "text": p.read_text(encoding="utf-8", errors="ignore")})
+    synced = {pathlib.Path(f["path"]).name: f for f in _synced_files(name)}
+    for fname in GUIDANCE_FILES:
+        clone = next((b / fname for b in (ROOT / "workspace/src" / name,
+                                          ROOT / "workspace/tests" / name)
+                      if (b / fname).exists()), None)
+        cached = synced.get(fname)
+        pick = None
+        if clone and cached:
+            cached_at = (ROOT / cached["path"]).stat().st_mtime \
+                if (ROOT / cached["path"]).exists() else 0
+            pick = ("clone", clone) if clone.stat().st_mtime >= cached_at \
+                else ("cache", cached)
+        elif clone:
+            pick = ("clone", clone)
+        elif cached:
+            pick = ("cache", cached)
+        if pick is None:                              # demo fixture fallback
+            p = ROOT / "demo" / name / fname
+            if p.exists():
+                pick = ("clone", p)
+        if pick is None:
+            continue
+        seen.add(fname)
+        if pick[0] == "cache":
+            out.append(pick[1])
+        else:
+            out.append({"path": pick[1].relative_to(ROOT).as_posix(),
+                        "text": pick[1].read_text(encoding="utf-8", errors="ignore")})
     return out
+
+
+def _synced_files(name):
+    try:
+        import guidance_sync
+        return guidance_sync.synced_files(name)
+    except Exception:                                 # sync cache is optional
+        return []
 
 
 def get_notes(name):

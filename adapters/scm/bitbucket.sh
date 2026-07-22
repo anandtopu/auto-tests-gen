@@ -20,5 +20,12 @@ case "$VERB" in
   comment)   curl -su "x-token-auth:${BITBUCKET_TOKEN}" -H 'Content-Type: application/json' \
              -d "$(python3 -c "import json,sys;print(json.dumps({'content':{'raw':sys.argv[1]}}))" "$3")" \
              "$BB/$1/pullrequests/$2/comments" >/dev/null ;;
+  # fetch_file <repo> <path> [ref] — raw file from the repo without cloning.
+  # Exit 3 = file absent (callers treat that as "this repo has no such guidance").
+  fetch_file)
+    REF=${3:-HEAD}
+    OUT=$(curl -sf -u "x-token-auth:${BITBUCKET_TOKEN}" \
+          "$BB/$1/src/${REF}/$2") || { echo "NOT_FOUND: $1:$2" >&2; exit 3; }
+    printf '%s' "$OUT" ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

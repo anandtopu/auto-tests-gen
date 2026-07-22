@@ -19,6 +19,10 @@ case "$VERB" in
     || { echo "[mock-scm] no changed-files fixture for $1#$2" >&2; exit 1; } ;;
   diff)      cat "eval/benchmark/prs/.diff-$1-$2.txt" 2>/dev/null || true ;;
   set_status) echo "[mock-scm] build status $1@$2 -> $3 ($4)" ;;
+  # fetch_file <repo> <path> [ref] — served from the demo estate (stands in for the
+  # remote). Exit 3 = absent, matching the real adapters.
+  fetch_file) [ -f "demo/$1/$2" ] || { echo "NOT_FOUND: $1:$2" >&2; exit 3; }
+              cat "demo/$1/$2" ;;
   clone_ro)  rm -rf "$2"; mkdir -p "$(dirname "$2")"; cp -r "demo/$1" "$2"; ensure_git "$2" ;;
   clone_rw)  rm -rf "$2"; mkdir -p "$(dirname "$2")"; cp -r "demo/$1" "$2"; ensure_git "$2"; git -C "$2" checkout -qB "$3" ;;
   comment)   echo "[mock-scm] comment on $1#$2: $3" | tee -a out/mock-comments.log ;;

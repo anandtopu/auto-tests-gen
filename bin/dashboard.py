@@ -938,13 +938,41 @@ document.addEventListener('click', async e => {
 async function loadNotes() {
   if (!served || !$('#notes-repo')) return;
   try {
-    const n = await api('/api/repos/notes?repo=' + encodeURIComponent($('#notes-repo').value));
+    const repo = $('#notes-repo').value;
+    const n = await api('/api/repos/notes?repo=' + encodeURIComponent(repo));
     $('#notes-text').value = n.team;
-    $('#notes-local').textContent = n.local_files.length
-      ? 'Repo-local guidance also merged: ' + n.local_files.map(f => f.path).join(', ')
+    let msg = n.local_files.length
+      ? 'Repo-local guidance merged: ' + n.local_files.map(f => f.path).join(', ')
       : 'No repo-local AGENTS.md/CLAUDE.md found — team notes below are the only guidance.';
+    try {                                    // append last-sync info for this repo
+      const st = (await api('/api/repos/sync')).find(s => s.name === repo);
+      if (st) msg += st.synced_at
+        ? '  ·  last SCM sync: ' + new Date(st.synced_at * 1000).toLocaleString() +
+          ' (' + (st.files.join(', ') || 'no guidance in repo') + ')'
+        : '  ·  never synced from SCM';
+    } catch (e) { /* status is advisory */ }
+    $('#notes-local').textContent = msg;
   } catch (err) { $('#notes-local').textContent = err.message; }
 }
+document.addEventListener('click', async e => {
+  const all = e.target.id === 'sync-all', one = e.target.id === 'sync-one';
+  if (!all && !one) return;
+  if (needsServer()) return;
+  const btn = e.target, idle = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Syncing…';
+  try {
+    const r = await api('/api/repos/sync', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(all ? {} : { repo: $('#notes-repo').value }) });
+    toast(all
+      ? 'Synced ' + r.repos + ' repo(s) from SCM — ' + r.with_guidance +
+        ' carry guidance; AGENTS.md regenerated'
+      : r.repo + ': ' + (r.files.join(', ') || 'no AGENTS.md/CLAUDE.md in the repo') +
+        ' — AGENTS.md regenerated');
+    await loadNotes();
+  } catch (err) { toast(err.message); }
+  btn.disabled = false; btn.textContent = idle;
+});
 if ($('#notes-repo')) {
   $('#notes-repo').addEventListener('change', loadNotes);
   $('#notes-save').addEventListener('click', async () => {
@@ -1292,11 +1320,15 @@ page = f"""<!doctype html>
     <section class="card">
       <div class="card-h"><div><h2>Repository guidance (AGENTS.md / CLAUDE.md)</h2>
         <div class="sub">Per-repo conventions merged into the estate <code>AGENTS.md</code>
-        and injected into every generation phase (test plans, new tests, coverage-gap
-        fixes). Repo-local <code>AGENTS.md</code>/<code>CLAUDE.md</code> files inside a
-        checkout are picked up automatically.</div></div>
+        and injected into every generation phase (PR triage/generation and JIRA
+        story/bug plans + tests). <b>Sync from SCM</b> pulls each repo's own
+        <code>AGENTS.md</code>/<code>CLAUDE.md</code> straight from Bitbucket/GitHub/Stash
+        — app repos (ui + service) and E2E test repos alike — then regenerates
+        <code>AGENTS.md</code>.</div></div>
         <span class="grow"></span>
+        <button class="btn btn-sm info" id="sync-all">Sync all from SCM</button>
         <label class="f">Repo <select id="notes-repo" class="h32">{all_repo_opts}</select></label>
+        <button class="btn btn-sm" id="sync-one">Sync this repo</button>
       </div>
       <div class="card-b" style="display:flex; flex-direction:column; gap:10px">
         <div class="sm muted" id="notes-local"></div>

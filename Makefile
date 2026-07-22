@@ -6,7 +6,7 @@ SHELL := /bin/bash
         test-gate demo-bootstrap demo-pr demo-jira review \
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
-        demo-plan demo-plan-tests
+        demo-plan demo-plan-tests sync-guidance sync-status
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -150,3 +150,8 @@ repos:
 
 agents:
 	python3 bin/gen_agents_md.py
+
+sync-guidance:        # pull AGENTS.md/CLAUDE.md from the SCM (REPO=... for one repo)
+	python3 bin/repos.py sync $(REPO) $(if $(REF),--ref $(REF),)
+sync-status:
+	python3 bin/repos.py sync-status
