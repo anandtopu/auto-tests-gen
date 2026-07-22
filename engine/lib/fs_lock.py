@@ -24,9 +24,14 @@ def lock(path, timeout=10.0):
             break
         except FileExistsError:
             try:                                   # break stale locks
-                owner = (lockdir / "owner").read_text(encoding="utf-8").split()
-                if time.time() - float(owner[1]) > STALE_S:
-                    _release(lockdir)
+                owner_txt = (lockdir / "owner").read_text(encoding="utf-8")
+                if time.time() - float(owner_txt.split()[1]) > STALE_S:
+                    # Re-verify the owner is unchanged right before breaking — a
+                    # concurrent waiter may have already broken and re-acquired
+                    # this lock; tearing down the NEW holder would give two
+                    # writers. (Narrows the race window to microseconds.)
+                    if (lockdir / "owner").read_text(encoding="utf-8") == owner_txt:
+                        _release(lockdir)
                     continue
             except (OSError, IndexError, ValueError):
                 pass

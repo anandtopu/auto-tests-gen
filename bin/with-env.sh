@@ -23,15 +23,22 @@ if [ "$MODE" = "compose" ]; then
     [ -f "$base/$APP_REPO/$APP_ENTRY" ] && APP="$base/$APP_REPO/$APP_ENTRY" && break
   done
   [ -z "$APP" ] && { echo "APP_REPO_NOT_FOUND: $APP_REPO"; exit 8; }
-  # OS-assigned free port (parallel gates each boot their own app instance)
+  # OS-assigned free port (parallel gates each boot their own app instance);
+  # per-invocation log so concurrent gates never clobber each other's diagnostics
   PORT=$(python3 -c "import socket;s=socket.socket();s.bind(('127.0.0.1',0));print(s.getsockname()[1]);s.close()")
-  ( exec env PORT=$PORT node "$APP" ) < /dev/null > /tmp/aiqe-env.log 2>&1 &
+  LOG=$(mktemp "${TMPDIR:-/tmp}/aiqe-env.XXXXXX.log")
+  HEALTH=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['test_env'].get('health_path','/'))")
+  ( exec env PORT=$PORT node "$APP" ) < /dev/null > "$LOG" 2>&1 &
   PID=$!
+  READY=0
   for i in $(seq 1 25); do
-    curl -s -m 1 "http://localhost:$PORT/v1/orders/1" > /dev/null 2>&1 && break
-    kill -0 "$PID" 2>/dev/null || { echo "APP_START_FAILED"; cat /tmp/aiqe-env.log; exit 7; }
+    curl -s -m 1 "http://localhost:$PORT$HEALTH" > /dev/null 2>&1 && { READY=1; break; }
+    kill -0 "$PID" 2>/dev/null || { echo "APP_START_FAILED"; cat "$LOG"; exit 7; }
     sleep 0.2
   done
+  # Never run tests against a half-started app — a timeout is a provisioning
+  # failure, not a test failure to blame on the generated specs.
+  [ "$READY" = "1" ] || { echo "APP_START_FAILED (not ready after 5s)"; cat "$LOG"; exit 7; }
   export "$VAR=http://localhost:$PORT"
 else
   URL=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['test_env']['url'])")

@@ -38,7 +38,7 @@ r=json.load(sys.stdin)
 print('attached: ' + ', '.join(a['filename'] for a in r))" ;;
   comment) curl -s -X POST -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
     -H 'Content-Type: application/json' \
-    -d "{\"body\":{\"type\":\"doc\",\"version\":1,\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"$2\"}]}]}}" \
+    -d "$(python3 -c "import json,sys;print(json.dumps({'body':{'type':'doc','version':1,'content':[{'type':'paragraph','content':[{'type':'text','text':sys.argv[1]}]}]}}))" "$2")" \
     "$J/issue/$1/comment" >/dev/null && echo ok ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

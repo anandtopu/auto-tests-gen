@@ -8,11 +8,11 @@ run_id, mode, key = sys.argv[1:4]
 phases = []
 for f in sorted(glob.glob("out/*.contract.json")):
     name = os.path.basename(f).replace(".contract.json", "")
-    phases.append({"name": name, "contract": json.load(open(f))})
+    phases.append({"name": name, "contract": json.load(open(f, encoding="utf-8"))})
 
 gates = []
 if os.path.exists("out/gate_results.tsv"):
-    for line in open("out/gate_results.tsv"):
+    for line in open("out/gate_results.tsv", encoding="utf-8"):
         if not line.strip():
             continue
         repo, status, exit_code, sha = (line.rstrip("\n").split("\t") + ["", "", "", ""])[:4]

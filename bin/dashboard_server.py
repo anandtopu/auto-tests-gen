@@ -41,6 +41,9 @@ sys.path.insert(0, str(ROOT / "engine/lib"))
 import demo_data, export_plan, inline_ticket, repo_admin, review_state, \
     settings_store, team_report, work_queue
 
+# The Settings view writes .env; honor it here too (explicit env still wins) so
+# adapter mode and credentials configured in the UI actually reach this server.
+settings_store.load_env_into()
 MOCK = os.environ.get("AIQE_MOCK", "1") == "1"
 TRACKER = ROOT / ("adapters/mock/tracker.sh" if MOCK else "adapters/tracker/jira.sh")
 UI_TOKEN = os.environ.get("AIQE_UI_TOKEN", "")   # empty = auth off (localhost-only dev)
@@ -297,6 +300,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, **demo_data.clear()})
             except SystemExit as e:                     # pipeline run in progress
                 self._send(409, {"error": str(e)})
+            except OSError as e:                        # locked/undeletable file
+                self._send(500, {"error": f"clear failed: {e}"})
         elif self.path == "/api/queue/run":
             if run_lock.locked():
                 self._send(409, {"error": "queue is already running"})

@@ -10,7 +10,7 @@ is exactly SPEC, which is conformance-tested against `.env.example`.
 
 Path override for tests: AIQE_ENV_FILE.
 """
-import os, pathlib, sys
+import os, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -34,6 +34,8 @@ SPEC = [
          "options": [["github", "GitHub"], ["bitbucket", "Bitbucket Cloud"],
                      ["stash", "Bitbucket Server / DC (Stash)"]],
          "default": "github"},
+        {"env": "AIQE_STATUS_URL", "label": "Build-status link URL",
+         "help": "URL the ai-qe PR build status links to (e.g. the dashboard)"},
         {"env": "ANTHROPIC_API_KEY", "label": "Anthropic API key", "secret": True},
      ]},
     {"section": "GitHub", "hint": "Used when SCM adapter is GitHub.",
@@ -58,6 +60,8 @@ SPEC = [
          "help": "https://your-domain.atlassian.net"},
         {"env": "ATLASSIAN_MCP_TOKEN", "label": "Atlassian API token", "secret": True,
          "help": "service account token (shared with Confluence)"},
+        {"env": "ATLASSIAN_MCP_URL", "label": "Atlassian MCP URL",
+         "default": "https://mcp.atlassian.com/v1/mcp"},
      ]},
     {"section": "Confluence", "hint": "Knowledge port: linked docs + test-plan publishing.",
      "fields": [
@@ -89,7 +93,9 @@ SPEC = [
         {"env": "SPLUNK_HEC_URL", "label": "Splunk HEC URL"},
         {"env": "SPLUNK_HEC_TOKEN", "label": "Splunk HEC token", "secret": True},
      ]},
-    {"section": "Budgets", "hint": "Per-run cost and wall-clock guardrails.",
+    {"section": "Budgets",
+     "hint": "Per-run guardrails enforced by the OpenHands orchestrator (Path 1); "
+             "local mock/demo runs do not meter cost.",
      "fields": [
         {"env": "MAX_COST_USD_PER_RUN", "label": "Max cost per run (USD)",
          "default": "4.00"},
@@ -115,6 +121,19 @@ def _parse(text):
 def load():
     f = env_file()
     return _parse(f.read_text(encoding="utf-8")) if f.exists() else {}
+
+
+def load_env_into(environ=None):
+    """Apply .env as process-env DEFAULTS (explicit env always wins) — for entry
+    points that spawn adapters without going through pipeline.sh's `source .env`
+    (dashboard server, publish/attach CLI paths)."""
+    environ = os.environ if environ is None else environ
+    applied = []
+    for k, v in load().items():
+        if v and k not in environ:
+            environ[k] = v
+            applied.append(k)
+    return applied
 
 
 def get_settings():
@@ -147,17 +166,27 @@ def save(updates):
     path = env_file()
     with fs_lock.lock(path):
         lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-        pending = dict(updates)
+        replaced = set()
         for i, line in enumerate(lines):
             s = line.strip()
             if s.startswith("#") or "=" not in s:
                 continue
             k = s.split("=", 1)[0].strip()
-            if k in pending:
-                lines[i] = f"{k}={pending.pop(k)}"
-        lines += [f"{k}={v}" for k, v in pending.items()]
+            if k in updates:                # replace EVERY occurrence — bash source
+                lines[i] = f"{k}={_shell_quote(updates[k])}"     # is last-wins
+                replaced.add(k)
+        lines += [f"{k}={_shell_quote(v)}" for k, v in updates.items()
+                  if k not in replaced]
         path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     return {"updated": sorted(updates)}
+
+
+def _shell_quote(v):
+    """.env is `source`d by pipeline.sh — a value with spaces, $(), or backticks
+    must be single-quoted so bash can never word-split or execute it."""
+    if re.fullmatch(r"[A-Za-z0-9_@%+=:,./-]*", v):
+        return v
+    return "'" + v.replace("'", "'\\''") + "'"
 
 
 if __name__ == "__main__":

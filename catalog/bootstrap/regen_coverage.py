@@ -10,6 +10,8 @@ reg_path = pathlib.Path("registry/repo-registry.yaml")
 reg = yaml.safe_load(reg_path.read_text())
 cov = {t["name"]: set() for t in reg["test_repositories"]}
 for f in glob.glob("catalog/*.jsonl"):
+    if pathlib.Path(f).name == "catalog.sample.jsonl":   # fixture, not evidence
+        continue
     for l in open(f):
         e = json.loads(l)
         if e["mapping"]["status"] in ("confirmed", "auto") and e["test_repo"] in cov:

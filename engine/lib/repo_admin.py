@@ -17,12 +17,23 @@ Manages the estate in registry/repo-registry.yaml:
 Every mutation re-validates references, re-runs the routing goldens (skipped
 inside pytest — same guard as bin/repos.py) and regenerates AGENTS.md.
 """
-import os, pathlib, re, subprocess, sys
+import functools, os, pathlib, re, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import yaml
+import fs_lock
 from registry import load_registry
+
+
+def _locked(fn):
+    """Registry mutations are read-modify-write over a committable file, shared by
+    the dashboard server and the CLI — serialize them (see fs_lock)."""
+    @functools.wraps(fn)
+    def wrap(*a, **k):
+        with fs_lock.lock(REG_PATH):
+            return fn(*a, **k)
+    return wrap
 
 REG_PATH = ROOT / "registry/repo-registry.yaml"
 NOTES_DIR = ROOT / "knowledge/repos"
@@ -53,7 +64,10 @@ def _entry(reg, name, sect):
 
 
 def save_and_verify(reg, regen_cov=False):
-    REG_PATH.write_text(yaml.safe_dump(reg, sort_keys=False), encoding="utf-8")
+    # Atomic write: never leave a half-dumped registry behind on crash
+    tmp = REG_PATH.with_suffix(".yaml.tmp")
+    tmp.write_text(yaml.safe_dump(reg, sort_keys=False), encoding="utf-8")
+    os.replace(tmp, REG_PATH)
     if regen_cov:                          # covers = catalog evidence UNION scope
         subprocess.run([sys.executable, "catalog/bootstrap/regen_coverage.py"],
                        cwd=ROOT, check=True, capture_output=True,
@@ -89,6 +103,7 @@ def summary():
 
 # ---------------------------------------------------------------- app repos
 
+@_locked
 def upsert_app(name, kind=None, scm=None, url=None, domains=None,
                testable_paths=None, contract=None, route_table=None,
                consumes_services=None):
@@ -144,6 +159,7 @@ def upsert_app(name, kind=None, scm=None, url=None, domains=None,
     return {"name": name, "created": creating}
 
 
+@_locked
 def remove_app(name, force=False):
     reg = load_registry()
     if not _entry(reg, name, "source_repositories"):
@@ -168,6 +184,7 @@ def remove_app(name, force=False):
 
 # ---------------------------------------------------------------- test repos
 
+@_locked
 def upsert_test(name, layer=None, framework=None, scm=None, url=None,
                 specs=None, fixtures=None, scope=None):
     """Add or edit an E2E test repository. `scope` declares the app repos this
@@ -216,6 +233,7 @@ def _valid_scope(reg, apps):
     return sorted(set(apps))
 
 
+@_locked
 def set_scope(test_repo, apps):
     """Declare which app repos `test_repo` is responsible for. covers is then
     regenerated as catalog evidence UNION this scope."""
@@ -228,6 +246,7 @@ def set_scope(test_repo, apps):
     return {"test_repo": test_repo, "scope": t["scope"]}
 
 
+@_locked
 def remove_test(name, force=False):
     import glob, json
     reg = load_registry()

@@ -8,7 +8,7 @@ description. Routing comes from --components/--labels/--repos exactly like a rea
 ticket. The pipeline consumes the file via AIQE_INLINE_FILE instead of the
 Tracker port's get_item.
 """
-import json, pathlib, re, time
+import json, pathlib, re, time, uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DIR = ROOT / "reports/inline"          # reports/*.json is gitignored -> transient
@@ -23,7 +23,7 @@ def build(text, key=None, components=(), labels=(), repos=(), issue_type="Story"
     acs = [re.sub(r"^[-*]\s*", "", l) for l in lines
            if re.match(r"^([-*]\s*)?AC[-\s\d:.]", l, re.I)]
     return {
-        "key": key or f"ADHOC-{int(time.time()) % 100000}",
+        "key": key or f"ADHOC-{int(time.time())}-{uuid.uuid4().hex[:4]}",
         "summary": summary,
         "description": text,
         "components": [c for c in components if c],

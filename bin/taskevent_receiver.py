@@ -48,22 +48,31 @@ def idempotency_key(ev):
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
-def seen_before(digest):
-    """Record-and-check under lock; keeps a bounded window of recent digests."""
+def _load_seen():
+    if SEEN_FILE.exists():
+        try:
+            return json.load(open(SEEN_FILE, encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
+
+
+def already_seen(digest):
     with fs_lock.lock(SEEN_FILE):
-        seen = []
-        if SEEN_FILE.exists():
-            try:
-                seen = json.load(open(SEEN_FILE, encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
-                seen = []
-        if digest in seen:
-            return True
-        seen = (seen + [digest])[-SEEN_MAX:]
-        SEEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(SEEN_FILE, "w", encoding="utf-8", newline="\n") as fh:
-            json.dump(seen, fh)
-        return False
+        return digest in _load_seen()
+
+
+def record_seen(digest):
+    """Record only AFTER a successful enqueue — a delivery that failed to queue
+    must stay unseen so the sender's retry is processed, not dropped as a dupe.
+    Keeps a bounded window of recent digests."""
+    with fs_lock.lock(SEEN_FILE):
+        seen = _load_seen()
+        if digest not in seen:
+            seen = (seen + [digest])[-SEEN_MAX:]
+            SEEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+            with open(SEEN_FILE, "w", encoding="utf-8", newline="\n") as fh:
+                json.dump(seen, fh)
 
 
 def handle_event(ev):
@@ -72,7 +81,7 @@ def handle_event(ev):
     if err:
         return 400, {"error": err}
     digest = idempotency_key(ev)
-    if seen_before(digest):
+    if already_seen(digest):
         return 200, {"accepted": False, "reason": "duplicate delivery (idempotent no-op)",
                      "idempotency_key": digest[:16]}
     if ev["mode"] == "pr":
@@ -80,6 +89,7 @@ def handle_event(ev):
                                      requested_by="taskevent")
     else:
         item, fresh = work_queue.add("jira", ev["key"], requested_by="taskevent")
+    record_seen(digest)                     # durable enqueue first, then dedupe mark
     return 200, {"accepted": True, "queued": fresh, "item_id": item["id"],
                  "idempotency_key": digest[:16]}
 
@@ -116,7 +126,11 @@ class Handler(BaseHTTPRequestHandler):
                 int(self.headers.get("Content-Length", 0) or 0)) or b"{}")
         except json.JSONDecodeError as e:
             return self._send(400, {"error": f"invalid JSON: {e}"})
-        code, resp = handle_event(ev)
+        try:
+            code, resp = handle_event(ev)
+        except Exception as e:              # noqa: BLE001 — server boundary: the
+            # sender must get a response so its retry can re-deliver (unseen).
+            return self._send(500, {"error": f"enqueue failed: {e}"})
         if resp.get("accepted") and AUTORUN:
             start_drain()
         self._send(code, resp)

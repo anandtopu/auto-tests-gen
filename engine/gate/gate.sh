@@ -21,7 +21,12 @@ CHANGED=$(git diff --name-only HEAD; git ls-files --others --exclude-standard)
 CHANGED=$(echo "$CHANGED" | sed '/^$/d')
 [ -z "$CHANGED" ] && { echo "GATE_STATUS=NO_CHANGES"; exit 0; }
 
-# 1. Scope: only test-repo content + catalog sidecars + repo config
+# 1. Scope: only test-repo content + catalog sidecars + repo config.
+# Filenames are LLM-authored and later interpolated into shell commands — restrict
+# to a safe charset so a crafted name (e.g. `$(...)`) can never be shell-evaluated.
+if echo "$CHANGED" | grep -qE '[^A-Za-z0-9._/-]'; then
+  echo "SCOPE_VIOLATION (unsafe characters in filename)"; exit 2
+fi
 if echo "$CHANGED" | grep -vE '^(tests/|suites/|fixtures/|data/|pages/|catalog/|\.ai-qe/)' ; then
   echo "SCOPE_VIOLATION"; exit 2
 fi
@@ -44,14 +49,21 @@ if [ -n "$SPECS" ]; then
     > "$REPORT_DIR/${KEY}-${TREPO}.log" 2>&1 || { echo "TESTS_FAILED"; tail -5 "$REPORT_DIR/${KEY}-${TREPO}.log"; exit 5; }
 fi
 
-# 5. Secret / PII pattern scan on new content
-{ git diff HEAD; git ls-files --others --exclude-standard -z | xargs -0 -r cat; } \
-  | grep -iE '(api[_-]?key|password|secret|token)\s*[:=]\s*["'"'"'][^"'"'"']+' \
-  && { echo "SECRET_PATTERN"; exit 3; } || true
+# 5. Secret / PII pattern scan on new content (capture-then-test: under pipefail a
+# failing left-hand stage must not discard a grep match via the trailing || true)
+FOUND=$({ git diff HEAD; git ls-files --others --exclude-standard -z | xargs -0 -r cat; } \
+  | grep -iE '(api[_-]?key|password|secret|token)\s*[:=]\s*["'"'"'][^"'"'"']+' || true)
+if [ -n "$FOUND" ]; then echo "SECRET_PATTERN"; exit 3; fi
 
 # 6. Commit & push (branch protection blocks main; token scoped to branches)
 git add -A
 git commit -qm "test(${KEY}): AI-generated E2E updates" \
   -m "Co-Authored-By: ai-qe-agent <ai-qe@company.com>"
-git push origin HEAD 2>/dev/null || echo "PUSH_SKIPPED (no remote — demo mode)"
+# A real push failure (auth, protection, network) must NOT be reported as success;
+# only the no-remote demo case is skippable.
+if git remote get-url origin >/dev/null 2>&1; then
+  git push origin HEAD || { echo "PUSH_FAILED"; exit 7; }
+else
+  echo "PUSH_SKIPPED (no remote — demo mode)"
+fi
 echo "GATE_STATUS=COMMITTED $(git rev-parse --short HEAD)"

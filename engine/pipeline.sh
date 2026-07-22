@@ -3,18 +3,24 @@
 # Usage: pipeline.sh pr <source_repo> <pr_number> | pipeline.sh jira <KEY>
 set -euo pipefail
 MODE=${1:?pr|jira}; export AIQE_ROOT="$PWD"; mkdir -p out workspace
+# .env supplies defaults only — an explicitly-set caller AIQE_MOCK (make demo-* =1,
+# make run-* =0, queue workers) must never be silently inverted by the file.
+_PRE_MOCK="${AIQE_MOCK:-}"
 source .env 2>/dev/null || true
+if [ -n "$_PRE_MOCK" ]; then AIQE_MOCK="$_PRE_MOCK"; fi
 
 # Run isolation: workspace/ and out/ are shared scratch, so one run at a time per
 # checkout (parallel capacity = one sandbox/checkout per run, e.g. OpenHands).
-# Waits up to 2 min; breaks locks older than 30 min (crashed holder).
+# Waits up to 2 min; breaks locks older than 90 min (crashed holder — threshold
+# sits above the longest real-LLM phase chain so a live run is never broken).
 LOCK=out/.pipeline.lock
+ACQUIRED=0
 for i in $(seq 1 120); do
-  if mkdir "$LOCK" 2>/dev/null; then trap 'rmdir "$LOCK" 2>/dev/null' EXIT; break; fi
-  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then rmdir "$LOCK" 2>/dev/null || true; continue; fi
-  if [ "$i" -eq 120 ]; then echo "PIPELINE_BUSY: another run holds $LOCK"; exit 75; fi
+  if mkdir "$LOCK" 2>/dev/null; then trap 'rmdir "$LOCK" 2>/dev/null' EXIT; ACQUIRED=1; break; fi
+  if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +90 2>/dev/null)" ]; then rmdir "$LOCK" 2>/dev/null || true; fi
   sleep 1
 done
+if [ "$ACQUIRED" != "1" ]; then echo "PIPELINE_BUSY: another run holds $LOCK"; exit 75; fi
 if [ "${AIQE_MOCK:-0}" = "1" ]; then
   SCM() { bash adapters/mock/scm.sh "$@"; }
   TRACKER() { bash adapters/mock/tracker.sh "$@"; }
@@ -37,12 +43,14 @@ fi
 RUN_ID=$(date +%s)-$RANDOM
 if [ "$MODE" = "pr" ]; then
   REPO=$2; PR=$3; export KEY="PR-${REPO}-${PR}"
+  case "$KEY" in *[!A-Za-z0-9._-]*) echo "INVALID_KEY: $KEY"; exit 64;; esac
   SCM changed_files "$REPO" "$PR" > out/changed.txt
   # P0: the actual patch, not just the file list — triage reviews real hunks
   SCM diff "$REPO" "$PR" > out/pr.diff 2>/dev/null || : > out/pr.diff
   python3 engine/phases/resolve.py pr "$REPO" --changed-files out/changed.txt > out/resolve.contract.json
 else
   export KEY=$2
+  case "$KEY" in *[!A-Za-z0-9._-]*|"") echo "INVALID_KEY: $KEY"; exit 64;; esac
   # P0: inline JIRA context ("pass JIRA context as text input") bypasses the tracker
   if [ -n "${AIQE_INLINE_FILE:-}" ]; then
     cp "$AIQE_INLINE_FILE" out/ticket.json
@@ -115,9 +123,11 @@ done
 SUMMARY="AI-QE run ${RUN_ID} for ${KEY}:"
 : > out/gate_results.tsv
 mkdir -p reports/runs out/gates
+# Gate ONLY the repos resolved for THIS run — a glob over workspace/tests/*/ would
+# re-gate (and commit under the wrong KEY) stale clones left by previous runs.
 GATE_NAMES=()
-for t in workspace/tests/*/; do
-  name=$(basename "$t")
+for name in $(python3 -c "import json;print(' '.join(json.load(open('out/resolve.contract.json'))['test_repos']))"); do
+  t="workspace/tests/$name/"
   GATE_NAMES+=("$name")
   (
     rc=0
@@ -143,8 +153,10 @@ for name in "${GATE_NAMES[@]}"; do
   fi
   printf '%s\t%s\t%s\t%s\n' "$name" "$ST" "$GRC" "$SHA" >> out/gate_results.tsv
 done
-[ "$MODE" = "jira" ] && TRACKER comment "$KEY" "$SUMMARY"
-NOTIFY post "$SUMMARY"
+# Best-effort notifications: an unreachable tracker/Slack must not abort the run
+# before the run record, build status, and review-state transition are persisted.
+{ [ "$MODE" = "jira" ] && TRACKER comment "$KEY" "$SUMMARY"; } || true
+NOTIFY post "$SUMMARY" || true
 # P0: surface the outcome as a build status on the PR head (merge-gate visibility)
 if [ "$MODE" = "pr" ]; then
   HEAD_SHA=$(git -C "workspace/src/$REPO" rev-parse HEAD 2>/dev/null || echo "")

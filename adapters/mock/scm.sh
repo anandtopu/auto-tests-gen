@@ -12,7 +12,11 @@ ensure_git() {
   git -C "$1" -c user.email=demo@ai-qe.local -c user.name=ai-qe-demo commit -qm "baseline import (demo estate)"
 }
 case "$VERB" in
-  changed_files) cat "eval/benchmark/prs/.changed-$1-$2.txt" 2>/dev/null || cat out/changed.txt ;;
+  # No fallback to out/changed.txt: the pipeline redirects INTO that file, so the
+  # shell has already truncated it before this adapter runs — a missing fixture
+  # must fail loudly, not resolve an empty change list.
+  changed_files) cat "eval/benchmark/prs/.changed-$1-$2.txt" 2>/dev/null \
+    || { echo "[mock-scm] no changed-files fixture for $1#$2" >&2; exit 1; } ;;
   diff)      cat "eval/benchmark/prs/.diff-$1-$2.txt" 2>/dev/null || true ;;
   set_status) echo "[mock-scm] build status $1@$2 -> $3 ($4)" ;;
   clone_ro)  rm -rf "$2"; mkdir -p "$(dirname "$2")"; cp -r "demo/$1" "$2"; ensure_git "$2" ;;

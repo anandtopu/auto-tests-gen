@@ -2,8 +2,8 @@
 """Generate reports/dashboard.html — the QA operations dashboard.
 
 Implements the "QA Dashboard" Claude Design (project: QA Dashboard UI redesign):
-sidebar navigation over six views (Overview, Intake & queue, Runs & reviews,
-Artifacts, Test catalog, Settings), SentinelRAG design tokens (light + dark), semantic
+sidebar navigation over seven views (Overview, Intake & queue, Runs & reviews,
+Artifacts, Test catalog, Repositories, Settings), SentinelRAG design tokens (light + dark), semantic
 status chips, a needs-attention feed, and toast feedback. Self-contained HTML,
 server-rendered from real state; interactive actions light up when served by
 bin/dashboard_server.py (make serve). Regenerate: make dashboard.
@@ -589,6 +589,10 @@ pre { margin:0; background:var(--sr-bg-muted); border:1px solid var(--sr-border)
 JS = """
 const served = location.protocol.startsWith('http');
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+// Every client-rendered cell goes through this — queue items and fetched JIRA
+// summaries are external data and must never reach innerHTML unescaped.
+const escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 let toastT;
 function toast(t) {
   let el = $('#toast');
@@ -721,14 +725,14 @@ async function refreshQueue() {
       const [lb, cls] = chipMap[i.status] || [i.status, 'muted'];
       const extra = i.status === 'failed' && i.exit_code != null ? ' (exit ' + i.exit_code + ')' : '';
       let acts = '';
-      if (i.status === 'failed') acts += '<button class="btn btn-sm qact" data-act="requeue" data-id="' + i.id + '">Re-queue</button> ';
-      if (i.status !== 'running') acts += '<button class="btn btn-sm danger qact" data-act="remove" data-id="' + i.id + '">Remove</button>';
-      return '<tr><td class="mono sm muted">' + i.id + '</td>' +
-        '<td><span class="chip chip-' + cls + '">' + lb + extra + '</span></td>' +
-        '<td><span class="pill">' + i.mode + '</span></td>' +
-        '<td class="strong">' + keyOf(i) + '</td>' +
-        '<td class="mono sm muted">' + (i.release || '—') + '</td>' +
-        '<td class="muted">' + (i.requested_by || '—') + '</td>' +
+      if (i.status === 'failed') acts += '<button class="btn btn-sm qact" data-act="requeue" data-id="' + escHtml(i.id) + '">Re-queue</button> ';
+      if (i.status !== 'running') acts += '<button class="btn btn-sm danger qact" data-act="remove" data-id="' + escHtml(i.id) + '">Remove</button>';
+      return '<tr><td class="mono sm muted">' + escHtml(i.id) + '</td>' +
+        '<td><span class="chip chip-' + cls + '">' + escHtml(lb + extra) + '</span></td>' +
+        '<td><span class="pill">' + escHtml(i.mode) + '</span></td>' +
+        '<td class="strong">' + escHtml(keyOf(i)) + '</td>' +
+        '<td class="mono sm muted">' + escHtml(i.release || '—') + '</td>' +
+        '<td class="muted">' + escHtml(i.requested_by || '—') + '</td>' +
         '<td class="right nowrap">' + (acts || '—') + '</td></tr>';
     }).join('');
   }
@@ -771,9 +775,9 @@ $('#fetch-btn').addEventListener('click', async () => {
     const items = await api('/api/items?release=' + encodeURIComponent($('#fetch-rel').value));
     const card = $('#fetched-wrap'); card.classList.remove('hidden');
     $('#fetched-table tbody').innerHTML = items.length ? items.map((i, n) =>
-      '<tr><td><span class="pill">' + i.mode + '</span></td>' +
-      '<td class="strong">' + i.key + '</td><td>' + i.summary + '</td>' +
-      '<td class="mono sm muted">' + (i.release || '—') + '</td>' +
+      '<tr><td><span class="pill">' + escHtml(i.mode) + '</span></td>' +
+      '<td class="strong">' + escHtml(i.key) + '</td><td>' + escHtml(i.summary) + '</td>' +
+      '<td class="mono sm muted">' + escHtml(i.release || '—') + '</td>' +
       '<td class="right"><button class="btn btn-sm fq" data-n="' + n + '" ' +
       (i.queued ? 'disabled' : '') + '>' + (i.queued ? 'Queued' : 'Queue') + '</button></td></tr>'
     ).join('') : '<tr><td colspan="5"><div class="empty">No items for this release.</div></td></tr>';
@@ -900,7 +904,7 @@ document.addEventListener('click', e => {
 });
 
 // ---- settings
-const escAttr = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+const escAttr = escHtml;
 async function loadSettings() {
   if (!served) return;
   try {

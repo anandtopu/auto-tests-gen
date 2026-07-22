@@ -234,6 +234,8 @@ def publish_to_confluence(key, space=None, title=None):
     tmp = ROOT / "out/confluence-publish.html"
     tmp.parent.mkdir(exist_ok=True)
     tmp.write_text(body, encoding="utf-8", newline="\n")
+    import settings_store
+    settings_store.load_env_into()               # .env-configured mode/credentials
     mock = os.environ.get("AIQE_MOCK", "1") == "1"
     adapter = ROOT / ("adapters/mock/knowledge.sh" if mock
                       else "adapters/knowledge/confluence.sh")
@@ -254,6 +256,8 @@ def attach_to_jira(key, fmt="pdf"):
     import os, subprocess
     import work_queue
     path = export(key, fmt)                       # reports/exports/<KEY>-testplan.<fmt>
+    import settings_store
+    settings_store.load_env_into()               # .env-configured mode/credentials
     mock = os.environ.get("AIQE_MOCK", "1") == "1"
     adapter = ROOT / ("adapters/mock/tracker.sh" if mock else "adapters/tracker/jira.sh")
     r = subprocess.run([work_queue.bash_exe(), str(adapter), "attach", key, str(path)],
@@ -379,7 +383,10 @@ def _wrap(text, size, width, char_w):
         else:
             if line:
                 out.append(line)
-            line = w[:max_chars]
+            while len(w) > max_chars:             # split long words (URLs, paths)
+                out.append(w[:max_chars])         # instead of truncating the tail
+                w = w[max_chars:]
+            line = w
     if line:
         out.append(line)
     return out or [""]

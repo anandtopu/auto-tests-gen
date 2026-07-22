@@ -73,7 +73,10 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None):
             if (it["mode"], it["target"], str(it.get("pr") or "")) == sig \
                     and it["status"] in ("queued", "running"):
                 return it, False                   # already pending — dedupe
-        item = {"id": f"q{int(time.time())}-{len(items) + 1}", "mode": mode,
+        base, n = f"q{int(time.time())}", len(items) + 1
+        while any(i["id"] == f"{base}-{n}" for i in items):   # ids must be unique
+            n += 1                                            # even after removals
+        item = {"id": f"{base}-{n}", "mode": mode,
                 "target": target, "pr": str(pr) if pr else None, "release": release,
                 "requested_by": requested_by, "status": "queued", "ts": time.time(),
                 "finished": None, "exit_code": None,
@@ -89,14 +92,17 @@ def _mark(items, item, **kw):
 
 
 def requeue(item_id):
-    """Put a failed item back in the queue (fresh attempt, previous result cleared)."""
+    """Put a failed item back in the queue (fresh attempt, previous result
+    cleared). Also the recovery path for an item stranded in `running` by a
+    crashed worker — nothing else can transition it."""
     with fs_lock.lock(FILE):
         items = load()
         item = next((i for i in items if i["id"] == item_id), None)
         if item is None:
             sys.exit(f"no such queue item: {item_id}")
-        if item["status"] != "failed":
-            sys.exit(f"only failed items can be re-queued ({item_id} is {item['status']})")
+        if item["status"] not in ("failed", "running"):
+            sys.exit(f"only failed (or stranded running) items can be re-queued "
+                     f"({item_id} is {item['status']})")
         _mark(items, item, status="queued", finished=None, exit_code=None, ts=time.time())
     return item
 
@@ -141,6 +147,11 @@ def run_all():
             if cur:
                 _mark(items, cur, status="done" if r.returncode == 0 else "failed",
                       finished=time.time(), exit_code=r.returncode)
+        # A release chosen at queue time is a fact about the work — persist it so
+        # release-filtered views and reports include this key.
+        if r.returncode == 0 and item.get("release"):
+            import review_state
+            review_state.set_release(key_of(item), item["release"], "queue")
         print(f"{key_of(item)}: {'done' if r.returncode == 0 else f'failed (exit {r.returncode})'}")
         if r.returncode != 0:
             print(r.stdout[-800:] + r.stderr[-800:], file=sys.stderr)

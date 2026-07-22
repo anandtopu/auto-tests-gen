@@ -11,7 +11,9 @@ VERB=${1:?verb}; shift || true
 req() {
   S="${STASH_URL:?STASH_URL not set}/rest/api/1.0/projects/${STASH_PROJECT:?STASH_PROJECT not set}"
   AUTH=(-H "Authorization: Bearer ${STASH_TOKEN:?STASH_TOKEN not set}")
-  CLONE_BASE="$(echo "${STASH_URL}" | sed "s#://#://x-token-auth:${STASH_TOKEN}@#")/scm/${STASH_PROJECT}"
+  # bash pattern substitution — a token containing sed metachars (#, &, \) must
+  # not corrupt the clone URL or the credential
+  CLONE_BASE="${STASH_URL/:\/\//:\/\/x-token-auth:${STASH_TOKEN}@}/scm/${STASH_PROJECT}"
 }
 
 case "$VERB" in
@@ -43,10 +45,11 @@ for f in d.get('diffs', []):
   set_status) req  # set_status <repo> <sha> <success|failure|pending> <description>
     STATE=$(case "$3" in success) echo SUCCESSFUL;; failure) echo FAILED;; *) echo INPROGRESS;; esac)
     curl -s "${AUTH[@]}" -H 'Content-Type: application/json' \
-      -d "{\"key\":\"ai-qe\",\"state\":\"$STATE\",\"name\":\"AI QE\",\"description\":\"$4\",\"url\":\"${AIQE_STATUS_URL:-https://ai-qe.invalid}\"}" \
+      -d "$(python3 -c "import json,sys;print(json.dumps({'key':'ai-qe','state':sys.argv[1],'name':'AI QE','description':sys.argv[2],'url':sys.argv[3]}))" "$STATE" "$4" "${AIQE_STATUS_URL:-https://ai-qe.invalid}")" \
       "${STASH_URL}/rest/build-status/1.0/commits/$2" >/dev/null && echo ok ;;
   comment) req
     curl -s "${AUTH[@]}" -H 'Content-Type: application/json' \
-      -d "{\"text\":\"$3\"}" "$S/repos/$1/pull-requests/$2/comments" >/dev/null && echo ok ;;
+      -d "$(python3 -c "import json,sys;print(json.dumps({'text':sys.argv[1]}))" "$3")" \
+      "$S/repos/$1/pull-requests/$2/comments" >/dev/null && echo ok ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

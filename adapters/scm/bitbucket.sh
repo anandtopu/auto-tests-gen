@@ -12,12 +12,13 @@ case "$VERB" in
   set_status)  # set_status <repo> <sha> <success|failure|pending> <description>
     STATE=$(case "$3" in success) echo SUCCESSFUL;; failure) echo FAILED;; *) echo INPROGRESS;; esac)
     curl -sLu "x-token-auth:${BITBUCKET_TOKEN}" -H 'Content-Type: application/json' \
-      -d "{\"key\":\"ai-qe\",\"state\":\"$STATE\",\"name\":\"AI QE\",\"description\":\"$4\",\"url\":\"${AIQE_STATUS_URL:-https://ai-qe.invalid}\"}" \
+      -d "$(python3 -c "import json,sys;print(json.dumps({'key':'ai-qe','state':sys.argv[1],'name':'AI QE','description':sys.argv[2],'url':sys.argv[3]}))" "$STATE" "$4" "${AIQE_STATUS_URL:-https://ai-qe.invalid}")" \
       "$BB/$1/commit/$2/statuses/build" >/dev/null && echo ok ;;
   clone_ro)  git clone --depth 1 "https://x-token-auth:${BITBUCKET_TOKEN}@bitbucket.org/workspace/$1.git" "$2" ;;
   clone_rw)  git clone "https://x-token-auth:${BITBUCKET_TOKEN}@bitbucket.org/workspace/$1.git" "$2" \
              && git -C "$2" checkout -B "$3" ;;
   comment)   curl -su "x-token-auth:${BITBUCKET_TOKEN}" -H 'Content-Type: application/json' \
-             -d "{\"content\":{\"raw\":\"$3\"}}" "$BB/$1/pullrequests/$2/comments" >/dev/null ;;
+             -d "$(python3 -c "import json,sys;print(json.dumps({'content':{'raw':sys.argv[1]}}))" "$3")" \
+             "$BB/$1/pullrequests/$2/comments" >/dev/null ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

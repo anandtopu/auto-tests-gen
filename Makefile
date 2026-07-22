@@ -2,7 +2,8 @@ SHELL := /bin/bash
 .PHONY: deps test-routing bootstrap run-pr run-jira eval conformance \
         status coverage dashboard review-queue reviews repos agents parity-pr parity-jira \
         serve queue-run export-plan publish-plan attach-plan hook-server prune \
-        gaps catalog-db ingest-results smoke-openhands clear-demo report
+        gaps catalog-db ingest-results smoke-openhands clear-demo report \
+        test-gate demo-bootstrap demo-pr demo-jira review
 
 deps:
 	pip install --break-system-packages -r requirements.txt
