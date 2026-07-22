@@ -7,6 +7,7 @@ verification → troubleshooting.
 | Guide | Covers | Port(s) |
 |---|---|---|
 | [openhands.md](openhands.md) | OpenHands agents as orchestrator + sandbox (trigger Path 1) | orchestration |
+| [openhands-review.md](openhands-review.md) | Capability review: which OpenHands V1/Enterprise features to adopt, and what to skip | orchestration |
 | [jira.md](jira.md) | Jira tickets in (Workflow B), comments back, Confluence context | Tracker, Knowledge |
 | [bitbucket-stash.md](bitbucket-stash.md) | Bitbucket Cloud **and** Stash / Bitbucket Server (self-hosted) | Scm, Cicd trigger |
 | [email.md](email.md) | SMTP email: run notifications, review digests, team reports | Notify |

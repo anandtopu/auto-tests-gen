@@ -4,6 +4,11 @@ triggers: [ai-tests, ai-test-gen]
 ---
 # OpenHands microagent — AI QE (Path 1)
 
+> **DEPRECATED PATH.** OpenHands renamed microagents to *skills* and resolves
+> `.agents/skills/` → `.openhands/skills/` → `.openhands/microagents/` (this file),
+> first match wins. Prefer `triggers/openhands/skills/ai-qe/SKILL.md`; this copy is
+> kept only for OpenHands versions that predate skills.
+
 When triggered on a PR (label `ai-tests` or `@openhands-agent` mention) or via the
 JIRA webhook conversation starter:
 

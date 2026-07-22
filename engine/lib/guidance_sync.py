@@ -26,7 +26,10 @@ from registry import load_registry
 
 SYNC_DIR = pathlib.Path(os.environ.get("AIQE_SYNC_DIR") or ROOT / "knowledge/synced")
 STATE = SYNC_DIR / "state.json"
-GUIDANCE_FILES = ("AGENTS.md", "CLAUDE.md")
+# AGENTS.md/CLAUDE.md are the always-on convention; .agents/skills/qa-guide.md is
+# OpenHands' per-repo QA customization point, so a team already using OpenHands keeps
+# ONE guidance file that both systems honour (see openhands-review.md §2.3).
+GUIDANCE_FILES = ("AGENTS.md", "CLAUDE.md", ".agents/skills/qa-guide.md")
 MAX_BYTES = 100_000                       # a guidance file, not a data dump
 
 
@@ -100,8 +103,9 @@ def sync_repo(repo, ref=None):
             continue
         if len(text.encode("utf-8")) > MAX_BYTES:
             text = text[:MAX_BYTES] + "\n… (truncated at sync)\n"
-        dest.mkdir(parents=True, exist_ok=True)
-        (dest / fname).write_text(text, encoding="utf-8", newline="\n")
+        target = dest / fname                     # fname may be nested (.agents/skills/…)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8", newline="\n")
         found.append(fname)
     with fs_lock.lock(STATE):
         s = load_state()

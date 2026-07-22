@@ -51,11 +51,30 @@ def test_unknown_verb_still_exits_64():
 
 def test_sync_repo_caches_guidance_and_records_state(sync_dir):
     r = guidance_sync.sync_repo("orders-api")
-    assert r["files"] == ["CLAUDE.md"] and r["missing"] == ["AGENTS.md"]
+    assert r["files"] == ["CLAUDE.md"]
+    assert "AGENTS.md" in r["missing"]
     assert (sync_dir / "orders-api" / "CLAUDE.md").exists()
     st = guidance_sync.load_state()["orders-api"]
     assert st["files"] == ["CLAUDE.md"] and st["synced_at"] > 0
     assert [f["path"] for f in guidance_sync.synced_files("orders-api")]
+
+
+def test_openhands_qa_guide_is_a_recognised_guidance_file(sync_dir, tmp_path):
+    """Interop: a repo already using OpenHands keeps one file both systems honour."""
+    assert ".agents/skills/qa-guide.md" in guidance_sync.GUIDANCE_FILES
+    # a nested filename must round-trip through the cache (parents created on write)
+    import types
+    real = guidance_sync.fetch_one
+    guidance_sync.fetch_one = lambda repo, fname, ref=None: (
+        "QA-GUIDE-BODY" if fname.endswith("qa-guide.md") else None)
+    try:
+        r = guidance_sync.sync_repo("orders-api")
+        assert ".agents/skills/qa-guide.md" in r["files"]
+        cached = guidance_sync.synced_files("orders-api")
+        assert any("qa-guide.md" in f["path"] and "QA-GUIDE-BODY" in f["text"]
+                   for f in cached)
+    finally:
+        guidance_sync.fetch_one = real
 
 
 def test_sync_all_covers_ui_service_and_test_repos(sync_dir):

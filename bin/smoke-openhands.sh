@@ -127,6 +127,12 @@ python3 -c "import json;json.load(open('triggers/task-event-schema.json'))" 2>/d
   && ok "TaskEvent schema parses" || bad "task-event-schema.json invalid"
 
 # --- Stage 8: start a REAL conversation (opt-in: costs money) ---------------------
+# API shape differs by deployment:
+#   self-hosted Agent Server : POST /api/conversations           (default below)
+#   OpenHands Cloud          : POST /api/v1/app-conversations    (the V0 /api/conversations
+#                              endpoint was slated for removal in 2026 — set
+#                              OPENHANDS_CONVERSATIONS_PATH=/api/v1/app-conversations)
+# The request body differs too; Cloud takes initial_message.content[] + selected_repository.
 echo "Stage 8: live conversation trigger"
 if [ "${AIQE_SMOKE_TRIGGER:-0}" != "1" ]; then
   skip "not started (set AIQE_SMOKE_TRIGGER=1 to POST a real conversation)"
@@ -145,7 +151,9 @@ else
     ok "conversation started: $CID — watch it in the OpenHands UI, then check 'make status' here"
   else
     bad "conversation POST failed: $(echo "$RESP" | head -c 200)"
-    echo "         (endpoint shape varies by OpenHands version — set OPENHANDS_CONVERSATIONS_PATH if yours differs)"
+    echo "         (endpoint shape varies by deployment — Cloud uses"
+    echo "          OPENHANDS_CONVERSATIONS_PATH=/api/v1/app-conversations with a"
+    echo "          different body; self-hosted Agent Server uses /api/conversations)"
   fi
 fi
 
