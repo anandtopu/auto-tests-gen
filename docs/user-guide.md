@@ -479,6 +479,13 @@ estate *is* (repo registry, test catalog, `AGENTS.md`, demo repos, prompts). It
 refuses to run while a pipeline holds the run lock. Rebuild demo state afterwards
 with `make demo-bootstrap && make demo-pr`.
 
+On the lock: a run that was killed or crashed leaves `out/.pipeline.lock` behind, so
+refusing on its mere presence made the button fail forever with a message that wasn't
+true. It now matches `pipeline.sh` — a lock older than 90 minutes is treated as dead
+and broken automatically. A *fresh* lock still blocks the clear, but the UI offers to
+force past it (CLI: `python3 engine/lib/demo_data.py --force`) for when you know the
+run is gone.
+
 ### Test plans from JIRA: review → edit → approve → link → generate
 
 By default Workflow B runs plan → data → generate → gate in one pass. When a team

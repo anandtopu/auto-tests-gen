@@ -26,6 +26,8 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
   bin/qa.py report [--days N] [--release X] [--format md|html|docx|pdf] [--out F]
                                                 team status report: completed work, review
                                                 backlog, queue, throughput, estate health
+  bin/qa.py openhands                           live OpenHands agent conversations
+                                                (fed by the receiver's webhook routes)
   bin/qa.py plan show|list|edit|review|approve|request-changes|link <KEY>
                                                 JIRA test-plan workflow: review, edit
                                                 (--file), approve (--by), link to the
@@ -304,6 +306,22 @@ def cmd_gaps(args):
     print(coverage_gaps.to_markdown(args.repo))
 
 
+def cmd_openhands(args):
+    import openhands_events, time as _t
+    rows = openhands_events.summary()
+    if not rows:
+        print("no OpenHands conversations recorded yet.\n"
+              "Point the Agent Server's WebhookSpec.base_url at "
+              "<receiver>/hooks/openhands — see docs/integrations/openhands.md")
+        return
+    print(f"{'conversation':<34} {'status':<12} {'events':>6} {'age':>7}  repo / key")
+    for r in rows:
+        age = f"{(_t.time() - r['updated']) / 60:.0f}m" if r["updated"] else "-"
+        print(f"{r['conversation_id'][:34]:<34} {r['status']:<12} "
+              f"{r['event_count']:>6} {age:>7}  {r['repo'] or r['key'] or '-'}"
+              + (f"   ERROR: {r['error'][:50]}" if r["error"] else ""))
+
+
 def cmd_plan(args):
     """JIRA test-plan workflow: author -> review/edit -> approve -> link -> generate."""
     import plan_state
@@ -560,6 +578,7 @@ if __name__ == "__main__":
     s.add_argument("--format", default="md", choices=["md", "html", "docx", "pdf"])
     s.add_argument("--out")
     s.set_defaults(fn=cmd_report)
+    s = sub.add_parser("openhands"); s.set_defaults(fn=cmd_openhands)
     s = sub.add_parser("plan")
     s.add_argument("action", choices=["show", "list", "edit", "review", "approve",
                                       "request-changes", "link"])

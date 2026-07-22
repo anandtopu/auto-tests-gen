@@ -41,7 +41,7 @@ legacy microagent, marked deprecated, for older deployments.
 
 ## 2. High value — recommended next
 
-### 2.1 Webhooks instead of polling  ★ highest value
+### 2.1 Webhooks instead of polling  ★ highest value — **implemented**
 OpenHands' `WebhookSpec` POSTs buffered agent events to a URL you own, with custom
 headers (bearer auth), buffer size, flush delay and retry policy. There is also
 `GET /api/conversations/{id}/agent_final_response`.
@@ -53,6 +53,16 @@ enqueue). Pointing `WebhookSpec.base_url` at it, with a new event shape alongsid
 TaskEvent, gives live progress and a definitive completion signal for free.
 
 **Effort:** small. Mostly a new schema + handler branch in the existing receiver.
+
+**Status: done.** The receiver now accepts `POST /hooks/openhands/events` and
+`/hooks/openhands/conversations` (point `WebhookSpec.base_url` at
+`<receiver>/hooks/openhands`; auth via `Authorization: Bearer` since that is the only
+header form WebhookSpec can express). Records land in `reports/openhands/state.json`
+via `engine/lib/openhands_events.py` — bounded, tolerant of schema drift between
+versions, and **observability only**: these routes never enqueue work, so agent
+chatter cannot start pipeline runs. Surfaced by `bin/qa.py openhands`,
+`GET /api/openhands`, and an *OpenHands agent runs* card in the Runs view. Setup:
+[openhands.md](openhands.md) Step 4b.
 
 ### 2.2 Stop hooks as a pre-completion gate  ★ strong architectural fit
 `.openhands/hooks.json` supports `pre_tool_use`, `post_tool_use`, `user_prompt_submit`,

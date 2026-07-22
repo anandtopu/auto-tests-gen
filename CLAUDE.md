@@ -27,7 +27,7 @@ make coverage            # app-repo x test-repo matrix + gap warnings (bin/qa.py
 make dashboard           # regenerate reports/dashboard.html (bin/dashboard.py, gitignored)
 make reviews             # team-review board; bin/qa.py mark <KEY> <status> transitions it
 make serve               # interactive dashboard (bin/dashboard_server.py, :4999): fetch by release + work queue + Settings view (edits .env via engine/lib/settings_store.py; secrets write-only)
-make clear-demo [DRY=1]  # delete generated demo data (run history, plans, exports, scratch; estate registry/catalog/AGENTS.md kept — engine/lib/demo_data.py)
+make clear-demo [DRY=1]  # delete generated demo data (run history, plans, exports, scratch; estate registry/catalog/AGENTS.md kept — engine/lib/demo_data.py). Refuses while `out/.pipeline.lock` looks live; a lock older than STALE_LOCK_MINUTES (90, matching pipeline.sh) is broken automatically, and `--force` / `{"force":true}` overrides a fresh one
 make plan KEY=... / plan-show / plan-edit FILE=.. / plan-approve / plan-changes / plan-link / plan-tests / plans  # JIRA plan-first workflow: author the plan then STOP for human review/edit/approval; generation is gated on `approved` and editing an approved plan revokes it (engine/lib/plan_state.py, state in reports/plans/state.json — deliberately NOT under reports/runs/; `pipeline.sh plan|tests <KEY>`; demo-plan / demo-plan-tests are the mock variants; dashboard "Test plans" view + /api/plans/*)
 make report [DAYS=7] [RELEASE=x] [FORMAT=md|html|docx|pdf]  # team status report: completed work, review backlog, queue, throughput, estate health (engine/lib/team_report.py; also GET /api/report + Overview card)
 make email KIND=report|run|digest [RUN_ID=..] [DAYS=7] [RELEASE=x] [TO=a@b]  # generate + send an email via SMTP (engine/lib/email_notify.py; mock -> out/mock-email/; also bin/qa.py email + dashboard /api/email/*)
@@ -35,7 +35,7 @@ make queue-run           # drain the manual work queue (engine/lib/work_queue.py
 make export-plan KEY=... [FORMAT=html|docx|pdf]  # export a ticket's test plan (engine/lib/export_plan.py -> reports/exports/, gitignored; docx/pdf writers are stdlib-only)
 make publish-plan KEY=...  # one-way mirror the plan to Confluence (Knowledge port publish_doc; mock -> out/mock-confluence/)
 make attach-plan KEY=... [FORMAT=pdf]  # export + attach the plan to the JIRA ticket (Tracker port attach; mock -> out/mock-jira-attachments/)
-make hook-server         # TaskEvent webhook receiver (bin/taskevent_receiver.py, :4998; dedupe + enqueue)
+make hook-server         # TaskEvent webhook receiver (bin/taskevent_receiver.py, :4998; dedupe + enqueue). Also ingests the OpenHands Agent Server event stream at /hooks/openhands/{events,conversations} (WebhookSpec base_url) into engine/lib/openhands_events.py — observability only, never enqueues; view with `bin/qa.py openhands`, GET /api/openhands, or the Runs view card
 make prune [KEEP=200]    # run-record retention (oldest records + diffs beyond KEEP)
 make gaps                # coverage gaps: harvested surface vs catalog evidence (engine/lib/coverage_gaps.py)
 make ingest-results FILE=...  # CI JUnit/Jenkins results -> catalog/health.json (engine/lib/test_health.py)
