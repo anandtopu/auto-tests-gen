@@ -134,10 +134,23 @@
     "pr": null,
     "release": "",
     "requested_by": "taskevent",
-    "status": "queued",
+    "status": "done",
     "ts": 1784687505.3655655,
-    "finished": null,
-    "exit_code": null,
+    "finished": 1784693351.4596264,
+    "exit_code": 0,
+    "inline_file": null
+  },
+  {
+    "id": "q1784693312-12",
+    "mode": "pr",
+    "target": "orders-api",
+    "pr": "201",
+    "release": "",
+    "requested_by": "taskevent",
+    "status": "done",
+    "ts": 1784693312.5293405,
+    "finished": 1784693381.076627,
+    "exit_code": 0,
     "inline_file": null
   }
 ]
