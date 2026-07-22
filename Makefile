@@ -2,7 +2,7 @@ SHELL := /bin/bash
 .PHONY: deps test-routing bootstrap run-pr run-jira eval conformance \
         status coverage dashboard review-queue reviews repos agents parity-pr parity-jira \
         serve queue-run export-plan publish-plan attach-plan hook-server prune \
-        gaps catalog-db ingest-results smoke-openhands clear-demo report \
+        gaps catalog-db ingest-results smoke-openhands clear-demo report critic \
         test-gate demo-bootstrap demo-pr demo-jira review \
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
@@ -128,6 +128,9 @@ plan-tests:           # generate E2E tests from the APPROVED plan
 
 gaps:
 	python3 bin/qa.py gaps
+
+critic:               # advisory test-quality scores (never gates a commit)
+	python3 bin/qa.py critic $(if $(FINDINGS),--findings,)
 
 catalog-db:
 	python3 catalog/bootstrap/index_db.py

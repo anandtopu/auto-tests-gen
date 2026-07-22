@@ -81,7 +81,7 @@ sequenceDiagram
     participant SCM as SCM (GitHub/BB)
     participant P as pipeline.sh
     participant RES as resolve.py
-    participant LLM as Phases (triage→generate→validate)
+    participant LLM as Phases (triage→generate→validate→critic)
     participant ENV as with-env.sh
     participant G as gate.sh
 
@@ -96,6 +96,7 @@ sequenceDiagram
     P->>P: clone src/ (read-only), tests/ (branch test/KEY-ai-qe)
     P->>P: refresh AGENTS.md + coverage gaps (surface with NO test)
     P->>LLM: triage (diff + catalog slice + gaps) → generate specs + sidecar → validate
+    P->>LLM: critic (advisory quality score — read-only, never gates)
     par one gate per test repo (parallel)
         P->>G: gate.sh KEY repo
         G->>ENV: boot app-under-test (OS-assigned free port)
@@ -131,10 +132,11 @@ sequenceDiagram
     P->>P: resolve (component map + label restrictions, e.g. api-only)
     P->>LLM: analyze (guidance + ticket + Confluence)
     P->>LLM: testplan (+ coverage gaps) → testdata → generate → validate
+    P->>LLM: critic (advisory quality score — read-only, never gates)
     P->>G: parallel gates (same as Workflow A)
     G-->>P: GATE_STATUS per repo
     P->>J: comment: plan link, tests, per-repo status
-    Note over P: + Slack summary · Splunk run record ·<br/>review state → pending_review · plan exportable<br/>(pdf/docx/Confluence/JIRA attach)
+    Note over P: + Slack summary · Splunk run record ·<br/>review state → pending_review (+ advisory critic score attached) ·<br/>plan exportable (pdf/docx/Confluence/JIRA attach)
 ```
 
 ## 5. The deterministic gate (§5.5)
@@ -394,7 +396,7 @@ flowchart TD
     RV -- approve --> AP(["approved (by, when, note — append-only history)"])
     AP --> LINK["make plan-link → attach the plan<br/>to the JIRA ticket (Tracker attach)"]
     AP --> GEN["pipeline.sh tests &lt;KEY&gt;<br/><b>require_approved</b> gate runs BEFORE any clone/LLM"]
-    GEN --> PH["testdata → generate → validate<br/>(reviewed markdown is passed in, so edits shape tests)"]
+    GEN --> PH["testdata → generate → validate → critic<br/>(reviewed markdown is passed in, so edits shape tests)"]
     PH --> GATE["the same deterministic gate<br/>lint · run · born-mapped · commit"]
     GATE --> DONE(["tests committed · plan records the generating run"])
     RV -. "not approved" .-> BLOCK["generation refused"]

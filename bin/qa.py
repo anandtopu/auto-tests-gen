@@ -28,6 +28,9 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
                                                 backlog, queue, throughput, estate health
   bin/qa.py openhands                           live OpenHands agent conversations
                                                 (fed by the receiver's webhook routes)
+  bin/qa.py critic [-n 10] [--findings]         advisory test-quality scores per run
+                                                (vacuous/duplicate/weak specs the gate
+                                                cannot catch; never gates a commit)
   bin/qa.py plan show|list|edit|review|approve|request-changes|link <KEY>
                                                 JIRA test-plan workflow: review, edit
                                                 (--file), approve (--by), link to the
@@ -322,6 +325,46 @@ def cmd_openhands(args):
               + (f"   ERROR: {r['error'][:50]}" if r["error"] else ""))
 
 
+def cmd_critic(args):
+    """Advisory critic scores per run. Nothing here gated anything — it is the
+    quality signal the deterministic gate structurally cannot produce (§5.8.7)."""
+    runs = []
+    for f in _run_record_files():
+        try:
+            r = json.load(open(f, encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if r.get("critic"):
+            runs.append(r)
+    runs.sort(key=lambda r: r.get("ts", 0), reverse=True)
+    if not runs:
+        print("no critic signal recorded yet.\n"
+              "The critic runs after validate when critic.enabled is set in "
+              "registry/org-config.yaml (AIQE_CRITIC=0 skips it for one run).")
+        return
+    print(f"{'run_id':<18} {'trigger':<22} {'score':>6} {'verdict':<9} {'noise':>9} findings")
+    for r in runs[: args.n]:
+        c = r["critic"]
+        noise = (f"{c.get('noise_count', 0)}/{c['specs_reviewed']}"
+                 if c.get("specs_reviewed") else str(c.get("noise_count", 0)))
+        print(f"{r['run_id']:<18} {r['trigger']['type']}:{r['trigger']['key']:<18} "
+              f"{c['score']:>6.2f} {c['verdict']:<9} {noise:>9} "
+              f"{len(c.get('findings', []))}")
+    if args.findings:
+        print()
+        for r in runs[: args.n]:
+            c = r["critic"]
+            if not c.get("findings"):
+                continue
+            print(f"--- {r['run_id']} ({r['trigger']['key']}) — {c.get('rationale', '')}")
+            for f in c["findings"]:
+                print(f"    [{f.get('severity', '?'):<4} {f.get('kind', '?'):<9}] "
+                      f"{f.get('file', '?')}: {f.get('note', '')}")
+    avg = sum(r["critic"]["score"] for r in runs) / len(runs)
+    print(f"\naverage score {avg:.2f} over {len(runs)} scored run(s) — "
+          "advisory only, never gates a commit")
+
+
 def cmd_plan(args):
     """JIRA test-plan workflow: author -> review/edit -> approve -> link -> generate."""
     import plan_state
@@ -579,6 +622,8 @@ if __name__ == "__main__":
     s.add_argument("--out")
     s.set_defaults(fn=cmd_report)
     s = sub.add_parser("openhands"); s.set_defaults(fn=cmd_openhands)
+    s = sub.add_parser("critic"); s.add_argument("-n", type=int, default=10)
+    s.add_argument("--findings", action="store_true"); s.set_defaults(fn=cmd_critic)
     s = sub.add_parser("plan")
     s.add_argument("action", choices=["show", "list", "edit", "review", "approve",
                                       "request-changes", "link"])

@@ -92,6 +92,10 @@ per-repo config.
 ```yaml
 models:            # model tier per phase; escalate after 2 failed generate attempts
 phases:            # per-phase max_turns + allowedTools whitelist (least privilege)
+critic:            # advisory test-quality score; NEVER gates a commit (§5.8.7)
+  enabled: true             # AIQE_CRITIC=0 skips the phase for a single run
+  accept_threshold: 0.8     # >= this -> "accept";  >= review_threshold -> "review"
+  review_threshold: 0.5     # below it -> "weak" (still commits — the gate decides)
 resolution:
   confidence_threshold: 0.8   # below this the pipeline asks a human instead of guessing
 catalog:

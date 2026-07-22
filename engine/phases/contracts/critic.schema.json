@@ -1,0 +1,8 @@
+{
+  "required": [
+    "score",
+    "verdict",
+    "noise_count",
+    "findings"
+  ]
+}

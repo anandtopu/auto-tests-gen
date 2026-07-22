@@ -16,6 +16,9 @@ CLI (used by pipeline.sh and bin/qa.py):
   review_state.py release <KEY> <version> [source] set the target release version
   review_state.py get     <KEY>
   review_state.py list
+
+A key may also carry an advisory `critic` score (see engine/lib/critic.py). It is
+attached information only — it never drives a status transition.
 """
 import json, os, pathlib, sys, time
 
@@ -66,6 +69,29 @@ def set_release(key, release, source="manual", ts=None):
                                  "ts": ts if ts is not None else time.time()})
         entry["release"] = release
         entry.setdefault("status", "")        # release may arrive before any commit
+        data[key] = entry
+        save(data)
+    return entry
+
+
+def set_critic(key, critic, ts=None):
+    """Attach the ADVISORY critic signal to a key (openhands-review §3.2).
+
+    Deliberately never touches `status`: the critic informs whoever reviews the
+    artifacts, it does not decide anything. A low score cannot move a key out of
+    `approved`, and a high one cannot skip review.
+    """
+    with fs_lock.lock(FILE):
+        data = load()
+        entry = data.get(key, {"history": []})
+        entry["critic"] = {"score": critic.get("score"),
+                           "verdict": critic.get("verdict"),
+                           "noise_count": critic.get("noise_count", 0),
+                           "specs_reviewed": critic.get("specs_reviewed", 0),
+                           "findings": critic.get("findings", []),
+                           "rationale": critic.get("rationale", ""),
+                           "ts": ts if ts is not None else time.time()}
+        entry.setdefault("status", "")         # a critic score may land before any commit
         data[key] = entry
         save(data)
     return entry

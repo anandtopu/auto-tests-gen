@@ -71,6 +71,17 @@ EOF
   validate)
     echo '{"passed":2,"failed":0,"repair_loops":0,"flaky_reruns":0}' > out/validate.contract.json
     ;;
+  critic)
+    # Advisory only. AIQE_MOCK_CRITIC_SCORE forces a score so the demo (and the
+    # regression tests) can prove a terrible score still commits.
+    cat > out/critic.contract.json << EOF
+{"score":${AIQE_MOCK_CRITIC_SCORE:-0.86},"verdict":"accept","noise_count":0,
+ "specs_reviewed":2,
+ "findings":[{"file":"suites/orders/${KEY}-discount-boundary.spec.js","kind":"missing",
+              "severity":"low","note":"no case for a discount above the cap"}],
+ "rationale":"assertions check the discounted total, not just the status code"}
+EOF
+    ;;
   *) echo "no mock for $PHASE"; exit 1 ;;
 esac
 echo "[mock] phase $PHASE done"

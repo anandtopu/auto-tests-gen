@@ -12,6 +12,16 @@ phases:
   testdata:  { max_turns: 10, allowed_tools: "Read,Write" }
   generate:  { max_turns: 25, allowed_tools: "Read,Write,Edit,Bash(npx playwright test:*),Bash(npm run lint:*)" }
   validate:  { max_turns: 15, allowed_tools: "Read,Edit,Bash(npx playwright test:*)" , repair_loops: 3 }
+  # Read-only ON PURPOSE: a critic that can Write/Edit is an unreviewed repair loop,
+  # not a second opinion. Advisory status depends on it staying this way (§3.2).
+  critic:    { max_turns: 8,  allowed_tools: "Read" }
+# Advisory critic (openhands-review §3.2). Scores generated-test QUALITY for the human
+# reviewer and the "escaped noise" metric — it NEVER gates a commit. Thresholds only
+# label the score; AIQE_CRITIC=0 skips the phase for a single run.
+critic:
+  enabled: true
+  accept_threshold: 0.8
+  review_threshold: 0.5
 resolution:
   confidence_threshold: 0.8
   clarify_channels: [tracker, notify]   # post question to Jira + Slack when below threshold
