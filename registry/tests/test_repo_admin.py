@@ -122,7 +122,9 @@ def test_repo_local_claude_md_reaches_generation_context():
     subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")], cwd=ROOT,
                    check=True, capture_output=True, stdin=subprocess.DEVNULL)
     agents = AGENTS.read_text(encoding="utf-8")
-    assert "demo/orders-api/CLAUDE.md" in agents
+    # freshest checkout wins: workspace clone during runs, demo estate otherwise
+    assert ("workspace/src/orders-api/CLAUDE.md" in agents
+            or "demo/orders-api/CLAUDE.md" in agents)
     assert "invalid codes return **422**" in agents        # the file's content, merged
 
 
@@ -132,7 +134,7 @@ def test_summary_labels_kinds_and_scope():
     assert kinds["web-storefront-ui"] == "ui" and kinds["orders-api"] == "service"
     assert all("scope" in t and "covers" in t for t in s["test_repos"])
     orders = next(a for a in s["app_repos"] if a["name"] == "orders-api")
-    assert "demo/orders-api/CLAUDE.md" in orders["local_files"]
+    assert any(p.endswith("orders-api/CLAUDE.md") for p in orders["local_files"])
 
 
 def test_cli_add_scope_and_notes(estate_guard):
