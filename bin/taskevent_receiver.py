@@ -11,7 +11,20 @@ Behavior: validate -> dedupe on sha256(mode|repo|pr|key|updated|workflow_version
 -> enqueue into the work queue (NFR-6: webhook redeliveries are no-ops). With
 AIQE_HOOK_AUTORUN=1 a queue drain is started after each accepted event.
 
-Auth: set AIQE_HOOK_TOKEN and senders must include header X-AIQE-Token.
+It also ingests the OpenHands Agent Server event stream, which gives live
+visibility into agent-driven runs instead of waiting for the pipeline's own run
+record. Point WebhookSpec.base_url at <receiver>/hooks/openhands — OpenHands
+appends the two paths itself:
+
+  POST /hooks/openhands/events         buffered batches of agent events
+  POST /hooks/openhands/conversations  conversation lifecycle records
+
+Those are recorded (bounded, defensively) by engine/lib/openhands_events.py; they
+never enqueue work, so a chatty agent cannot start pipeline runs.
+
+Auth: set AIQE_HOOK_TOKEN. Senders may present it as X-AIQE-Token or as
+Authorization: Bearer <token> — OpenHands sends whatever headers you configure in
+WebhookSpec, and only the latter is expressible there.
 Start: make hook-server   (default 127.0.0.1:4998, AIQE_HOOK_PORT to change)
 """
 import hashlib, json, os, pathlib, subprocess, sys, threading
@@ -19,7 +32,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import fs_lock, work_queue
+import fs_lock, openhands_events, work_queue
 
 TOKEN = os.environ.get("AIQE_HOOK_TOKEN", "")
 AUTORUN = os.environ.get("AIQE_HOOK_AUTORUN", "0") == "1"
@@ -123,22 +136,53 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.split("?")[0] in ("/", "/healthz"):
             return self._send(200, {"service": "ai-qe-taskevent-receiver",
                                     "status": "ok",
-                                    "endpoint": "POST /hooks/taskevent",
+                                    "endpoints": ["POST /hooks/taskevent",
+                                                  "POST /hooks/openhands/events",
+                                                  "POST /hooks/openhands/conversations"],
                                     "auth": bool(TOKEN),
                                     "autorun": AUTORUN})
         self._send(404, {"error": "GET / or /healthz; work is submitted via "
                                   "POST /hooks/taskevent"})
 
+    def _authed(self):
+        """X-AIQE-Token, or Authorization: Bearer — OpenHands' WebhookSpec can only
+        send arbitrary headers, so Bearer is the form it can express."""
+        if not TOKEN:
+            return True
+        if self.headers.get("X-AIQE-Token", "") == TOKEN:
+            return True
+        return self.headers.get("Authorization", "") == f"Bearer {TOKEN}"
+
     def do_POST(self):
-        if TOKEN and self.headers.get("X-AIQE-Token", "") != TOKEN:
-            return self._send(401, {"error": "missing or wrong X-AIQE-Token"})
-        if self.path != "/hooks/taskevent":
-            return self._send(404, {"error": "POST /hooks/taskevent"})
+        if not self._authed():
+            return self._send(401, {"error": "missing or wrong credentials: send "
+                                             "X-AIQE-Token or Authorization: Bearer"})
+        path = self.path.split("?")[0].rstrip("/")
         try:
-            ev = json.loads(self.rfile.read(
+            body = json.loads(self.rfile.read(
                 int(self.headers.get("Content-Length", 0) or 0)) or b"{}")
         except json.JSONDecodeError as e:
             return self._send(400, {"error": f"invalid JSON: {e}"})
+
+        # --- OpenHands Agent Server event stream (observability only) -------------
+        # These never enqueue work: a chatty agent must not be able to start runs.
+        # Errors are swallowed into a 200 on purpose — a failing webhook endpoint
+        # just makes OpenHands retry the same batch forever.
+        if path in ("/hooks/openhands/events", "/hooks/openhands/conversations"):
+            try:
+                r = (openhands_events.record_events(body)
+                     if path.endswith("/events")
+                     else openhands_events.record_conversation(body))
+                return self._send(200, {"ok": True, **r})
+            except Exception as e:                                  # noqa: BLE001
+                return self._send(200, {"ok": False,
+                                        "error": f"not recorded: {str(e)[:120]}"})
+
+        if path != "/hooks/taskevent":
+            return self._send(404, {"error": "POST /hooks/taskevent, "
+                                             "/hooks/openhands/events or "
+                                             "/hooks/openhands/conversations"})
+        ev = body
         try:
             code, resp = handle_event(ev)
         except Exception as e:              # noqa: BLE001 — server boundary: the

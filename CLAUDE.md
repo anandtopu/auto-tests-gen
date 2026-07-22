@@ -35,7 +35,7 @@ make queue-run           # drain the manual work queue (engine/lib/work_queue.py
 make export-plan KEY=... [FORMAT=html|docx|pdf]  # export a ticket's test plan (engine/lib/export_plan.py -> reports/exports/, gitignored; docx/pdf writers are stdlib-only)
 make publish-plan KEY=...  # one-way mirror the plan to Confluence (Knowledge port publish_doc; mock -> out/mock-confluence/)
 make attach-plan KEY=... [FORMAT=pdf]  # export + attach the plan to the JIRA ticket (Tracker port attach; mock -> out/mock-jira-attachments/)
-make hook-server         # TaskEvent webhook receiver (bin/taskevent_receiver.py, :4998; dedupe + enqueue)
+make hook-server         # TaskEvent webhook receiver (bin/taskevent_receiver.py, :4998; dedupe + enqueue). Also ingests the OpenHands Agent Server event stream at /hooks/openhands/{events,conversations} (WebhookSpec base_url) into engine/lib/openhands_events.py — observability only, never enqueues; view with `bin/qa.py openhands`, GET /api/openhands, or the Runs view card
 make prune [KEEP=200]    # run-record retention (oldest records + diffs beyond KEEP)
 make gaps                # coverage gaps: harvested surface vs catalog evidence (engine/lib/coverage_gaps.py)
 make ingest-results FILE=...  # CI JUnit/Jenkins results -> catalog/health.json (engine/lib/test_health.py)

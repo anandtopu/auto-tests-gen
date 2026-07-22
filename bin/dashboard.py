@@ -859,6 +859,31 @@ $('#inl-queue').addEventListener('click', async () => {
 });
 refreshQueue();
 
+// ---- OpenHands agent runs (fed by the receiver's webhook routes)
+const OH_CHIP = { running: ['● running','warning'], finished: ['✓ finished','success'],
+  complete: ['✓ complete','success'], completed: ['✓ complete','success'],
+  error: ['✗ error','danger'], stopped: ['stopped','muted'], cancelled: ['cancelled','muted'] };
+async function refreshOpenHands() {
+  if (!served || !$('#oh-table')) return;
+  try {
+    const rows = await api('/api/openhands');
+    if (!rows.length) { $('#oh-card').classList.add('hidden'); return; }
+    $('#oh-card').classList.remove('hidden');
+    $('#oh-table tbody').innerHTML = rows.map(r => {
+      const [lb, cls] = OH_CHIP[r.status] || [r.status || 'running', 'info'];
+      return '<tr><td class="mono sm">' + escHtml(r.conversation_id.slice(0, 28)) + '</td>' +
+        '<td><span class="chip chip-' + cls + '">' + escHtml(lb) + '</span>' +
+        (r.error ? '<div class="sm danger-fg">' + escHtml(r.error.slice(0, 70)) + '</div>' : '') +
+        '</td><td class="sm">' + escHtml(r.repo || r.key || '—') + '</td>' +
+        '<td class="num">' + r.event_count + '</td>' +
+        '<td class="sm muted">' + escHtml(r.last_event || '—') + '</td></tr>';
+    }).join('');
+    $('#oh-count').textContent = rows.length + ' conversation(s) · ' +
+      rows.filter(r => !r.terminal).length + ' in flight';
+  } catch (err) { /* advisory panel — never block the Runs view */ }
+}
+refreshOpenHands();
+
 // ---- test plans: review -> edit -> approve -> link -> generate
 const PLAN_CHIP = { draft: ['draft', 'muted'], in_review: ['✎ in review', 'warning'],
   approved: ['✓ approved', 'success'], changes_requested: ['✗ changes requested', 'danger'] };
@@ -1259,6 +1284,14 @@ page = f"""<!doctype html>
   </div>
 
   <div data-view="runs">
+    <section class="card hidden" id="oh-card">
+      <div class="card-h"><h2 class="grow">OpenHands agent runs</h2>
+        <span class="sub" id="oh-count"></span></div>
+      <div class="scroll"><table id="oh-table">
+        <thead><tr><th>conversation</th><th>status</th><th>repo / ticket</th>
+          <th class="num">events</th><th>last event</th></tr></thead>
+        <tbody></tbody></table></div>
+    </section>
     <section class="card">
       <div class="card-h"><h2>Recent runs</h2>
         <label class="f">Release <select id="f-rel" class="h32"><option value="">all</option>

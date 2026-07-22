@@ -24,6 +24,7 @@ Endpoints:
   POST /api/queue/run         drain the queue in a background process
   POST /api/queue/requeue     {"id"} -> put a failed item back in the queue
   POST /api/queue/remove      {"id"} -> delete a non-running item
+  GET  /api/openhands         live OpenHands agent conversations (webhook-fed)
   GET  /api/plans             test plans + lifecycle status
   GET  /api/plans/one?key=K   one plan's markdown + status
   POST /api/plans/save        {"key","text","by"?}   edit (resets an approved plan)
@@ -54,8 +55,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import demo_data, email_notify, export_plan, guidance_sync, inline_ticket, \
-    integration_check, plan_state, repo_admin, review_state, settings_store, \
-    team_report, work_queue
+    integration_check, openhands_events, plan_state, repo_admin, review_state, \
+    settings_store, team_report, work_queue
 
 # The Settings view writes .env; honor it here too (explicit env still wins) so
 # adapter mode and credentials configured in the UI actually reach this server.
@@ -157,6 +158,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, items)
         elif url.path == "/api/queue":
             self._send(200, work_queue.load())
+        elif url.path == "/api/openhands":
+            self._send(200, openhands_events.summary())
         elif url.path == "/api/plans":
             self._send(200, plan_state.summary())
         elif url.path == "/api/plans/one":

@@ -70,6 +70,65 @@ schema in [triggers/task-event-schema.json](../../triggers/task-event-schema.jso
 Automation web request — or any webhook source — at it directly when you are not
 using the OpenHands-native trigger path.
 
+## Step 4b — Stream agent events back (recommended)
+
+Without this, a long OpenHands conversation is opaque: the platform learns nothing
+until the pipeline writes its own run record, and a conversation that dies never
+reports at all. The Agent Server can POST its event stream to our TaskEvent receiver
+instead — buffered, retried, and authenticated with a header you choose.
+
+Add a `webhooks` entry to the Agent Server config (default
+`workspace/openhands_agent_server_config.json`, or point
+`OPENHANDS_AGENT_SERVER_CONFIG_PATH` at your own):
+
+```json
+{
+  "webhooks": [
+    {
+      "base_url": "https://ai-qe-receiver.example.com/hooks/openhands",
+      "headers": { "Authorization": "Bearer ${AIQE_HOOK_TOKEN}" },
+      "event_buffer_size": 20,
+      "flush_delay": 5,
+      "num_retries": 3,
+      "retry_delay": 5
+    }
+  ]
+}
+```
+
+OpenHands appends the two paths itself, so the receiver sees:
+
+| Path | Carries |
+|---|---|
+| `POST /hooks/openhands/events` | batches of agent events (state changes, actions, errors) |
+| `POST /hooks/openhands/conversations` | conversation lifecycle: repo, status, failure reason |
+
+Notes that matter in practice:
+
+- **Auth**: `WebhookSpec` can only send arbitrary headers, so use
+  `Authorization: Bearer <AIQE_HOOK_TOKEN>`. The receiver accepts that or the usual
+  `X-AIQE-Token`.
+- **These routes never enqueue work.** They are observability only — an agent cannot
+  start pipeline runs by emitting events. Triggers still go to `/hooks/taskevent`.
+- The receiver answers `200` even on a malformed batch, deliberately: a 5xx would just
+  make OpenHands retry the same bad payload forever.
+- Storage is bounded (recent conversations, capped event trail per conversation) and
+  lives in `reports/openhands/state.json`. `python3 engine/lib/openhands_events.py prune`
+  drops finished conversations older than a day.
+
+View what arrived:
+
+```bash
+python3 bin/qa.py openhands       # conversations, status, event counts, errors
+```
+
+The dashboard's **Runs & reviews** view shows the same as an *OpenHands agent runs*
+card whenever any conversation has been recorded.
+
+For a definitive end-of-run answer you can also pull
+`GET /api/conversations/{id}/agent_final_response` from the Agent Server rather than
+polling conversation status.
+
 ## Step 5 — Verify
 
 Start with the staged smoke test — it tells you exactly what is missing and validates
