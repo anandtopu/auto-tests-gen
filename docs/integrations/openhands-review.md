@@ -64,7 +64,7 @@ chatter cannot start pipeline runs. Surfaced by `bin/qa.py openhands`,
 `GET /api/openhands`, and an *OpenHands agent runs* card in the Runs view. Setup:
 [openhands.md](openhands.md) Step 4b.
 
-### 2.2 Stop hooks as a pre-completion gate  ★ strong architectural fit
+### 2.2 Stop hooks as a pre-completion gate  ★ strong architectural fit — **implemented**
 `.openhands/hooks.json` supports `pre_tool_use`, `post_tool_use`, `user_prompt_submit`,
 **`stop`**, `session_start`, `session_end`. A `stop` hook can **block task completion**
 (exit 2, or `{"decision":"deny","reason":…}`) until repo checks pass.
@@ -76,6 +76,20 @@ after it. Our gate already returns distinct exit codes, so the reason string is 
 
 **Caveat:** the gate must stay the only push path; the hook runs it, it does not
 replace it.
+
+**Status: done.** `.openhands/hooks.json` binds the blocking `stop` event to
+`.openhands/hooks/gate-check.sh`. The hook runs the gate in a new **check-only mode**
+(`AIQE_GATE_CHECK_ONLY=1`) which performs every check — scope + filename charset,
+born-mapped sidecar, lint, executing the changed specs, secret scan — and stops
+before writing, reporting `GATE_STATUS=WOULD_COMMIT`. On failure it returns
+`{"decision":"deny"}` and exit 2, naming the rule and the offending file so the agent
+can fix and retry.
+
+Two properties are enforced by test rather than convention: the hook **never commits
+or pushes** (the gate remains the only writer, and the default gate path still commits
+as before), and it **fails open** — if it cannot determine an answer it allows
+completion rather than blocking on its own malfunction, since the real gate still runs
+afterwards and will reject.
 
 ### 2.3 Adopt the `qa-guide.md` skill convention for test repos
 OpenHands' public `qa-changes` skill is customised per repo via

@@ -129,6 +129,45 @@ For a definitive end-of-run answer you can also pull
 `GET /api/conversations/{id}/agent_final_response` from the Agent Server rather than
 polling conversation status.
 
+## Step 4c — Block completion on a failing gate (recommended)
+
+By default an agent decides for itself when a task is done. `.openhands/hooks.json`
+binds OpenHands' blocking **`stop`** event to `.openhands/hooks/gate-check.sh`, so the
+agent cannot declare success on work the quality gate would reject:
+
+```json
+{ "stop": [ { "matcher": "*", "hooks": [
+    { "type": "command", "command": ".openhands/hooks/gate-check.sh",
+      "timeout": 360, "async": false } ] } ] }
+```
+
+Ship both files in the control repo (they are already in this one). On finish, the
+hook runs the gate in **check-only mode** against every writable test repo in
+`workspace/tests/` and either allows completion or returns
+
+```json
+{"decision":"deny","reason":"The AI-QE quality gate would reject this work …"}
+```
+
+with exit 2, which blocks the agent and hands back the rule and the offending file
+("a new spec has no catalog sidecar entry — every test must be born-mapped").
+
+What it deliberately does **not** do:
+
+- **It never commits or pushes.** Check-only mode (`AIQE_GATE_CHECK_ONLY=1`) runs all
+  the checks and stops before writing, printing `GATE_STATUS=WOULD_COMMIT`.
+  `engine/gate/gate.sh` remains the only component that writes, and the pipeline still
+  runs it for real afterwards — the hook only moves the verdict earlier.
+- **It never blocks on its own malfunction.** No workspace, no python, unreadable
+  repo → it allows completion. The authoritative gate still runs later, so nothing
+  escapes unchecked; it is simply caught further along.
+
+Check it by hand the same way the hook does:
+
+```bash
+cd workspace/tests/<repo> && AIQE_GATE_CHECK_ONLY=1 bash ../../../engine/gate/gate.sh KEY <repo>
+```
+
 ## Step 5 — Verify
 
 Start with the staged smoke test — it tells you exactly what is missing and validates

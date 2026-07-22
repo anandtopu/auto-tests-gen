@@ -55,6 +55,14 @@ FOUND=$({ git diff HEAD; git ls-files --others --exclude-standard -z | xargs -0 
   | grep -iE '(api[_-]?key|password|secret|token)\s*[:=]\s*["'"'"'][^"'"'"']+' || true)
 if [ -n "$FOUND" ]; then echo "SECRET_PATTERN"; exit 3; fi
 
+# Check-only: every check above has run; stop before writing anything. Used by the
+# OpenHands Stop hook so an agent is told its work would be rejected BEFORE it
+# declares the task done — without granting the agent commit authority. The gate
+# remains the only thing that ever commits or pushes.
+if [ "${AIQE_GATE_CHECK_ONLY:-0}" = "1" ]; then
+  echo "GATE_STATUS=WOULD_COMMIT"; exit 0
+fi
+
 # 6. Commit & push (branch protection blocks main; token scoped to branches)
 git add -A
 git commit -qm "test(${KEY}): AI-generated E2E updates" \

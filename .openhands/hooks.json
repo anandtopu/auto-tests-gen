@@ -1,0 +1,15 @@
+{
+  "stop": [
+    {
+      "matcher": "*",
+      "hooks": [
+        {
+          "type": "command",
+          "command": ".openhands/hooks/gate-check.sh",
+          "timeout": 360,
+          "async": false
+        }
+      ]
+    }
+  ]
+}
