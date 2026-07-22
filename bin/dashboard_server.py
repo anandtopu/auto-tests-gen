@@ -55,8 +55,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import demo_data, email_notify, export_plan, guidance_sync, inline_ticket, \
-    integration_check, openhands_events, plan_state, repo_admin, review_state, \
-    settings_store, team_report, work_queue
+    integration_check, openhands_client, openhands_events, plan_state, repo_admin, \
+    review_state, settings_store, team_report, work_queue
 
 # The Settings view writes .env; honor it here too (explicit env still wins) so
 # adapter mode and credentials configured in the UI actually reach this server.
@@ -160,6 +160,20 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, work_queue.load())
         elif url.path == "/api/openhands":
             self._send(200, openhands_events.summary())
+        elif url.path == "/api/openhands/health":
+            # Re-load .env so a key saved in Settings is visible without a restart.
+            settings_store.load_env_into()
+            self._send(200, openhands_client.health())
+        elif url.path.startswith("/api/openhands/"):
+            conv_id = url.path[len("/api/openhands/"):]
+            if not re.fullmatch(r"[\w-]+", conv_id):
+                self._send(400, {"error": "invalid conversation id"})
+                return
+            try:
+                settings_store.load_env_into()
+                self._send(200, openhands_client.status(conv_id))
+            except RuntimeError as e:
+                self._send(502, {"error": str(e)})
         elif url.path == "/api/plans":
             self._send(200, plan_state.summary())
         elif url.path == "/api/plans/one":
@@ -411,6 +425,66 @@ class Handler(BaseHTTPRequestHandler):
                                     "run"], cwd=ROOT, stdin=subprocess.DEVNULL)
             threading.Thread(target=drain, daemon=True).start()
             self._send(200, {"started": True})
+        elif self.path == "/api/openhands/trigger":
+            # Start an OpenHands conversation (Path 1) for a work item.
+            # Body fields:
+            #   mode     "pr" | "jira"           (required)
+            #   target   repo name or JIRA key   (required)
+            #   pr       PR number               (required when mode=pr)
+            #   release  fix-version string      (optional)
+            #   message  override initial message (optional)
+            #   repo     control repo override   (optional, defaults to AIQE_CONTROL_REPO)
+            #   branch   branch inside repo      (optional, default "main")
+            try:
+                p = json.loads(body or b"{}")
+                mode = p.get("mode")
+                target = p.get("target", "")
+                if mode not in ("pr", "jira"):
+                    self._send(400, {"error": "mode must be pr|jira"}); return
+                if not target:
+                    self._send(400, {"error": "target is required"}); return
+                if mode == "pr" and not p.get("pr"):
+                    self._send(400, {"error": "pr is required for mode=pr"}); return
+
+                settings_store.load_env_into()
+                ctrl_repo = p.get("repo") or os.environ.get("AIQE_CONTROL_REPO", "")
+                branch = p.get("branch", "main")
+
+                if p.get("message"):
+                    message = p["message"]
+                elif mode == "pr":
+                    message = (f"Run the AI-QE pipeline: "
+                               f"bash engine/pipeline.sh pr {target} {p['pr']}")
+                else:
+                    message = (f"Run the AI-QE pipeline: "
+                               f"bash engine/pipeline.sh jira {target}")
+
+                result = openhands_client.start(
+                    message, repo=ctrl_repo or None, branch=branch,
+                    title=f"AI-QE: {mode} {target}" + (f" #{p['pr']}" if mode == "pr" else ""),
+                )
+                self._send(200, {"ok": True, **result})
+            except (KeyError, json.JSONDecodeError) as e:
+                self._send(400, {"error": str(e)})
+            except RuntimeError as e:
+                self._send(502, {"error": str(e)})
+        elif self.path in ("/hooks/openhands/events",
+                           "/hooks/openhands/conversations"):
+            # OpenHands Agent Server event stream — observability only.
+            # The dashboard doubles as a lightweight webhook receiver so teams that
+            # don't run the separate hook server at 4998 still get live visibility.
+            # Mirrors the logic in bin/taskevent_receiver.py; always returns 200 so
+            # a failing handler never triggers the sender's retry loop.
+            try:
+                p = json.loads(body or b"{}")
+                if self.path.endswith("/events"):
+                    r = openhands_events.record_events(p)
+                else:
+                    r = openhands_events.record_conversation(p)
+                self._send(200, {"ok": True, **r})
+            except Exception as e:                      # noqa: BLE001
+                self._send(200, {"ok": False,
+                                 "error": f"not recorded: {str(e)[:120]}"})
         else:
             self._send(404, {"error": "not found"})
 

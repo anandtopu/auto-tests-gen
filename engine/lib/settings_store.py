@@ -73,6 +73,8 @@ SPEC = [
      "fields": [
         {"env": "OPENHANDS_URL", "label": "Agent Server URL"},
         {"env": "OPENHANDS_API_KEY", "label": "API key", "secret": True},
+        {"env": "OPENHANDS_CONVERSATIONS_PATH", "label": "Conversations path",
+         "help": "/api/v1/app-conversations for Cloud; leave blank for self-hosted"},
         {"env": "AIQE_SANDBOX_IMAGE", "label": "Sandbox image",
          "default": "ai-qe-sandbox:latest"},
         {"env": "AIQE_CONTROL_REPO", "label": "Control repo", "help": "org/ai-qe-control"},

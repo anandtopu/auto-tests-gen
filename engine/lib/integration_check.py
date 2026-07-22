@@ -156,17 +156,26 @@ def check_confluence():
 
 
 def check_openhands():
-    url = _env("OPENHANDS_URL")
-    if not url:
+    if not _env("OPENHANDS_URL"):
         return _r("OpenHands", "skipped", "OPENHANDS_URL not set")
-    tok = _env("OPENHANDS_API_KEY")
-    headers = {"Authorization": f"Bearer {tok}"} if tok else {}
-    path = _env("OPENHANDS_HEALTH_PATH") or "/health"
-    res = _http_check("OpenHands", url.rstrip("/") + path, headers,
-                      "check OPENHANDS_URL and the API key")
-    if res["status"] == "ok":
-        res["detail"] += " — for the full staged test run: make smoke-openhands"
-    return res
+    try:
+        import openhands_client
+        h = openhands_client.health()
+    except Exception as e:
+        return _r("OpenHands", "fail", f"client error: {str(e)[:120]}",
+                  "check OPENHANDS_URL and OPENHANDS_API_KEY")
+    if not h["reachable"]:
+        return _r("OpenHands", "fail", h.get("error") or f"HTTP {h.get('http_code')}",
+                  h.get("hint") or "check OPENHANDS_URL and network")
+    detail = f"reachable at {h.get('endpoint', _env('OPENHANDS_URL'))} " \
+             f"(HTTP {h.get('http_code')})"
+    if h.get("hint"):
+        return _r("OpenHands", "fail", detail, h["hint"])
+    if not _env("OPENHANDS_API_KEY"):
+        detail += " — OPENHANDS_API_KEY not set (required to start conversations)"
+    else:
+        detail += " — for the full staged test: make smoke-openhands"
+    return _r("OpenHands", "ok", detail)
 
 
 def check_cicd():
