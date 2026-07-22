@@ -288,6 +288,31 @@ for e in sorted(catalog, key=lambda e: (e["test_repo"], e["file"])):
         f'<td class="sm muted">{esc(", ".join(m["method"]))}</td>'
         f'<td>{chip(m["status"])}</td><td>{health_cell}</td></tr>')
 
+# ---------------------------------------------------------------- plans view
+# Server-rendered like every other view, so the static snapshot (make dashboard,
+# no server) shows real plans instead of an empty placeholder.
+import plan_state
+PLAN_CHIP = {"draft": ("draft", "muted"), "in_review": ("✎ in review", "warning"),
+             "approved": ("✓ approved", "success"),
+             "changes_requested": ("✗ changes requested", "danger")}
+plan_rows = ""
+for p in plan_state.summary():
+    lbl, cls = PLAN_CHIP.get(p["status"], (p["status"] or "—", "muted"))
+    plan_rows += (
+        f'<tr><td class="strong">{esc(p["key"])}</td>'
+        f'<td><span class="chip chip-{cls}">{esc(lbl)}</span></td>'
+        f'<td>' + ('<span class="chip chip-success">✓ linked</span>' if p["linked"]
+                   else '<span class="muted">—</span>') + '</td>'
+        f'<td class="mono sm muted">{esc(p["generated_run"] or "—")}</td>'
+        f'<td class="sm muted">{esc(p["note"] or "")}</td>'
+        f'<td class="right"><button class="btn btn-sm plan-open" '
+        f'data-key="{esc(p["key"])}">Review</button></td></tr>')
+plan_rows = plan_rows or ('<tr><td colspan="6"><div class="empty">No test plans yet — '
+                          'author one with <code>make plan KEY=PROJ-123</code>.'
+                          "</div></td></tr>")
+n_plans = len(plan_state.summary())
+n_appr = sum(1 for p in plan_state.summary() if p["status"] == "approved")
+
 # ---------------------------------------------------------------- repos view
 import repo_admin
 estate = repo_admin.summary()
@@ -583,8 +608,26 @@ pre { margin:0; background:var(--sr-bg-muted); border:1px solid var(--sr-border)
 #toast { position:fixed; bottom:20px; right:20px; background:var(--sr-primary);
   color:var(--sr-fg-on-primary); border-radius:8px; padding:10px 16px; font-size:13px;
   box-shadow:var(--sr-shadow-md); animation:srfade .2s ease; z-index:50; max-width:360px; }
-@media (max-width: 900px) { aside { display:none; } .art-layout { grid-template-columns:1fr; }
-  .art-grid { grid-template-columns:1fr; } }
+/* Narrow screens: collapse the sidebar into a horizontal, scrollable nav strip.
+   (It used to be display:none, which left no way at all to change view.) */
+@media (max-width: 900px) {
+  body { flex-direction:column; }
+  aside { width:auto; flex:none; height:auto; position:static;
+    border-right:none; border-bottom:1px solid var(--sr-border); }
+  .logo-row { border-bottom:none; }
+  .logo-s { display:none; }
+  nav.side { flex-direction:row; overflow-x:auto; padding:8px; gap:4px;
+    -webkit-overflow-scrolling:touch; }
+  .nav-item { flex:0 0 auto; }
+  .nav-lb { white-space:nowrap; }
+  .badge { margin-left:4px; }
+  .side-foot { display:none; }
+  header { padding:0 14px; }
+  .content { padding:16px; }
+  .art-layout { grid-template-columns:1fr; }
+  .art-list { position:static; }
+  .art-grid { grid-template-columns:1fr; }
+}
 """
 
 # ---------------------------------------------------------------- client JS
@@ -1235,13 +1278,12 @@ page = f"""<!doctype html>
         review, edit and approve it here. Test generation is blocked until the plan is
         approved; editing an approved plan revokes the approval.</div></div>
         <span class="grow"></span>
-        <span class="sub" id="plans-count"></span>
+        <span class="sub" id="plans-count">{n_plans} plan(s) · {n_appr} approved</span>
       </div>
       <div class="scroll"><table id="plans-table">
         <thead><tr><th>ticket</th><th>status</th><th>linked to JIRA</th>
           <th>tests generated</th><th>note</th><th class="right">actions</th></tr></thead>
-        <tbody><tr><td colspan="6"><div class="empty">Start the server and author a plan
-          with <code>make plan KEY=PROJ-123</code>.</div></td></tr></tbody></table></div>
+        <tbody>{plan_rows}</tbody></table></div>
     </section>
     <section class="card hidden" id="plan-editor">
       <div class="card-h"><h2 class="grow">Reviewing <span id="plan-key"></span></h2>

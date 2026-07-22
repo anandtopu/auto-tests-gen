@@ -166,3 +166,34 @@ def test_pipeline_exposes_plan_and_tests_modes():
     assert 'MODE" = "plan"' in text and 'MODE" = "tests"' in text
     assert "require-approved" in text               # the gate is wired in
     assert "PLAN_STATUS=DRAFT" in text
+
+
+def test_dashboard_static_snapshot_shows_plans():
+    """The static snapshot (make dashboard, no server) must render real plan rows —
+    every other view server-renders, and an empty Plans view read as 'no plans'."""
+    subprocess.run([sys.executable, str(ROOT / "bin/dashboard.py")], cwd=ROOT,
+                   check=True, capture_output=True, stdin=subprocess.DEVNULL)
+    page = (ROOT / "reports/dashboard.html").read_text(encoding="utf-8")
+    import re
+    table = re.search(r'<table id="plans-table">.*?</table>', page, re.S)
+    assert table, "plans table missing"
+    body = table.group(0)
+    import plan_state as ps
+    plans = ps.summary()
+    if plans:                                   # real state -> rows, not a placeholder
+        assert plans[0]["key"] in body
+        assert "plan-open" in body              # the Review button is server-rendered
+    assert 'id="plans-count"' in page
+
+
+def test_dashboard_keeps_navigation_on_narrow_screens():
+    """The sidebar used to be display:none under 900px, stranding the user with no
+    way to change view. It must collapse to a nav strip instead."""
+    page = (ROOT / "reports/dashboard.html").read_text(encoding="utf-8")
+    import re
+    mq = re.search(r"@media \(max-width: 900px\) \{(.*?)\n\}", page, re.S)
+    assert mq, "narrow-screen media query missing"
+    block = mq.group(1)
+    assert "aside { display:none" not in block.replace(" ", " ")
+    assert "flex-direction:row" in block        # nav becomes a horizontal strip
+    assert "overflow-x:auto" in block           # …and scrolls when it overflows
