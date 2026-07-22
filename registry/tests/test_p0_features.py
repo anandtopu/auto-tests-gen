@@ -56,6 +56,18 @@ def test_inline_ticket_rejects_empty():
         pass
 
 
+def test_inline_ticket_rejects_unsafe_key():
+    # the key becomes a filename and a pipeline arg — reject injection/path chars
+    for bad in ("XSS-<img src=x>", "a/b", "key with space", "a" * 65, "$(x)"):
+        try:
+            inline_ticket.build("summary\nAC-1: x", key=bad)
+            assert False, f"accepted unsafe key: {bad!r}"
+        except ValueError:
+            pass
+    # a normal ticket key still works
+    assert inline_ticket.build("s\nAC-1: x", key="PROJ-42")["key"] == "PROJ-42"
+
+
 def test_run_inline_queue_mode(tmp_path):
     env = {**os.environ, "AIQE_QUEUE_FILE": str(tmp_path / "queue.json")}
     r = subprocess.run([sys.executable, str(ROOT / "bin/qa.py"), "run-inline",

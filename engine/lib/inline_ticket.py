@@ -14,10 +14,17 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 DIR = ROOT / "reports/inline"          # reports/*.json is gitignored -> transient
 
 
+KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+
 def build(text, key=None, components=(), labels=(), repos=(), issue_type="Story"):
     text = (text or "").strip()
     if not text:
         raise ValueError("inline ticket text is empty")
+    # The key becomes a filename and a pipeline arg — reject anything outside a
+    # safe charset (a bare key like "PROJ-1" is fine; "<img …>" is not).
+    if key and not KEY_RE.fullmatch(key):
+        raise ValueError("key must be alphanumeric with . _ - (max 64 chars)")
     lines = [l.strip() for l in text.splitlines()]
     summary = next((l for l in lines if l), "")[:200]
     acs = [re.sub(r"^[-*]\s*", "", l) for l in lines
