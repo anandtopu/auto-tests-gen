@@ -50,14 +50,15 @@ def _check_pipeline_lock(root, dry, force):
     if not lock.exists():
         return None
     age_min = (time.time() - lock.stat().st_mtime) / 60
+    did = "would be removed" if dry else "removed"      # a dry run removes nothing
     if age_min > STALE_LOCK_MINUTES:
         if not dry:
             shutil.rmtree(lock, ignore_errors=True)
-        return f"out/.pipeline.lock (stale, {age_min:.0f} min old — removed)"
+        return f"out/.pipeline.lock (stale, {age_min:.0f} min old — {did})"
     if force:
         if not dry:
             shutil.rmtree(lock, ignore_errors=True)
-        return f"out/.pipeline.lock ({age_min:.0f} min old — force-removed)"
+        return f"out/.pipeline.lock ({age_min:.0f} min old — force-{did})"
     raise SystemExit(
         f"refusing to clear: a pipeline run looks active "
         f"(out/.pipeline.lock, {age_min:.0f} min old). Wait for it to finish, or "
