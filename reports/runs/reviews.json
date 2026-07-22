@@ -311,10 +311,10 @@
       ],
       "noise_count": 0,
       "rationale": "assertions check the discounted total, not just the status code",
-      "score": 0.15,
+      "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1784756485.636376,
-      "verdict": "weak"
+      "ts": 1784758028.6476307,
+      "verdict": "accept"
     },
     "history": [
       {
@@ -354,7 +354,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1784756775.7746892,
+      "ts": 1784757804.0204396,
       "verdict": "accept"
     },
     "history": [
