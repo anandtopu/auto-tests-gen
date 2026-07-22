@@ -82,6 +82,10 @@ def save_and_verify(reg, regen_cov=False):
             print("WARNING: registry change broke routing goldens - review before committing")
     subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")], cwd=ROOT,
                    check=True, capture_output=True, stdin=subprocess.DEVNULL)
+    # Path-trigger globs are derived from each test repo's layer + layout, so a
+    # registry change can invalidate them — regenerate alongside AGENTS.md.
+    subprocess.run([sys.executable, str(ROOT / "bin/gen_path_skills.py")], cwd=ROOT,
+                   check=False, capture_output=True, stdin=subprocess.DEVNULL)
 
 
 # ---------------------------------------------------------------- summaries
