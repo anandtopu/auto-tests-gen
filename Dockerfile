@@ -12,9 +12,10 @@ FROM node:20-bookworm-slim
 ARG INSTALL_REAL_TOOLS=0
 
 # Runtime deps: python3 + pyyaml (engine/CLIs), bash + git + curl + jq (pipeline/gate),
+# make (the documented entry point for every workflow: make demo-pr, report, prune…),
 # tini (PID 1 signal handling). node comes from the base image (demo estate + node --test).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 python3-pip python3-yaml bash git curl jq ca-certificates tini \
+        python3 python3-pip python3-yaml bash git curl jq make ca-certificates tini \
     && if [ "$INSTALL_REAL_TOOLS" = "1" ]; then \
          npm install -g @anthropic-ai/claude-code && npx --yes playwright install --with-deps chromium; \
        fi \
