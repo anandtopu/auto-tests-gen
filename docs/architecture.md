@@ -356,7 +356,7 @@ git commit -m "test(${KEY}): AI-generated E2E updates" \
 git push origin HEAD
 ```
 
-Exit codes map to structured failure reasons in the run record; scope or secret violations quarantine the run for human inspection instead of retrying.
+Exit codes map to structured failure reasons in the run record; scope or secret violations quarantine the run for human inspection instead of retrying. The implemented gate (`engine/gate/gate.sh`) uses the full set: **2** scope violation — including any filename outside a safe charset, checked *before* a spec name is ever interpolated into a shell command; **3** secret/PII pattern; **4** unmapped (no born-mapped catalog sidecar); **5** tests failed; **6** refuse-if-not-a-standalone-repo; **7** push failed with a configured remote (auth/protection/network — never reported as success; only the no-remote demo case is skippable). Codes 2–5 are regression-tested by `make test-gate`.
 
 ### 5.6 Trigger Architecture — Two Interchangeable Paths
 
@@ -443,10 +443,12 @@ test_repositories:            # NOTE (v2.0): `covers:` below is GENERATED from t
   - name: e2e-ui-tests
     framework: playwright
     layout: { specs: "tests/{domain}/", fixtures: "fixtures/", pages: "pages/" }
-    covers: [web-storefront-ui, admin-portal-ui]
+    scope: [web-storefront-ui, admin-portal-ui]   # hand-managed declared responsibility
+    covers: [web-storefront-ui, admin-portal-ui]  # GENERATED = catalog evidence ∪ scope
   - name: e2e-api-tests
     framework: playwright-api            # or karate/rest-assured — per-repo skill
     layout: { specs: "suites/{service}/", fixtures: "data/" }
+    scope: [orders-api, catalog-api, search-api, users-api]
     covers: [orders-api, catalog-api, search-api, users-api]
 
 routing_hints:
@@ -458,7 +460,7 @@ routing_hints:
     ui-only:  { restrict_test_repos: [e2e-ui-tests] }
 ```
 
-The registry gives the system three derived structures: a **service dependency graph** (`consumes_services`/`consumed_by`), a **coverage map** (source repo → test repo(s)), and **JIRA routing hints** (component/label → repos). Registry changes go through PR review — routing behavior is auditable and testable (golden tests: trigger fixture in → expected repo set out).
+The registry gives the system three derived structures: a **service dependency graph** (`consumes_services`/`consumed_by`), a **coverage map** (source repo → test repo(s)), and **JIRA routing hints** (component/label → repos). Registry changes go through PR review — routing behavior is auditable and testable (golden tests: trigger fixture in → expected repo set out). Each E2E test repo also carries a hand-managed **`scope`** (the app repos it is declared responsible for — many app repos to one test repo); `covers[]` is regenerated as *catalog evidence ∪ scope*, so a newly-mapped repo routes immediately without hand-editing the generated coverage. Registry edits go through `bin/repos.py` / `engine/lib/repo_admin.py` or the dashboard **Repositories** view (both validate references, re-run the routing goldens, and regenerate `AGENTS.md`) — see §8.1.
 
 #### 5.8.2 Repo Resolution — Phase 0 of every run
 
@@ -766,6 +768,18 @@ v2.0 restructures the solution from "a pipeline wired to GitHub+Jira" into a **c
 | Escaped noise | duplicate/trivial/asserting-nothing tests flagged in review | ≤ 10% |
 
 Human reviewers tag every agent commit with a 3-level rubric (accept / minor edits / rework) in the PR — this is the ground truth feed for the scorecard.
+
+### 8.1 Operator surfaces (QA team–facing)
+
+Beyond raw records, the platform ships operator tooling so a QA team can monitor, manage, and report without editing files by hand. All of it reads the same persisted state (run records, review board, work queue, catalog, CI health) — nothing is a separate source of truth.
+
+- **Interactive dashboard** (`make serve`, `bin/dashboard_server.py`, token-authed) — a seven-view SPA: **Overview** (KPI tiles, needs-attention feed, coverage matrix, team-report card), **Intake & queue** (fetch by release, queue, run, re-queue/remove, pasted-JIRA inline runs), **Runs & reviews** (per-repo gate outcomes, release/review filters, Approve), **Artifacts** (plan/data/tests/diffs + export/publish/attach), **Test catalog** (mappings + CI health), **Repositories**, and **Settings**.
+- **Repositories view** (`engine/lib/repo_admin.py`, CLI parity in `bin/repos.py`) — add/edit UI and service repos and E2E test repos; manage the **many-app-to-one-test-repo mapping** via each test repo's hand-managed `scope` (`covers[]` stays generated as *catalog evidence ∪ scope*); and edit **per-repo agent guidance**. Guidance is team notes in `knowledge/repos/<name>.md` plus any `AGENTS.md`/`CLAUDE.md` committed inside a repo's own checkout — both merged into `AGENTS.md` and thus injected into every test-plan, generation, and coverage-gap phase.
+- **Settings view** (`engine/lib/settings_store.py`) — configure every integration (SCM, JIRA, Confluence, OpenHands, Jenkins, Slack/Splunk, budgets, adapter mode) into `.env`, the same file the adapters read; secrets are write-only (reads report set/unset, never the value). A danger-zone **Clear demo data** (`engine/lib/demo_data.py`) removes generated state while preserving the estate.
+- **Team status report** (`make report`, `engine/lib/team_report.py`; `GET /api/report`) — one shareable md/html/docx/pdf document: completed work, quarantined runs, review backlog with wait time, work queue, by-release rollup, throughput, and estate health, with `--days`/`--release` filters.
+- **CLI** — `bin/qa.py` (status, reviews, mark, release, artifacts, coverage, gaps, report, exports, inline runs, catalog SQL) and `make status/reviews/coverage/gaps`.
+
+These surfaces are diagrammed in [diagrams.md](diagrams.md) §10 (monitoring), §12 (team report), and §13 (configuration & estate management).
 
 ---
 

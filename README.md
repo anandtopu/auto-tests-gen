@@ -9,7 +9,7 @@ JIRA-triggered test authoring (Workflow B) across a multi-repo estate, powered b
 | Doc | What it covers |
 |---|---|
 | [docs/getting-started.md](docs/getting-started.md) | Zero-to-demo in two minutes, expected output, troubleshooting |
-| [docs/user-guide.md](docs/user-guide.md) | Operating the platform: configuration reference, gate protocol, catalog lifecycle, integration & onboarding, going real (`AIQE_MOCK=0`) |
+| [docs/user-guide.md](docs/user-guide.md) | Operating the platform: repositories & mapping, per-repo AGENTS/CLAUDE guidance, team reports, Settings/integrations, dashboard, gate protocol, catalog lifecycle, going real (`AIQE_MOCK=0`) |
 | [docs/integrations/](docs/integrations/README.md) | Step-by-step tool integration: OpenHands, Jira, Bitbucket Cloud & Stash/Server |
 | [docs/diagrams.md](docs/diagrams.md) | Rendered architecture diagrams (Mermaid) |
 | [docs/architecture.md](docs/architecture.md) | Full solution architecture (v2.1) — code comments cite its § numbers |
@@ -54,17 +54,25 @@ make smoke-openhands            # staged live smoke test of the OpenHands integr
 python3 bin/qa.py run-inline "<pasted JIRA text>" --repos orders-api --type Bug
 
 # QA operations (bin/qa.py + services)
-make serve                      # interactive dashboard :4999 (fetch by release, queue, exports)
+make serve                      # interactive dashboard :4999 — 7 views: Overview,
+                                #   Intake & queue, Runs & reviews, Artifacts, Test
+                                #   catalog, Repositories (add/edit/map + guidance),
+                                #   Settings (integrations -> .env, clear demo data)
 make hook-server                # TaskEvent webhook receiver :4998 (dedupe + enqueue)
 make status / reviews / coverage / gaps    # runs, team review board, matrix, coverage gaps
+make report [DAYS=7] [RELEASE=x] [FORMAT=pdf]   # team status report (completed work,
+                                #   queue, throughput, estate health)
 make queue-run                  # drain the manual work queue
 make ingest-results FILE=junit.xml         # CI results -> per-test health/flakiness
+make clear-demo [DRY=1]         # delete generated demo data (estate kept)
 
 # Sharing & knowledge
 make export-plan KEY=... [FORMAT=pdf|docx|html]   # shareable test-plan export
 make publish-plan KEY=...       # one-way mirror to Confluence
 make attach-plan KEY=...        # attach the plan to the JIRA ticket
-make agents / repos / catalog-db / prune   # estate knowledge, repo config, index, retention
+make agents / catalog-db / prune           # estate knowledge, index, retention
+make repos                      # repo config (add-app/add-test/scope/notes) — CLI +
+                                #   dashboard Repositories view; covers = evidence ∪ scope
 ```
 
 QA operations (monitoring, review/release tracking, work queue, exports, inline runs)

@@ -3,6 +3,11 @@
 Rendered (Mermaid) views of the system described in [architecture.md](architecture.md).
 Section references (§) point there. GitHub and most IDEs render these natively.
 
+Contents: 1 system overview · 2 ports & adapters · 3–4 Workflows A/B · 5 the gate ·
+6 resolution · 7 catalog bootstrap · 8 workspace · 9 estate knowledge & repo config ·
+10 QA monitoring/review/release · 11 sharing the test plan · 12 team report ·
+13 configuration & estate management.
+
 ## 1. System overview (§4.2)
 
 ```mermaid
@@ -139,21 +144,26 @@ flowchart TD
     T6 -- no --> E6["exit 6 GATE_REFUSED"]
     T6 -- yes --> CH{any changes?}
     CH -- no --> OK0(["exit 0 · GATE_STATUS=NO_CHANGES"])
-    CH -- yes --> T2{only test-repo paths<br/>touched?}
-    T2 -- no --> E2["exit 2 SCOPE_VIOLATION"]
+    CH -- yes --> T2{safe filenames +<br/>only test-repo paths?}
+    T2 -- no --> E2["exit 2 SCOPE_VIOLATION<br/>(unsafe charset OR out of scope)"]
     T2 -- yes --> T4{every new spec has a<br/>catalog sidecar entry?}
     T4 -- no --> E4["exit 4 UNMAPPED_TEST"]
     T4 -- yes --> L["lint (commands.lint from .ai-qe/config.yaml)"]
-    L --> RUN["with-env.sh: boot app → run changed specs → teardown"]
+    L --> RUN["with-env.sh: boot app (fail if not ready) →<br/>run changed specs → teardown"]
     RUN -- fail --> E5["exit 5 TESTS_FAILED<br/>(log → reports/, NOT committed)"]
     RUN -- pass --> T3{secret / PII patterns<br/>in new content?}
     T3 -- yes --> E3["exit 3 SECRET_PATTERN"]
-    T3 -- no --> CP["git commit + push<br/>(the only push in the platform)"]
-    CP --> OK(["exit 0 · GATE_STATUS=COMMITTED sha"])
+    T3 -- no --> CP["git commit"]
+    CP --> PUSH{remote configured?}
+    PUSH -- yes, push ok --> OK(["exit 0 · GATE_STATUS=COMMITTED sha"])
+    PUSH -- no remote (demo) --> OK
+    PUSH -- push failed --> E7["exit 7 PUSH_FAILED<br/>(auth / protection / network —<br/>never reported as success)"]
 ```
 
-All red paths quarantine the run for human inspection — never auto-retried. Codes 2–5
-are permanently regression-tested by `make test-gate`.
+All red paths quarantine the run for human inspection — never auto-retried. The
+scope check rejects filenames outside a safe charset **before** any spec name is
+interpolated into a shell command (the gate is the deterministic safety boundary).
+Codes 2–5 are permanently regression-tested by `make test-gate`.
 
 ## 6. Repo resolution — Phase 0 (§5.8.2)
 
@@ -208,13 +218,14 @@ plan and generate against current facts:
 ```mermaid
 flowchart TD
     subgraph SOURCES["Sources of truth"]
-        REG["registry/repo-registry.yaml<br/>(repo config + routing hints)"]
+        REG["registry/repo-registry.yaml<br/>(repo config · scope · routing hints)"]
         CAT["catalog/*.jsonl<br/>(test knowledge + mappings)"]
         ART["contracts & route tables<br/>(workspace/src/ fresh, demo/ fallback)"]
+        GUI["Per-repo guidance:<br/>knowledge/repos/&lt;name&gt;.md (team notes)<br/>+ repo-local AGENTS.md / CLAUDE.md"]
     end
 
     subgraph WRITERS["What changes them"]
-        RP["bin/repos.py<br/>set · link · unlink · remove"]
+        RP["bin/repos.py / repo_admin.py<br/>add-app · add-test · set · link ·<br/>scope · notes · remove<br/>(+ dashboard Repositories view)"]
         OB["bin/onboard.sh<br/>register new repo"]
         QA["bin/qa.py<br/>map · apply-review"]
         BS["catalog bootstrap"]
@@ -223,10 +234,11 @@ flowchart TD
     CI["CI results ingest<br/>(JUnit / Jenkins testReport)"] --> HL["catalog/health.json<br/>(pass rate · flakiness)"]
 
     RP --> REG
+    RP -- "notes" --> GUI
     OB --> REG
     QA --> CAT
     BS --> CAT
-    CAT -- "regen_coverage.py" --> REG
+    CAT -- "regen_coverage.py:<br/>covers = evidence ∪ scope" --> REG
 
     REG --> GAPS["coverage_gaps.py<br/>surface vs evidence"]
     CAT --> GAPS
@@ -234,6 +246,7 @@ flowchart TD
     REG --> GEN["bin/gen_agents_md.py"]
     CAT --> GEN
     ART --> GEN
+    GUI -- "'Repository guidance' section" --> GEN
     GAPS -- "[NO TEST] annotations" --> GEN
     GEN --> AG["AGENTS.md<br/>(estate knowledge)"]
     AG --> PH["LLM phases: triage · analyze ·<br/>testplan · testdata · generate"]
@@ -242,6 +255,13 @@ flowchart TD
     HL --> DB
     RP -. "re-runs routing goldens" .-> GT["registry/tests goldens"]
 ```
+
+Each E2E test repo carries a hand-managed **scope** (the app repos it is responsible
+for — many app repos map to one test repo). `covers[]` stays generated as *catalog
+evidence ∪ scope*, so a newly-mapped repo routes immediately, before any test evidence
+exists, without ever hand-editing coverage. **Per-repo guidance** — team notes plus any
+`AGENTS.md`/`CLAUDE.md` committed inside a repo's own checkout — is merged into
+`AGENTS.md` and therefore steers every generation, test-plan, and coverage-gap phase.
 
 ## 10. QA monitoring, review & release tracking
 
@@ -255,19 +275,22 @@ flowchart LR
 
     subgraph SURFACES["QA surfaces"]
         ST["make status / reviews<br/>(review + release columns)"]
-        DB["make serve — authed dashboard:<br/>runs per E2E repo · release filter ·<br/>artifact cards · CI health · queue"]
+        DB["make serve — authed dashboard (7 views):<br/>Overview · Intake &amp; queue · Runs &amp; reviews ·<br/>Artifacts · Test catalog · Repositories · Settings"]
         AR["qa.py artifacts &lt;KEY&gt;<br/>plan · data · tests · diffs"]
+        REP["make report / qa.py report<br/>(md·html·docx·pdf): completed work ·<br/>queue · throughput · estate health"]
         SC["eval/scorecard.py: commit rate ·<br/>repair loops · update-vs-create ·<br/>acceptance · flakiness"]
     end
 
     RR --> ST
     RR --> DB
     RR --> AR
+    RR --> REP
     RR --> SC
     RS --> ST
     RS --> DB
+    RS --> REP
     RS --> SC
-    TEAM["QE: qa.py mark / release"] --> RS
+    TEAM["QE: qa.py mark / release<br/>(or dashboard Approve button)"] --> RS
 
     subgraph REVIEW["Mapping review loop"]
         Q1["catalog/review/&lt;repo&gt;-queue.csv"] --> Q2["QE fills decision column"]
@@ -290,4 +313,56 @@ flowchart LR
     X --> ATT["JIRA issue attachment<br/>(Tracker attach verb)"]
     UI2["Dashboard artifact card:<br/>export links + publish/attach buttons"] -.-> X
     CLI["make export-plan / publish-plan /<br/>attach-plan · qa.py"] -.-> X
+```
+
+## 12. Team status report
+
+One shareable document — for standups and release readouts — aggregated from state
+the platform already keeps. Same stdlib renderers as the test-plan export.
+
+```mermaid
+flowchart LR
+    subgraph STATE["Existing platform state"]
+        RR["run records<br/>reports/runs/*.json"]
+        RVS["review board + release<br/>reviews.json"]
+        Q2["work queue<br/>queue.json"]
+        CT["catalog + coverage gaps"]
+        HL2["CI health<br/>catalog/health.json"]
+    end
+    TR["team_report.py<br/>build(days, release)"]
+    RR --> TR
+    RVS --> TR
+    Q2 --> TR
+    CT --> TR
+    HL2 --> TR
+    TR --> SEC["Sections: summary (commit rate ·<br/>new vs extended · repair loops) ·<br/>completed work · quarantined ·<br/>awaiting review · queue · by-release ·<br/>throughput · estate health"]
+    SEC --> OUT3["md · html · docx · pdf"]
+    UI3["Dashboard Overview card:<br/>period + release pickers"] -.-> TR
+    CLI2["make report / qa.py report ·<br/>GET /api/report"] -.-> TR
+```
+
+## 13. Configuration & estate management (dashboard)
+
+Everything a QA lead configures lives in two dashboard views (plus CLI parity), so no
+YAML or `.env` editing is required.
+
+```mermaid
+flowchart TD
+    subgraph REPOSV["Repositories view — repo_admin.py"]
+        A1["Application repos:<br/>add/edit ui &amp; service repos ·<br/>domains · contract/routes · consumes"]
+        A2["E2E test repos + mapping:<br/>add/edit · set scope (many app → one test)"]
+        A3["Per-repo guidance editor<br/>(knowledge/repos/&lt;name&gt;.md)"]
+    end
+    subgraph SETV["Settings view"]
+        B1["Integrations → .env<br/>(GitHub/Bitbucket/Stash · JIRA ·<br/>Confluence · OpenHands · Jenkins ·<br/>Slack/Splunk · budgets · adapter mode)<br/>secrets are write-only"]
+        B2["Danger zone: Clear demo data<br/>(generated state only; estate kept)"]
+    end
+    A1 --> REG2["registry (validated · goldens re-run)"]
+    A2 --> REG2
+    A2 -- "covers = evidence ∪ scope" --> REG2
+    A3 --> AG2["AGENTS.md regenerated"]
+    REG2 --> AG2
+    B1 --> ENV[".env (secrets masked on read;<br/>loaded by pipeline + server + exports)"]
+    B2 --> DEMO["demo_data.clear()<br/>(locked · refuses during a run)"]
+    AG2 --> PH2["injected into every LLM phase"]
 ```

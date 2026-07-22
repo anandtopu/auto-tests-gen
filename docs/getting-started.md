@@ -90,12 +90,16 @@ correctly restricts routing to the API test repo, and the summary is posted back
 ```bash
 python3 bin/qa.py artifacts PROJ-301 --full   # view the generated plan + test code
 make status          # runs with per-repo gate outcomes, team review + release columns
-make serve           # interactive dashboard :4999 — fetch by release, queue runs,
-                     #   run from pasted JIRA text, export/publish/attach plans
+make serve           # interactive dashboard :4999 — seven views: Overview, Intake &
+                     #   queue, Runs & reviews, Artifacts, Test catalog, Repositories
+                     #   (add/edit/map repos + per-repo guidance), Settings (integrations
+                     #   -> .env, clear demo data)
 make reviews         # team-review board (qa.py mark <KEY> approved --by you)
 make coverage        # app-repo x test-repo matrix; make gaps for uncovered surface
+make report DAYS=7 FORMAT=pdf                 # team status report (completed/queue/health)
 make export-plan KEY=PROJ-301 FORMAT=pdf      # shareable export (also docx/html/md)
 python3 bin/qa.py run-inline "Bug: ...\nAC-1: ..." --repos orders-api --type Bug
+make repos           # configure repos: add-app/add-test/scope/notes (covers = evidence ∪ scope)
 make ingest-results FILE=eval/benchmark/results/junit-sample.xml   # CI health demo
 python3 bin/qa.py sql "SELECT title, pass_rate FROM tests"         # catalog index
 ```
