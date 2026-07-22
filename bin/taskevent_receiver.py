@@ -116,6 +116,19 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def do_GET(self):
+        """Health/status only — this service takes work via POST. Unauthenticated by
+        design so container probes need no token; it exposes no state or secrets
+        (only whether auth is on), and never accepts work."""
+        if self.path.split("?")[0] in ("/", "/healthz"):
+            return self._send(200, {"service": "ai-qe-taskevent-receiver",
+                                    "status": "ok",
+                                    "endpoint": "POST /hooks/taskevent",
+                                    "auth": bool(TOKEN),
+                                    "autorun": AUTORUN})
+        self._send(404, {"error": "GET / or /healthz; work is submitted via "
+                                  "POST /hooks/taskevent"})
+
     def do_POST(self):
         if TOKEN and self.headers.get("X-AIQE-Token", "") != TOKEN:
             return self._send(401, {"error": "missing or wrong X-AIQE-Token"})

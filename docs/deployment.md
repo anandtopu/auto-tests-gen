@@ -202,8 +202,10 @@ Validate credentials before a real run with the staged smoke test
 
 ## 6. Operations
 
-- **Health** — the dashboard's `GET /api/queue` returns `200` (no auth needed when no
-  UI token is set); probes use a TCP check on each port.
+- **Health** — the receiver exposes an unauthenticated `GET /healthz` (also `GET /`)
+  returning a small JSON status, which the Kubernetes probes use. The dashboard has no
+  unauthenticated health route, so its probes use a TCP check on the port (`GET /api/queue`
+  works for manual checks when no UI token is set).
 - **Logs** — `oc logs deploy/ai-qe -c dashboard -f` (or `-c receiver`); locally
   `docker compose logs -f`.
 - **Scaling** — do **not** raise `replicas`: the single-writer model requires exactly

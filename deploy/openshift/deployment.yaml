@@ -71,12 +71,12 @@ spec:
                 name: ai-qe-config
             - secretRef:
                 name: ai-qe-secrets
-          readinessProbe:
-            tcpSocket: { port: hook }
+          readinessProbe:                    # unauthenticated health endpoint
+            httpGet: { path: /healthz, port: hook }
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
-            tcpSocket: { port: hook }
+            httpGet: { path: /healthz, port: hook }
             initialDelaySeconds: 15
             periodSeconds: 20
           resources:

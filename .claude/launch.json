@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["bin/dashboard_server.py"],
+      "port": 4999
+    },
+    {
+      "name": "taskevent-receiver",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["bin/taskevent_receiver.py"],
+      "port": 4998
+    },
+    {
+      "name": "demo-orders-api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["demo/orders-api/app/server.js"],
+      "port": 4600
+    }
+  ]
+}
