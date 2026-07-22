@@ -26,6 +26,9 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
   bin/qa.py report [--days N] [--release X] [--format md|html|docx|pdf] [--out F]
                                                 team status report: completed work, review
                                                 backlog, queue, throughput, estate health
+  bin/qa.py email report|run <RUN_ID>|digest [--days N] [--release X] [--to a@b,c@d]
+                                                generate + send an email (team report,
+                                                run summary, or review digest) via SMTP
   bin/qa.py ingest-results <junit.xml|jenkins.json>   CI results -> per-test health
       (pass rate / flakiness in catalog/health.json; Jenkins role 3)
   bin/qa.py sql "SELECT ..."                    query the SQLite catalog index (read-only)
@@ -297,6 +300,19 @@ def cmd_gaps(args):
     print(coverage_gaps.to_markdown(args.repo))
 
 
+def cmd_email(args):
+    import email_notify
+    if args.kind == "report":
+        parts = email_notify.team_report_email(args.days, args.release)
+    elif args.kind == "run":
+        if not args.target:
+            sys.exit("email run needs a RUN_ID: qa.py email run <RUN_ID>")
+        parts = email_notify.run_summary(args.target)
+    else:                                             # digest
+        parts = email_notify.review_digest()
+    print(email_notify.send(*parts, to=args.to))
+
+
 def cmd_report(args):
     import team_report
     if args.out or args.format != "md":
@@ -491,6 +507,11 @@ if __name__ == "__main__":
     s.add_argument("--format", default="md", choices=["md", "html", "docx", "pdf"])
     s.add_argument("--out")
     s.set_defaults(fn=cmd_report)
+    s = sub.add_parser("email")
+    s.add_argument("kind", choices=["report", "run", "digest"])
+    s.add_argument("target", nargs="?")               # RUN_ID for `email run`
+    s.add_argument("--days", type=int); s.add_argument("--release"); s.add_argument("--to")
+    s.set_defaults(fn=cmd_email)
     s = sub.add_parser("ingest-results"); s.add_argument("file")
     s.set_defaults(fn=cmd_ingest_results)
     s = sub.add_parser("sql"); s.add_argument("query"); s.set_defaults(fn=cmd_sql)

@@ -10,6 +10,7 @@ declare -A verbs=( [scm/github.sh]="clone_ro clone_rw changed_files diff comment
                    [knowledge/confluence.sh]="get_linked_docs publish_doc"
                    [cicd/jenkins.sh]="run_job get_results"
                    [notify/slack.sh]="post digest"
+                   [notify/email.sh]="post digest"
                    [telemetry/splunk.sh]="emit_event" )
 for a in "${!verbs[@]}"; do
   bash "adapters/$a" definitely_unknown_verb 2>/dev/null; [ $? -eq 64 ] || { echo "FAIL unknown-verb: $a"; fail=1; }

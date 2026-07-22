@@ -4,7 +4,7 @@ SHELL := /bin/bash
         serve queue-run export-plan publish-plan attach-plan hook-server prune \
         gaps catalog-db ingest-results smoke-openhands clear-demo report \
         test-gate demo-bootstrap demo-pr demo-jira review \
-        docker-build deploy-local deploy-local-down deploy-openshift
+        docker-build deploy-local deploy-local-down deploy-openshift email
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -94,6 +94,9 @@ deploy-openshift:
 
 report:
 	python3 bin/qa.py report $(if $(DAYS),--days $(DAYS),) $(if $(RELEASE),--release $(RELEASE),) $(if $(FORMAT),--format $(FORMAT),)
+
+email:
+	python3 bin/qa.py email $(or $(KIND),report) $(RUN_ID) $(if $(DAYS),--days $(DAYS),) $(if $(RELEASE),--release $(RELEASE),) $(if $(TO),--to $(TO),)
 
 gaps:
 	python3 bin/qa.py gaps

@@ -902,6 +902,22 @@ document.addEventListener('click', e => {
     (days ? '&days=' + days : '') + (rel ? '&release=' + encodeURIComponent(rel) : '');
   toast('Generating team report (' + b.dataset.fmt + ')…');
 });
+document.addEventListener('click', async e => {
+  const b = e.target.closest('button.report-email');
+  if (!b) return;
+  if (needsServer()) return;
+  const to = prompt('Email the team report to (comma-separated; blank = SMTP_TO default):', '');
+  if (to === null) return;
+  b.disabled = true; const idle = b.textContent; b.textContent = 'Sending…';
+  const days = $('#rep-days').value, rel = $('#rep-rel').value;
+  try {
+    const r = await api('/api/email/report', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ days: days ? +days : null, release: rel || null, to: to || null }) });
+    toast(r.result);
+  } catch (err) { toast(err.message); }
+  b.disabled = false; b.textContent = idle;
+});
 
 // ---- settings
 const escAttr = escHtml;
@@ -1011,7 +1027,8 @@ page = f"""<!doctype html>
           <option value="">all</option>{release_opts}</select></label>
         <span class="chips">{"".join(
             f'<button class="btn btn-sm report-dl" data-fmt="{f}">{f}</button>'
-            for f in ("md", "html", "docx", "pdf"))}</span>
+            for f in ("md", "html", "docx", "pdf"))}
+          <button class="btn btn-sm info report-email">Email</button></span>
       </div>
     </section>
     <section class="card">

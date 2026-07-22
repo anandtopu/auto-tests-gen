@@ -11,6 +11,9 @@ Endpoints:
   GET  /api/queue             queue contents
   GET  /api/export/plan?key=K&format=md|html|docx|pdf   download the ticket's test plan
   GET  /api/report?days=N&release=X&format=md|html|docx|pdf   team status report
+  POST /api/email/report      {"days"?,"release"?,"to"?}  email the team report
+  POST /api/email/run         {"run_id","to"?}            email a run's gate summary
+  POST /api/email/digest      {"to"?}                     email the pending-review digest
   POST /api/export/confluence {"key","space"?,"title"?}  publish the plan to Confluence
   POST /api/export/attach     {"key","format"?}          attach the plan to the JIRA ticket
   POST /api/review            {"key","status","by"?,"note"?}  set team-review status
@@ -38,8 +41,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import demo_data, export_plan, inline_ticket, repo_admin, review_state, \
-    settings_store, team_report, work_queue
+import demo_data, email_notify, export_plan, inline_ticket, repo_admin, \
+    review_state, settings_store, team_report, work_queue
 
 # The Settings view writes .env; honor it here too (explicit env still wins) so
 # adapter mode and credentials configured in the UI actually reach this server.
@@ -295,6 +298,27 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": str(e)})
             except SystemExit as e:                     # unknown key / bad value
                 self._send(400, {"error": str(e)})
+        elif self.path.startswith("/api/email/"):
+            try:
+                p = json.loads(body or b"{}")
+                to = p.get("to") or None
+                if self.path.endswith("/report"):
+                    days = p.get("days")
+                    subj, text, html = email_notify.team_report_email(
+                        int(days) if days else None, p.get("release") or None)
+                elif self.path.endswith("/run"):
+                    subj, text, html = email_notify.run_summary(p["run_id"])
+                elif self.path.endswith("/digest"):
+                    subj, text, html = email_notify.review_digest()
+                else:
+                    self._send(404, {"error": "not found"}); return
+                self._send(200, {"ok": True, "result": email_notify.send(subj, text, html, to)})
+            except (KeyError, json.JSONDecodeError) as e:
+                self._send(400, {"error": str(e)})
+            except SystemExit as e:                     # no recipients / no run record
+                self._send(400, {"error": str(e)})
+            except Exception as e:                      # SMTP failure — report, don't crash
+                self._send(502, {"error": f"email failed: {e}"})
         elif self.path == "/api/demo/clear":
             try:
                 self._send(200, {"ok": True, **demo_data.clear()})

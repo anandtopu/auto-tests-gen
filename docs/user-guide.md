@@ -377,6 +377,34 @@ reuse the test-plan exporter's stdlib renderers.
 On the served dashboard, the **Overview** view has a *Team report* card — pick a
 period and release, then download in any format (`GET /api/report`).
 
+### Email notifications (SMTP)
+
+The platform sends email through an SMTP server configured in the **Settings** view
+(or `.env`): `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURITY` (`starttls`/`ssl`/`none`),
+`SMTP_USER`/`SMTP_PASSWORD`, `SMTP_FROM`, and `SMTP_TO` (default recipients). With no
+`SMTP_HOST` set — or in mock mode — emails are written to `out/mock-email/*.eml`
+instead of being sent, so the whole feature is demoable without a server.
+
+Three things can be emailed (`engine/lib/email_notify.py` builds a plain-text + HTML
+MIME message for each):
+
+```bash
+make email KIND=report DAYS=7 TO=qa-team@example.com   # the team status report
+python3 bin/qa.py email run <RUN_ID> --to lead@example.com   # one run's gate summary
+python3 bin/qa.py email digest                         # keys awaiting review (SMTP_TO)
+```
+
+On the served dashboard, the Overview **Team report** card has an **Email** button
+(`POST /api/email/report`); `/api/email/run` and `/api/email/digest` are also
+available.
+
+**As a run notification channel.** Email is a first-class **Notify port** channel
+(`adapters/notify/email.sh`). Set `NOTIFY_KIND=email` (or `both` for Slack + email) and
+every pipeline run emails its gate summary to `SMTP_TO` — the first line of the summary
+becomes the subject. `NOTIFY_KIND` defaults to `slack`, so existing behavior is
+unchanged. See [integrations/email.md](integrations/email.md) for provider setup
+(Gmail, Office 365, SES, internal relay).
+
 ### Settings: configure integrations from the UI
 
 The served dashboard's **Settings** view edits the gitignored `.env` — the same file

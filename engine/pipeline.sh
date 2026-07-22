@@ -24,7 +24,15 @@ if [ "$ACQUIRED" != "1" ]; then echo "PIPELINE_BUSY: another run holds $LOCK"; e
 if [ "${AIQE_MOCK:-0}" = "1" ]; then
   SCM() { bash adapters/mock/scm.sh "$@"; }
   TRACKER() { bash adapters/mock/tracker.sh "$@"; }
-  NOTIFY() { bash adapters/mock/notify.sh "$@"; }
+  # Mock Slack by default; NOTIFY_KIND=email|both demos the email path (the email
+  # adapter writes to out/mock-email/ under AIQE_MOCK=1).
+  NOTIFY() {
+    case "${NOTIFY_KIND:-slack}" in
+      email) bash adapters/notify/email.sh "$@" ;;
+      both)  bash adapters/mock/notify.sh "$@" || true; bash adapters/notify/email.sh "$@" ;;
+      *)     bash adapters/mock/notify.sh "$@" ;;
+    esac
+  }
   TELEM() { bash adapters/mock/telemetry.sh "$@"; }
   if [ "${AIQE_REAL_LLM:-0}" = "1" ]; then
     # Parity mode: REAL claude -p phases against the demo estate + mock adapters
@@ -35,7 +43,15 @@ if [ "${AIQE_MOCK:-0}" = "1" ]; then
 else
   SCM() { bash "$(python3 -c "import yaml;print(yaml.safe_load(open('registry/org-config.yaml'))['adapters']['scm']['${SCM_KIND:-github}'])")" "$@"; }
   TRACKER() { bash adapters/tracker/jira.sh "$@"; }
-  NOTIFY() { bash adapters/notify/slack.sh "$@"; }
+  # Notify channel(s): NOTIFY_KIND=slack|email|both (default slack). Each channel is
+  # best-effort so a down channel never aborts the run.
+  NOTIFY() {
+    case "${NOTIFY_KIND:-slack}" in
+      email) bash adapters/notify/email.sh "$@" ;;
+      both)  bash adapters/notify/slack.sh "$@" || true; bash adapters/notify/email.sh "$@" ;;
+      *)     bash adapters/notify/slack.sh "$@" ;;
+    esac
+  }
   TELEM() { bash adapters/telemetry/splunk.sh "$@"; }
   PHASE() { bash engine/phases/run_phase.sh "$1" "prompts/$2" workspace "${@:3}"; }
 fi

@@ -9,6 +9,7 @@ verification → troubleshooting.
 | [openhands.md](openhands.md) | OpenHands agents as orchestrator + sandbox (trigger Path 1) | orchestration |
 | [jira.md](jira.md) | Jira tickets in (Workflow B), comments back, Confluence context | Tracker, Knowledge |
 | [bitbucket-stash.md](bitbucket-stash.md) | Bitbucket Cloud **and** Stash / Bitbucket Server (self-hosted) | Scm, Cicd trigger |
+| [email.md](email.md) | SMTP email: run notifications, review digests, team reports | Notify |
 
 ## How integrations attach (30-second recap)
 
