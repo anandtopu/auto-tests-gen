@@ -3,52 +3,57 @@
     "files": [],
     "missing": [
       "AGENTS.md",
-      "CLAUDE.md"
+      "CLAUDE.md",
+      ".agents/skills/qa-guide.md"
     ],
     "ref": "default",
     "source": "mock",
-    "synced_at": 1784702941.2379286
+    "synced_at": 1784734494.7707222
   },
   "catalog-api": {
     "files": [],
     "missing": [
       "AGENTS.md",
-      "CLAUDE.md"
+      "CLAUDE.md",
+      ".agents/skills/qa-guide.md"
     ],
     "ref": "default",
     "source": "mock",
-    "synced_at": 1784702941.9262557
+    "synced_at": 1784734495.1583848
   },
   "e2e-api-tests-1": {
     "files": [
       "CLAUDE.md"
     ],
     "missing": [
-      "AGENTS.md"
+      "AGENTS.md",
+      ".agents/skills/qa-guide.md"
     ],
     "ref": "default",
     "source": "mock",
-    "synced_at": 1784702942.4679775
+    "synced_at": 1784734495.5458388
   },
   "e2e-api-tests-2": {
     "files": [],
     "missing": [
       "AGENTS.md",
-      "CLAUDE.md"
+      "CLAUDE.md",
+      ".agents/skills/qa-guide.md"
     ],
     "ref": "default",
     "source": "mock",
-    "synced_at": 1784702942.9468582
+    "synced_at": 1784734495.9050999
   },
   "e2e-ui-tests-1": {
     "files": [],
     "missing": [
       "AGENTS.md",
-      "CLAUDE.md"
+      "CLAUDE.md",
+      ".agents/skills/qa-guide.md"
     ],
     "ref": "default",
     "source": "mock",
-    "synced_at": 1784702942.7328525
+    "synced_at": 1784734495.731391
   },
   "orders-api": {
     "files": [
@@ -60,27 +65,29 @@
     ],
     "ref": "default",
     "source": "mock",
-    "synced_at": 1784704409.393887
+    "synced_at": 1784734494.9877396
   },
   "payments-api": {
     "files": [],
     "missing": [
       "AGENTS.md",
-      "CLAUDE.md"
+      "CLAUDE.md",
+      ".agents/skills/qa-guide.md"
     ],
     "ref": "default",
     "source": "mock",
-    "synced_at": 1784702942.1108892
+    "synced_at": 1784734495.3383753
   },
   "web-storefront-ui": {
     "files": [
       "AGENTS.md"
     ],
     "missing": [
-      "CLAUDE.md"
+      "CLAUDE.md",
+      ".agents/skills/qa-guide.md"
     ],
     "ref": "default",
     "source": "mock",
-    "synced_at": 1784702941.0557144
+    "synced_at": 1784734494.6262517
   }
 }
