@@ -163,6 +163,23 @@ PHASE validate validate-repair.md out/generate.contract.json
 
 relocate_artifacts
 
+# Critic (§5.8.7): an ADVISORY second opinion on test quality — vacuous assertions,
+# duplicates, brittleness — which the deterministic gate structurally cannot judge.
+# It runs read-only (org-config gives it no Write/Edit), it cannot repair, and NOTHING
+# below reads its score to decide anything. Failures are swallowed on purpose: a critic
+# outage must never quarantine an otherwise good run.
+rm -f out/critic.contract.json
+if python3 engine/lib/critic.py enabled; then
+  CRITIC_CTX=(AGENTS.md out/generate.contract.json out/validate.contract.json)
+  for extra in out/testplan.contract.json out/catalog-slice.jsonl out/coverage-gaps.md; do
+    if [ -f "$extra" ]; then CRITIC_CTX+=("$extra"); fi
+  done
+  PHASE critic critic.md "${CRITIC_CTX[@]}" || {
+    echo "[critic] phase failed — advisory signal skipped, run continues"
+    rm -f out/critic.contract.json
+  }
+fi
+
 # Per-test-repo gate; partial success is allowed and reported honestly (§5.8.5).
 # Gates are independent (own repo dir, own app instance) — run them in PARALLEL.
 SUMMARY="AI-QE run ${RUN_ID} for ${KEY}:"
@@ -198,6 +215,16 @@ for name in "${GATE_NAMES[@]}"; do
   fi
   printf '%s\t%s\t%s\t%s\n' "$name" "$ST" "$GRC" "$SHA" >> out/gate_results.tsv
 done
+# Advisory critic line on the summary, so the score reaches the reviewer with the
+# artifacts rather than only in the run record. Appended AFTER the gate loop by
+# design — the commit decision above is already final and independent of it.
+if [ -f out/critic.contract.json ]; then
+  CRITIC_LINE=$(python3 engine/lib/critic.py record "$KEY" || echo "")
+  if [ -n "$CRITIC_LINE" ]; then
+    echo "[critic] $CRITIC_LINE"
+    SUMMARY+=$'\n'"- ${CRITIC_LINE} (advisory — does not gate)"
+  fi
+fi
 # Best-effort notifications: an unreachable tracker/Slack must not abort the run
 # before the run record, build status, and review-state transition are persisted.
 { [ "$MODE" = "jira" ] && TRACKER comment "$KEY" "$SUMMARY"; } || true

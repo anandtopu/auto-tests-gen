@@ -556,6 +556,23 @@ ai-qe-control/testplans/PROJ-123.md
 
 UI and API test repos will differ in framework and conventions. This is handled where it belongs — per-test-repo `CLAUDE.md` + a repo-specific skill (e.g., `e2e-api-conventions`) loaded only when that repo is in the resolved set. Orchestration, phases, contracts, and the gate interface (`gate.sh <key>` exit-code protocol) are identical across repos; only the skill content and gate internals differ. Adding a new test repo = one registry entry + one skill + one gate script.
 
+#### 5.8.7 Advisory critic — the quality signal the gate cannot produce
+
+The gate is deterministic and must stay that way, which leaves one class of defect structurally outside its reach. It proves a spec lints, executes, passes, holds no secrets, sits in scope and is catalog-mapped. It cannot distinguish a meaningful assertion from `expect(true)`, notice that a fourth spec re-tests what three others already cover, or see that a test asserts `200 OK` and never checks the behavior the ticket described. Those tests pass the gate and pollute the suite — the **escaped noise** the §8 scorecard has always targeted and never measured.
+
+A `critic` phase (adopted from OpenHands' `APIBasedCritic`, minus its auto-retry — see [openhands-review §3.2](integrations/openhands-review.md)) runs after `validate` and scores the generated specs 0.0–1.0 with categorized findings (`vacuous`, `weak`, `duplicate`, `missing`, `brittle`, `unclear`). It is **advisory**, and that is enforced structurally rather than by convention:
+
+| Property | Enforced by |
+|---|---|
+| Cannot change a commit decision | `overall` is computed from gate results alone; nothing under `engine/gate/` reads the score (pinned by test) |
+| Cannot repair what it grades | the phase's `allowed_tools` is `Read` — no Write/Edit/Bash. A critic that edits is an unreviewed repair loop |
+| Cannot fail a run | the phase runs non-fatally and `engine/lib/critic.py` is total: bad JSON, a crashed phase or missing config all degrade to "no signal" |
+| Cannot move a review status | `review_state.set_critic()` attaches the score and never touches `status` — a low score cannot un-approve reviewed work |
+
+Its verdict labels (`accept`/`review`/`weak`) are recomputed from org-config thresholds rather than trusted from the model, and `noise_count` is clamped to the specs actually reviewed. The score reaches people three ways: appended to the run summary posted to the PR/ticket, attached to the key's review entry so whoever reviews the artifacts sees it, and aggregated into the scorecard. `AIQE_CRITIC=0` skips the phase for a single run; `critic.enabled: false` disables it estate-wide.
+
+The deliberate omission is `IterativeRefinementConfig`: auto-retrying below a threshold would put a model in the approval path, which is exactly what §5.8's gate design rules out.
+
 ### 5.9 Test Catalog & Mapping Subsystem (new in v2.0)
 
 **The problem this solves:** six existing E2E test repos (3 API, 3 UI) contain tests with no recorded relationship to application repositories or features. Without that mapping, the platform cannot (a) route triggers to the right test repo, (b) decide update-vs-create (leading to duplicate tests), or (c) report requirement coverage. The registry's `covers:` map in §5.8.1 is therefore **derived from the catalog**, not hand-authored.
@@ -765,7 +782,8 @@ v2.0 restructures the solution from "a pipeline wired to GitHub+Jira" into a **c
 | **Routing accuracy** | runs where resolved repo set matched reviewer judgment / total | ≥ 95% |
 | **Mapping coverage** | cataloged tests with confirmed/auto mapping ≥0.85 confidence | ≥ 80% (rest triaged as review/orphan) |
 | **Duplicate prevention** | new agent tests duplicating existing catalog coverage | ≤ 5% |
-| Escaped noise | duplicate/trivial/asserting-nothing tests flagged in review | ≤ 10% |
+| Escaped noise | duplicate/trivial/asserting-nothing specs flagged by the advisory critic (§5.8.7) — the only automated source for this metric, since the gate proves specs *pass*, not that they assert anything worth asserting | ≤ 10% |
+| Critic score | mean advisory quality score per run (`make critic`) — reported alongside, never instead of, gate outcomes | trend |
 
 Human reviewers tag every agent commit with a 3-level rubric (accept / minor edits / rework) in the PR — this is the ground truth feed for the scorecard.
 

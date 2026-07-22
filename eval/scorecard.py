@@ -50,6 +50,20 @@ if runs:
         print(f"Update-vs-create: {pct(updated / (created + updated))} of "
               f"{created + updated} generated tests extended existing suites "
               f"(higher = better duplicate prevention)")
+    # Escaped noise (§8): the advisory critic is the only automated source for this —
+    # the gate proves specs pass, not that they assert anything worth asserting.
+    noise = sum(r["critic"].get("noise_count", 0) for r in runs if r.get("critic"))
+    reviewed = sum(r["critic"].get("specs_reviewed", 0) for r in runs if r.get("critic"))
+    scored = [r["critic"]["score"] for r in runs
+              if r.get("critic") and r["critic"].get("score") is not None]
+    if reviewed:
+        print(f"Escaped noise: {pct(noise / reviewed)} of {reviewed} generated specs "
+              f"flagged trivial/duplicate/weak by the advisory critic (target ≤10%)")
+    if scored:
+        print(f"Critic score: {sum(scored) / len(scored):.2f} avg over {len(scored)} "
+              f"scored runs (advisory — never gates a commit)")
+    if not scored:
+        print("Escaped noise: n/a — no critic signal yet (critic.enabled in org-config)")
 else:
     print("Run outcomes: n/a — no run records yet")
 

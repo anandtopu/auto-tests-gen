@@ -300,6 +300,22 @@
     "updated": 1784693311.6504202
   },
   "PR-orders-api-201": {
+    "critic": {
+      "findings": [
+        {
+          "file": "suites/orders/PR-orders-api-201-discount-boundary.spec.js",
+          "kind": "missing",
+          "note": "no case for a discount above the cap",
+          "severity": "low"
+        }
+      ],
+      "noise_count": 0,
+      "rationale": "assertions check the discounted total, not just the status code",
+      "score": 0.15,
+      "specs_reviewed": 2,
+      "ts": 1784756485.636376,
+      "verdict": "weak"
+    },
     "history": [
       {
         "note": "new AI-generated artifacts committed",
@@ -325,6 +341,22 @@
     "updated": 1784608021.0058577
   },
   "PROJ-301": {
+    "critic": {
+      "findings": [
+        {
+          "file": "suites/orders/PROJ-301-discount-boundary.spec.js",
+          "kind": "missing",
+          "note": "no case for a discount above the cap",
+          "severity": "low"
+        }
+      ],
+      "noise_count": 0,
+      "rationale": "assertions check the discounted total, not just the status code",
+      "score": 0.86,
+      "specs_reviewed": 2,
+      "ts": 1784756775.7746892,
+      "verdict": "accept"
+    },
     "history": [
       {
         "note": "backfill: artifacts committed by run 1784602319-9471",

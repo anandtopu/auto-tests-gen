@@ -142,7 +142,7 @@ raise `NotImplementedError`, and path-triggered skills don't fire. Our phase cha
 depends on per-phase `--allowedTools` and `--max-turns`, which we would lose. Revisit
 when ACP reaches parity.
 
-### 3.2 Critic model as a second opinion before the gate
+### 3.2 Critic model as a second opinion before the gate — **implemented (advisory only)**
 `APIBasedCritic` scores a proposed completion 0.0–1.0 and, with
 `IterativeRefinementConfig`, auto-retries below a threshold. This is close to our
 validate→repair loop, but model-based rather than execution-based.
@@ -150,6 +150,35 @@ validate→repair loop, but model-based rather than execution-based.
 Our gate is deliberately **not** an LLM, and that should not change. A critic is
 worth trialling as an *advisory* signal recorded in the run record (e.g. alongside
 `repair_loops`) — never as a substitute for lint/execute/secret-scan.
+
+**Status: done — the score, not the retry.** A `critic` phase runs after `validate`
+and scores the generated specs with categorized findings (`vacuous`, `weak`,
+`duplicate`, `missing`, `brittle`, `unclear`). We deliberately did **not** adopt
+`IterativeRefinementConfig`: auto-retrying below a threshold puts a model in the
+approval path, which is the one thing our gate design rules out.
+
+It earns its place by covering what the gate structurally cannot. The gate proves a
+spec lints, runs, passes, holds no secrets and is catalog-mapped — it cannot tell a
+real assertion from `expect(true)`, or spot the fourth spec re-testing what three
+others cover. That is the **escaped noise** metric the scorecard has defined since
+v2.0 and never had a source for; `make critic` and `python3 eval/scorecard.py` now
+report it.
+
+"Advisory" is enforced structurally, each property pinned by a test in
+`registry/tests/test_critic.py` rather than left to convention:
+
+| Property | How |
+|---|---|
+| Cannot change a commit decision | `overall` comes from gate results alone; a test asserts nothing under `engine/gate/` so much as mentions the critic, and that a 0.0 score still yields `committed` |
+| Cannot repair what it grades | phase `allowed_tools: "Read"` — no Write/Edit/Bash |
+| Cannot fail a run | the phase runs non-fatally; `engine/lib/critic.py` is total (bad JSON, crashed phase, unreadable config → "no signal") |
+| Cannot move a review status | `review_state.set_critic()` never touches `status`, so a low score cannot un-approve reviewed work |
+
+Verdict labels are recomputed from org-config thresholds rather than trusted from the
+model, and `noise_count` is clamped to the specs actually reviewed. Surfaced on the
+run summary posted to the PR/ticket, on the key's review entry, in the Runs view
+beside the gate outcome, via `bin/qa.py critic --findings`, and in the scorecard.
+`AIQE_CRITIC=0` skips it for one run; `critic.enabled: false` disables it estate-wide.
 
 ### 3.3 Sub-agents for parallel per-repo generation
 File-based sub-agents (`.agents/agents/*.md`) with their own `tools`, `model`, `skills`,
@@ -205,6 +234,13 @@ Verification Stack blog argues for exactly the layered gating we implement.
 3. **Stop hook running the gate** (2.2) — enforces our core invariant inside the agent loop.
 4. Then evaluate path-triggered skills (2.4) and the critic-as-advisory-signal (3.2).
 5. Defer ACP (3.1) until tool/MCP parity lands.
+
+**Where this landed:** 1–4 are implemented (2.1 webhooks, 2.2 Stop hook, 2.3
+`qa-guide.md` in `GUIDANCE_FILES`, 2.4 path-triggered skills, 3.2 advisory critic).
+3.1 (ACP) stays deferred on a real upstream blocker — `tools`, `mcp_config`,
+`condenser` and `critic` raise `NotImplementedError` on `ACPAgent`, so adopting it
+would cost us per-phase `--allowedTools` and `--max-turns`. 3.3 (sub-agents) and 3.4
+(enterprise gateway) remain unjustified at current scale.
 
 Licence reality check: everything under `enterprise/` is **PolyForm Free Trial** (30
 days/year without a commercial licence). The SDK, agent server, `extensions` skills and

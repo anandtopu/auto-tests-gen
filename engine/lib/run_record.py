@@ -2,7 +2,10 @@
 """Assemble the structured run record (architecture §8) from out/*.json.
 Includes per-test-repo gate outcomes (out/gate_results.tsv) so persisted records
 in reports/runs/ carry everything the QA monitoring surfaces need."""
-import glob, json, os, sys, time
+import glob, json, os, pathlib, sys, time
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import critic as critic_lib
 
 run_id, mode, key = sys.argv[1:4]
 phases = []
@@ -25,6 +28,13 @@ if os.path.exists("out/gate_results.tsv"):
 overall = ("quarantined" if any(g["status"] == "quarantined" for g in gates)
            else "committed" if any(g["status"] == "committed" for g in gates)
            else "no_changes")
-print(json.dumps({"run_id": run_id, "trigger": {"type": mode, "key": key},
-                  "ts": time.time(), "overall": overall,
-                  "gates": gates, "phases": phases}))
+# Advisory critic score lifted to the top level so the scorecard and dashboard don't
+# have to dig through phases[]. `overall` above is computed purely from gate outcomes —
+# the critic never contributes to it (openhands-review §3.2).
+record = {"run_id": run_id, "trigger": {"type": mode, "key": key},
+          "ts": time.time(), "overall": overall,
+          "gates": gates, "phases": phases}
+signal = critic_lib.load()
+if signal:
+    record["critic"] = signal
+print(json.dumps(record))
