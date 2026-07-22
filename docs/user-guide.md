@@ -440,6 +440,36 @@ or SCM changes apply to the next pipeline run (restart `make serve` to switch th
 server's own fetch source). The editable keys are exactly those documented in
 `.env.example` (conformance-tested).
 
+#### Validating the connections
+
+Configuring credentials and *proving they work* are different things. **Validate
+connections** in the Settings view (or `make check-integrations`) probes every
+configured external system and reports one line each:
+
+| Result | Meaning |
+|---|---|
+| **connected** | reached it and the credentials were accepted |
+| **failed** | configured but unreachable or rejected — the row carries a fix hint |
+| **not configured** | nothing set (most estates use a subset — not an error) |
+
+Every check is **read-only**: nothing is posted, pushed, attached or sent. SMTP is
+verified by connecting and authenticating without sending a message; the SCM by a
+read-only file fetch; JIRA by reading `AIQE_SMOKE_TICKET`. A Slack webhook can only be
+truly verified by posting — which would notify the channel — so it is checked for URL
+shape and host reachability and says so. Credential values are never echoed back.
+
+```bash
+make check-integrations              # all systems
+make check-integrations WHICH=smtp   # just one (llm scm jira confluence openhands
+                                     #   jenkins slack smtp splunk)
+```
+
+The checks probe the **real** systems even while `AIQE_MOCK=1`, so you can confirm a
+setup before switching to real mode. Exit code is non-zero if any configured system
+failed, which makes it usable as a deployment smoke check. For the deeper,
+OpenHands-specific staged test — including an opt-in live conversation that costs
+money — use `make smoke-openhands`.
+
 The view's **danger zone** has *Clear demo data* (`POST /api/demo/clear`, or
 `make clear-demo` / `DRY=1` from the CLI — `engine/lib/demo_data.py`): it deletes
 everything the pipeline *generated* — run history + archived diffs,

@@ -40,6 +40,9 @@ Endpoints:
                               omitted) and regenerate AGENTS.md
   GET  /api/repos/notes?repo=R    per-repo agent guidance (+ repo-local files)
   POST /api/repos/notes       {"repo","text"} -> knowledge/repos/<R>.md + AGENTS.md
+  POST /api/integrations/check  {"which"?: [...]}  read-only connectivity check of
+                              every configured external system (nothing is posted,
+                              pushed or sent)
   GET  /api/settings          integration settings (secrets masked to set/unset)
   POST /api/settings          {"updates": {ENV: value}} -> merge into .env
   POST /api/demo/clear        delete generated demo data (run history, plans,
@@ -51,7 +54,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import demo_data, email_notify, export_plan, guidance_sync, inline_ticket, \
-    plan_state, repo_admin, review_state, settings_store, team_report, work_queue
+    integration_check, plan_state, repo_admin, review_state, settings_store, \
+    team_report, work_queue
 
 # The Settings view writes .env; honor it here too (explicit env still wins) so
 # adapter mode and credentials configured in the UI actually reach this server.
@@ -375,6 +379,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": str(e)})
             except Exception as e:                      # SMTP failure — report, don't crash
                 self._send(502, {"error": f"email failed: {e}"})
+        elif self.path == "/api/integrations/check":
+            try:
+                p = json.loads(body or b"{}")
+                self._send(200, integration_check.run(p.get("which")))
+            except json.JSONDecodeError as e:
+                self._send(400, {"error": str(e)})
         elif self.path == "/api/demo/clear":
             try:
                 self._send(200, {"ok": True, **demo_data.clear()})

@@ -1102,6 +1102,38 @@ document.addEventListener('click', async e => {
     loadSettings();
   } catch (err) { e.target.disabled = false; toast(err.message); }
 });
+// ---- validate integrations (read-only connectivity check)
+const CHECK_CHIP = { ok: ['✓ connected', 'success'], fail: ['✗ failed', 'danger'],
+                     skipped: ['not configured', 'muted'] };
+$('#check-integrations').addEventListener('click', async () => {
+  if (needsServer()) return;
+  const b = $('#check-integrations'), idle = b.textContent;
+  b.disabled = true; b.textContent = 'Checking…';
+  try {
+    const r = await api('/api/integrations/check', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const rows = r.results.map(x => {
+      const [lb, cls] = CHECK_CHIP[x.status] || [x.status, 'muted'];
+      return '<tr><td class="strong">' + escHtml(x.name) + '</td>' +
+        '<td><span class="chip chip-' + cls + '">' + escHtml(lb) + '</span></td>' +
+        '<td class="sm muted">' + escHtml(x.detail) +
+        (x.hint && x.status !== 'ok'
+          ? '<div class="sm" style="color:var(--sr-warning-fg)">→ ' + escHtml(x.hint) + '</div>'
+          : '') + '</td></tr>';
+    }).join('');
+    $('#check-table tbody').innerHTML = rows;
+    $('#check-summary').textContent =
+      r.summary.ok + ' connected · ' + r.summary.fail + ' failed · ' +
+      r.summary.skipped + ' not configured' +
+      (r.mock_mode ? '  (runs still use mock adapters — AIQE_MOCK=1)' : '');
+    $('#check-card').classList.remove('hidden');
+    $('#check-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    toast(r.summary.fail ? r.summary.fail + ' integration(s) failed — see details'
+                         : 'All configured integrations reachable');
+  } catch (err) { toast(err.message); }
+  b.disabled = false; b.textContent = idle;
+});
+
 $('#clear-demo').addEventListener('click', async () => {
   if (needsServer()) return;
   if (!confirm('Delete ALL generated demo data?\\n\\nRemoves run history, archived ' +
@@ -1390,10 +1422,24 @@ page = f"""<!doctype html>
         <code>••••••</code>; type a new value to replace it, leave blank to keep it.
         Adapter-mode and SCM changes take effect on the next run;
         restart <code>make serve</code> to switch the server's fetch source.</div></div></div>
+      <span class="grow"></span>
+        <button class="btn btn-sm info" id="check-integrations">Validate connections</button>
+      </div>
       <div class="card-b" id="settings-body">
         <div class="empty">Start the server (<code>make serve</code>) to view and
         edit integration settings.</div>
       </div>
+    </section>
+    <section class="card hidden" id="check-card">
+      <div class="card-h"><h2 class="grow">Connection check</h2>
+        <span class="sub" id="check-summary"></span></div>
+      <div class="scroll"><table id="check-table">
+        <thead><tr><th>system</th><th>result</th><th>detail</th></tr></thead>
+        <tbody></tbody></table></div>
+      <div class="card-b sub">Read-only: nothing is posted, pushed or sent. A Slack
+        webhook can only be fully verified by posting, so it is checked for shape and
+        reachability only. For the deeper OpenHands test (which can start a real,
+        billable conversation) run <code>make smoke-openhands</code>.</div>
     </section>
     <section class="card">
       <div class="card-h"><div><h2>Danger zone</h2>

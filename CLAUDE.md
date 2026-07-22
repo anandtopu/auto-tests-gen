@@ -40,6 +40,7 @@ make prune [KEEP=200]    # run-record retention (oldest records + diffs beyond K
 make gaps                # coverage gaps: harvested surface vs catalog evidence (engine/lib/coverage_gaps.py)
 make ingest-results FILE=...  # CI JUnit/Jenkins results -> catalog/health.json (engine/lib/test_health.py)
 make catalog-db          # rebuild the SQLite query index (reports/catalog.db, gitignored; qa.py sql to query)
+make check-integrations [WHICH=smtp]  # read-only connectivity check for every configured external system (engine/lib/integration_check.py; ok/fail/skipped + fix hints; never posts/pushes/sends; also POST /api/integrations/check + the Settings view's "Validate connections")
 make smoke-openhands     # staged live smoke test for the OpenHands integration (bin/smoke-openhands.sh; needs .env credentials; AIQE_SMOKE_TRIGGER=1 starts a real conversation)
 make repos               # list configured app repos (bin/repos.py: show/set/link/unlink/remove + add-app/add-test/scope/notes via engine/lib/repo_admin.py; also the dashboard Repositories view)
 make agents              # regenerate AGENTS.md estate knowledge (bin/gen_agents_md.py)

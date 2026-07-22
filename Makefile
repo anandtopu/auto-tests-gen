@@ -6,7 +6,7 @@ SHELL := /bin/bash
         test-gate demo-bootstrap demo-pr demo-jira review \
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
-        demo-plan demo-plan-tests sync-guidance sync-status
+        demo-plan demo-plan-tests sync-guidance sync-status check-integrations
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -72,6 +72,9 @@ serve:
 
 hook-server:
 	python3 bin/taskevent_receiver.py
+
+check-integrations:   # read-only connectivity check for every configured system
+	python3 engine/lib/integration_check.py $(WHICH)
 
 smoke-openhands:
 	bash bin/smoke-openhands.sh

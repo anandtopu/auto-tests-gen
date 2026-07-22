@@ -53,6 +53,7 @@ make review                     # full regression: goldens + conformance + gate 
 # Real runs (cp .env.example .env, fill credentials)
 make parity-pr / parity-jira    # real claude -p phases against the demo estate (~$2)
 make run-pr REPO=... PR=...     # real Workflow A     make run-jira KEY=PROJ-123
+make check-integrations         # read-only: can we reach every configured system?
 make smoke-openhands            # staged live smoke test of the OpenHands integration
 python3 bin/qa.py run-inline "<pasted JIRA text>" --repos orders-api --type Bug
 
