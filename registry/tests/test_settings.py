@@ -133,8 +133,11 @@ def test_clear_demo_dry_run_never_touches_the_lock(tmp_path):
     root = _demo_tree(tmp_path)
     lock = root / "out/.pipeline.lock"
     lock.mkdir(parents=True)
-    demo_data.clear(root=root, dry=True, force=True)
+    r = demo_data.clear(root=root, dry=True, force=True)
     assert lock.exists(), "a dry run must not remove the lock either"
+    # …and must not claim it did
+    assert any("would be removed" in t for t in r["targets"]), r["targets"]
+    assert not any(t.endswith("— removed)") for t in r["targets"])
 
 
 def test_dashboard_renders_settings_view():

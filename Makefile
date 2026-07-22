@@ -6,7 +6,7 @@ SHELL := /bin/bash
         test-gate demo-bootstrap demo-pr demo-jira review \
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
-        demo-plan demo-plan-tests sync-guidance sync-status check-integrations
+        demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -153,6 +153,10 @@ repos:
 
 agents:
 	python3 bin/gen_agents_md.py
+	python3 bin/gen_path_skills.py
+
+skills:               # path-triggered OpenHands skills (UI/API split) from the registry
+	python3 bin/gen_path_skills.py
 
 sync-guidance:        # pull AGENTS.md/CLAUDE.md from the SCM (REPO=... for one repo)
 	python3 bin/repos.py sync $(REPO) $(if $(REF),--ref $(REF),)
