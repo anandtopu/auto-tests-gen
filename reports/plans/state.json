@@ -1,7 +1,7 @@
 {
   "PROJ-301": {
     "by": "qa",
-    "generated_run": "1784734507-11381",
+    "generated_run": "1784738797-30751",
     "history": [
       {
         "by": "pipeline",
@@ -152,15 +152,39 @@
         "note": "tests generated (run 1784734507-11381)",
         "status": "approved",
         "ts": 1784734521.6825402
+      },
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1784738793.9567342
+      },
+      {
+        "by": "qa",
+        "note": "",
+        "status": "approved",
+        "ts": 1784738795.8713043
+      },
+      {
+        "by": "cli",
+        "note": "linked to tracker: [mock-jira] attached to PROJ-301: out/mock-jira-attachments/PROJ-301-PROJ-301-testplan.pdf",
+        "status": "approved",
+        "ts": 1784738796.575528
+      },
+      {
+        "by": "pipeline",
+        "note": "tests generated (run 1784738797-30751)",
+        "status": "approved",
+        "ts": 1784738812.2160807
       }
     ],
     "linked": {
       "by": "cli",
       "ref": "[mock-jira] attached to PROJ-301: out/mock-jira-attachments/PROJ-301-PROJ-301-testplan.pdf",
-      "ts": 1784734506.5410776
+      "ts": 1784738796.5755255
     },
     "note": "",
     "status": "approved",
-    "updated": 1784734505.77852
+    "updated": 1784738795.871302
   }
 }
