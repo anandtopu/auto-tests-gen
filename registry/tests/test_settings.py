@@ -97,11 +97,44 @@ def test_clear_demo_dry_run_touches_nothing(tmp_path):
     assert (root / "reports/runs/1-x.json").exists()
 
 
-def test_clear_demo_refuses_during_pipeline_run(tmp_path):
+def test_clear_demo_refuses_while_a_run_looks_active(tmp_path):
     root = _demo_tree(tmp_path)
     (root / "out/.pipeline.lock").mkdir(parents=True)
-    with pytest.raises(SystemExit, match="in progress"):
+    with pytest.raises(SystemExit, match="looks active"):
         demo_data.clear(root=root)
+    assert (root / "reports/runs/1-x.json").exists(), "nothing may be deleted"
+
+
+def test_clear_demo_breaks_a_stale_lock(tmp_path):
+    """A killed run leaves out/.pipeline.lock behind forever. Refusing on that made
+    the Settings button fail permanently with a message that was untrue and gave
+    the user no way out. Match pipeline.sh: older than the threshold == dead."""
+    import os as _os, time as _t
+    root = _demo_tree(tmp_path)
+    lock = root / "out/.pipeline.lock"
+    lock.mkdir(parents=True)
+    old = _t.time() - (demo_data.STALE_LOCK_MINUTES + 5) * 60
+    _os.utime(lock, (old, old))
+    r = demo_data.clear(root=root)
+    assert not lock.exists(), "a stale lock must be broken, not honoured"
+    assert any("stale" in t for t in r["targets"])
+    assert not (root / "reports/runs/1-x.json").exists(), "the clear must proceed"
+
+
+def test_clear_demo_force_overrides_a_live_lock(tmp_path):
+    root = _demo_tree(tmp_path)
+    (root / "out/.pipeline.lock").mkdir(parents=True)
+    r = demo_data.clear(root=root, force=True)
+    assert any("force-removed" in t for t in r["targets"])
+    assert not (root / "reports/runs/1-x.json").exists()
+
+
+def test_clear_demo_dry_run_never_touches_the_lock(tmp_path):
+    root = _demo_tree(tmp_path)
+    lock = root / "out/.pipeline.lock"
+    lock.mkdir(parents=True)
+    demo_data.clear(root=root, dry=True, force=True)
+    assert lock.exists(), "a dry run must not remove the lock either"
 
 
 def test_dashboard_renders_settings_view():

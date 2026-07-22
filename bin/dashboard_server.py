@@ -392,9 +392,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": str(e)})
         elif self.path == "/api/demo/clear":
             try:
-                self._send(200, {"ok": True, **demo_data.clear()})
-            except SystemExit as e:                     # pipeline run in progress
-                self._send(409, {"error": str(e)})
+                p = json.loads(body or b"{}")
+                self._send(200, {"ok": True,
+                                 **demo_data.clear(force=bool(p.get("force")))})
+            except json.JSONDecodeError as e:
+                self._send(400, {"error": str(e)})
+            except SystemExit as e:                     # a run looks active
+                self._send(409, {"error": str(e), "can_force": True})
             except OSError as e:                        # locked/undeletable file
                 self._send(500, {"error": f"clear failed: {e}"})
         elif self.path == "/api/queue/run":

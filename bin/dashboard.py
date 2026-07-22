@@ -1166,10 +1166,22 @@ $('#clear-demo').addEventListener('click', async () => {
     'scratch dirs. The registry, catalog and demo repos are kept.\\n\\nThis cannot be undone.')) return;
   const b = $('#clear-demo');
   b.disabled = true;
+  const post = force => api('/api/demo/clear', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force }) });
   try {
-    const r = await api('/api/demo/clear', { method: 'POST' });
+    const r = await post(false);
     toast('Cleared ' + r.removed + ' generated file(s) — reload to see the reset dashboard');
-  } catch (err) { toast(err.message); }
+  } catch (err) {
+    // A pipeline lock left behind by a killed run used to make this a dead end.
+    // Offer the override here rather than sending the user to the shell.
+    if (/pipeline run looks active/i.test(err.message) &&
+        confirm(err.message + '\\n\\nClear anyway?')) {
+      try {
+        const r = await post(true);
+        toast('Cleared ' + r.removed + ' generated file(s) (forced past the lock)');
+      } catch (e2) { toast(e2.message); }
+    } else { toast(err.message); }
+  }
   b.disabled = false;
 });
 loadSettings();

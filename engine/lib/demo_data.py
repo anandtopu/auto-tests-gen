@@ -9,7 +9,7 @@ dirs, CI-health ingest, the SQLite index) while keeping everything the estate
 
 Refuses to run while a pipeline run holds out/.pipeline.lock.
 """
-import contextlib, os, pathlib, shutil, stat, sys
+import contextlib, os, pathlib, shutil, stat, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -37,14 +37,42 @@ def _files_under(p):
             and not q.parent.name.endswith(".lock")] if p.is_dir() else []
 
 
-def clear(root=None, dry=False):
+# Matches the stale-lock threshold in engine/pipeline.sh: a lock older than this
+# belonged to a run that was killed or crashed, not one still working.
+STALE_LOCK_MINUTES = 90
+
+
+def _check_pipeline_lock(root, dry, force):
+    """Refuse only while a run is plausibly LIVE. A killed run leaves the lock dir
+    behind forever, and refusing on that made 'Clear demo data' fail permanently
+    with a message that was both untrue and unactionable."""
+    lock = root / "out/.pipeline.lock"
+    if not lock.exists():
+        return None
+    age_min = (time.time() - lock.stat().st_mtime) / 60
+    if age_min > STALE_LOCK_MINUTES:
+        if not dry:
+            shutil.rmtree(lock, ignore_errors=True)
+        return f"out/.pipeline.lock (stale, {age_min:.0f} min old — removed)"
+    if force:
+        if not dry:
+            shutil.rmtree(lock, ignore_errors=True)
+        return f"out/.pipeline.lock ({age_min:.0f} min old — force-removed)"
+    raise SystemExit(
+        f"refusing to clear: a pipeline run looks active "
+        f"(out/.pipeline.lock, {age_min:.0f} min old). Wait for it to finish, or "
+        f"clear anyway if you know it is dead (force).")
+
+
+def clear(root=None, dry=False, force=False):
     """Delete generated demo data under `root`. Returns {"removed": n,
-    "targets": [relative paths]}; dry=True only reports."""
+    "targets": [relative paths]}; dry=True only reports. `force` clears past a
+    pipeline lock that is younger than the stale threshold."""
     root = pathlib.Path(root or ROOT)
-    if (root / "out/.pipeline.lock").exists():
-        raise SystemExit("refusing to clear: a pipeline run is in progress "
-                         "(out/.pipeline.lock exists)")
     removed, targets = 0, []
+    note = _check_pipeline_lock(root, dry, force)
+    if note:
+        targets.append(note)
     # Hold the state-file locks while wiping reports/runs so a queue worker or the
     # hook server can't interleave a save() and resurrect half-deleted state.
     with contextlib.ExitStack() as locks:
@@ -73,7 +101,7 @@ def clear(root=None, dry=False):
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     dry = "--dry" in sys.argv
-    r = clear(dry=dry)
+    r = clear(dry=dry, force="--force" in sys.argv)
     verb = "would remove" if dry else "removed"
     print(f"{verb} {r['removed']} generated file(s):")
     for t in r["targets"]:
