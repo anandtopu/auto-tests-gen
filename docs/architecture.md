@@ -777,9 +777,27 @@ Beyond raw records, the platform ships operator tooling so a QA team can monitor
 - **Repositories view** (`engine/lib/repo_admin.py`, CLI parity in `bin/repos.py`) — add/edit UI and service repos and E2E test repos; manage the **many-app-to-one-test-repo mapping** via each test repo's hand-managed `scope` (`covers[]` stays generated as *catalog evidence ∪ scope*); and edit **per-repo agent guidance**. Guidance is team notes in `knowledge/repos/<name>.md` plus any `AGENTS.md`/`CLAUDE.md` committed inside a repo's own checkout — both merged into `AGENTS.md` and thus injected into every test-plan, generation, and coverage-gap phase.
 - **Settings view** (`engine/lib/settings_store.py`) — configure every integration (SCM, JIRA, Confluence, OpenHands, Jenkins, Slack/Splunk, budgets, adapter mode) into `.env`, the same file the adapters read; secrets are write-only (reads report set/unset, never the value). A danger-zone **Clear demo data** (`engine/lib/demo_data.py`) removes generated state while preserving the estate.
 - **Team status report** (`make report`, `engine/lib/team_report.py`; `GET /api/report`) — one shareable md/html/docx/pdf document: completed work, quarantined runs, review backlog with wait time, work queue, by-release rollup, throughput, and estate health, with `--days`/`--release` filters.
-- **CLI** — `bin/qa.py` (status, reviews, mark, release, artifacts, coverage, gaps, report, exports, inline runs, catalog SQL) and `make status/reviews/coverage/gaps`.
+- **Test plans view** — the plan-first approval workflow (§8.2).
+- **Email/SMTP** — the Notify port's second channel (`NOTIFY_KIND=slack|email|both`) plus on-demand run-summary, review-digest and team-report emails; with no `SMTP_HOST` it writes `out/mock-email/*.eml` so it is demoable.
+- **CLI** — `bin/qa.py` (status, reviews, mark, release, artifacts, coverage, gaps, report, email, plan, exports, inline runs, catalog SQL) and `make status/reviews/coverage/gaps/report/email`.
 
 These surfaces are diagrammed in [diagrams.md](diagrams.md) §10 (monitoring), §12 (team report), and §13 (configuration & estate management).
+
+### 8.2 Plan-first workflow — human approval before generation
+
+By default Workflow B authors a plan and generates tests in one pass. Teams that must sign off the plan first use the split entry points: `pipeline.sh plan <KEY>` stops after the testplan phase (snapshotting the contract, marking the plan `draft`, commenting on the ticket) and `pipeline.sh tests <KEY>` resumes into testdata → generate → validate → the same deterministic gate.
+
+Two properties are **enforced, not merely documented**: generation refuses unless the plan is `approved` (checked before any clone or LLM call), and editing an approved plan revokes the approval so a changed artifact can never inherit a stale sign-off. Lifecycle (`draft → in_review → approved | changes_requested`) with an append-only history lives in `reports/plans/state.json`, deliberately outside `reports/runs/` so no run-record glob needs another exclusion. The reviewed markdown is passed to the resume phases, so reviewer edits shape the generated tests. Plan mode writes no run record — it never reaches the gate — keeping commit-rate metrics honest. Diagram: [§14](diagrams.md).
+
+### 8.3 Guidance sync — repo-owned AGENTS.md / CLAUDE.md
+
+Teams own their testing conventions in their own repositories. `engine/lib/guidance_sync.py` pulls each repo's `AGENTS.md`/`CLAUDE.md` straight from the SCM through the Scm port's `fetch_file` verb (no clone; exit 3 = absent), for application repos (UI **and** service) and E2E test repos alike, caching them under `knowledge/synced/<repo>/` and regenerating `AGENTS.md`. Because `AGENTS.md` is the context handed to every authoring phase, synced guidance shapes tests for PRs, user stories and bug fixes.
+
+Source precedence is **freshness-based**: during a run the workspace clone (the exact revision under test) wins, while a just-completed sync beats a leftover clone from an earlier run — so a manual sync is never silently a no-op. Diagram: [§9](diagrams.md).
+
+### 8.4 Deployment
+
+The platform ships as a single OpenShift-compatible image running two co-located services (dashboard :4999, TaskEvent receiver :4998) that coordinate through an advisory lock on shared storage — hence one replica, `Recreate` strategy, single writer. Persistent state (`reports/`) is a PVC; `workspace/` and `out/` are ephemeral. Local runs use Docker Compose; clusters use plain manifests plus OpenShift Routes (or an Ingress). See [deployment.md](deployment.md) and diagram [§15](diagrams.md).
 
 ---
 

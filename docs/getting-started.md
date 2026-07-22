@@ -90,10 +90,14 @@ correctly restricts routing to the API test repo, and the summary is posted back
 ```bash
 python3 bin/qa.py artifacts PROJ-301 --full   # view the generated plan + test code
 make status          # runs with per-repo gate outcomes, team review + release columns
-make serve           # interactive dashboard :4999 — seven views: Overview, Intake &
-                     #   queue, Runs & reviews, Artifacts, Test catalog, Repositories
-                     #   (add/edit/map repos + per-repo guidance), Settings (integrations
-                     #   -> .env, clear demo data)
+make serve           # interactive dashboard :4999 — eight views: Overview, Intake &
+                     #   queue, Test plans (review/edit/approve), Runs & reviews,
+                     #   Artifacts, Test catalog, Repositories (add/edit/map repos +
+                     #   per-repo guidance + SCM sync), Settings (integrations -> .env,
+                     #   clear demo data)
+make demo-plan       # plan-first: author a plan from PROJ-301 and STOP for review
+                     #   then: make plan-approve KEY=PROJ-301 && make demo-plan-tests
+make sync-guidance   # pull repo-owned AGENTS.md/CLAUDE.md from the SCM (make sync-status)
 make reviews         # team-review board (qa.py mark <KEY> approved --by you)
 make coverage        # app-repo x test-repo matrix; make gaps for uncovered surface
 make report DAYS=7 FORMAT=pdf                 # team status report (completed/queue/health)

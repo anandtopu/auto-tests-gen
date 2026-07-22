@@ -10,7 +10,7 @@ JIRA-triggered test authoring (Workflow B) across a multi-repo estate, powered b
 |---|---|
 | [docs/getting-started.md](docs/getting-started.md) | Zero-to-demo in two minutes, expected output, troubleshooting |
 | [docs/user-guide.md](docs/user-guide.md) | Operating the platform: repositories & mapping, per-repo AGENTS/CLAUDE guidance, team reports, Settings/integrations, dashboard, gate protocol, catalog lifecycle, going real (`AIQE_MOCK=0`) |
-| [docs/integrations/](docs/integrations/README.md) | Step-by-step tool integration: OpenHands, Jira, Bitbucket Cloud & Stash/Server |
+| [docs/integrations/](docs/integrations/README.md) | Step-by-step tool integration: OpenHands (+ capability review), Jira, Confluence, Bitbucket Cloud & Stash/Server, Email/SMTP |
 | [docs/diagrams.md](docs/diagrams.md) | Rendered architecture diagrams (Mermaid) |
 | [docs/deployment.md](docs/deployment.md) | Deploying as a service: local Docker Compose + remote OpenShift / Kubernetes |
 | [docs/architecture.md](docs/architecture.md) | Full solution architecture (v2.1) — code comments cite its § numbers |
@@ -57,9 +57,10 @@ make smoke-openhands            # staged live smoke test of the OpenHands integr
 python3 bin/qa.py run-inline "<pasted JIRA text>" --repos orders-api --type Bug
 
 # QA operations (bin/qa.py + services)
-make serve                      # interactive dashboard :4999 — 7 views: Overview,
-                                #   Intake & queue, Runs & reviews, Artifacts, Test
-                                #   catalog, Repositories (add/edit/map + guidance),
+make serve                      # interactive dashboard :4999 — 8 views: Overview,
+                                #   Intake & queue, Test plans (review/approve),
+                                #   Runs & reviews, Artifacts, Test catalog,
+                                #   Repositories (add/edit/map + guidance + SCM sync),
                                 #   Settings (integrations -> .env, clear demo data)
 make hook-server                # TaskEvent webhook receiver :4998 (dedupe + enqueue)
 make status / reviews / coverage / gaps    # runs, team review board, matrix, coverage gaps
@@ -69,7 +70,15 @@ make queue-run                  # drain the manual work queue
 make ingest-results FILE=junit.xml         # CI results -> per-test health/flakiness
 make clear-demo [DRY=1]         # delete generated demo data (estate kept)
 
+# Plan-first workflow (human approval before test generation)
+make plan KEY=PROJ-301          # author the test plan from the ticket, then STOP
+make plan-approve KEY=PROJ-301 BY=you        # review/edit/approve (make plans to list)
+make plan-link KEY=PROJ-301     # attach the approved plan to the JIRA ticket
+make plan-tests KEY=PROJ-301    # generate E2E tests from the APPROVED plan
+make email KIND=report DAYS=7   # email the team report (SMTP; mock -> out/mock-email/)
+
 # Sharing & knowledge
+make sync-guidance [REPO=...]   # pull each repo's AGENTS.md/CLAUDE.md from the SCM
 make export-plan KEY=... [FORMAT=pdf|docx|html]   # shareable test-plan export
 make publish-plan KEY=...       # one-way mirror to Confluence
 make attach-plan KEY=...        # attach the plan to the JIRA ticket

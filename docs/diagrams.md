@@ -4,9 +4,10 @@ Rendered (Mermaid) views of the system described in [architecture.md](architectu
 Section references (§) point there. GitHub and most IDEs render these natively.
 
 Contents: 1 system overview · 2 ports & adapters · 3–4 Workflows A/B · 5 the gate ·
-6 resolution · 7 catalog bootstrap · 8 workspace · 9 estate knowledge & repo config ·
-10 QA monitoring/review/release · 11 sharing the test plan · 12 team report ·
-13 configuration & estate management.
+6 resolution · 7 catalog bootstrap · 8 workspace · 9 estate knowledge, repo config &
+guidance sync · 10 QA monitoring/review/release · 11 sharing the test plan ·
+12 team report · 13 configuration & estate management · 14 plan-first approval
+workflow · 15 deployment topology.
 
 ## 1. System overview (§4.2)
 
@@ -60,11 +61,11 @@ flowchart LR
         P["Trigger normalizer → Resolver →<br/>Phase pipeline → Gate → Reporter"]
     end
 
-    P -- Scm --> SCM["GitHub · Bitbucket<br/><i>mock: adapters/mock/scm.sh</i>"]
-    P -- Tracker --> TR["Jira (Atlassian MCP)<br/><i>mock: tracker.sh</i>"]
-    P -- Knowledge --> KN["Confluence<br/>(linked PRDs → analyze context)"]
+    P -- Scm --> SCM["GitHub · Bitbucket Cloud · Stash/Server<br/>clone_ro · clone_rw · changed_files · diff ·<br/>comment · set_status · <b>fetch_file</b><br/><i>mock: adapters/mock/scm.sh</i>"]
+    P -- Tracker --> TR["Jira (Atlassian MCP)<br/>get_item · search_release · comment · attach<br/><i>mock: tracker.sh</i>"]
+    P -- Knowledge --> KN["Confluence<br/>(linked PRDs → analyze context;<br/>publish_doc mirrors test plans)"]
     P -- Cicd --> CI["Jenkins · GH Actions ·<br/>Bitbucket Pipelines"]
-    P -- Notify --> NO["Slack<br/><i>mock: notify.sh</i>"]
+    P -- Notify --> NO["Slack <b>· Email/SMTP</b><br/>NOTIFY_KIND=slack|email|both<br/><i>mock: notify.sh · out/mock-email/</i>"]
     P -- Telemetry --> TE["Splunk HEC<br/><i>mock: telemetry.sh</i>"]
 ```
 
@@ -224,6 +225,14 @@ flowchart TD
         GUI["Per-repo guidance:<br/>knowledge/repos/&lt;name&gt;.md (team notes)<br/>+ repo-local AGENTS.md / CLAUDE.md"]
     end
 
+    subgraph SYNC["Guidance sync (on demand, no clone)"]
+        SCMR["Bitbucket · GitHub · Stash<br/>each repo's own AGENTS.md / CLAUDE.md"]
+        GS["guidance_sync.py<br/>Scm port <b>fetch_file</b> · ui + service + test repos"]
+        CACHE["knowledge/synced/&lt;repo&gt;/"]
+        SCMR --> GS --> CACHE
+    end
+    CACHE -. "freshness wins vs workspace clone" .-> GUI
+
     subgraph WRITERS["What changes them"]
         RP["bin/repos.py / repo_admin.py<br/>add-app · add-test · set · link ·<br/>scope · notes · remove<br/>(+ dashboard Repositories view)"]
         OB["bin/onboard.sh<br/>register new repo"]
@@ -275,7 +284,7 @@ flowchart LR
 
     subgraph SURFACES["QA surfaces"]
         ST["make status / reviews<br/>(review + release columns)"]
-        DB["make serve — authed dashboard (7 views):<br/>Overview · Intake &amp; queue · Runs &amp; reviews ·<br/>Artifacts · Test catalog · Repositories · Settings"]
+        DB["make serve — authed dashboard (8 views):<br/>Overview · Intake &amp; queue · <b>Test plans</b> ·<br/>Runs &amp; reviews · Artifacts · Test catalog ·<br/>Repositories · Settings"]
         AR["qa.py artifacts &lt;KEY&gt;<br/>plan · data · tests · diffs"]
         REP["make report / qa.py report<br/>(md·html·docx·pdf): completed work ·<br/>queue · throughput · estate health"]
         SC["eval/scorecard.py: commit rate ·<br/>repair loops · update-vs-create ·<br/>acceptance · flakiness"]
@@ -365,4 +374,60 @@ flowchart TD
     B1 --> ENV[".env (secrets masked on read;<br/>loaded by pipeline + server + exports)"]
     B2 --> DEMO["demo_data.clear()<br/>(locked · refuses during a run)"]
     AG2 --> PH2["injected into every LLM phase"]
+```
+
+## 14. Plan-first workflow — human approval before generation (Workflow B variant)
+
+`pipeline.sh jira` still runs plan→generate in one pass. When a team must sign off the
+plan first, `pipeline.sh plan` stops after authoring and `pipeline.sh tests` resumes —
+but only for an **approved** plan.
+
+```mermaid
+flowchart TD
+    T["JIRA ticket (story or bug)<br/>or pasted text"] --> P1["pipeline.sh plan &lt;KEY&gt;<br/>resolve → clone → analyze → testplan"]
+    P1 --> STOP(["STOP · PLAN_STATUS=DRAFT<br/>testplans/&lt;KEY&gt;.md + contract snapshot<br/>comments on the ticket · no test code, no commit,<br/>no run record (never reached the gate)"])
+    STOP --> RV{"human review<br/>(Test plans view / make plan-*)"}
+    RV -- "request changes" --> ED["edit the plan"]
+    ED --> RV
+    RV -- "edit an APPROVED plan" --> REVOKE["approval revoked → draft<br/>(a changed plan can't inherit a sign-off)"]
+    REVOKE --> RV
+    RV -- approve --> AP(["approved (by, when, note — append-only history)"])
+    AP --> LINK["make plan-link → attach the plan<br/>to the JIRA ticket (Tracker attach)"]
+    AP --> GEN["pipeline.sh tests &lt;KEY&gt;<br/><b>require_approved</b> gate runs BEFORE any clone/LLM"]
+    GEN --> PH["testdata → generate → validate<br/>(reviewed markdown is passed in, so edits shape tests)"]
+    PH --> GATE["the same deterministic gate<br/>lint · run · born-mapped · commit"]
+    GATE --> DONE(["tests committed · plan records the generating run"])
+    RV -. "not approved" .-> BLOCK["generation refused"]
+```
+
+## 15. Deployment topology (local & OpenShift/Kubernetes)
+
+Both services share filesystem state through an advisory lock, so they co-locate and
+run as a single writer.
+
+```mermaid
+flowchart TB
+    subgraph IMG["Image (Dockerfile) — OpenShift-safe: arbitrary non-root UID, GID-0 writable"]
+        DEPS["python3 + pyyaml · node 20 · bash · git · make · jq<br/>(INSTALL_REAL_TOOLS=1 adds Claude CLI + Playwright)"]
+    end
+
+    subgraph POD["1 pod · replicas=1 · strategy Recreate (single writer)"]
+        C1["dashboard :4999<br/>runs the pipeline on queue drain"]
+        C2["receiver :4998<br/>GET /healthz ← k8s probes"]
+    end
+
+    PVC[("PVC /app/reports<br/>run records · reviews · queue ·<br/>plans · exports")]
+    EPH[("emptyDir /app/workspace, /app/out<br/>ephemeral scratch")]
+    C1 --- PVC
+    C2 --- PVC
+    C1 --- EPH
+    C2 --- EPH
+    C1 -. "fs_lock on shared FS" .- C2
+
+    CM["ConfigMap<br/>AIQE_MOCK · hosts/ports · SCM_KIND"] --> POD
+    SEC["Secret<br/>UI/HOOK tokens · SCM · JIRA ·<br/>Confluence · SMTP · OpenHands"] --> POD
+
+    ROUTE["OpenShift Routes (edge TLS)<br/>or k8s Ingress"] --> C1
+    ROUTE --> C2
+    LOCAL["Local: deploy/local/docker-compose.yml<br/>same image, named volumes"] -.-> POD
 ```
