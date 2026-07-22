@@ -11,8 +11,17 @@ regenerates AGENTS.md so agent phases always see current estate knowledge.
   bin/repos.py link <backend> <frontend>             frontend consumes backend
   bin/repos.py unlink <backend> <frontend>
   bin/repos.py remove <name>                         deregister a source repo
+  bin/repos.py add-app <name> --kind ui|service --url U [--scm github|bitbucket|stash]
+      [--domains csv] [--paths csv] [--contract F] [--route-table F] [--consumes csv]
+  bin/repos.py add-test <name> --layer api|ui --framework F --url U [--scm ...]
+      [--specs dir] [--fixtures dir] [--scope csv]
+  bin/repos.py scope <test_repo> <apps_csv>          declare which app repos the
+      test repo is responsible for (covers regenerates as evidence UNION scope)
+  bin/repos.py notes <repo> [--set "text" | --file F | --clear]
+      per-repo agent guidance -> knowledge/repos/<repo>.md, merged into AGENTS.md
 
-New repos are added with bin/onboard.sh (source|test) — this tool manages existing ones.
+Full onboarding (clone + templates + bootstrap) stays with bin/onboard.sh;
+add-app/add-test register the repo so mapping and routing work immediately.
 """
 import argparse, json, os, pathlib, subprocess, sys
 
@@ -146,6 +155,48 @@ def cmd_remove(args):
     print(f"removed {args.name} from the registry")
 
 
+def cmd_add_app(args):
+    import repo_admin
+    r = repo_admin.upsert_app(args.name, kind=args.kind, scm=args.scm, url=args.url,
+                              domains=args.domains, testable_paths=args.paths,
+                              contract=args.contract, route_table=args.route_table,
+                              consumes_services=args.consumes)
+    print(f"{'added' if r['created'] else 'updated'} app repo {args.name}")
+
+
+def cmd_add_test(args):
+    import repo_admin
+    r = repo_admin.upsert_test(args.name, layer=args.layer, framework=args.framework,
+                               scm=args.scm, url=args.url, specs=args.specs,
+                               fixtures=args.fixtures, scope=args.scope)
+    print(f"{'added' if r['created'] else 'updated'} test repo {args.name}")
+
+
+def cmd_scope(args):
+    import repo_admin
+    r = repo_admin.set_scope(args.test_repo, args.apps)
+    print(f"{args.test_repo} scope = {', '.join(r['scope']) or '(empty)'} "
+          f"(covers regenerated)")
+
+
+def cmd_notes(args):
+    import repo_admin
+    if args.clear:
+        repo_admin.set_notes(args.name, "")
+        print(f"cleared guidance for {args.name}")
+    elif args.set is not None or args.file:
+        text = args.set if args.set is not None else \
+            pathlib.Path(args.file).read_text(encoding="utf-8")
+        r = repo_admin.set_notes(args.name, text)
+        print(f"guidance saved: {r['path']} (merged into AGENTS.md)")
+    else:
+        n = repo_admin.get_notes(args.name)
+        print(n["team"] or f"(no team notes — write with: bin/repos.py notes "
+                           f"{args.name} --set \"...\")")
+        for f in n["local_files"]:
+            print(f"repo-local guidance: {f['path']} ({f['chars']} chars)")
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -161,5 +212,19 @@ if __name__ == "__main__":
     s.set_defaults(fn=cmd_link, unlink=True)
     s = sub.add_parser("remove"); s.add_argument("name")
     s.add_argument("--force", action="store_true"); s.set_defaults(fn=cmd_remove)
+    s = sub.add_parser("add-app"); s.add_argument("name")
+    s.add_argument("--kind"); s.add_argument("--scm"); s.add_argument("--url")
+    s.add_argument("--domains"); s.add_argument("--paths")
+    s.add_argument("--contract"); s.add_argument("--route-table", dest="route_table")
+    s.add_argument("--consumes"); s.set_defaults(fn=cmd_add_app)
+    s = sub.add_parser("add-test"); s.add_argument("name")
+    s.add_argument("--layer"); s.add_argument("--framework"); s.add_argument("--scm")
+    s.add_argument("--url"); s.add_argument("--specs"); s.add_argument("--fixtures")
+    s.add_argument("--scope"); s.set_defaults(fn=cmd_add_test)
+    s = sub.add_parser("scope"); s.add_argument("test_repo"); s.add_argument("apps")
+    s.set_defaults(fn=cmd_scope)
+    s = sub.add_parser("notes"); s.add_argument("name")
+    s.add_argument("--set"); s.add_argument("--file")
+    s.add_argument("--clear", action="store_true"); s.set_defaults(fn=cmd_notes)
     a = p.parse_args()
     a.fn(a)

@@ -308,6 +308,50 @@ make queue-run          # drain (AIQE_MOCK=1 unless you export otherwise)
 Duplicate pending items are deduped. The server runs mock adapters by default; export
 `AIQE_MOCK=0` (with credentials) before `make serve` for real estates.
 
+### Repositories & mapping: manage the estate from the UI
+
+The dashboard's **Repositories** view (backed by `engine/lib/repo_admin.py`) manages
+the whole estate without touching YAML:
+
+- **Application repositories** — add or edit UI and service repos (kind `ui`/`service`
+  maps to the registry's `frontend`/`backend`), SCM (`bitbucket`, `github`, `stash`),
+  domains, testable paths, contract / route table, and consumed services (reverse
+  `consumed_by` links are maintained automatically). Rows flag repos with no E2E
+  coverage.
+- **E2E test repositories & mapping** — add or edit test repos, and set each repo's
+  **scope**: the app repos it is responsible for (one API test repo covers many
+  service repos; one UI test repo covers many UI repos). Scope is the hand-managed
+  input; `covers` remains **generated** as catalog evidence ∪ scope
+  (`regen_coverage.py`), so routing picks up a new mapping immediately — before any
+  test evidence exists — without ever hand-editing coverage.
+- Every mutation validates references, re-runs the routing goldens and regenerates
+  `AGENTS.md`. Removals are guarded (an app repo still covered, or a test repo with
+  cataloged tests, is refused).
+
+CLI parity (same validation path):
+
+```bash
+python3 bin/repos.py add-app payments-ui --kind ui --url workspace/payments-ui --scm bitbucket
+python3 bin/repos.py add-test e2e-payments --layer api --framework playwright-api --url workspace/e2e-payments
+python3 bin/repos.py scope e2e-payments "payments-api, orders-api"
+```
+
+### Per-repo agent guidance (AGENTS.md / CLAUDE.md)
+
+Two guidance sources steer test generation, test plans and coverage-gap fixes for
+each repo, both merged into the estate `AGENTS.md` (injected into every LLM phase):
+
+1. **Team notes** — `knowledge/repos/<repo>.md`, edited from the Repositories view's
+   guidance card or `bin/repos.py notes <repo> --set "..."` / `--file f.md` /
+   `--clear`. Conventions, selectors, auth flows, data setup.
+2. **Repo-local files** — any `AGENTS.md` or `CLAUDE.md` committed inside the app or
+   test repo itself is picked up automatically (freshest checkout first:
+   `workspace/src|tests/<repo>/`, then `demo/<repo>/`). Teams own their guidance in
+   their own repos; the platform ingests it on every regeneration.
+
+The merged section appears as "Repository guidance" in `AGENTS.md` with each
+source labeled; `demo/orders-api/CLAUDE.md` is a working example.
+
 ### Team status reports
 
 One shareable document answering "what did the AI QE pipeline deliver, what's

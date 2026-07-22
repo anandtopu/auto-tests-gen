@@ -97,6 +97,7 @@ test_repositories:
   layout:
     specs: suites/
   covers: []
+  scope: []
 routing_hints:
   jira_component_map:
     Checkout:

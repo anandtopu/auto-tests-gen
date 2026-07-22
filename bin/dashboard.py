@@ -288,6 +288,60 @@ for e in sorted(catalog, key=lambda e: (e["test_repo"], e["file"])):
         f'<td class="sm muted">{esc(", ".join(m["method"]))}</td>'
         f'<td>{chip(m["status"])}</td><td>{health_cell}</td></tr>')
 
+# ---------------------------------------------------------------- repos view
+import repo_admin
+estate = repo_admin.summary()
+app_rows = ""
+for r in estate["app_repos"]:
+    entry = {"name": r["name"], "kind": r["kind"], "scm": r.get("scm", ""),
+             "url": r.get("url", ""), "domains": ", ".join(r.get("domains", [])),
+             "testable_paths": ", ".join(r.get("testable_paths", [])),
+             "contract": r.get("contract", ""), "route_table": r.get("route_table", ""),
+             "consumes_services": ", ".join(r.get("consumes_services", []))}
+    guid = []
+    if r["has_notes"]:
+        guid.append("notes")
+    guid += [pathlib.PurePosixPath(p).name for p in r["local_files"]]
+    app_rows += (
+        f'<tr><td class="strong">{esc(r["name"])}</td>'
+        f'<td><span class="pill">{esc(r["kind"])}</span></td>'
+        f'<td class="mono sm muted">{esc(r.get("scm", "?"))}</td>'
+        f'<td class="sm">{esc(", ".join(r.get("domains", []))) or "—"}</td>'
+        f'<td class="mono sm muted">{esc(r.get("contract") or r.get("route_table") or "—")}</td>'
+        f'<td class="sm">{esc(", ".join(r["covered_by"])) if r["covered_by"] else chip("gap")}</td>'
+        f'<td class="sm muted">{esc(", ".join(guid)) or "—"}</td>'
+        f'<td class="right nowrap">'
+        f'<button class="btn btn-sm repo-edit" data-form="app" '
+        f'data-entry="{esc(json.dumps(entry))}">Edit</button> '
+        f'<button class="btn btn-sm danger repo-del" data-name="{esc(r["name"])}" '
+        f'data-section="app">Remove</button></td></tr>')
+
+test_rows = ""
+for t in estate["test_repos"]:
+    entry = {"name": t["name"], "layer": t.get("layer", ""),
+             "framework": t.get("framework", ""), "scm": t.get("scm", ""),
+             "url": t.get("url", ""),
+             "specs": t.get("layout", {}).get("specs", ""),
+             "fixtures": t.get("layout", {}).get("fixtures", ""),
+             "scope": ", ".join(t.get("scope", []))}
+    test_rows += (
+        f'<tr><td class="strong">{esc(t["name"])}</td>'
+        f'<td><span class="pill">{esc(t.get("layer", "?"))}</span></td>'
+        f'<td class="mono sm muted">{esc(t.get("framework", "?"))}</td>'
+        f'<td class="sm">{esc(", ".join(t.get("covers", []))) or "—"}</td>'
+        f'<td class="nowrap"><input class="h32 scope-in" data-repo="{esc(t["name"])}" '
+        f'value="{esc(", ".join(t.get("scope", [])))}" placeholder="app repos (csv)" '
+        f'style="width:200px"> '
+        f'<button class="btn btn-sm scope-save" data-repo="{esc(t["name"])}">Save</button></td>'
+        f'<td class="right nowrap">'
+        f'<button class="btn btn-sm repo-edit" data-form="test" '
+        f'data-entry="{esc(json.dumps(entry))}">Edit</button> '
+        f'<button class="btn btn-sm danger repo-del" data-name="{esc(t["name"])}" '
+        f'data-section="test">Remove</button></td></tr>')
+
+all_repo_opts = "".join(f"<option>{esc(r['name'])}</option>"
+                        for r in estate["app_repos"] + estate["test_repos"])
+
 # ---------------------------------------------------------------- queue view
 def queue_rows_html(items):
     if not items:
@@ -323,10 +377,12 @@ gen_ts = time.strftime("%Y-%m-%d %H:%M")
 
 NAV = [("overview", "◧", "Overview"), ("queue", "⇥", "Intake & queue"),
        ("runs", "▶", "Runs & reviews"), ("artifacts", "❏", "Artifacts"),
-       ("catalog", "☰", "Test catalog"), ("settings", "⚙", "Settings")]
+       ("catalog", "☰", "Test catalog"), ("repos", "⛁", "Repositories"),
+       ("settings", "⚙", "Settings")]
 TITLES = {"overview": "Overview", "queue": "Intake & work queue",
           "runs": "Runs & team reviews", "artifacts": "Generated artifacts",
-          "catalog": "Test knowledge catalog", "settings": "Settings & integrations"}
+          "catalog": "Test knowledge catalog", "repos": "Repositories & mapping",
+          "settings": "Settings & integrations"}
 nav_html = "".join(
     f'<button class="nav-item{" active" if vid == "overview" else ""}" data-go="{vid}">'
     f'<span class="nav-ic">{icon}</span><span class="nav-lb">{esc(label)}</span>'
@@ -551,7 +607,8 @@ async function api(path, opts) {
 }
 const TITLES = { overview: 'Overview', queue: 'Intake & work queue',
   runs: 'Runs & team reviews', artifacts: 'Generated artifacts',
-  catalog: 'Test knowledge catalog', settings: 'Settings & integrations' };
+  catalog: 'Test knowledge catalog', repos: 'Repositories & mapping',
+  settings: 'Settings & integrations' };
 function go(view) {
   $$('[data-view]').forEach(v => v.classList.toggle('on', v.dataset.view === view));
   $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.go === view));
@@ -751,6 +808,85 @@ $('#inl-queue').addEventListener('click', async () => {
   } catch (err) { toast(err.message); }
 });
 refreshQueue();
+
+// ---- repositories & mapping
+async function repoPost(path, payload, okMsg) {
+  try {
+    await api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload) });
+    toast(okMsg + ' — goldens re-run, AGENTS.md regenerated. Reloading…');
+    setTimeout(() => location.reload(), 1200);
+  } catch (err) { toast(err.message); }
+}
+const APP_FIELDS = { name: 'app-name', kind: 'app-kind', scm: 'app-scm', url: 'app-url',
+  domains: 'app-domains', testable_paths: 'app-paths', contract: 'app-contract',
+  route_table: 'app-routes', consumes_services: 'app-consumes' };
+const TEST_FIELDS = { name: 'test-name', layer: 'test-layer', framework: 'test-framework',
+  scm: 'test-scm', url: 'test-url', specs: 'test-specs', fixtures: 'test-fixtures',
+  scope: 'test-scope' };
+document.addEventListener('click', async e => {
+  const edit = e.target.closest('button.repo-edit');
+  if (edit) {
+    const entry = JSON.parse(edit.dataset.entry);
+    const map = edit.dataset.form === 'app' ? APP_FIELDS : TEST_FIELDS;
+    Object.entries(map).forEach(([k, id]) => { $('#' + id).value = entry[k] || ''; });
+    toast('Editing ' + entry.name + ' — change fields below and Save');
+    return;
+  }
+  const del = e.target.closest('button.repo-del');
+  if (del) {
+    if (needsServer()) return;
+    if (!confirm('Remove ' + del.dataset.name + ' from the registry?')) return;
+    repoPost('/api/repos/remove', { name: del.dataset.name, section: del.dataset.section },
+      'Removed ' + del.dataset.name);
+    return;
+  }
+  const sc = e.target.closest('button.scope-save');
+  if (sc) {
+    if (needsServer()) return;
+    const val = document.querySelector('input.scope-in[data-repo="' + sc.dataset.repo + '"]').value;
+    repoPost('/api/repos/scope', { test_repo: sc.dataset.repo, apps: val },
+      'Mapped ' + sc.dataset.repo + ' scope');
+    return;
+  }
+  if (e.target.id === 'app-save' || e.target.id === 'test-save') {
+    if (needsServer()) return;
+    const isApp = e.target.id === 'app-save';
+    const map = isApp ? APP_FIELDS : TEST_FIELDS;
+    const payload = {};
+    Object.entries(map).forEach(([k, id]) => {
+      const v = $('#' + id).value.trim();
+      if (v) payload[k] = v;
+    });
+    if (!payload.name) { toast('Repo name is required'); return; }
+    repoPost(isApp ? '/api/repos/app' : '/api/repos/test', payload,
+      'Saved ' + payload.name);
+  }
+});
+async function loadNotes() {
+  if (!served || !$('#notes-repo')) return;
+  try {
+    const n = await api('/api/repos/notes?repo=' + encodeURIComponent($('#notes-repo').value));
+    $('#notes-text').value = n.team;
+    $('#notes-local').textContent = n.local_files.length
+      ? 'Repo-local guidance also merged: ' + n.local_files.map(f => f.path).join(', ')
+      : 'No repo-local AGENTS.md/CLAUDE.md found — team notes below are the only guidance.';
+  } catch (err) { $('#notes-local').textContent = err.message; }
+}
+if ($('#notes-repo')) {
+  $('#notes-repo').addEventListener('change', loadNotes);
+  $('#notes-save').addEventListener('click', async () => {
+    if (needsServer()) return;
+    try {
+      const r = await api('/api/repos/notes', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo: $('#notes-repo').value, text: $('#notes-text').value }) });
+      toast(r.saved ? 'Guidance saved to ' + r.path + ' and merged into AGENTS.md'
+                    : 'Guidance cleared for ' + r.repo);
+    } catch (err) { toast(err.message); }
+  });
+  loadNotes();
+}
 
 // ---- team report
 document.addEventListener('click', e => {
@@ -972,6 +1108,82 @@ page = f"""<!doctype html>
         <thead><tr><th>test repo</th><th>file / title</th><th>app repos</th>
           <th class="num">conf</th><th>evidence</th><th>mapping</th><th>CI health</th></tr></thead>
         <tbody>{cat_rows}</tbody></table></div>
+    </section>
+  </div>
+
+  <div data-view="repos">
+    <section class="card">
+      <div class="card-h"><div><h2>Application repositories</h2>
+        <div class="sub">UI and service repos under test. Coverage gaps are flagged;
+        Edit fills the form below.</div></div></div>
+      <div class="scroll"><table>
+        <thead><tr><th>repo</th><th>kind</th><th>scm</th><th>domains</th>
+          <th>contract / routes</th><th>covered by</th><th>guidance</th>
+          <th class="right">actions</th></tr></thead>
+        <tbody>{app_rows}</tbody></table></div>
+      <div class="card-b" style="border-top:1px solid var(--sr-border)">
+        <div class="strong sm" style="margin-bottom:8px">Add / edit application repo</div>
+        <div class="form-grid">
+          <label class="stack">Name<input id="app-name" placeholder="payments-ui"></label>
+          <label class="stack">Kind<select id="app-kind">
+            <option value="ui">ui</option><option value="service">service</option></select></label>
+          <label class="stack">SCM<select id="app-scm"><option>bitbucket</option>
+            <option>github</option><option>stash</option></select></label>
+          <label class="stack">URL / slug<input id="app-url" placeholder="workspace/payments-ui"></label>
+          <label class="stack">Domains (csv)<input id="app-domains" placeholder="payments"></label>
+          <label class="stack">Testable paths (csv)<input id="app-paths" placeholder="src/**"></label>
+          <label class="stack">Contract (service)<input id="app-contract" placeholder="openapi/x.yaml"></label>
+          <label class="stack">Route table (ui)<input id="app-routes" placeholder="src/routes.tsx"></label>
+          <label class="stack">Consumes services (csv)<input id="app-consumes" placeholder="orders-api"></label>
+        </div>
+        <div style="margin-top:12px"><button class="btn btn-primary" id="app-save"
+          style="height:36px">Save app repo</button></div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="card-h"><div><h2>E2E test repositories &amp; mapping</h2>
+        <div class="sub">One test repo covers many app repos. <b>Scope</b> is the
+        declared responsibility you manage here; <b>covers</b> (evidence ∪ scope) is
+        regenerated — routing uses it immediately.</div></div></div>
+      <div class="scroll"><table>
+        <thead><tr><th>repo</th><th>layer</th><th>framework</th>
+          <th>covers (generated)</th><th>scope — mapped app repos</th>
+          <th class="right">actions</th></tr></thead>
+        <tbody>{test_rows}</tbody></table></div>
+      <div class="card-b" style="border-top:1px solid var(--sr-border)">
+        <div class="strong sm" style="margin-bottom:8px">Add / edit E2E test repo</div>
+        <div class="form-grid">
+          <label class="stack">Name<input id="test-name" placeholder="e2e-payments-tests"></label>
+          <label class="stack">Layer<select id="test-layer">
+            <option>api</option><option>ui</option></select></label>
+          <label class="stack">Framework<input id="test-framework" placeholder="playwright"></label>
+          <label class="stack">SCM<select id="test-scm"><option>bitbucket</option>
+            <option>github</option><option>stash</option></select></label>
+          <label class="stack">URL / slug<input id="test-url" placeholder="workspace/e2e-payments"></label>
+          <label class="stack">Specs dir<input id="test-specs" placeholder="tests/"></label>
+          <label class="stack">Fixtures dir<input id="test-fixtures" placeholder="fixtures/"></label>
+          <label class="stack">Scope (app repos csv)<input id="test-scope" placeholder="payments-api, payments-ui"></label>
+        </div>
+        <div style="margin-top:12px"><button class="btn btn-primary" id="test-save"
+          style="height:36px">Save test repo</button></div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="card-h"><div><h2>Repository guidance (AGENTS.md / CLAUDE.md)</h2>
+        <div class="sub">Per-repo conventions merged into the estate <code>AGENTS.md</code>
+        and injected into every generation phase (test plans, new tests, coverage-gap
+        fixes). Repo-local <code>AGENTS.md</code>/<code>CLAUDE.md</code> files inside a
+        checkout are picked up automatically.</div></div>
+        <span class="grow"></span>
+        <label class="f">Repo <select id="notes-repo" class="h32">{all_repo_opts}</select></label>
+      </div>
+      <div class="card-b" style="display:flex; flex-direction:column; gap:10px">
+        <div class="sm muted" id="notes-local"></div>
+        <textarea id="notes-text" rows="7"
+          placeholder="Conventions, selectors, auth flows, data setup for this repo…"></textarea>
+        <div><button class="btn btn-primary" id="notes-save" style="height:36px">
+          Save guidance</button></div>
+      </div>
     </section>
   </div>
 

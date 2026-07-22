@@ -13,7 +13,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 from registry import load_registry, load_org_config
-import coverage_gaps
+import coverage_gaps, repo_admin
 
 reg = load_registry()
 org = load_org_config()
@@ -111,17 +111,37 @@ L.append("")
 
 L.append("## E2E test repositories")
 L.append("")
-L.append("| repo | layer | framework | specs dir | covers | catalog: mapped / review / orphan |")
-L.append("|---|---|---|---|---|---|")
+L.append("| repo | layer | framework | specs dir | covers | declared scope | catalog: mapped / review / orphan |")
+L.append("|---|---|---|---|---|---|---|")
 for t in reg["test_repositories"]:
     ents = [e for e in catalog if e["test_repo"] == t["name"]]
     n = lambda *st: sum(1 for e in ents if e["mapping"]["status"] in st)
-    L.append("| {} | {} | {} | {} | {} | {} / {} / {} |".format(
+    L.append("| {} | {} | {} | {} | {} | {} | {} / {} / {} |".format(
         t["name"], t["layer"], t["framework"],
         t.get("layout", {}).get("specs", "?"),
         ", ".join(t.get("covers", [])) or "—",
+        ", ".join(t.get("scope", [])) or "—",
         n("auto", "confirmed"), n("needs_review"), n("orphan")))
 L.append("")
+
+guided = [(r["name"], repo_admin.guidance_for(r["name"]))
+          for r in reg["source_repositories"] + reg["test_repositories"]]
+guided = [(name, g) for name, g in guided if g]
+if guided:
+    L.append("## Repository guidance (team notes + repo-local AGENTS.md / CLAUDE.md)")
+    L.append("")
+    L.append("Per-repo conventions authored by the team or shipped inside the repo itself.")
+    L.append("FOLLOW these when generating or extending tests, plans and test data for")
+    L.append("the named repo. Edit via the dashboard Repositories view or")
+    L.append("`bin/repos.py notes <repo>`; repo-local files are picked up automatically.")
+    L.append("")
+    for name, sources in guided:
+        L.append(f"### {name}")
+        for src, text in sources:
+            L.append(f"_From {src}:_")
+            L.append("")
+            L.append(text.rstrip())
+            L.append("")
 
 L.append("## Existing test coverage (update-vs-create: check here BEFORE writing a new test)")
 L.append("")

@@ -21,6 +21,13 @@ Endpoints:
   POST /api/queue/run         drain the queue in a background process
   POST /api/queue/requeue     {"id"} -> put a failed item back in the queue
   POST /api/queue/remove      {"id"} -> delete a non-running item
+  GET  /api/repos             estate summary (app repos, test repos, scope, guidance)
+  POST /api/repos/app         add/edit an app repo (repo_admin.upsert_app fields)
+  POST /api/repos/test        add/edit a test repo (repo_admin.upsert_test fields)
+  POST /api/repos/scope       {"test_repo","apps"} -> declared mapping; covers regen
+  POST /api/repos/remove      {"name","section":"app"|"test","force"?}
+  GET  /api/repos/notes?repo=R    per-repo agent guidance (+ repo-local files)
+  POST /api/repos/notes       {"repo","text"} -> knowledge/repos/<R>.md + AGENTS.md
   GET  /api/settings          integration settings (secrets masked to set/unset)
   POST /api/settings          {"updates": {ENV: value}} -> merge into .env
   POST /api/demo/clear        delete generated demo data (run history, plans,
@@ -31,8 +38,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import demo_data, export_plan, inline_ticket, review_state, settings_store, \
-    team_report, work_queue
+import demo_data, export_plan, inline_ticket, repo_admin, review_state, \
+    settings_store, team_report, work_queue
 
 MOCK = os.environ.get("AIQE_MOCK", "1") == "1"
 TRACKER = ROOT / ("adapters/mock/tracker.sh" if MOCK else "adapters/tracker/jira.sh")
@@ -129,6 +136,14 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, items)
         elif url.path == "/api/queue":
             self._send(200, work_queue.load())
+        elif url.path == "/api/repos":
+            self._send(200, repo_admin.summary())
+        elif url.path == "/api/repos/notes":
+            repo = urllib.parse.parse_qs(url.query).get("repo", [""])[0]
+            try:
+                self._send(200, repo_admin.get_notes(repo))
+            except SystemExit as e:
+                self._send(404, {"error": str(e)})
         elif url.path == "/api/settings":
             self._send(200, settings_store.get_settings())
         elif url.path == "/api/export/plan":
@@ -238,6 +253,37 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": str(e)})
             except SystemExit as e:          # library rejections (wrong status, unknown id)
                 self._send(409, {"error": str(e)})
+        elif self.path.startswith("/api/repos/"):
+            try:
+                p = json.loads(body or b"{}")
+                if self.path == "/api/repos/app":
+                    result = repo_admin.upsert_app(
+                        p["name"], kind=p.get("kind"), scm=p.get("scm"),
+                        url=p.get("url"), domains=p.get("domains"),
+                        testable_paths=p.get("testable_paths"),
+                        contract=p.get("contract"), route_table=p.get("route_table"),
+                        consumes_services=p.get("consumes_services"))
+                elif self.path == "/api/repos/test":
+                    result = repo_admin.upsert_test(
+                        p["name"], layer=p.get("layer"), framework=p.get("framework"),
+                        scm=p.get("scm"), url=p.get("url"), specs=p.get("specs"),
+                        fixtures=p.get("fixtures"), scope=p.get("scope"))
+                elif self.path == "/api/repos/scope":
+                    result = repo_admin.set_scope(p["test_repo"], p.get("apps", ""))
+                elif self.path == "/api/repos/remove":
+                    fn = (repo_admin.remove_test if p.get("section") == "test"
+                          else repo_admin.remove_app)
+                    result = fn(p["name"], force=bool(p.get("force")))
+                elif self.path == "/api/repos/notes":
+                    result = repo_admin.set_notes(p["repo"], p.get("text", ""))
+                else:
+                    self._send(404, {"error": "not found"})
+                    return
+                self._send(200, {"ok": True, **result})
+            except (KeyError, json.JSONDecodeError) as e:
+                self._send(400, {"error": str(e)})
+            except SystemExit as e:                     # validation failures
+                self._send(400, {"error": str(e)})
         elif self.path == "/api/settings":
             try:
                 p = json.loads(body or b"{}")
