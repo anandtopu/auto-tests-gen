@@ -92,6 +92,38 @@ def test_sync_rejects_unregistered_repo(sync_dir):
         guidance_sync.sync_repo("no-such-repo")
 
 
+def test_sync_preserves_non_ascii_exactly(sync_dir):
+    """Adapter output must be decoded as UTF-8, not the Windows locale codepage.
+    Reading it as cp1252 turned an em dash into 'â€"' mojibake, and that corruption
+    flowed through the cache into AGENTS.md and every LLM phase."""
+    guidance_sync.sync_repo("orders-api")
+    src = (ROOT / "demo/orders-api/CLAUDE.md").read_bytes()
+    cached = (sync_dir / "orders-api" / "CLAUDE.md").read_bytes()
+    assert b"\xe2\x80\x94" in src, "fixture should contain a UTF-8 em dash"
+    assert b"\xe2\x80\x94" in cached, "em dash was mangled in transit"
+    # the classic UTF-8-read-as-cp1252-then-re-encoded signature
+    assert b"\xc3\xa2\xe2\x82\xac" not in cached, "mojibake in the synced cache"
+    # Compare characters, not line endings: git may check the fixture out as CRLF on
+    # Windows while the cache is deliberately written LF-only.
+    norm = lambda b: b.decode("utf-8").replace("\r\n", "\n").strip()
+    assert norm(src) == norm(cached)
+
+
+def test_adapter_subprocesses_pin_utf8():
+    """Guardrail across the libs that capture adapter/pipeline output: a bare
+    text=True decodes with the locale codepage on Windows."""
+    for rel in ("engine/lib/guidance_sync.py", "engine/lib/integration_check.py",
+                "engine/lib/export_plan.py", "engine/lib/work_queue.py",
+                "bin/dashboard_server.py", "bin/repos.py",
+                "engine/lib/repo_admin.py"):
+        src = (ROOT / rel).read_text(encoding="utf-8")
+        for i, line in enumerate(src.splitlines(), 1):
+            if "text=True" in line and "encoding=" not in line:
+                # allow it only when the encoding is set on a neighbouring line
+                window = "".join(src.splitlines()[max(0, i - 3):i + 2])
+                assert "encoding=" in window, f"{rel}:{i} captures text without an encoding"
+
+
 def test_resync_drops_cache_when_remote_file_disappears(sync_dir, monkeypatch):
     guidance_sync.sync_repo("orders-api")
     assert (sync_dir / "orders-api" / "CLAUDE.md").exists()

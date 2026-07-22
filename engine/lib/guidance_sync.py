@@ -78,6 +78,7 @@ def fetch_one(repo, filename, ref=None):
     if ref:
         cmd.append(ref)
     r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace",
                        stdin=subprocess.DEVNULL)
     if r.returncode == 3:
         return None                        # absent — normal, not an error

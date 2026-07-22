@@ -76,6 +76,7 @@ def save_and_verify(reg, regen_cov=False):
         r = subprocess.run([sys.executable, "-m", "pytest",
                             "registry/tests/test_routing_golden.py", "-q"],
                            cwd=ROOT, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace",
                            stdin=subprocess.DEVNULL)
         if r.returncode != 0:
             print("WARNING: registry change broke routing goldens - review before committing")

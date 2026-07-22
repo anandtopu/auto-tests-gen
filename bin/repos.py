@@ -51,6 +51,7 @@ def save_and_verify(reg, skip_tests=False):
     if not skip_tests:
         r = subprocess.run([sys.executable, "-m", "pytest", "registry/tests", "-q"],
                            cwd=ROOT, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace",
                            stdin=subprocess.DEVNULL)
         tail = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else r.stderr
         print(f"routing goldens: {tail}")

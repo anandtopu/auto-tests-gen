@@ -141,7 +141,8 @@ def run_all():
         if item.get("inline_file"):                # pasted JIRA context, not a real ticket
             item_env["AIQE_INLINE_FILE"] = item["inline_file"]
         r = subprocess.run(cmd, cwd=ROOT, env=item_env, stdin=subprocess.DEVNULL,
-                           capture_output=True, text=True)
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
         with fs_lock.lock(FILE):
             items = load()
             cur = next((i for i in items if i["id"] == item["id"]), None)

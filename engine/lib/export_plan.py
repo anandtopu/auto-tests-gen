@@ -244,7 +244,9 @@ def publish_to_confluence(key, space=None, title=None):
     title = title or f"Test Plan - {key}"
     r = subprocess.run([work_queue.bash_exe(), str(adapter), "publish_doc",
                         space, title, str(tmp)],
-                       cwd=ROOT, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                       cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace",
+                       stdin=subprocess.DEVNULL)
     if r.returncode != 0:
         sys.exit(f"publish failed: {r.stdout}{r.stderr}".strip())
     return r.stdout.strip()
@@ -261,7 +263,9 @@ def attach_to_jira(key, fmt="pdf"):
     mock = os.environ.get("AIQE_MOCK", "1") == "1"
     adapter = ROOT / ("adapters/mock/tracker.sh" if mock else "adapters/tracker/jira.sh")
     r = subprocess.run([work_queue.bash_exe(), str(adapter), "attach", key, str(path)],
-                       cwd=ROOT, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                       cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace",
+                       stdin=subprocess.DEVNULL)
     if r.returncode != 0:
         sys.exit(f"attach failed: {r.stdout}{r.stderr}".strip())
     return r.stdout.strip()

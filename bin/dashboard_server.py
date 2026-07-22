@@ -68,7 +68,9 @@ run_lock = threading.Lock()
 
 def jira_items(release):
     r = subprocess.run([work_queue.bash_exe(), str(TRACKER), "search_release", release],
-                       cwd=ROOT, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                       cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace",
+                       stdin=subprocess.DEVNULL)
     try:
         tickets = json.loads(r.stdout.strip().splitlines()[-1])
     except (json.JSONDecodeError, IndexError):

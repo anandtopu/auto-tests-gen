@@ -76,6 +76,7 @@ def _adapter(path, *args):
     """Run an adapter verb; returns (returncode, stdout, stderr)."""
     r = subprocess.run([work_queue.bash_exe(), str(ROOT / path), *args],
                        cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace",
                        stdin=subprocess.DEVNULL, timeout=60)
     return r.returncode, r.stdout, r.stderr
 
@@ -88,6 +89,7 @@ def check_llm():
                   "required only for real phases (AIQE_MOCK=0)")
     have_cli = subprocess.run([work_queue.bash_exe(), "-lc", "command -v claude"],
                               capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
                               stdin=subprocess.DEVNULL).returncode == 0
     # Deliberately no API call here — a probe would bill the account. Presence only.
     return _r("LLM (Anthropic)", "ok",
