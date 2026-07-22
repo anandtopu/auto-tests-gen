@@ -1,0 +1,64 @@
+# Local deployment — the AI QE platform in two containers sharing state.
+#
+#   cd deploy/local && ./deploy.sh          # build + up + health check
+#   docker compose logs -f                  # follow logs
+#   docker compose down                     # stop (named volumes persist state)
+#
+# Defaults to MOCK mode (no credentials). To go real, copy ../../.env.example to
+# .env here, fill credentials, set AIQE_MOCK=0, and rebuild with INSTALL_REAL_TOOLS=1
+# (see docs/deployment.md).
+name: ai-qe
+
+services:
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: ai-qe-platform:local
+    command: ["python3", "bin/dashboard_server.py"]
+    ports:
+      - "4999:4999"                       # dashboard UI
+    environment:
+      AIQE_MOCK: "1"
+      AIQE_UI_HOST: "0.0.0.0"
+      # AIQE_UI_TOKEN: "change-me"        # set to require ?token= / Bearer auth
+    env_file:
+      - path: .env
+        required: false                   # real-mode credentials, if present
+    volumes:
+      - reports:/app/reports              # persistent: run history, reviews, queue, exports
+      - workspace:/app/workspace          # ephemeral scratch (shared so both can run the pipeline)
+      - out:/app/out
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:4999/api/queue', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  receiver:
+    image: ai-qe-platform:local            # same image, built by the dashboard service
+    command: ["python3", "bin/taskevent_receiver.py"]
+    depends_on:
+      - dashboard
+    ports:
+      - "4998:4998"                       # TaskEvent webhook receiver
+    environment:
+      AIQE_MOCK: "1"
+      AIQE_HOOK_HOST: "0.0.0.0"
+      AIQE_HOOK_TOKEN: "change-me"        # X-AIQE-Token required for POST /hooks/taskevent
+      AIQE_HOOK_AUTORUN: "0"              # 1 = drain the queue in-process on accept
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - reports:/app/reports              # same named volumes -> shared fs_lock state
+      - workspace:/app/workspace
+      - out:/app/out
+    restart: unless-stopped
+
+volumes:
+  reports:
+  workspace:
+  out:

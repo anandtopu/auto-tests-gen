@@ -138,7 +138,10 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.environ.get("AIQE_HOOK_PORT", "4998"))
-    print(f"TaskEvent receiver: http://localhost:{port}/hooks/taskevent  "
+    # Localhost by default; containers set AIQE_HOOK_HOST=0.0.0.0. Only expose behind
+    # the token (AIQE_HOOK_TOKEN) and a Route/Ingress you control.
+    host = os.environ.get("AIQE_HOOK_HOST", "127.0.0.1")
+    print(f"TaskEvent receiver: http://{host}:{port}/hooks/taskevent  "
           f"(auth: {'X-AIQE-Token required' if TOKEN else 'OFF - set AIQE_HOOK_TOKEN'}; "
           f"autorun: {'on' if AUTORUN else 'off'})")
-    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    ThreadingHTTPServer((host, port), Handler).serve_forever()

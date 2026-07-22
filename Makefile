@@ -3,7 +3,8 @@ SHELL := /bin/bash
         status coverage dashboard review-queue reviews repos agents parity-pr parity-jira \
         serve queue-run export-plan publish-plan attach-plan hook-server prune \
         gaps catalog-db ingest-results smoke-openhands clear-demo report \
-        test-gate demo-bootstrap demo-pr demo-jira review
+        test-gate demo-bootstrap demo-pr demo-jira review \
+        docker-build deploy-local deploy-local-down deploy-openshift
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -78,6 +79,18 @@ prune:
 
 clear-demo:
 	python3 engine/lib/demo_data.py $(if $(DRY),--dry,)
+
+docker-build:
+	docker build -t $(or $(IMAGE),ai-qe-platform:local) $(if $(REAL),--build-arg INSTALL_REAL_TOOLS=1,) .
+
+deploy-local:
+	bash deploy/local/deploy.sh $(if $(SEED),--seed,)
+
+deploy-local-down:
+	bash deploy/local/deploy.sh --down
+
+deploy-openshift:
+	bash deploy/openshift/deploy.sh $(if $(NS),-n $(NS),)
 
 report:
 	python3 bin/qa.py report $(if $(DAYS),--days $(DAYS),) $(if $(RELEASE),--release $(RELEASE),) $(if $(FORMAT),--format $(FORMAT),)

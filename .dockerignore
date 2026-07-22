@@ -1,0 +1,19 @@
+# Scratch and generated state — provided by volumes at runtime, never baked in
+.git
+.env
+out/
+workspace/
+reports/runs/*.json
+reports/runs/*.diff
+reports/*.log
+reports/dashboard.html
+reports/exports/
+reports/inline/
+reports/catalog.db
+**/__pycache__/
+**/*.pyc
+**/node_modules/
+# Local tooling / editors
+.vscode/
+.idea/
+*.tmp

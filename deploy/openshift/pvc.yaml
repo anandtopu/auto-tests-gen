@@ -1,0 +1,17 @@
+# Persistent state: run records + archived diffs, review board, work queue, exports.
+# ReadWriteOnce is sufficient — both containers run in the SAME pod (single writer,
+# matching the pipeline's per-checkout run lock). workspace/ and out/ are ephemeral
+# scratch (emptyDir in the Deployment), so they are intentionally NOT persisted.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-qe-reports
+  labels:
+    app.kubernetes.io/part-of: ai-qe
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  # storageClassName: gp3          # uncomment/adjust to your cluster's default

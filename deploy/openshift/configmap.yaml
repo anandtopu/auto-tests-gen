@@ -1,0 +1,20 @@
+# Non-secret runtime configuration. Secrets (tokens, credentials) live in the Secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-qe-config
+  labels:
+    app.kubernetes.io/part-of: ai-qe
+data:
+  # "1" = mock adapters + demo estate (no external calls, no credentials).
+  # "0" = real adapters (requires the Secret credentials + a real-tools image).
+  AIQE_MOCK: "1"
+  # Servers must bind 0.0.0.0 inside the pod to be reachable from the Service.
+  AIQE_UI_HOST: "0.0.0.0"
+  AIQE_UI_PORT: "4999"
+  AIQE_HOOK_HOST: "0.0.0.0"
+  AIQE_HOOK_PORT: "4998"
+  # 1 = the receiver drains the queue in-process when it accepts an event.
+  AIQE_HOOK_AUTORUN: "0"
+  # Real-mode SCM selection (ignored in mock mode).
+  SCM_KIND: "github"

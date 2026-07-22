@@ -1,0 +1,36 @@
+# Vanilla Kubernetes alternative to route.yaml (NOT used on OpenShift).
+# Replace the host values and TLS secret with your own, then apply this instead of
+# route.yaml (and remove route.yaml from kustomization's resources).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ai-qe
+  labels:
+    app.kubernetes.io/part-of: ai-qe
+  # annotations:
+  #   cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  rules:
+    - host: ai-qe-dashboard.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ai-qe-dashboard
+                port:
+                  number: 4999
+    - host: ai-qe-receiver.example.com
+      http:
+        paths:
+          - path: /hooks/taskevent
+            pathType: Prefix
+            backend:
+              service:
+                name: ai-qe-receiver
+                port:
+                  number: 4998
+  # tls:
+  #   - hosts: [ai-qe-dashboard.example.com, ai-qe-receiver.example.com]
+  #     secretName: ai-qe-tls

@@ -318,6 +318,10 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(os.environ.get("AIQE_UI_PORT", "4999"))
-    print(f"AI QE dashboard: http://localhost:{port}  "
+    # Bind localhost by default; containers set AIQE_UI_HOST=0.0.0.0 to be reachable
+    # from the Service. Expose only behind the token auth (AIQE_UI_TOKEN) + a Route/
+    # Ingress you control — never 0.0.0.0 without a token on an untrusted network.
+    host = os.environ.get("AIQE_UI_HOST", "127.0.0.1")
+    print(f"AI QE dashboard: http://{host}:{port}  "
           f"(mode: {'mock' if MOCK else 'real'} adapters; Ctrl-C to stop)")
-    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+    ThreadingHTTPServer((host, port), Handler).serve_forever()

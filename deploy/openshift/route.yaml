@@ -1,0 +1,34 @@
+# OpenShift Routes (edge TLS). On vanilla Kubernetes use ingress.yaml instead.
+# The dashboard and receiver are protected by their own tokens (AIQE_UI_TOKEN /
+# AIQE_HOOK_TOKEN) — set them in the Secret before exposing these Routes publicly.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ai-qe-dashboard
+  labels:
+    app.kubernetes.io/part-of: ai-qe
+spec:
+  to:
+    kind: Service
+    name: ai-qe-dashboard
+  port:
+    targetPort: ui
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ai-qe-receiver
+  labels:
+    app.kubernetes.io/part-of: ai-qe
+spec:
+  to:
+    kind: Service
+    name: ai-qe-receiver
+  port:
+    targetPort: hook
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

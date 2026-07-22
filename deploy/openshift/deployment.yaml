@@ -1,0 +1,99 @@
+# One pod, two containers (dashboard + receiver) sharing the state volume and the
+# ephemeral scratch dirs — they coordinate through fs_lock on the shared filesystem,
+# so they MUST co-locate. replicas: 1 + Recreate matches the single-writer model
+# (the pipeline holds an exclusive per-checkout run lock).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-qe
+  labels:
+    app.kubernetes.io/name: ai-qe
+    app.kubernetes.io/part-of: ai-qe
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate                     # never two writers against one RWO PVC
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ai-qe
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ai-qe
+        app.kubernetes.io/part-of: ai-qe
+    spec:
+      # OpenShift assigns a random non-root UID and an fsGroup from the namespace
+      # range — do NOT pin runAsUser/fsGroup here. On vanilla Kubernetes the image's
+      # USER 1001 applies; if your CSI driver creates root-owned volumes, add
+      # `fsGroup: 1001` here (see docs/deployment.md → "Vanilla Kubernetes").
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dashboard
+          image: ai-qe-platform:latest      # overridden by kustomize / deploy.sh
+          command: ["python3", "bin/dashboard_server.py"]
+          ports:
+            - name: ui
+              containerPort: 4999
+          envFrom:
+            - configMapRef:
+                name: ai-qe-config
+            - secretRef:
+                name: ai-qe-secrets
+          readinessProbe:
+            tcpSocket: { port: ui }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: ui }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits:   { cpu: "1",    memory: "1Gi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: reports,   mountPath: /app/reports }
+            - { name: workspace, mountPath: /app/workspace }
+            - { name: out,       mountPath: /app/out }
+        - name: receiver
+          image: ai-qe-platform:latest
+          command: ["python3", "bin/taskevent_receiver.py"]
+          ports:
+            - name: hook
+              containerPort: 4998
+          envFrom:
+            - configMapRef:
+                name: ai-qe-config
+            - secretRef:
+                name: ai-qe-secrets
+          readinessProbe:
+            tcpSocket: { port: hook }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: hook }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "50m",  memory: "128Mi" }
+            limits:   { cpu: "500m", memory: "512Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          volumeMounts:
+            - { name: reports,   mountPath: /app/reports }
+            - { name: workspace, mountPath: /app/workspace }
+            - { name: out,       mountPath: /app/out }
+      volumes:
+        - name: reports
+          persistentVolumeClaim:
+            claimName: ai-qe-reports
+        - name: workspace
+          emptyDir: {}
+        - name: out
+          emptyDir: {}

@@ -12,6 +12,7 @@ JIRA-triggered test authoring (Workflow B) across a multi-repo estate, powered b
 | [docs/user-guide.md](docs/user-guide.md) | Operating the platform: repositories & mapping, per-repo AGENTS/CLAUDE guidance, team reports, Settings/integrations, dashboard, gate protocol, catalog lifecycle, going real (`AIQE_MOCK=0`) |
 | [docs/integrations/](docs/integrations/README.md) | Step-by-step tool integration: OpenHands, Jira, Bitbucket Cloud & Stash/Server |
 | [docs/diagrams.md](docs/diagrams.md) | Rendered architecture diagrams (Mermaid) |
+| [docs/deployment.md](docs/deployment.md) | Deploying as a service: local Docker Compose + remote OpenShift / Kubernetes |
 | [docs/architecture.md](docs/architecture.md) | Full solution architecture (v2.1) — code comments cite its § numbers |
 | [docs/onboarding-new-team.md](docs/onboarding-new-team.md) | Adopting the platform for a new estate (≤1 day) |
 | [docs/onboarding-new-tool.md](docs/onboarding-new-tool.md) | Adding a new SDLC tool behind the six ports |
@@ -35,6 +36,8 @@ triggers/    Path 1: OpenHands microagents | Path 2: GH Actions / Bitbucket | Pa
 templates/   Drop-in files for source repos and test repos (CLAUDE.md, config)
 sandbox/     Docker image + MCP registration for the execution environment
 eval/        Benchmark replay harness + scorecard
+deploy/      Deployment artifacts: local/ (Docker Compose) + openshift/ (K8s manifests)
+Dockerfile   Platform service image (dashboard + receiver + pipeline; OpenShift-ready)
 ```
 
 ## Quick start

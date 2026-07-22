@@ -1,0 +1,17 @@
+# One-command apply:  oc apply -k .   (or kubectl apply -k . on vanilla Kubernetes)
+# deploy.sh wraps this to set the image and namespace and to print the Route URLs.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+commonLabels:
+  app.kubernetes.io/part-of: ai-qe
+
+# NOTE: the Secret is intentionally NOT listed here — deploy.sh applies secret.yaml
+# (or secret.example.yaml as a fallback) separately so a real secret is never
+# overwritten by the example. The image ref is substituted by deploy.sh at apply time.
+resources:
+  - configmap.yaml
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - route.yaml               # OpenShift; swap for ingress.yaml on vanilla Kubernetes
