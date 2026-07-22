@@ -4,7 +4,9 @@ SHELL := /bin/bash
         serve queue-run export-plan publish-plan attach-plan hook-server prune \
         gaps catalog-db ingest-results smoke-openhands clear-demo report \
         test-gate demo-bootstrap demo-pr demo-jira review \
-        docker-build deploy-local deploy-local-down deploy-openshift email
+        docker-build deploy-local deploy-local-down deploy-openshift email \
+        plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
+        demo-plan demo-plan-tests
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -97,6 +99,29 @@ report:
 
 email:
 	python3 bin/qa.py email $(or $(KIND),report) $(RUN_ID) $(if $(DAYS),--days $(DAYS),) $(if $(RELEASE),--release $(RELEASE),) $(if $(TO),--to $(TO),)
+
+# --- JIRA test-plan workflow: author -> review/edit -> approve -> link -> generate ---
+# plan/plan-tests are real runs (like run-jira); demo-plan/demo-plan-tests use mocks.
+plan:                 # author the plan only, then stop for human review
+	bash engine/pipeline.sh plan $(KEY)
+demo-plan:
+	AIQE_MOCK=1 bash engine/pipeline.sh plan $(or $(KEY),PROJ-301)
+demo-plan-tests:
+	AIQE_MOCK=1 bash engine/pipeline.sh tests $(or $(KEY),PROJ-301)
+plans:                # list every plan and its status
+	python3 bin/qa.py plan list
+plan-show:
+	python3 bin/qa.py plan show $(KEY)
+plan-edit:            # FILE=<edited.md>
+	python3 bin/qa.py plan edit $(KEY) --file $(FILE) $(if $(BY),--by $(BY),)
+plan-approve:
+	python3 bin/qa.py plan approve $(KEY) $(if $(BY),--by $(BY),) $(if $(NOTE),--note "$(NOTE)",)
+plan-changes:         # request changes: NOTE="..."
+	python3 bin/qa.py plan request-changes $(KEY) $(if $(BY),--by $(BY),) $(if $(NOTE),--note "$(NOTE)",)
+plan-link:            # attach the approved plan to the JIRA ticket
+	python3 bin/qa.py plan link $(KEY) $(if $(FORMAT),--format $(FORMAT),)
+plan-tests:           # generate E2E tests from the APPROVED plan
+	bash engine/pipeline.sh tests $(KEY)
 
 gaps:
 	python3 bin/qa.py gaps

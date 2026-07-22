@@ -427,6 +427,45 @@ estate *is* (repo registry, test catalog, `AGENTS.md`, demo repos, prompts). It
 refuses to run while a pipeline holds the run lock. Rebuild demo state afterwards
 with `make demo-bootstrap && make demo-pr`.
 
+### Test plans from JIRA: review → edit → approve → link → generate
+
+By default Workflow B runs plan → data → generate → gate in one pass. When a team
+wants to **sign off the test plan before any test code is written**, use the
+plan-first workflow — the pipeline stops after authoring the plan and will not
+generate tests until a human approves it.
+
+```bash
+make plan KEY=PROJ-301            # 1. read the ticket, author the plan, then STOP
+                                  #    (comments on the ticket + notifies; no test code)
+make plan-show KEY=PROJ-301       # 2. review it (or open the dashboard Test plans view)
+make plan-edit KEY=PROJ-301 FILE=edited.md BY=you     # 3. edit
+make plan-approve KEY=PROJ-301 BY=you                 # 4. approve
+make plan-link KEY=PROJ-301       # 5. attach the approved plan to the JIRA ticket
+make plan-tests KEY=PROJ-301      # 6. generate E2E tests from the APPROVED plan
+                                  #    (normal gate: lint, run, born-mapped, commit)
+make plans                        # every plan + status, linked, generating run
+```
+
+Lifecycle: `draft → in_review → approved` (or `changes_requested`), tracked in
+`reports/plans/state.json` with an append-only history of who did what.
+
+Two safety properties are enforced, not merely documented:
+
+- **Generation is gated.** `make plan-tests` (and the dashboard button) refuse unless
+  the plan is `approved` — the check runs *before* any clone or LLM call.
+- **Edits revoke approval.** Editing an approved plan resets it to `draft`, so a
+  changed plan can never inherit a stale sign-off. Re-approve to proceed.
+
+The generation step feeds the **reviewed markdown** to the phases alongside the
+snapshotted plan contract, so reviewer edits actually shape the generated tests.
+Tests are produced by the same framework and gate as every other run — nothing about
+the existing approach changes.
+
+On the served dashboard, the **Test plans** view lists every plan with its status and
+opens an editor with *Save edits*, *Mark in review*, *Request changes*, *Approve*,
+*Link to JIRA*, and *Generate tests* (which queues a `tests` run). Demo it end to end
+with mock adapters via `make demo-plan` / `make demo-plan-tests`.
+
 ### Exporting a ticket's test plan
 
 Share the generated plan with stakeholders outside Git:

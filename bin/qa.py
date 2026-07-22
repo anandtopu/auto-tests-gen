@@ -26,6 +26,10 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
   bin/qa.py report [--days N] [--release X] [--format md|html|docx|pdf] [--out F]
                                                 team status report: completed work, review
                                                 backlog, queue, throughput, estate health
+  bin/qa.py plan show|list|edit|review|approve|request-changes|link <KEY>
+                                                JIRA test-plan workflow: review, edit
+                                                (--file), approve (--by), link to the
+                                                ticket; then `make plan-tests KEY=...`
   bin/qa.py email report|run <RUN_ID>|digest [--days N] [--release X] [--to a@b,c@d]
                                                 generate + send an email (team report,
                                                 run summary, or review digest) via SMTP
@@ -300,6 +304,55 @@ def cmd_gaps(args):
     print(coverage_gaps.to_markdown(args.repo))
 
 
+def cmd_plan(args):
+    """JIRA test-plan workflow: author -> review/edit -> approve -> link -> generate."""
+    import plan_state
+    key, act = args.key, args.action
+    if act == "show":
+        e = plan_state.get(key)
+        p = plan_state.plan_path(key)
+        if not p.exists():
+            sys.exit(f"no test plan for {key} (create one: make plan KEY={key})")
+        print(f"# status: {e.get('status', 'unknown')}"
+              + (f" (by {e['by']})" if e.get("by") else "")
+              + (f"  [linked: {e['linked']['ref']}]" if e.get("linked") else "")
+              + (f"  [tests: run {e['generated_run']}]" if e.get("generated_run") else ""))
+        print(p.read_text(encoding="utf-8"))
+    elif act == "list":
+        rows = plan_state.summary()
+        if not rows:
+            print("no test plans yet — create one with: make plan KEY=PROJ-123")
+            return
+        print(f"{'key':<16} {'status':<18} {'linked':<7} {'tests run':<18} note")
+        for r in rows:
+            print(f"{r['key']:<16} {r['status']:<18} "
+                  f"{'yes' if r['linked'] else '-':<7} "
+                  f"{str(r['generated_run'] or '-'):<18} {r['note']}")
+    elif act == "edit":
+        if not args.file:
+            sys.exit("edit needs --file <path> with the new plan markdown")
+        text = pathlib.Path(args.file).read_text(encoding="utf-8")
+        e = plan_state.save_plan(key, text, args.by or "cli")
+        print(f"{key}: plan updated -> status {e['status']} ({e['note']})")
+    elif act in ("approve", "request-changes", "review"):
+        status = {"approve": "approved", "request-changes": "changes_requested",
+                  "review": "in_review"}[act]
+        e = plan_state.set_status(key, status, args.by or "cli", args.note or "")
+        print(f"{key}: test plan -> {e['status']}"
+              + (f" (by {e['by']})" if e.get("by") else ""))
+        if status == "approved":
+            print(f"  next: link it to the ticket (make plan-link KEY={key}) "
+                  f"and generate tests (make plan-tests KEY={key})")
+    elif act == "link":
+        plan_state.require_approved(key)       # only approved plans go to the ticket
+        import export_plan
+        ref = export_plan.attach_to_jira(key, args.format or "pdf")
+        plan_state.mark_linked(key, ref, args.by or "cli")
+        print(f"{key}: {ref}")
+    else:
+        sys.exit(f"unknown plan action: {act}")
+
+
 def cmd_email(args):
     import email_notify
     if args.kind == "report":
@@ -507,6 +560,13 @@ if __name__ == "__main__":
     s.add_argument("--format", default="md", choices=["md", "html", "docx", "pdf"])
     s.add_argument("--out")
     s.set_defaults(fn=cmd_report)
+    s = sub.add_parser("plan")
+    s.add_argument("action", choices=["show", "list", "edit", "review", "approve",
+                                      "request-changes", "link"])
+    s.add_argument("key", nargs="?", default="")
+    s.add_argument("--file"); s.add_argument("--by"); s.add_argument("--note")
+    s.add_argument("--format", default="pdf")
+    s.set_defaults(fn=cmd_plan)
     s = sub.add_parser("email")
     s.add_argument("kind", choices=["report", "run", "digest"])
     s.add_argument("target", nargs="?")               # RUN_ID for `email run`

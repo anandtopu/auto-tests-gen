@@ -24,6 +24,12 @@ Endpoints:
   POST /api/queue/run         drain the queue in a background process
   POST /api/queue/requeue     {"id"} -> put a failed item back in the queue
   POST /api/queue/remove      {"id"} -> delete a non-running item
+  GET  /api/plans             test plans + lifecycle status
+  GET  /api/plans/one?key=K   one plan's markdown + status
+  POST /api/plans/save        {"key","text","by"?}   edit (resets an approved plan)
+  POST /api/plans/status      {"key","status","by"?,"note"?}  review/approve/changes
+  POST /api/plans/link        {"key","format"?}      attach the approved plan to JIRA
+  POST /api/plans/generate    {"key"}                queue test generation (needs approval)
   GET  /api/repos             estate summary (app repos, test repos, scope, guidance)
   POST /api/repos/app         add/edit an app repo (repo_admin.upsert_app fields)
   POST /api/repos/test        add/edit a test repo (repo_admin.upsert_test fields)
@@ -41,8 +47,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import demo_data, email_notify, export_plan, inline_ticket, repo_admin, \
-    review_state, settings_store, team_report, work_queue
+import demo_data, email_notify, export_plan, inline_ticket, plan_state, \
+    repo_admin, review_state, settings_store, team_report, work_queue
 
 # The Settings view writes .env; honor it here too (explicit env still wins) so
 # adapter mode and credentials configured in the UI actually reach this server.
@@ -142,6 +148,16 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, items)
         elif url.path == "/api/queue":
             self._send(200, work_queue.load())
+        elif url.path == "/api/plans":
+            self._send(200, plan_state.summary())
+        elif url.path == "/api/plans/one":
+            key = urllib.parse.parse_qs(url.query).get("key", [""])[0]
+            p = plan_state.plan_path(key) if re.fullmatch(r"[\w.-]+", key or "") else None
+            if not p or not p.exists():
+                self._send(404, {"error": f"no test plan for {key}"})
+            else:
+                self._send(200, {"key": key, "text": p.read_text(encoding="utf-8"),
+                                 **plan_state.get(key)})
         elif url.path == "/api/repos":
             self._send(200, repo_admin.summary())
         elif url.path == "/api/repos/notes":
@@ -298,6 +314,34 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": str(e)})
             except SystemExit as e:                     # unknown key / bad value
                 self._send(400, {"error": str(e)})
+        elif self.path.startswith("/api/plans/"):
+            try:
+                p = json.loads(body or b"{}")
+                key = p["key"]
+                if self.path.endswith("/save"):
+                    result = plan_state.save_plan(key, p.get("text", ""),
+                                                  p.get("by", "dashboard"))
+                elif self.path.endswith("/status"):
+                    result = plan_state.set_status(key, p["status"],
+                                                   p.get("by", "dashboard"),
+                                                   p.get("note", ""))
+                elif self.path.endswith("/link"):
+                    plan_state.require_approved(key)
+                    ref = export_plan.attach_to_jira(key, p.get("format", "pdf"))
+                    result = plan_state.mark_linked(key, ref, p.get("by", "dashboard"))
+                    result = {**result, "ref": ref}
+                elif self.path.endswith("/generate"):
+                    plan_state.require_approved(key)   # fail fast before queueing
+                    item, fresh = work_queue.add("tests", key, release="",
+                                                 requested_by="dashboard-plan")
+                    result = {"queued": fresh, "item": item}
+                else:
+                    self._send(404, {"error": "not found"}); return
+                self._send(200, {"ok": True, **result})
+            except (KeyError, json.JSONDecodeError) as e:
+                self._send(400, {"error": str(e)})
+            except SystemExit as e:            # not approved / no plan / bad status
+                self._send(409, {"error": str(e)})
         elif self.path.startswith("/api/email/"):
             try:
                 p = json.loads(body or b"{}")

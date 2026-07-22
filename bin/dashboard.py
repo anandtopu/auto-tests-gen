@@ -376,10 +376,12 @@ nav_badges = {
 gen_ts = time.strftime("%Y-%m-%d %H:%M")
 
 NAV = [("overview", "◧", "Overview"), ("queue", "⇥", "Intake & queue"),
+       ("plans", "✎", "Test plans"),
        ("runs", "▶", "Runs & reviews"), ("artifacts", "❏", "Artifacts"),
        ("catalog", "☰", "Test catalog"), ("repos", "⛁", "Repositories"),
        ("settings", "⚙", "Settings")]
 TITLES = {"overview": "Overview", "queue": "Intake & work queue",
+          "plans": "Test plans — review & approval",
           "runs": "Runs & team reviews", "artifacts": "Generated artifacts",
           "catalog": "Test knowledge catalog", "repos": "Repositories & mapping",
           "settings": "Settings & integrations"}
@@ -610,6 +612,7 @@ async function api(path, opts) {
   return r.json();
 }
 const TITLES = { overview: 'Overview', queue: 'Intake & work queue',
+  plans: 'Test plans — review & approval',
   runs: 'Runs & team reviews', artifacts: 'Generated artifacts',
   catalog: 'Test knowledge catalog', repos: 'Repositories & mapping',
   settings: 'Settings & integrations' };
@@ -812,6 +815,71 @@ $('#inl-queue').addEventListener('click', async () => {
   } catch (err) { toast(err.message); }
 });
 refreshQueue();
+
+// ---- test plans: review -> edit -> approve -> link -> generate
+const PLAN_CHIP = { draft: ['draft', 'muted'], in_review: ['✎ in review', 'warning'],
+  approved: ['✓ approved', 'success'], changes_requested: ['✗ changes requested', 'danger'] };
+let planKey = null;
+function planChip(s) {
+  const [lb, cls] = PLAN_CHIP[s] || [s || '—', 'muted'];
+  return '<span class="chip chip-' + cls + '">' + escHtml(lb) + '</span>';
+}
+async function refreshPlans() {
+  if (!served || !$('#plans-table')) return;
+  try {
+    const plans = await api('/api/plans');
+    const body = $('#plans-table tbody');
+    body.innerHTML = plans.length ? plans.map(p =>
+      '<tr><td class="strong">' + escHtml(p.key) + '</td>' +
+      '<td>' + planChip(p.status) + '</td>' +
+      '<td>' + (p.linked ? '<span class="chip chip-success">✓ linked</span>' : '<span class="muted">—</span>') + '</td>' +
+      '<td class="mono sm muted">' + escHtml(p.generated_run || '—') + '</td>' +
+      '<td class="sm muted">' + escHtml(p.note || '') + '</td>' +
+      '<td class="right"><button class="btn btn-sm plan-open" data-key="' + escHtml(p.key) + '">Review</button></td></tr>'
+    ).join('') : '<tr><td colspan="6"><div class="empty">No test plans yet — author one with <code>make plan KEY=PROJ-123</code>.</div></td></tr>';
+    $('#plans-count').textContent = plans.length + ' plan(s) · ' +
+      plans.filter(p => p.status === 'approved').length + ' approved';
+  } catch (err) { toast(err.message); }
+}
+async function openPlan(key) {
+  const p = await api('/api/plans/one?key=' + encodeURIComponent(key));
+  planKey = key;
+  $('#plan-editor').classList.remove('hidden');
+  $('#plan-key').textContent = key;
+  $('#plan-status').innerHTML = planChip(p.status);
+  $('#plan-text').value = p.text;
+  $('#plan-editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+async function planPost(path, payload, okMsg) {
+  try {
+    const r = await api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: planKey, ...payload }) });
+    toast(typeof okMsg === 'function' ? okMsg(r) : okMsg);
+    await refreshPlans();
+    if (planKey) await openPlan(planKey);
+  } catch (err) { toast(err.message); }
+}
+document.addEventListener('click', async e => {
+  const open = e.target.closest('button.plan-open');
+  if (open) { if (needsServer()) return; openPlan(open.dataset.key).catch(x => toast(x.message)); return; }
+  const id = e.target.id;
+  if (!planKey || !['plan-save','plan-review','plan-changes','plan-approve','plan-link','plan-generate'].includes(id)) return;
+  if (needsServer()) return;
+  if (id === 'plan-save')
+    return planPost('/api/plans/save', { text: $('#plan-text').value },
+      r => 'Saved — status is now ' + r.status + (r.status === 'draft' ? ' (edits revoke approval)' : ''));
+  if (id === 'plan-review')   return planPost('/api/plans/status', { status: 'in_review' }, 'Marked in review');
+  if (id === 'plan-approve')  return planPost('/api/plans/status', { status: 'approved' }, 'Plan approved — you can now link it and generate tests');
+  if (id === 'plan-changes') {
+    const note = prompt('What needs changing?', '');
+    if (note === null) return;
+    return planPost('/api/plans/status', { status: 'changes_requested', note }, 'Changes requested');
+  }
+  if (id === 'plan-link')     return planPost('/api/plans/link', {}, r => 'Linked to JIRA: ' + r.ref);
+  if (id === 'plan-generate') return planPost('/api/plans/generate', {},
+    'Queued test generation from the approved plan — press Run queue');
+});
+refreshPlans();
 
 // ---- repositories & mapping
 async function repoPost(path, payload, okMsg) {
@@ -1129,6 +1197,38 @@ page = f"""<!doctype html>
         <thead><tr><th>test repo</th><th>file / title</th><th>app repos</th>
           <th class="num">conf</th><th>evidence</th><th>mapping</th><th>CI health</th></tr></thead>
         <tbody>{cat_rows}</tbody></table></div>
+    </section>
+  </div>
+
+  <div data-view="plans">
+    <section class="card">
+      <div class="card-h"><div><h2>Test plans from JIRA</h2>
+        <div class="sub">Author a plan from a ticket (<code>make plan KEY=…</code>), then
+        review, edit and approve it here. Test generation is blocked until the plan is
+        approved; editing an approved plan revokes the approval.</div></div>
+        <span class="grow"></span>
+        <span class="sub" id="plans-count"></span>
+      </div>
+      <div class="scroll"><table id="plans-table">
+        <thead><tr><th>ticket</th><th>status</th><th>linked to JIRA</th>
+          <th>tests generated</th><th>note</th><th class="right">actions</th></tr></thead>
+        <tbody><tr><td colspan="6"><div class="empty">Start the server and author a plan
+          with <code>make plan KEY=PROJ-123</code>.</div></td></tr></tbody></table></div>
+    </section>
+    <section class="card hidden" id="plan-editor">
+      <div class="card-h"><h2 class="grow">Reviewing <span id="plan-key"></span></h2>
+        <span id="plan-status"></span>
+        <button class="btn btn-sm" id="plan-save">Save edits</button>
+        <button class="btn btn-sm info" id="plan-review">Mark in review</button>
+        <button class="btn btn-sm danger" id="plan-changes">Request changes</button>
+        <button class="btn btn-sm approve" id="plan-approve">Approve</button>
+        <button class="btn btn-sm info" id="plan-link">Link to JIRA</button>
+        <button class="btn btn-primary" id="plan-generate">Generate tests</button>
+      </div>
+      <div class="card-b" style="display:flex; flex-direction:column; gap:10px">
+        <textarea id="plan-text" rows="22" spellcheck="false"
+          style="font-family:var(--sr-font-mono); font-size:12px"></textarea>
+      </div>
     </section>
   </div>
 

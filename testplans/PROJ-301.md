@@ -6,3 +6,8 @@
 | PROJ-301-S1 | boundary rejection >90% | api | e2e-api-tests-1 | B2 | d1 |
 ## Open Questions
 - AC-3 stacking behavior undefined.
+
+## Added by reviewer
+- S9: refund path must floor at zero
+
+- S10: added via dashboard

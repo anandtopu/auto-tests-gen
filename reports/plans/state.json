@@ -1,0 +1,70 @@
+{
+  "PROJ-301": {
+    "by": "dashboard",
+    "generated_run": "1784700454-1960",
+    "history": [
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1784700112.6718342
+      },
+      {
+        "by": "qa-lead",
+        "note": "",
+        "status": "in_review",
+        "ts": 1784700135.0200512
+      },
+      {
+        "by": "qa-lead",
+        "note": "plan edited",
+        "status": "in_review",
+        "ts": 1784700135.6919541
+      },
+      {
+        "by": "qa-lead",
+        "note": "covers ACs",
+        "status": "approved",
+        "ts": 1784700136.32494
+      },
+      {
+        "by": "cli",
+        "note": "linked to tracker: [mock-jira] attached to PROJ-301: out/mock-jira-attachments/PROJ-301-PROJ-301-testplan.pdf",
+        "status": "approved",
+        "ts": 1784700137.3872454
+      },
+      {
+        "by": "pipeline",
+        "note": "tests generated (run 1784700149-18551)",
+        "status": "approved",
+        "ts": 1784700174.2659392
+      },
+      {
+        "by": "dashboard",
+        "note": "edited after approval \u2014 re-approval required",
+        "status": "draft",
+        "ts": 1784700439.9173765
+      },
+      {
+        "by": "dashboard",
+        "note": "",
+        "status": "approved",
+        "ts": 1784700441.432546
+      },
+      {
+        "by": "pipeline",
+        "note": "tests generated (run 1784700454-1960)",
+        "status": "approved",
+        "ts": 1784700477.8782306
+      }
+    ],
+    "linked": {
+      "by": "cli",
+      "ref": "[mock-jira] attached to PROJ-301: out/mock-jira-attachments/PROJ-301-PROJ-301-testplan.pdf",
+      "ts": 1784700137.3872428
+    },
+    "note": "",
+    "status": "approved",
+    "updated": 1784700441.4325426
+  }
+}

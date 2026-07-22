@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Core pipeline entry (Path 1/2/3 all call this). architecture §5.3, §5.8
 # Usage: pipeline.sh pr <source_repo> <pr_number> | pipeline.sh jira <KEY>
+#        pipeline.sh plan  <KEY>   author the test plan ONLY, then stop for human
+#                                  review/edit/approval (no test code, no commit)
+#        pipeline.sh tests <KEY>   resume from an APPROVED plan: data -> generate ->
+#                                  validate -> gate
 set -euo pipefail
-MODE=${1:?pr|jira}; export AIQE_ROOT="$PWD"; mkdir -p out workspace
+MODE=${1:?pr|jira|plan|tests}; export AIQE_ROOT="$PWD"; mkdir -p out workspace
 # .env supplies defaults only — an explicitly-set caller AIQE_MOCK (make demo-* =1,
 # make run-* =0, queue workers) must never be silently inverted by the file.
 _PRE_MOCK="${AIQE_MOCK:-}"
@@ -67,6 +71,10 @@ if [ "$MODE" = "pr" ]; then
 else
   export KEY=$2
   case "$KEY" in *[!A-Za-z0-9._-]*|"") echo "INVALID_KEY: $KEY"; exit 64;; esac
+  # Generation from a plan is gated on human approval — check BEFORE any clone/LLM work
+  if [ "$MODE" = "tests" ]; then
+    python3 engine/lib/plan_state.py require-approved "$KEY"
+  fi
   # P0: inline JIRA context ("pass JIRA context as text input") bypasses the tracker
   if [ -n "${AIQE_INLINE_FILE:-}" ]; then
     cp "$AIQE_INLINE_FILE" out/ticket.json
@@ -116,23 +124,44 @@ grep -h . catalog/e2e-*.jsonl 2>/dev/null > out/catalog-slice.jsonl || true
 # Coverage gaps: surface with NO test evidence — generation targets these first
 python3 engine/lib/coverage_gaps.py md > out/coverage-gaps.md 2>/dev/null || : > out/coverage-gaps.md
 
+# Control-repo artifacts (test plans, canonical data) belong at the root; real phases
+# run with cwd=workspace so relocate anything written there (no-op in mock mode).
+relocate_artifacts() {
+  for d in testplans testdata; do
+    if [ -d "workspace/$d" ]; then mkdir -p "$d"; cp -r "workspace/$d/." "$d/"; rm -rf "workspace/$d"; fi
+  done
+}
+
 # Phase chain (Workflow A: triage->generate->validate; B: analyze->plan->data->generate->validate)
 if [ "$MODE" = "pr" ]; then
   PHASE triage   pr-triage.md    AGENTS.md out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md
   PHASE generate pr-generate.md  AGENTS.md out/triage.contract.json out/pr.diff out/coverage-gaps.md
+elif [ "$MODE" = "tests" ]; then
+  # Resume from the APPROVED plan. The reviewed markdown is authoritative (it may have
+  # been edited), so it is passed to both phases alongside the snapshotted contract.
+  cp "reports/plans/${KEY}.contract.json" out/testplan.contract.json 2>/dev/null || true
+  PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json "testplans/${KEY}.md"
+  PHASE generate pr-generate.md  AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md"
 else
   PHASE analyze  jira-analyze.md AGENTS.md out/issue-guidance.md out/ticket.json out/confluence.md
   PHASE testplan jira-testplan.md AGENTS.md out/issue-guidance.md out/analyze.contract.json out/coverage-gaps.md
+  if [ "$MODE" = "plan" ]; then
+    # STOP: the plan awaits human review/edit/approval. No test code, no commit.
+    relocate_artifacts
+    python3 engine/lib/plan_state.py record "$KEY" out/testplan.contract.json > /dev/null
+    MSG="AI-QE authored a test plan for ${KEY} (testplans/${KEY}.md) — awaiting review/approval. Approve with: make plan-approve KEY=${KEY}"
+    { TRACKER comment "$KEY" "$MSG"; } || true
+    NOTIFY post "$MSG" || true
+    echo "PLAN_STATUS=DRAFT testplans/${KEY}.md"
+    echo "$MSG"
+    exit 0
+  fi
   PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json
   PHASE generate pr-generate.md  AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json
 fi
 PHASE validate validate-repair.md out/generate.contract.json
 
-# Control-repo artifacts (test plans, canonical data) belong at the root; real phases
-# run with cwd=workspace so relocate anything written there (no-op in mock mode).
-for d in testplans testdata; do
-  if [ -d "workspace/$d" ]; then mkdir -p "$d"; cp -r "workspace/$d/." "$d/"; rm -rf "workspace/$d"; fi
-done
+relocate_artifacts
 
 # Per-test-repo gate; partial success is allowed and reported honestly (§5.8.5).
 # Gates are independent (own repo dir, own app instance) — run them in PARALLEL.
@@ -184,3 +213,7 @@ python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY" \
   | tee "reports/runs/${RUN_ID}.json" | TELEM emit_event
 # Team-review tracking: committed artifacts put the key into pending_review
 python3 engine/lib/review_state.py auto "$KEY"
+# Plan provenance: record which run generated tests from the approved plan
+if [ "$MODE" = "tests" ]; then
+  python3 engine/lib/plan_state.py generated "$KEY" "$RUN_ID" > /dev/null || true
+fi
