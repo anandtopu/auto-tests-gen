@@ -308,5 +308,18 @@
     "finished": 1784821424.1490748,
     "exit_code": 0,
     "inline_file": null
+  },
+  {
+    "id": "q1784823637-25",
+    "mode": "jira",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "taskevent",
+    "status": "done",
+    "ts": 1784823637.0214002,
+    "finished": 1784823656.3016863,
+    "exit_code": 0,
+    "inline_file": null
   }
 ]

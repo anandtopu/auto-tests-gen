@@ -1137,15 +1137,21 @@ async function loadSettings() {
       '<div class="set-sec"><h3>' + escAttr(s.section) + '</h3>' +
       '<div class="hint">' + escAttr(s.hint) + '</div><div class="form-grid">' +
       s.fields.map(f => {
+        // Provenance: a value coming from the properties baseline is NOT in .env, so
+        // without this an operator cannot tell where it came from — or why editing
+        // .env by hand appeared to change nothing.
+        const prov = f.source === 'properties'
+          ? ' <span class="chip chip-info sm" title="from the properties file; saving here writes .env, which overrides it">properties</span>'
+          : '';
         if (f.options) {
-          return '<label class="stack">' + escAttr(f.label) +
+          return '<label class="stack">' + escAttr(f.label) + prov +
             '<select data-env="' + f.env + '">' + f.options.map(o =>
               '<option value="' + o[0] + '"' + (f.value === o[0] ? ' selected' : '') +
               '>' + escAttr(o[1]) + '</option>').join('') + '</select></label>';
         }
         const ph = f.secret ? (f.set ? '•••••• set — type to replace'
                                      : 'not set') : (f.help || '');
-        return '<label class="stack">' + escAttr(f.label) + (f.secret ? ' 🔒' : '') +
+        return '<label class="stack">' + escAttr(f.label) + (f.secret ? ' 🔒' : '') + prov +
           '<input data-env="' + f.env + '"' + (f.secret ? ' type="password" autocomplete="new-password"' : '') +
           ' value="' + escAttr(f.value || '') + '" placeholder="' + escAttr(ph) + '"></label>';
       }).join('') + '</div></div>').join('') +

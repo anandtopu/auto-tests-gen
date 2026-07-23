@@ -87,6 +87,42 @@ The adversarial suite (`make test-gate`) permanently regression-tests codes 2–
 Three layers, each overriding the previous (§5.10): platform defaults → org config →
 per-repo config.
 
+### Configuration sources (`aiqe.properties`, `.env`, environment)
+
+Every variable the Settings page exposes can come from a Java-style properties file
+instead of `.env` — useful when JIRA/Stash credentials are already managed as
+`.properties` by Ansible, a config repo, or an OpenShift ConfigMap.
+
+```properties
+# aiqe.properties  (copy from aiqe.properties.example)
+SCM_KIND = stash
+STASH_URL https://stash.company.com
+JIRA_URL: https://jira.company.com
+ATLASSIAN_MCP_TOKEN = ...
+```
+
+Precedence, **lowest to highest**:
+
+    aiqe.properties  <  .env  <  explicit environment
+
+`.env` wins over the properties file on purpose: `.env` is what the Settings page
+writes, so if properties outranked it, saving in the UI would appear to do nothing.
+Treat properties as the baseline you deploy with, `.env` as the local override, and an
+exported variable as the final word.
+
+Discovery: `$AIQE_PROPERTIES` (a path, or a comma-separated list — first that exists
+wins), else `./aiqe.properties`, else `./config/aiqe.properties`. Loaded at startup by
+both `engine/pipeline.sh` and every Python entry point via
+`settings_store.load_env_into()`.
+
+```bash
+make config     # which file is loaded and which keys it sets (names only, never values)
+```
+
+The Settings view tags any field supplied by the properties file with a **properties**
+chip, so a value you cannot find in `.env` is still traceable. The real
+`aiqe.properties` is gitignored — it holds API tokens; only the example is committed.
+
 ### `registry/org-config.yaml` (org layer)
 
 ```yaml

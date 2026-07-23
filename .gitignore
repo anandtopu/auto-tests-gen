@@ -17,3 +17,8 @@ reports/catalog.db
 # registry, harvested surface and catalog, so it is rebuilt on demand rather than
 # committed. bin/gen_agents_md.py regenerates any that are missing before it runs.
 knowledge/generated/
+
+# Properties config for external systems — holds API tokens, like .env.
+# aiqe.properties.example is committed; the real file is not.
+aiqe.properties
+config/aiqe.properties

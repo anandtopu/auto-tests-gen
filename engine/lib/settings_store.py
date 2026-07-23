@@ -152,28 +152,59 @@ def load():
 
 
 def load_env_into(environ=None):
-    """Apply .env as process-env DEFAULTS (explicit env always wins) — for entry
-    points that spawn adapters without going through pipeline.sh's `source .env`
-    (dashboard server, publish/attach CLI paths)."""
+    """Apply configured settings as process-env DEFAULTS — for entry points that
+    spawn adapters without going through pipeline.sh's `source .env` (dashboard
+    server, publish/attach CLI paths, integration checks).
+
+    Precedence, lowest to highest:
+
+        aiqe.properties  <  .env  <  explicit environment
+
+    .env is applied last of the two files so it wins over the properties baseline:
+    .env is what the Settings page writes, and a UI save that appeared to do nothing
+    because a properties file outranked it would be a miserable bug to diagnose.
+    Anything already exported wins over both.
+    """
     environ = os.environ if environ is None else environ
     applied = []
+    # ORDER MATTERS: each layer only fills keys that are still unset, so the layer
+    # applied FIRST wins. .env therefore goes before properties, not after.
     for k, v in load().items():
         if v and k not in environ:
             environ[k] = v
             applied.append(k)
+    try:
+        import props_file
+        applied += props_file.apply_to(environ)     # baseline; may be absent
+    except Exception:
+        pass                                        # config file must never break startup
     return applied
 
 
 def get_settings():
-    """SPEC with current values; secret values are masked to a boolean."""
+    """SPEC with current values; secret values are masked to a boolean.
+
+    Each field also reports `source`: "env-file" when .env supplies it, "properties"
+    when only the properties baseline does. Without that an operator seeing a value
+    they cannot find in .env has no way to learn where it came from.
+    """
     vals = load()
+    try:
+        import props_file
+        props = props_file.load()
+    except Exception:
+        props = {}
     out = []
     for sec in SPEC:
         fields = []
         for f in sec["fields"]:
             v = vals.get(f["env"], "")
-            fields.append({**f, "set": bool(v),
-                           "value": "" if f.get("secret") else (v or f.get("default", ""))})
+            pv = props.get(f["env"], "")
+            source = "env-file" if v else ("properties" if pv else "")
+            effective = v or pv
+            fields.append({**f, "set": bool(effective), "source": source,
+                           "value": "" if f.get("secret")
+                           else (effective or f.get("default", ""))})
         out.append({"section": sec["section"], "hint": sec.get("hint", ""),
                     "fields": fields})
     return out

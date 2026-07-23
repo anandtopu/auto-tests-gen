@@ -10,6 +10,10 @@ MODE=${1:?pr|jira|plan|tests}; export AIQE_ROOT="$PWD"; mkdir -p out workspace
 # .env supplies defaults only — an explicitly-set caller AIQE_MOCK (make demo-* =1,
 # make run-* =0, queue workers) must never be silently inverted by the file.
 _PRE_MOCK="${AIQE_MOCK:-}"
+# Config layers, lowest first: aiqe.properties < .env < explicit environment.
+# shell-defaults only emits keys absent from the environment, so exporting a variable
+# still wins; `source .env` runs after, so .env overrides the properties baseline.
+eval "$(python3 engine/lib/props_file.py shell-defaults 2>/dev/null || true)"
 source .env 2>/dev/null || true
 if [ -n "$_PRE_MOCK" ]; then AIQE_MOCK="$_PRE_MOCK"; fi
 

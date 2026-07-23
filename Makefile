@@ -6,7 +6,7 @@ SHELL := /bin/bash
         test-gate demo-bootstrap demo-pr demo-jira review \
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
-        demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents
+        demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -72,6 +72,9 @@ serve:
 
 hook-server:
 	python3 bin/taskevent_receiver.py
+
+config:               # which properties file is loaded + which keys it sets (names only)
+	python3 engine/lib/props_file.py
 
 check-integrations:   # read-only connectivity check for every configured system
 	python3 engine/lib/integration_check.py $(WHICH)

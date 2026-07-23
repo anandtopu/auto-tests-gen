@@ -1,0 +1,131 @@
+# AI QE Platform — configuration properties
+#
+# Every variable the Settings page exposes can be set here instead of .env.
+# Java .properties format: key=value, '#' or '!' comments, a trailing backslash continues a line.
+#
+# Precedence (lowest to highest):
+#     aiqe.properties  <  .env  <  explicit environment
+# .env wins over this file because the Settings page writes .env — otherwise a
+# UI save would silently appear to do nothing.
+#
+# Location: $AIQE_PROPERTIES (path, or comma-separated list), else
+# ./aiqe.properties, else ./config/aiqe.properties.
+#
+# Copy to aiqe.properties and fill in. THAT FILE IS GITIGNORED - it holds tokens.
+# Inspect what is loaded (names only, never values):  make config
+
+# --- General ---
+# Adapter mode and the LLM credential.
+# Adapter mode  ·  one of: 1|0
+AIQE_MOCK=1
+# SCM adapter  ·  one of: github|bitbucket|stash
+SCM_KIND=github
+# Build-status link URL  ·  URL the ai-qe PR build status links to (e.g. the dashboard)
+AIQE_STATUS_URL=
+# Anthropic API key  ·  SECRET
+ANTHROPIC_API_KEY=
+# SSL verification  ·  one of: 1|0
+AIQE_SSL_VERIFY=1
+
+# --- GitHub ---
+# Used when SCM adapter is GitHub.
+# GitHub token  ·  SECRET  ·  fine-grained: contents RW on feature branches
+GITHUB_TOKEN=
+
+# --- Bitbucket Cloud ---
+# Used when SCM adapter is Bitbucket Cloud.
+# App password / access token  ·  SECRET
+BITBUCKET_TOKEN=
+
+# --- Bitbucket Server / Stash ---
+# Used when SCM adapter is Stash (Bitbucket Server/DC).
+# Base URL  ·  https://stash.company.com
+STASH_URL=
+# Project key  ·  ENG
+STASH_PROJECT=
+# HTTP access token  ·  SECRET
+STASH_TOKEN=
+
+# --- JIRA ---
+# Tracker port: tickets, comments, attachments.
+# JIRA base URL  ·  https://your-domain.atlassian.net
+JIRA_URL=
+# Atlassian API token  ·  SECRET  ·  service account token (shared with Confluence)
+ATLASSIAN_MCP_TOKEN=
+# Atlassian MCP URL
+ATLASSIAN_MCP_URL=https://mcp.atlassian.com/v1/mcp
+
+# --- Confluence ---
+# Knowledge port: linked docs + test-plan publishing.
+# Confluence base URL  ·  https://your-domain.atlassian.net/wiki
+CONFLUENCE_URL=
+# Default space
+CONFLUENCE_SPACE=QA
+
+# --- OpenHands ---
+# Optional orchestrator (Path 1). The pipeline never calls it — runs also
+# trigger from CI, the TaskEvent receiver, or the work queue.
+# Dependency mode  ·  off = standalone · auto = hybrid, outage is non-fatal (default) · required = an outage fails the connectivity check
+AIQE_OPENHANDS=
+# Agent Server URL
+OPENHANDS_URL=
+# API key  ·  SECRET
+OPENHANDS_API_KEY=
+# Conversations path  ·  /api/v1/app-conversations for Cloud; leave blank for self-hosted
+OPENHANDS_CONVERSATIONS_PATH=
+# Sandbox image
+AIQE_SANDBOX_IMAGE=ai-qe-sandbox:latest
+# Control repo  ·  org/ai-qe-control
+AIQE_CONTROL_REPO=
+# Smoke-test ticket  ·  PROJ-123
+AIQE_SMOKE_TICKET=
+# Smoke-test repo
+AIQE_SMOKE_REPO=
+# Smoke-test PR number
+AIQE_SMOKE_PR=
+
+# --- CI/CD (Jenkins) ---
+# CICD port: result ingestion triggers.
+# Jenkins URL
+JENKINS_URL=
+# Jenkins user
+JENKINS_USER=
+# API token  ·  SECRET
+JENKINS_API_TOKEN=
+
+# --- Notify & telemetry ---
+# Notification channel(s) and Splunk telemetry.
+# Notify channel  ·  one of: slack|email|both
+NOTIFY_KIND=slack
+# Slack webhook URL  ·  SECRET
+SLACK_WEBHOOK_URL=
+# Splunk HEC URL
+SPLUNK_HEC_URL=
+# Splunk HEC token  ·  SECRET
+SPLUNK_HEC_TOKEN=
+
+# --- Email (SMTP) ---
+# Outbound email for run summaries, review digests and team reports. With no
+# host set, emails are written to out/mock-email/ instead of sent.
+# SMTP host  ·  smtp.example.com
+SMTP_HOST=
+# SMTP port
+SMTP_PORT=587
+# Security  ·  one of: starttls|ssl|none
+SMTP_SECURITY=starttls
+# SMTP username
+SMTP_USER=
+# SMTP password  ·  SECRET
+SMTP_PASSWORD=
+# From address  ·  ai-qe@example.com
+SMTP_FROM=
+# Default recipients (csv)  ·  qa-team@example.com, lead@example.com
+SMTP_TO=
+
+# --- Budgets ---
+# Per-run guardrails enforced by the OpenHands orchestrator (Path 1); local
+# mock/demo runs do not meter cost.
+# Max cost per run (USD)
+MAX_COST_USD_PER_RUN=4.00
+# Max wall-clock (min)
+MAX_WALLCLOCK_MIN=25
