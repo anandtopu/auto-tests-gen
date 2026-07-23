@@ -63,6 +63,14 @@ def _entry(reg, name, sect):
     return next((r for r in reg[sect] if r["name"] == name), None)
 
 
+def _pytest_available():
+    """True when pytest can be run. The runtime container installs no test deps, so
+    a registry mutation there must skip the golden re-run rather than report the
+    change as broken."""
+    import importlib.util
+    return importlib.util.find_spec("pytest") is not None
+
+
 def save_and_verify(reg, regen_cov=False):
     # Atomic write: never leave a half-dumped registry behind on crash
     tmp = REG_PATH.with_suffix(".yaml.tmp")
@@ -72,7 +80,10 @@ def save_and_verify(reg, regen_cov=False):
         subprocess.run([sys.executable, "catalog/bootstrap/regen_coverage.py"],
                        cwd=ROOT, check=True, capture_output=True,
                        stdin=subprocess.DEVNULL)
-    if "PYTEST_CURRENT_TEST" not in os.environ:   # never pytest-from-pytest
+    # Re-run the routing goldens, but never pytest-from-pytest, and never pretend a
+    # missing pytest is a broken change — the runtime container ships no pytest, so a
+    # repo mutation there would otherwise cry wolf on every call.
+    if "PYTEST_CURRENT_TEST" not in os.environ and _pytest_available():
         r = subprocess.run([sys.executable, "-m", "pytest",
                             "registry/tests/test_routing_golden.py", "-q"],
                            cwd=ROOT, capture_output=True, text=True,

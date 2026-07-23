@@ -227,3 +227,26 @@ def test_removal_drops_generated_guidance(estate_guard, tmp_path, monkeypatch):
     repo_admin.remove_app("zz-guided", force=True)
     assert not rgg.generated_path("zz-guided").exists(), \
         "stale generated guidance survived removal"
+
+
+# ---------------------------------------- runtime container (no pytest installed)
+
+def test_mutation_does_not_cry_wolf_when_pytest_is_absent(estate_guard, monkeypatch,
+                                                          capsys):
+    """The runtime image ships no pytest. A repo mutation there must skip the golden
+    re-run with a neutral note, not claim the change 'broke routing goldens'."""
+    import importlib.util as _ilu
+    real = _ilu.find_spec
+
+    def fake(name, *a, **k):
+        return None if name == "pytest" else real(name, *a, **k)
+
+    monkeypatch.setattr("importlib.util.find_spec", fake)
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)   # pretend not under pytest
+    assert repo_admin._pytest_available() is False
+    repo_admin.upsert_app("zz-nopytest", kind="service", url="org/zz-nopytest")
+    out = capsys.readouterr().out
+    assert "broke routing goldens" not in out, "false alarm when pytest is merely absent"
+    # the mutation itself still succeeded
+    assert any(r["name"] == "zz-nopytest"
+               for r in repo_admin.summary()["app_repos"])

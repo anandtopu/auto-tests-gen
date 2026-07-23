@@ -30,7 +30,7 @@ regenerates AGENTS.md so agent phases always see current estate knowledge.
 Full onboarding (clone + templates + bootstrap) stays with bin/onboard.sh;
 add-app/add-test register the repo so mapping and routing work immediately.
 """
-import argparse, json, os, pathlib, subprocess, sys
+import argparse, importlib.util, json, os, pathlib, subprocess, sys
 
 sys.stdout.reconfigure(encoding="utf-8")
 # stderr too: sys.exit(msg) writes there, and refusal messages carry em-dashes
@@ -49,9 +49,14 @@ STR_FIELDS = {"contract": "contract", "route-table": "route_table",
 
 def save_and_verify(reg, skip_tests=False):
     REG_PATH.write_text(yaml.safe_dump(reg, sort_keys=False), encoding="utf-8")
-    # Never re-run pytest when invoked FROM pytest (recursive test explosion)
+    # Never re-run pytest when invoked FROM pytest (recursive test explosion), and
+    # skip it when pytest isn't installed at all (the runtime container) rather than
+    # reporting the change as broken.
     if "PYTEST_CURRENT_TEST" in os.environ:
         skip_tests = True
+    elif importlib.util.find_spec("pytest") is None:
+        skip_tests = True
+        print("routing goldens: skipped (pytest not installed)")
     if not skip_tests:
         r = subprocess.run([sys.executable, "-m", "pytest", "registry/tests", "-q"],
                            cwd=ROOT, capture_output=True, text=True,
