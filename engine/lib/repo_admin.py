@@ -108,6 +108,35 @@ def summary():
 
 # ---------------------------------------------------------------- app repos
 
+def _ensure_guidance(name, creating):
+    """On ADD, give a repo that ships no AGENTS.md a generated one.
+
+    A repo with no guidance contributes nothing to the estate knowledge every
+    authoring phase reads, so tests get written blind to its surface and layout.
+    Best-effort by construction: adding a repo must never fail because guidance
+    generation did (repo_guidance_gen.ensure is itself total)."""
+    if not creating:
+        return None
+    if "PYTEST_CURRENT_TEST" in os.environ:
+        # Same guard as save_and_verify's golden re-run: tests add throwaway repos and
+        # clean up the registry, but would otherwise leave generated guidance behind in
+        # the working tree. Tests that exercise generation call repo_guidance_gen
+        # directly, with GEN_DIR pointed at a tmp_path.
+        return None
+    try:
+        import repo_guidance_gen
+        res = repo_guidance_gen.ensure(name)
+    except Exception:
+        return None
+    if res and res.get("status") == "written":
+        # save_and_verify() already rebuilt the estate AGENTS.md, but it ran before
+        # this file existed. Rebuild so the new repo's guidance reaches the phases
+        # from this moment on, not from the next unrelated registry change.
+        subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")], cwd=ROOT,
+                       check=False, capture_output=True, stdin=subprocess.DEVNULL)
+    return res
+
+
 @_locked
 def upsert_app(name, kind=None, scm=None, url=None, domains=None,
                testable_paths=None, contract=None, route_table=None,
@@ -161,7 +190,8 @@ def upsert_app(name, kind=None, scm=None, url=None, domains=None,
             (consumed.add if b["name"] in wanted else consumed.discard)(name)
             b["consumed_by"] = sorted(consumed)
     save_and_verify(reg)
-    return {"name": name, "created": creating}
+    return {"name": name, "created": creating,
+            "guidance": _ensure_guidance(name, creating)}
 
 
 @_locked
@@ -227,7 +257,8 @@ def upsert_test(name, layer=None, framework=None, scm=None, url=None,
     if scope is not None:
         t["scope"] = _valid_scope(reg, _csv(scope))
     save_and_verify(reg, regen_cov=True)
-    return {"name": name, "created": creating}
+    return {"name": name, "created": creating,
+            "guidance": _ensure_guidance(name, creating)}
 
 
 def _valid_scope(reg, apps):
@@ -312,6 +343,13 @@ def repo_local_files(name):
             p = ROOT / "demo" / name / fname
             if p.exists():
                 pick = ("clone", p)
+        if pick is None and fname == "AGENTS.md":
+            # Last resort: one WE generated for a repo that ships no guidance of its
+            # own. Ranked below every real source on purpose — the moment a team
+            # commits an AGENTS.md, theirs wins and this stops being consulted.
+            gen = _generated_files(name)
+            if gen:
+                pick = ("cache", gen[0])
         if pick is None:
             continue
         seen.add(fname)
@@ -321,6 +359,14 @@ def repo_local_files(name):
             out.append({"path": pick[1].relative_to(ROOT).as_posix(),
                         "text": pick[1].read_text(encoding="utf-8", errors="ignore")})
     return out
+
+
+def _generated_files(name):
+    try:
+        import repo_guidance_gen
+        return repo_guidance_gen.generated_files(name)
+    except Exception:                                 # generated guidance is optional
+        return []
 
 
 def _synced_files(name):

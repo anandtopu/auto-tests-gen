@@ -1038,6 +1038,30 @@ async function loadNotes() {
   } catch (err) { $('#notes-local').textContent = err.message; }
 }
 document.addEventListener('click', async e => {
+  const genAll = e.target.id === 'gen-guidance-all';
+  const genOne = e.target.id === 'gen-guidance-one';
+  if (!genAll && !genOne) return;
+  if (needsServer()) return;
+  const btn = e.target, idle = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Generating…';
+  try {
+    const r = await api('/api/repos/guidance', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(genAll ? {} : { repo: $('#notes-repo').value }) });
+    const rows = r.generated || [];
+    const wrote = rows.filter(x => x.status === 'written');
+    const own = rows.filter(x => x.status === 'skipped_has_own');
+    toast(wrote.length
+      ? 'Generated AGENTS.md for ' + wrote.length + ' repo(s) — AGENTS.md regenerated'
+      : own.length
+        ? 'Nothing to do — those repos already ship their own guidance'
+        : 'Nothing generated (already present; use Sync to pull the repo-owned file)');
+    await loadNotes();
+  } catch (err) { toast(err.message); }
+  btn.disabled = false; btn.textContent = idle;
+});
+
+document.addEventListener('click', async e => {
   const all = e.target.id === 'sync-all', one = e.target.id === 'sync-one';
   if (!all && !one) return;
   if (needsServer()) return;
@@ -1462,11 +1486,16 @@ page = f"""<!doctype html>
         story/bug plans + tests). <b>Sync from SCM</b> pulls each repo's own
         <code>AGENTS.md</code>/<code>CLAUDE.md</code> straight from Bitbucket/GitHub/Stash
         — app repos (ui + service) and E2E test repos alike — then regenerates
-        <code>AGENTS.md</code>.</div></div>
+        <code>AGENTS.md</code>. Most repos ship neither: <b>Generate missing</b> writes a
+        starter <code>AGENTS.md</code> from the registry, the harvested API/route surface
+        and catalog evidence, so a new repo still teaches the agent something. A
+        repo-owned file always wins over a generated one.</div></div>
         <span class="grow"></span>
         <button class="btn btn-sm info" id="sync-all">Sync all from SCM</button>
+        <button class="btn btn-sm" id="gen-guidance-all">Generate missing</button>
         <label class="f">Repo <select id="notes-repo" class="h32">{all_repo_opts}</select></label>
         <button class="btn btn-sm" id="sync-one">Sync this repo</button>
+        <button class="btn btn-sm" id="gen-guidance-one">Generate for this repo</button>
       </div>
       <div class="card-b" style="display:flex; flex-direction:column; gap:10px">
         <div class="sm muted" id="notes-local"></div>

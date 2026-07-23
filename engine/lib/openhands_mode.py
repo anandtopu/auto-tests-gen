@@ -90,6 +90,7 @@ def describe(m=None):
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")   # Windows consoles default to cp1252
     m = mode()
     if len(sys.argv) > 1 and sys.argv[1] == "enabled":
         print(f"openhands: {m}")

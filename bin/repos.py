@@ -221,6 +221,23 @@ def cmd_sync(args):
                 print(f"  {x['repo']}: {', '.join(x['files'])}")
 
 
+def cmd_gen_guidance(args):
+    """Write a generated AGENTS.md for repos that ship none of their own."""
+    import repo_guidance_gen
+    if args.name and args.show:
+        print(repo_guidance_gen.render(args.name)); return
+    rows = ([repo_guidance_gen.ensure(args.name, force=args.force)] if args.name
+            else repo_guidance_gen.ensure_all(force=args.force))
+    for r in rows:
+        print(f"{r['status']:<18} {r['repo']}" + (f"  -> {r['path']}" if r["path"] else ""))
+    if any(r["status"] == "written" for r in rows):
+        import guidance_sync
+        guidance_sync.regenerate_agents_md()
+        print("AGENTS.md regenerated - generated guidance now reaches every phase")
+    print("note: a repo-owned AGENTS.md always wins over a generated one "
+          "(bin/repos.py sync <name> to pull it)")
+
+
 def cmd_sync_status(args):
     import time
     import guidance_sync
@@ -261,6 +278,10 @@ if __name__ == "__main__":
     s = sub.add_parser("sync"); s.add_argument("name", nargs="?")
     s.add_argument("--ref"); s.set_defaults(fn=cmd_sync)
     s = sub.add_parser("sync-status"); s.set_defaults(fn=cmd_sync_status)
+    s = sub.add_parser("gen-guidance"); s.add_argument("name", nargs="?")
+    s.add_argument("--force", action="store_true")
+    s.add_argument("--show", action="store_true")
+    s.set_defaults(fn=cmd_gen_guidance)
     s = sub.add_parser("notes"); s.add_argument("name")
     s.add_argument("--set"); s.add_argument("--file")
     s.add_argument("--clear", action="store_true"); s.set_defaults(fn=cmd_notes)

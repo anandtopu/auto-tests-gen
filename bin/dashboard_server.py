@@ -55,8 +55,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import demo_data, email_notify, export_plan, guidance_sync, inline_ticket, \
-    integration_check, openhands_client, openhands_events, openhands_mode, plan_state, repo_admin, \
-    review_state, settings_store, team_report, work_queue
+    integration_check, openhands_client, openhands_events, openhands_mode, \
+    plan_state, repo_admin, repo_guidance_gen, review_state, settings_store, \
+    team_report, work_queue
 
 # The Settings view writes .env; honor it here too (explicit env still wins) so
 # adapter mode and credentials configured in the UI actually reach this server.
@@ -326,6 +327,17 @@ class Handler(BaseHTTPRequestHandler):
                     result = fn(p["name"], force=bool(p.get("force")))
                 elif self.path == "/api/repos/notes":
                     result = repo_admin.set_notes(p["repo"], p.get("text", ""))
+                elif self.path == "/api/repos/guidance":
+                    # Generate AGENTS.md for a repo that ships none of its own, so it
+                    # stops contributing nothing to the knowledge every phase reads.
+                    # A repo-owned file always wins, so this never overwrites theirs.
+                    repo = p.get("repo")
+                    rows = ([repo_guidance_gen.ensure(repo, force=bool(p.get("force")))]
+                            if repo else
+                            repo_guidance_gen.ensure_all(force=bool(p.get("force"))))
+                    if any(r["status"] == "written" for r in rows):
+                        guidance_sync.regenerate_agents_md()
+                    result = {"generated": rows}
                 elif self.path == "/api/repos/sync":
                     # Pull AGENTS.md/CLAUDE.md from the SCM, then refresh the estate
                     # knowledge so the next generation run uses the latest guidance.
