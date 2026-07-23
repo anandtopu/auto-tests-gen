@@ -259,3 +259,67 @@ def test_demo_data_json_mode_contract():
     assert r.returncode == 0, r.stderr
     out = _json.loads(r.stdout.strip().splitlines()[-1])
     assert out["ok"] is True and "removed" in out and "targets" in out
+
+
+# --------------------------------------------------------- fs_lock orphan breaking
+
+def test_orphaned_ownerless_lock_is_broken_not_fatal(tmp_path):
+    """'Factory reset returns error': a lock dir with NO owner file (creator died in
+    the mkdir->write window, or a Windows rmdir failure swallowed by _release) was
+    unbreakable — the stale check needs owner — so every later acquisition timed out
+    and the clear died with TimeoutError. An ownerless orphan must be broken by dir
+    age instead."""
+    import os, time
+    import fs_lock
+    target = tmp_path / "state.json"
+    orphan = tmp_path / "state.json.lock"
+    orphan.mkdir()
+    os.utime(orphan, (time.time() - 30, time.time() - 30))   # older than the grace
+    t0 = time.time()
+    with fs_lock.lock(target, timeout=10):
+        pass
+    assert time.time() - t0 < 5, "orphan should be broken quickly, not waited out"
+
+
+def test_fresh_orphan_gets_a_grace_before_being_broken(tmp_path):
+    """A just-created ownerless dir may be a healthy holder about to write owner —
+    give it the grace, then break."""
+    import time
+    import fs_lock
+    target = tmp_path / "state.json"
+    (tmp_path / "state.json.lock").mkdir()                   # mtime = now
+    t0 = time.time()
+    with fs_lock.lock(target, timeout=fs_lock.ORPHAN_GRACE_S + 6):
+        pass
+    waited = time.time() - t0
+    assert waited >= fs_lock.ORPHAN_GRACE_S - 1, "must not break a brand-new dir instantly"
+    assert waited < fs_lock.ORPHAN_GRACE_S + 5
+
+
+def test_live_lock_with_owner_still_blocks(tmp_path):
+    """The fix must not weaken real mutual exclusion: a recent lock WITH an owner
+    file is a live holder and must still time the waiter out."""
+    import time
+    import fs_lock
+    import pytest as _pytest
+    target = tmp_path / "state.json"
+    live = tmp_path / "state.json.lock"
+    live.mkdir()
+    (live / "owner").write_text(f"999999 {time.time()}", encoding="utf-8")
+    with _pytest.raises(TimeoutError):
+        with fs_lock.lock(target, timeout=1.5):
+            pass
+
+
+def test_factory_reset_survives_an_orphaned_lock(tmp_path):
+    """End to end: the exact reported condition — clear/factory with an orphaned
+    state-file lock present must succeed, not die on TimeoutError."""
+    import os, time
+    root = _demo_tree(tmp_path)
+    orphan = root / "reports/runs/queue.json.lock"
+    orphan.mkdir(parents=True)
+    os.utime(orphan, (time.time() - 30, time.time() - 30))
+    r = demo_data.clear(root=root, factory=True)
+    assert r["factory"] is True and r["removed"] > 0
+    assert not (root / "registry/repo-registry.yaml").read_text(encoding="utf-8").count("name:"), \
+        "factory reset did not empty the registry"
