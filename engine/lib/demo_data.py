@@ -145,8 +145,24 @@ def clear(root=None, dry=False, force=False):
 
 
 if __name__ == "__main__":
+    import json as _json
     sys.stdout.reconfigure(encoding="utf-8")
     dry = "--dry" in sys.argv
+    if "--json" in sys.argv:
+        # Machine mode for the dashboard server, which runs this as a SUBPROCESS so a
+        # long-lived server always executes the current clear targets — an in-process
+        # `import demo_data` froze the list at server start, and a server started
+        # before a fix kept clearing the old, incomplete set while the (freshly
+        # rendered) page promised the new behaviour.
+        try:
+            r = clear(dry=dry, force="--force" in sys.argv)
+            print(_json.dumps({"ok": True, **r}))
+            sys.exit(0)
+        except SystemExit as e:                        # a run looks active — refusal
+            if isinstance(e.code, int):
+                raise
+            print(_json.dumps({"ok": False, "error": str(e), "can_force": True}))
+            sys.exit(9)
     r = clear(dry=dry, force="--force" in sys.argv)
     verb = "would remove" if dry else "removed"
     print(f"{verb} {r['removed']} generated file(s):")

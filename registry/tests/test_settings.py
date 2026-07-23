@@ -232,3 +232,35 @@ def test_dashboard_reloads_after_clearing():
     i = src.index("/api/demo/clear")
     assert "location.reload()" in src[i:i + 2000], \
         "clear handler must reload so the reset is visible"
+
+
+def test_server_runs_the_clear_as_a_subprocess():
+    """A long-lived dashboard server froze demo_data's clear targets at startup
+    (in-process import), so a server started before a fix kept clearing the OLD,
+    incomplete set while the freshly-rendered page promised the new one — seen in the
+    field as 'Clear demo data does not delete test catalog / test plans'. The server
+    must therefore execute the clear via subprocess, like the page render."""
+    src = (ROOT / "bin/dashboard_server.py").read_text(encoding="utf-8")
+    i = src.index('"/api/demo/clear"')
+    handler = src[i:i + 1600]
+    assert "demo_data.py" in handler and "--json" in handler, \
+        "clear must run as a subprocess so a running server picks up current code"
+    assert "demo_data.clear(" not in handler, "in-process clear reintroduced"
+
+
+def test_demo_data_json_mode_contract(tmp_path):
+    """The server depends on --json emitting one JSON object and exit 9 on refusal."""
+    import json as _json, os as _os, subprocess as _sp, sys as _s
+    root = _demo_tree(tmp_path)
+    r = _sp.run([_s.executable, str(ROOT / "engine/lib/demo_data.py"), "--json"],
+                cwd=root, capture_output=True, text=True, encoding="utf-8",
+                stdin=_sp.DEVNULL,
+                env={**_os.environ, "PYTHONPATH": str(ROOT / "engine/lib")})
+    # NOTE: the CLI clears relative to the REPO root, not cwd — so run dry against
+    # the real root instead of mutating it: use --dry.
+    r = _sp.run([_s.executable, str(ROOT / "engine/lib/demo_data.py"), "--json", "--dry"],
+                cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+                stdin=_sp.DEVNULL)
+    assert r.returncode == 0, r.stderr
+    out = _json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["ok"] is True and "removed" in out and "targets" in out

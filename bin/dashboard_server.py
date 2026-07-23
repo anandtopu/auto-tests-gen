@@ -417,16 +417,30 @@ class Handler(BaseHTTPRequestHandler):
             except json.JSONDecodeError as e:
                 self._send(400, {"error": str(e)})
         elif self.path == "/api/demo/clear":
+            # Run as a SUBPROCESS (like the page render) so a long-lived server always
+            # executes the CURRENT clear targets. The old in-process call
+            # froze the clear-target list at server start — a server running since before a
+            # fix kept clearing the old set while the page promised the new one.
             try:
                 p = json.loads(body or b"{}")
-                self._send(200, {"ok": True,
-                                 **demo_data.clear(force=bool(p.get("force")))})
             except json.JSONDecodeError as e:
                 self._send(400, {"error": str(e)})
-            except SystemExit as e:                     # a run looks active
-                self._send(409, {"error": str(e), "can_force": True})
-            except OSError as e:                        # locked/undeletable file
-                self._send(500, {"error": f"clear failed: {e}"})
+                return
+            cmd = [sys.executable, str(ROOT / "engine/lib/demo_data.py"), "--json"]
+            if p.get("force"):
+                cmd.append("--force")
+            r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True,
+                               encoding="utf-8", errors="replace",
+                               stdin=subprocess.DEVNULL)
+            try:
+                out = json.loads(r.stdout.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                self._send(500, {"error": f"clear failed: {(r.stderr or r.stdout)[:300]}"})
+                return
+            if out.get("ok"):
+                self._send(200, out)
+            else:                                       # refusal: a run looks active
+                self._send(409, out)
         elif self.path == "/api/queue/run":
             if run_lock.locked():
                 self._send(409, {"error": "queue is already running"})
