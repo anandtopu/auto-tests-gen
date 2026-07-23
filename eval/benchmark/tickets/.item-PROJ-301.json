@@ -1,3 +1,35 @@
-{"key":"PROJ-301","summary":"Discount validation hardening","description":"As a shopper I cannot apply invalid discounts.",
- "components":["Checkout"],"labels":["api-only"],"linked_repos":["orders-api"],"fix_versions":["2026.08"],"issue_type":"Story",
- "acceptance_criteria":["AC-1: 1-90% accepted, total recalculated","AC-2: out-of-range rejected with 400","AC-3: stacking TBD"]}
+{
+ "key": "PROJ-301",
+ "summary": "Discount validation hardening",
+ "description": "As a shopper I cannot apply invalid discounts.",
+ "components": [
+  "Checkout"
+ ],
+ "labels": [
+  "api-only"
+ ],
+ "linked_repos": [
+  "orders-api"
+ ],
+ "fix_versions": [
+  "2026.08"
+ ],
+ "issue_type": "Story",
+ "acceptance_criteria": [
+  "AC-1: 1-90% accepted, total recalculated",
+  "AC-2: out-of-range rejected with 400",
+  "AC-3: stacking TBD"
+ ],
+ "comments": [
+  {
+   "author": "pm.jane",
+   "created": "2026-07-20T10:04:00Z",
+   "body": "Clarification on AC-3: discount stacking is OUT OF SCOPE for this story \u2014 reject a second discount with 409, ticket PROJ-310 will handle stacking."
+  },
+  {
+   "author": "dev.omar",
+   "created": "2026-07-21T15:22:00Z",
+   "body": "Watch the rounding edge case: pct 33 on a 100 total must give 67, not 66.99 \u2014 totals are integers."
+  }
+ ]
+}

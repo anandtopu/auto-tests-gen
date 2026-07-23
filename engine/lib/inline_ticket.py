@@ -4,7 +4,10 @@ context as text input") so Workflow B can run without an existing ticket.
 
 The first non-empty line becomes the summary; lines that look like acceptance
 criteria (AC-1:, "- AC ...", "* AC ...") are collected; everything is kept in the
-description. Routing comes from --components/--labels/--repos exactly like a real
+description. A "Comments:" section (a line reading Comments/Comments:) splits the
+paste — each non-empty line after it becomes one comment, because pasted JIRA
+context usually includes the comment thread and comments carry the clarifications
+the description lacks. Routing comes from --components/--labels/--repos exactly like a real
 ticket. The pipeline consumes the file via AIQE_INLINE_FILE instead of the
 Tracker port's get_item.
 """
@@ -25,14 +28,22 @@ def build(text, key=None, components=(), labels=(), repos=(), issue_type="Story"
     # safe charset (a bare key like "PROJ-1" is fine; "<img …>" is not).
     if key and not KEY_RE.fullmatch(key):
         raise ValueError("key must be alphanumeric with . _ - (max 64 chars)")
-    lines = [l.strip() for l in text.splitlines()]
+    # Split off a pasted comment thread: everything after a "Comments:" line.
+    body_text, comments = text, []
+    m = re.search(r"^\s*comments?\s*:?\s*$", text, re.I | re.M)
+    if m:
+        body_text = text[:m.start()].rstrip()
+        comments = [{"author": "pasted", "created": "", "body": l.strip("-* 	")}
+                    for l in text[m.end():].splitlines() if l.strip()]
+    lines = [l.strip() for l in body_text.splitlines()]
     summary = next((l for l in lines if l), "")[:200]
     acs = [re.sub(r"^[-*]\s*", "", l) for l in lines
            if re.match(r"^([-*]\s*)?AC[-\s\d:.]", l, re.I)]
     return {
         "key": key or f"ADHOC-{int(time.time())}-{uuid.uuid4().hex[:4]}",
         "summary": summary,
-        "description": text,
+        "description": body_text,
+        "comments": comments,
         "components": [c for c in components if c],
         "labels": [l for l in labels if l],
         "linked_repos": [r for r in repos if r],
