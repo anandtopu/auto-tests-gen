@@ -11,9 +11,15 @@ capability genuinely cannot be verified without a side effect (a Slack webhook o
 answers to a real POST), the check says so rather than pretending.
 
 Each result is {name, status, detail, hint}:
-  ok       reached it, credentials accepted
-  fail     configured but unreachable / rejected — `hint` says what to do
-  skipped  not configured (not an error; most estates use a subset)
+  ok        reached it, credentials accepted
+  fail      configured but unreachable / rejected — `hint` says what to do
+  degraded  configured and unreachable, but the platform does not need it to run
+            (see OPTIONAL_CHECKS) — reported, never fatal
+  skipped   not configured (not an error; most estates use a subset)
+
+Only `fail` drives a non-zero exit code. That distinction matters: an unreachable
+OpenHands used to fail this command, which made a CI gate go red over a system the
+pipeline never calls (docs/integrations/standalone-operation.md).
 
 Credential VALUES are never echoed — only whether they are set.
 
@@ -166,6 +172,10 @@ def check_confluence():
 
 
 def check_openhands():
+    import openhands_mode
+    if not openhands_mode.enabled():
+        return _r("OpenHands", "skipped",
+                  "disabled (AIQE_OPENHANDS=off) — running standalone")
     if not _env("OPENHANDS_URL"):
         return _r("OpenHands", "skipped", "OPENHANDS_URL not set")
     try:
@@ -280,6 +290,31 @@ CHECKS = {
     "splunk": check_telemetry,
 }
 
+# Systems the platform can run entirely without: their outage is reported as
+# `degraded`, never `fail`, so it cannot turn a CI gate red.
+#
+# OpenHands qualifies because it is one of four INTERCHANGEABLE trigger paths — it
+# only ever tells us `bash engine/pipeline.sh ...`, which CI, the TaskEvent receiver
+# or the work queue can do just as well. Slack/Splunk/Jenkins are deliberately NOT
+# here: configure them and they break, you silently lose notifications or telemetry,
+# and that is worth failing over.
+#
+# Membership is conditional for OpenHands: teams that genuinely depend on it set
+# AIQE_OPENHANDS=required, which takes it back out of this set (see _optional_now).
+OPTIONAL_CHECKS = {"openhands"}
+
+
+def _optional_now():
+    """OPTIONAL_CHECKS for THIS invocation, honouring the OpenHands mode flag."""
+    optional = set(OPTIONAL_CHECKS)
+    try:
+        import openhands_mode
+        if openhands_mode.required():
+            optional.discard("openhands")   # the team opted into a hard dependency
+    except Exception:
+        pass                                # unreadable mode → keep the safe default
+    return optional
+
 
 def run(names=None):
     """Run the requested checks (all by default). Never raises — a broken check
@@ -293,8 +328,19 @@ def run(names=None):
         except Exception as e:                      # a check must never take the page down
             results.append({**_r(n, "fail", f"check raised: {str(e)[:120]}",
                                  "this is a bug in the checker"), "id": n})
+    # Optional systems report their outage without making the command fail. The
+    # platform has four interchangeable trigger paths, so an unreachable OpenHands
+    # costs you a convenience, not a capability — the run still routes, generates,
+    # gates and commits (docs/integrations/standalone-operation.md).
+    optional = _optional_now()
+    for r in results:
+        if r["id"] in optional and r["status"] == "fail":
+            r["status"] = "degraded"
+            r["hint"] = (r.get("hint") or "").rstrip(" .")
+            r["hint"] += ("; optional — the pipeline does not call it. "
+                          "Trigger runs via CI or the TaskEvent receiver instead")
     summary = {s: sum(1 for r in results if r["status"] == s)
-               for s in ("ok", "fail", "skipped")}
+               for s in ("ok", "fail", "degraded", "skipped")}
     return {"results": results, "summary": summary,
             "mock_mode": os.environ.get("AIQE_MOCK", "1") == "1"}
 
@@ -306,14 +352,17 @@ if __name__ == "__main__":
     if "--json" in sys.argv:
         print(json.dumps(out, indent=2))
         sys.exit(0)
-    mark = {"ok": "[ OK ]", "fail": "[FAIL]", "skipped": "[skip]"}
+    mark = {"ok": "[ OK ]", "fail": "[FAIL]", "degraded": "[warn]", "skipped": "[skip]"}
     print("Integration checks (read-only; nothing is posted, pushed or sent)\n")
     for r in out["results"]:
         print(f"{mark[r['status']]} {r['name']:<18} {r['detail']}")
         if r["hint"] and r["status"] != "ok":
             print(f"        -> {r['hint']}")
     s = out["summary"]
-    print(f"\n{s['ok']} ok · {s['fail']} failed · {s['skipped']} not configured")
+    line = f"\n{s['ok']} ok · {s['fail']} failed"
+    if s["degraded"]:
+        line += f" · {s['degraded']} degraded (optional — not fatal)"
+    print(line + f" · {s['skipped']} not configured")
     if out["mock_mode"]:
         print("Note: AIQE_MOCK=1 — runs still use mock adapters. These checks probe the "
               "REAL systems, so you can verify credentials before switching to real mode.")

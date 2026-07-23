@@ -8,7 +8,8 @@ suites, coverage-gap detection, and new-test recommendation.
 whether adopting it is worth it. Items are ordered by value-to-effort. Where a
 capability could not be verified from primary docs, it is called out rather than
 assumed. Setup steps live in [openhands.md](openhands.md); this file is the *decision*
-record.
+record for what we adopt **from** OpenHands. Its inverse — what happens when you have
+no OpenHands at all — is [standalone-operation.md](standalone-operation.md).
 
 > Verification note: OpenHands moved fast between V0 and V1 — agent classes collapsed,
 > microagents were renamed, and the OSS resolver moved behind the enterprise licence.

@@ -1,0 +1,36 @@
+commit 7d039c95fe28434a0c42b93ecee8af8a2fc190fb
+Author: anandtopu <anand.goud.2020@gmail.com>
+Date:   Thu Jul 23 00:43:45 2026 -0500
+
+    test(PROJ-301): AI-generated E2E updates
+    
+    Co-Authored-By: ai-qe-agent <ai-qe@company.com>
+
+diff --git a/catalog/generated.jsonl b/catalog/generated.jsonl
+index e69de29..2ced299 100644
+--- a/catalog/generated.jsonl
++++ b/catalog/generated.jsonl
+@@ -0,0 +1 @@
++{"test_id":"e2e-api-tests-1::suites/orders/PROJ-301-discount-boundary.spec.js::PROJ-301","file":"suites/orders/PROJ-301-discount-boundary.spec.js","title":"PROJ-301: discount boundary","layer":"api","mapping":{"app_repos":["orders-api"],"feature":"PROJ-301","confidence":1.0,"method":["born_mapped"],"status":"confirmed"}}
+diff --git a/suites/orders/PROJ-301-discount-boundary.spec.js b/suites/orders/PROJ-301-discount-boundary.spec.js
+new file mode 100644
+index 0000000..a364bd6
+--- /dev/null
++++ b/suites/orders/PROJ-301-discount-boundary.spec.js
+@@ -0,0 +1,16 @@
++// PROJ-301: discount boundary validation (AI-generated)
++const { test } = require('node:test');
++const assert = require('node:assert');
++const BASE = process.env.API_BASE_URL || 'http://localhost:4600';
++
++test('PROJ-301: rejects discount above 90%', async () => {
++  const r = await fetch(`${BASE}/v1/orders/1/discounts`, { method: 'POST',
++    headers: {'Content-Type':'application/json'}, body: JSON.stringify({ code: 'MEGA', pct: 95 }) });
++  assert.strictEqual(r.status, 400);
++});
++
++test('PROJ-301: rejects zero-percent discount', async () => {
++  const r = await fetch(`${BASE}/v1/orders/1/discounts`, { method: 'POST',
++    headers: {'Content-Type':'application/json'}, body: JSON.stringify({ code: 'ZERO', pct: 0 }) });
++  assert.strictEqual(r.status, 400);
++});

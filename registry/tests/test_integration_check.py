@@ -139,9 +139,29 @@ def test_http_check_reports_reachable(monkeypatch):
     srv, port = _http_stub(200)
     try:
         monkeypatch.setenv("OPENHANDS_URL", f"http://127.0.0.1:{port}")
+        # Both must be explicit: the "-> make smoke-openhands" hint is only emitted
+        # once a key is present, so relying on ambient .env made this pass or fail
+        # depending on the machine. Mode too — a checkout set to `off` would skip.
+        monkeypatch.setenv("OPENHANDS_API_KEY", "test-key")
+        monkeypatch.setenv("AIQE_OPENHANDS", "auto")
         r = ic.check_openhands()
         assert r["status"] == "ok" and "reachable" in r["detail"]
         assert "smoke-openhands" in r["detail"]      # points at the deeper test
+    finally:
+        srv.shutdown()
+
+
+def test_http_check_reachable_without_a_key_says_so(monkeypatch):
+    """The other branch: reachable, but not yet able to start a conversation."""
+    srv, port = _http_stub(200)
+    try:
+        monkeypatch.setenv("OPENHANDS_URL", f"http://127.0.0.1:{port}")
+        monkeypatch.delenv("OPENHANDS_API_KEY", raising=False)
+        monkeypatch.setenv("AIQE_OPENHANDS", "auto")
+        monkeypatch.setattr(ic, "_load_env", lambda: None)   # ignore any real .env
+        r = ic.check_openhands()
+        assert r["status"] == "ok"
+        assert "OPENHANDS_API_KEY not set" in r["detail"]
     finally:
         srv.shutdown()
 

@@ -55,7 +55,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import demo_data, email_notify, export_plan, guidance_sync, inline_ticket, \
-    integration_check, openhands_client, openhands_events, plan_state, repo_admin, \
+    integration_check, openhands_client, openhands_events, openhands_mode, plan_state, repo_admin, \
     review_state, settings_store, team_report, work_queue
 
 # The Settings view writes .env; honor it here too (explicit env still wins) so
@@ -447,6 +447,14 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, {"error": "pr is required for mode=pr"}); return
 
                 settings_store.load_env_into()
+                # Respect the hybrid switch: with OpenHands off, delegating a run to it
+                # would silently contradict a deliberate standalone posture. Say so and
+                # point at the paths that do work.
+                if not openhands_mode.enabled():
+                    self._send(409, {"error": "OpenHands is disabled (AIQE_OPENHANDS=off).",
+                                     "hint": "Queue the run instead (Intake & queue), or "
+                                             "trigger it from CI / the TaskEvent receiver."})
+                    return
                 ctrl_repo = p.get("repo") or os.environ.get("AIQE_CONTROL_REPO", "")
                 branch = p.get("branch", "main")
 

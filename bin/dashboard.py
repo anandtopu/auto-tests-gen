@@ -1144,6 +1144,7 @@ document.addEventListener('click', async e => {
 });
 // ---- validate integrations (read-only connectivity check)
 const CHECK_CHIP = { ok: ['✓ connected', 'success'], fail: ['✗ failed', 'danger'],
+                     degraded: ['unreachable (optional)', 'warning'],
                      skipped: ['not configured', 'muted'] };
 $('#check-integrations').addEventListener('click', async () => {
   if (needsServer()) return;
@@ -1164,12 +1165,14 @@ $('#check-integrations').addEventListener('click', async () => {
     $('#check-table tbody').innerHTML = rows;
     $('#check-summary').textContent =
       r.summary.ok + ' connected · ' + r.summary.fail + ' failed · ' +
+      (r.summary.degraded ? r.summary.degraded + ' degraded (optional) · ' : '') +
       r.summary.skipped + ' not configured' +
       (r.mock_mode ? '  (runs still use mock adapters — AIQE_MOCK=1)' : '');
     $('#check-card').classList.remove('hidden');
     $('#check-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     toast(r.summary.fail ? r.summary.fail + ' integration(s) failed — see details'
-                         : 'All configured integrations reachable');
+          : r.summary.degraded ? r.summary.degraded + ' optional integration(s) unreachable — runs are unaffected'
+          : 'All configured integrations reachable');
   } catch (err) { toast(err.message); }
   b.disabled = false; b.textContent = idle;
 });

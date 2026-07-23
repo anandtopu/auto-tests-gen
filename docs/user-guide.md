@@ -92,6 +92,11 @@ per-repo config.
 ```yaml
 models:            # model tier per phase; escalate after 2 failed generate attempts
 phases:            # per-phase max_turns + allowedTools whitelist (least privilege)
+openhands:         # how much the estate depends on OpenHands (it is OPTIONAL)
+  mode: auto                # off | auto (hybrid, default) | required
+                            # auto = use it when reachable, fall back to CI/receiver
+                            # when not; an outage is `degraded`, never fatal.
+                            # AIQE_OPENHANDS overrides for a single run.
 critic:            # advisory test-quality score; NEVER gates a commit (§5.8.7)
   enabled: true             # AIQE_CRITIC=0 skips the phase for a single run
   accept_threshold: 0.8     # >= this -> "accept";  >= review_threshold -> "review"

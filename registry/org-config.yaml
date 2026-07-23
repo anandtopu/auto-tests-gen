@@ -15,6 +15,14 @@ phases:
   # Read-only ON PURPOSE: a critic that can Write/Edit is an unreviewed repair loop,
   # not a second opinion. Advisory status depends on it staying this way (§3.2).
   critic:    { max_turns: 8,  allowed_tools: "Read" }
+# How much this platform depends on OpenHands (docs/integrations/standalone-operation.md):
+#   off       never contact it — the estate runs standalone (CI / TaskEvent / queue)
+#   auto      hybrid (default): use it when reachable, fall back when not; an outage
+#             is reported as `degraded` and is never fatal
+#   required  a hard dependency — an outage fails `make check-integrations`
+# AIQE_OPENHANDS overrides this for a single run.
+openhands:
+  mode: auto
 # Advisory critic (openhands-review §3.2). Scores generated-test QUALITY for the human
 # reviewer and the "escaped noise" metric — it NEVER gates a commit. Thresholds only
 # label the score; AIQE_CRITIC=0 skips the phase for a single run.

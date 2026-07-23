@@ -1,5 +1,10 @@
 # Integrating OpenHands Agents (Trigger Path 1 — primary)
 
+> **OpenHands is optional.** If you cannot reach an OpenHands deployment (licensing,
+> procurement, network policy), the platform runs standalone — CI triggers, our own
+> TaskEvent receiver, and our own container provide every piece it contributes. See
+> [standalone-operation.md](standalone-operation.md); this page assumes you *do* have it.
+
 OpenHands owns **orchestration and the sandbox**: trigger intake (PR labels, mentions,
 webhooks), provisioning an ephemeral Docker runtime per run, and posting results back.
 Claude Code runs *inside* that sandbox as the agent runtime; the platform's
@@ -235,6 +240,7 @@ Then the end-to-end trigger path:
 
 | Symptom | Check |
 |---|---|
+| Cannot reach the Agent Server / Enterprise install at all | Not a blocker — run standalone ([standalone-operation.md](standalone-operation.md)), or self-host the MIT core (§6 there). `make check-integrations` reports this as `[warn] degraded`, not a failure |
 | Conversation starts but no pipeline run | Microagent file present in the *source repo*? Frontmatter triggers match the label? |
 | `GATE_REFUSED` (exit 6) | The sandbox cloned test repos without `.git` — clone through the SCM adapter, never `cp` |
 | Clarification comment instead of tests | Routing confidence < threshold — expected for unmapped repos; fix registry/`covers` or reply with pinned routing |

@@ -72,8 +72,13 @@ SPEC = [
          "help": "https://your-domain.atlassian.net/wiki"},
         {"env": "CONFLUENCE_SPACE", "label": "Default space", "default": "QA"},
      ]},
-    {"section": "OpenHands", "hint": "Orchestrator (Path 1) + make smoke-openhands.",
+    {"section": "OpenHands",
+     "hint": "Optional orchestrator (Path 1). The pipeline never calls it — runs also "
+             "trigger from CI, the TaskEvent receiver, or the work queue.",
      "fields": [
+        {"env": "AIQE_OPENHANDS", "label": "Dependency mode",
+         "help": "off = standalone · auto = hybrid, outage is non-fatal (default) · "
+                 "required = an outage fails the connectivity check"},
         {"env": "OPENHANDS_URL", "label": "Agent Server URL"},
         {"env": "OPENHANDS_API_KEY", "label": "API key", "secret": True},
         {"env": "OPENHANDS_CONVERSATIONS_PATH", "label": "Conversations path",
