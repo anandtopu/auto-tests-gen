@@ -146,3 +146,42 @@ def test_adapter_still_rejects_unknown_verbs():
                        text=True, encoding="utf-8", errors="replace",
                        stdin=subprocess.DEVNULL)
     assert r.returncode == 64
+
+
+# ------------------------------------------- per-repo project mapping (UI/CLI field)
+
+def test_upsert_stores_an_explicit_project_that_beats_the_url(monkeypatch):
+    import repo_admin
+    try:
+        repo_admin.upsert_app("zz-proj-map", kind="service", scm="stash",
+                              url="URLPROJ/zz-proj-map", stash_project="OVERRIDE")
+        entry = next(r for r in repo_admin.summary()["app_repos"]
+                     if r["name"] == "zz-proj-map")
+        assert entry["stash_project"] == "OVERRIDE"
+        assert st.resolve("zz-proj-map", {}) == ("OVERRIDE", "zz-proj-map")
+        # empty string REMOVES the override -> falls back to the url segment
+        repo_admin.upsert_app("zz-proj-map", stash_project="")
+        assert st.resolve("zz-proj-map", {}) == ("URLPROJ", "zz-proj-map")
+    finally:
+        repo_admin.remove_app("zz-proj-map", force=True)
+
+
+def test_upsert_rejects_a_malformed_project_key():
+    import repo_admin
+    with pytest.raises(SystemExit):
+        repo_admin.upsert_app("zz-bad-proj", kind="service", scm="stash",
+                              url="X/zz-bad-proj", stash_project="not a key!")
+    # and the half-validated repo must not have been left behind
+    assert not any(r["name"] == "zz-bad-proj"
+                   for r in repo_admin.summary()["app_repos"])
+
+
+def test_project_field_is_exposed_on_every_surface():
+    """CLI (add + set), server API, and both dashboard forms."""
+    cli = (ROOT / "bin/repos.py").read_text(encoding="utf-8")
+    assert "--stash-project" in cli and '"stash-project": "stash_project"' in cli
+    srv = (ROOT / "bin/dashboard_server.py").read_text(encoding="utf-8")
+    assert srv.count('stash_project=p.get("stash_project")') == 2, \
+        "both /api/repos/app and /api/repos/test must pass the field"
+    ui = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert "app-stashproj" in ui and "test-stashproj" in ui

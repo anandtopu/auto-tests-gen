@@ -105,7 +105,10 @@ The adapter resolves each repo's **project and slug individually** — a single 
 [engine/lib/stash_target.py](../../engine/lib/stash_target.py), which resolves the
 project in this order:
 
-1. the entry's explicit `stash_project:` field, if set;
+1. the entry's explicit `stash_project:` field, if set — editable in the
+   Repositories view ("Stash project" on both forms), via
+   `bin/repos.py add-app/add-test --stash-project KEY`, or
+   `bin/repos.py set <name> stash-project KEY`;
 2. the first path segment of its `url:` (`ENG/payments-api` → project `ENG`,
    slug `payments-api`);
 3. `STASH_PROJECT` — the fallback default for repos that declare neither.

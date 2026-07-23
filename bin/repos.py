@@ -44,7 +44,8 @@ REG_PATH = ROOT / "registry/repo-registry.yaml"
 CSV_FIELDS = {"domains": "domains", "testable-paths": "testable_paths",
               "consumes-services": "consumes_services"}
 STR_FIELDS = {"contract": "contract", "route-table": "route_table",
-              "url": "url", "scm": "scm", "type": "type"}
+              "url": "url", "scm": "scm", "type": "type",
+              "stash-project": "stash_project"}
 
 
 def save_and_verify(reg, skip_tests=False):
@@ -187,7 +188,8 @@ def cmd_add_app(args):
     r = repo_admin.upsert_app(args.name, kind=args.kind, scm=args.scm, url=args.url,
                               domains=args.domains, testable_paths=args.paths,
                               contract=args.contract, route_table=args.route_table,
-                              consumes_services=args.consumes)
+                              consumes_services=args.consumes,
+                              stash_project=args.stash_project)
     print(f"{'added' if r['created'] else 'updated'} app repo {args.name}")
 
 
@@ -195,7 +197,8 @@ def cmd_add_test(args):
     import repo_admin
     r = repo_admin.upsert_test(args.name, layer=args.layer, framework=args.framework,
                                scm=args.scm, url=args.url, specs=args.specs,
-                               fixtures=args.fixtures, scope=args.scope)
+                               fixtures=args.fixtures, scope=args.scope,
+                               stash_project=args.stash_project)
     print(f"{'added' if r['created'] else 'updated'} test repo {args.name}")
 
 
@@ -289,11 +292,13 @@ if __name__ == "__main__":
     s.add_argument("--kind"); s.add_argument("--scm"); s.add_argument("--url")
     s.add_argument("--domains"); s.add_argument("--paths")
     s.add_argument("--contract"); s.add_argument("--route-table", dest="route_table")
-    s.add_argument("--consumes"); s.set_defaults(fn=cmd_add_app)
+    s.add_argument("--consumes"); s.add_argument("--stash-project", dest="stash_project")
+    s.set_defaults(fn=cmd_add_app)
     s = sub.add_parser("add-test"); s.add_argument("name")
     s.add_argument("--layer"); s.add_argument("--framework"); s.add_argument("--scm")
     s.add_argument("--url"); s.add_argument("--specs"); s.add_argument("--fixtures")
-    s.add_argument("--scope"); s.set_defaults(fn=cmd_add_test)
+    s.add_argument("--scope"); s.add_argument("--stash-project", dest="stash_project")
+    s.set_defaults(fn=cmd_add_test)
     s = sub.add_parser("scope"); s.add_argument("test_repo"); s.add_argument("apps")
     s.set_defaults(fn=cmd_scope)
     s = sub.add_parser("sync"); s.add_argument("name", nargs="?")

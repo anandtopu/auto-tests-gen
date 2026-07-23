@@ -119,6 +119,24 @@ def summary():
 
 # ---------------------------------------------------------------- app repos
 
+PROJECT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_~-]{0,63}$")
+
+
+def _set_stash_project(entry, value):
+    """Explicit per-repo Stash project key (adapters/scm/stash.sh resolves it ahead
+    of the url's first segment and the STASH_PROJECT default). Empty string removes
+    the override; None leaves it untouched."""
+    if value is None:
+        return
+    v = str(value).strip()
+    if not v:
+        entry.pop("stash_project", None)
+        return
+    if not PROJECT_RE.fullmatch(v):
+        _fail(f"invalid stash project key: {v!r}")
+    entry["stash_project"] = v
+
+
 def _ensure_guidance(name, creating):
     """On ADD, give a repo that ships no AGENTS.md a generated one.
 
@@ -151,7 +169,7 @@ def _ensure_guidance(name, creating):
 @_locked
 def upsert_app(name, kind=None, scm=None, url=None, domains=None,
                testable_paths=None, contract=None, route_table=None,
-               consumes_services=None):
+               consumes_services=None, stash_project=None):
     """Add or edit an application repository. `kind` accepts ui|service (or the
     registry's frontend|backend). Only provided fields change on edit."""
     if not NAME_RE.fullmatch(name or ""):
@@ -182,6 +200,7 @@ def upsert_app(name, kind=None, scm=None, url=None, domains=None,
                        ("testable_paths", _csv(testable_paths))):
         if val is not None:
             r[field] = val
+    _set_stash_project(r, stash_project)
     if contract is not None:
         r["contract"] = contract
     if route_table is not None:
@@ -248,7 +267,7 @@ def remove_app(name, force=False):
 
 @_locked
 def upsert_test(name, layer=None, framework=None, scm=None, url=None,
-                specs=None, fixtures=None, scope=None):
+                specs=None, fixtures=None, scope=None, stash_project=None):
     """Add or edit an E2E test repository. `scope` declares the app repos this
     repo is responsible for (many app repos -> one test repo)."""
     if not NAME_RE.fullmatch(name or ""):
@@ -281,6 +300,7 @@ def upsert_test(name, layer=None, framework=None, scm=None, url=None,
         t.setdefault("layout", {})["specs"] = specs
     if fixtures is not None:
         t.setdefault("layout", {})["fixtures"] = fixtures
+    _set_stash_project(t, stash_project)
     if scope is not None:
         t["scope"] = _valid_scope(reg, _csv(scope))
     save_and_verify(reg, regen_cov=True)
