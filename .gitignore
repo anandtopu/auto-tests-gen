@@ -12,3 +12,8 @@ eval/results/
 .pytest_cache/
 reports/inline/
 reports/catalog.db
+
+# Generated per-repo AGENTS.md (engine/lib/repo_guidance_gen.py) — derived from the
+# registry, harvested surface and catalog, so it is rebuilt on demand rather than
+# committed. bin/gen_agents_md.py regenerates any that are missing before it runs.
+knowledge/generated/

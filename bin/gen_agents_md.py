@@ -15,6 +15,17 @@ sys.path.insert(0, str(ROOT / "engine/lib"))
 from registry import load_registry, load_org_config
 import coverage_gaps, repo_admin
 
+# knowledge/generated/ is gitignored scratch, so a fresh clone (or the container) has
+# none of it and repos that ship no AGENTS.md would silently drop out of the guidance
+# section below. Rebuild what is missing first — deterministic, no model call, and a
+# no-op when the files already exist. Best-effort: this must never stop AGENTS.md
+# being written.
+try:
+    import repo_guidance_gen
+    repo_guidance_gen.ensure_all()
+except Exception:
+    pass
+
 reg = load_registry()
 org = load_org_config()
 
