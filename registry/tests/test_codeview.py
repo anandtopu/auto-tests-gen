@@ -128,9 +128,11 @@ def test_artifact_panel_renders_code_and_keeps_the_raw_diff():
     if not html.exists():
         importlib.import_module("dashboard")
     text = html.read_text(encoding="utf-8")
-    if "Generated test code" in text:                  # only if a committed run exists
-        assert 'class="spec-file"' in text
-        assert "Raw commit diff" in text
+    # Two legitimate variants: per-file blocks with a "Raw commit diff" toggle, or —
+    # when a diff carries no test-code files — the collapsed fallback. Key on the
+    # toggle label that only the block variant emits.
+    if "Raw commit diff" in text:
+        assert 'class="spec-file"' in text, "block variant without spec-file blocks"
 
 
 def test_comparison_styles_exist_for_updated_and_deleted():

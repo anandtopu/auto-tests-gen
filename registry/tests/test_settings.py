@@ -248,16 +248,11 @@ def test_server_runs_the_clear_as_a_subprocess():
     assert "demo_data.clear(" not in handler, "in-process clear reintroduced"
 
 
-def test_demo_data_json_mode_contract(tmp_path):
+def test_demo_data_json_mode_contract():
     """The server depends on --json emitting one JSON object and exit 9 on refusal."""
-    import json as _json, os as _os, subprocess as _sp, sys as _s
-    root = _demo_tree(tmp_path)
-    r = _sp.run([_s.executable, str(ROOT / "engine/lib/demo_data.py"), "--json"],
-                cwd=root, capture_output=True, text=True, encoding="utf-8",
-                stdin=_sp.DEVNULL,
-                env={**_os.environ, "PYTHONPATH": str(ROOT / "engine/lib")})
-    # NOTE: the CLI clears relative to the REPO root, not cwd — so run dry against
-    # the real root instead of mutating it: use --dry.
+    import json as _json, subprocess as _sp, sys as _s
+    # The CLI clears relative to the REPO root (a module constant), not cwd — so this
+    # must ONLY ever run with --dry, or the test itself wipes the live demo estate.
     r = _sp.run([_s.executable, str(ROOT / "engine/lib/demo_data.py"), "--json", "--dry"],
                 cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
                 stdin=_sp.DEVNULL)

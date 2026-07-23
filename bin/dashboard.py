@@ -563,6 +563,23 @@ CSS = """
   --sr-fg-on-primary: hsl(222.2 47.4% 11.2%);
   --sr-border: hsl(217.2 32.6% 22%); --sr-input: hsl(217.2 32.6% 22%);
 } }
+/* Manual theme toggle: an explicit choice (persisted in localStorage, stamped as
+   data-theme on <html>) must beat the OS preference IN BOTH DIRECTIONS — dark on a
+   light OS and light on a dark OS. Token-level overrides, same palettes as above. */
+:root[data-theme="dark"] {
+  --sr-bg: hsl(222.2 47.4% 7%); --sr-bg-muted: hsl(217.2 32.6% 17.5%);
+  --sr-fg: hsl(210 40% 98%); --sr-fg-muted: hsl(215 20.2% 65.1%);
+  --sr-primary: hsl(210 40% 98%); --sr-primary-90: hsl(210 40% 88%);
+  --sr-fg-on-primary: hsl(222.2 47.4% 11.2%);
+  --sr-border: hsl(217.2 32.6% 22%); --sr-input: hsl(217.2 32.6% 22%);
+}
+:root[data-theme="light"] {
+  --sr-bg: hsl(0 0% 100%); --sr-bg-muted: hsl(210 40% 96.1%);
+  --sr-fg: hsl(222.2 47.4% 11.2%); --sr-fg-muted: hsl(215.4 16.3% 46.9%);
+  --sr-fg-on-primary: hsl(210 40% 98%);
+  --sr-primary: hsl(222.2 47.4% 11.2%); --sr-primary-90: hsl(222.2 47.4% 18%);
+  --sr-border: hsl(214.3 31.8% 91.4%); --sr-input: hsl(214.3 31.8% 91.4%);
+}
 * { box-sizing: border-box; }
 body { margin:0; display:flex; min-height:100vh; background:var(--sr-bg-muted); color:var(--sr-fg);
   font-family:var(--sr-font-sans); font-size:14px; line-height:1.5; }
@@ -1259,6 +1276,26 @@ document.addEventListener('click', async e => {
   b.disabled = false; b.textContent = idle;
 });
 
+// ---- theme toggle: explicit choice beats the OS preference, both directions
+(function () {
+  const KEY = 'aiqe-theme';                    // 'dark' | 'light' | absent = system
+  const root = document.documentElement;
+  const btn = document.getElementById('theme-toggle');
+  function apply() {
+    const t = localStorage.getItem(KEY);
+    if (t === 'dark' || t === 'light') root.dataset.theme = t;
+    else delete root.dataset.theme;            // follow the OS again
+    if (btn) btn.textContent = t === 'dark' ? '◐ Dark' : t === 'light' ? '◐ Light' : '◐ Auto';
+  }
+  if (btn) btn.addEventListener('click', () => {
+    const cur = localStorage.getItem(KEY);
+    const next = cur === 'dark' ? 'light' : cur === 'light' ? null : 'dark';
+    if (next) localStorage.setItem(KEY, next); else localStorage.removeItem(KEY);
+    apply();
+  });
+  apply();
+})();
+
 // ---- settings
 const escAttr = escHtml;
 async function loadSettings() {
@@ -1403,6 +1440,8 @@ page = f"""<!doctype html>
     <h1 id="view-title">Overview</h1>
     <span class="static-pill" id="static-pill" style="display:none">Static snapshot —
       run <code>make serve</code> for actions</span>
+    <button class="btn btn-sm" id="theme-toggle"
+      title="Switch theme (follows your OS until you choose)">◐ Theme</button>
     <button class="btn btn-primary" id="run-queue">Run queue ({queued_n})</button>
   </header>
   <div class="content">

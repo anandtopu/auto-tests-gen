@@ -113,6 +113,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        # The dashboard is regenerated per request and the APIs are live state — a
+        # heuristically-cached copy shows stale views/JS after every deploy or edit
+        # (seen as: reload still serves the previous page). Nothing here is worth
+        # caching, so say so explicitly.
+        self.send_header("Cache-Control", "no-store")
         if getattr(self, "_set_cookie", False):    # token arrived via ?token= — persist it
             self.send_header("Set-Cookie", f"aiqe_token={UI_TOKEN}; HttpOnly; SameSite=Strict")
             self._set_cookie = False
