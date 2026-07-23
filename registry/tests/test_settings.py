@@ -66,8 +66,14 @@ def _demo_tree(tmp_path):
                 "reports/dashboard.html", "reports/exports/P-1-testplan.pdf",
                 "testplans/PROJ-1.md", "testdata/PROJ-1/cases.json",
                 "out/pr.diff", "workspace/tests/r/a.spec.js", "catalog/health.json",
+                # state stores that used to survive a clear (see the regression test)
+                "reports/plans/state.json", "reports/plans/PROJ-1.contract.json",
+                "reports/openhands/state.json", "reports/inline/ADHOC-1.json",
+                "knowledge/generated/some-repo/AGENTS.md",
+                "knowledge/synced/some-repo/AGENTS.md", "knowledge/synced/state.json",
+                # estate — must survive
                 "catalog/tests.jsonl", "registry/repo-registry.yaml", "AGENTS.md",
-                "demo/orders-api/app.js"]:
+                "demo/orders-api/app.js", "knowledge/repos/orders-api.md"]:
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("x", encoding="utf-8")
@@ -77,7 +83,7 @@ def _demo_tree(tmp_path):
 def test_clear_demo_removes_generated_keeps_estate(tmp_path):
     root = _demo_tree(tmp_path)
     r = demo_data.clear(root=root)
-    assert r["removed"] == 11
+    assert r["removed"] == 18
     for gone in ["reports/runs/1-x.json", "reports/runs/reviews.json",
                  "reports/PROJ-1-repo.log", "reports/dashboard.html",
                  "reports/exports/P-1-testplan.pdf", "testplans/PROJ-1.md",
@@ -85,15 +91,48 @@ def test_clear_demo_removes_generated_keeps_estate(tmp_path):
                  "workspace/tests/r/a.spec.js", "catalog/health.json"]:
         assert not (root / gone).exists(), gone
     for kept in ["catalog/tests.jsonl", "registry/repo-registry.yaml",
-                 "AGENTS.md", "demo/orders-api/app.js"]:
+                 "AGENTS.md", "demo/orders-api/app.js",
+                 "knowledge/repos/orders-api.md"]:      # hand-authored team notes
         assert (root / kept).exists(), kept
     assert (root / "reports/runs").is_dir()                       # recreated empty
+
+
+def test_clear_demo_leaves_no_state_store_behind(tmp_path):
+    """Regression: 'Clear demo data' left four stores untouched.
+
+    The stores are deliberately scattered — plan state sits outside reports/runs/ so
+    the run-record glob skips it, OpenHands events have their own dir, guidance caches
+    live under knowledge/ — and each one added after this module was written was
+    silently missed. The worst was reports/plans/: an approval outlived the plan it
+    approved, so generation could run against a sign-off for a plan that no longer
+    existed."""
+    root = _demo_tree(tmp_path)
+    demo_data.clear(root=root)
+    for gone in ["reports/plans/state.json", "reports/plans/PROJ-1.contract.json",
+                 "reports/openhands/state.json", "reports/inline/ADHOC-1.json",
+                 "knowledge/generated/some-repo/AGENTS.md",
+                 "knowledge/synced/some-repo/AGENTS.md", "knowledge/synced/state.json"]:
+        assert not (root / gone).exists(), f"survived the clear: {gone}"
+
+
+def test_every_writable_state_store_is_a_clear_target():
+    """Adding a new state store without adding it here is how this regressed.
+
+    Keep this list in step with the stores the platform writes; if you add one,
+    add it to demo_data.CLEAR_DIRS in the same change."""
+    for rel in ("reports/runs", "reports/plans", "reports/openhands",
+                "reports/inline", "reports/exports",
+                "knowledge/generated", "knowledge/synced",
+                "out", "workspace", "testplans", "testdata"):
+        assert rel in demo_data.CLEAR_DIRS, f"{rel} is written but never cleared"
+    assert "knowledge/repos" not in demo_data.CLEAR_DIRS
+    assert not any(d == "knowledge" for d in demo_data.CLEAR_DIRS),         "clearing all of knowledge/ would delete hand-authored team notes"
 
 
 def test_clear_demo_dry_run_touches_nothing(tmp_path):
     root = _demo_tree(tmp_path)
     r = demo_data.clear(root=root, dry=True)
-    assert r["removed"] == 11
+    assert r["removed"] == 18
     assert (root / "reports/runs/1-x.json").exists()
 
 

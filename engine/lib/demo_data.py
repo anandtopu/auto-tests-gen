@@ -2,9 +2,11 @@
 """Demo-data reset — the Settings view's danger zone (and `make clear-demo`).
 
 Deletes everything the pipeline *generated* (run history + archived diffs,
-review/queue/webhook state, test plans, test data, exports, logs, scratch
-dirs, CI-health ingest, the SQLite index) while keeping everything the estate
-*is* (registry, catalog JSONL, AGENTS.md, demo repos, prompts). After a clear,
+review/queue/webhook state, plan state + contract snapshots, OpenHands event
+ingest, test plans, test data, exports, logs, scratch dirs, CI-health ingest,
+the SQLite index, and the derived guidance caches under knowledge/generated
+and knowledge/synced) while keeping everything the estate *is* (registry,
+catalog JSONL, AGENTS.md, demo repos, prompts, knowledge/repos team notes). After a clear,
 `make demo-bootstrap` / `make demo-pr` rebuild the demo state from scratch.
 
 Refuses to run while a pipeline run holds out/.pipeline.lock.
@@ -26,9 +28,24 @@ def _rmtree(d):
 
 # Directories whose CONTENTS are demo output (dir is recreated empty) and
 # generated single files. reports/*.log run artifacts are globbed separately.
+#
+# Every store the platform WRITES belongs here. State stores are deliberately
+# scattered (plan state is kept out of reports/runs/ so the run-record glob skips
+# it, OpenHands events sit in their own dir), and each one added since this module
+# was written was a store this list silently missed — leaving a "cleared" estate
+# carrying state from before the clear. The most damaging was reports/plans/: an
+# approval survived while the plan it approved was deleted, so generation would run
+# against a stale sign-off for a plan that no longer existed.
 CLEAR_DIRS = ["reports/runs", "reports/exports", "reports/inline",
+              "reports/plans",            # plan-first state + contract snapshots
+              "reports/openhands",        # agent conversation/event ingest
+              "knowledge/generated",      # generated per-repo AGENTS.md
+              "knowledge/synced",         # SCM guidance cache (re-pull: make sync-guidance)
               "out", "workspace", "testplans", "testdata"]
 CLEAR_FILES = ["reports/dashboard.html", "reports/catalog.db", "catalog/health.json"]
+
+# Note: knowledge/repos/ is deliberately absent — those are hand-authored team notes,
+# part of what the estate *is*. Only the derived caches above are cleared.
 
 
 def _files_under(p):
@@ -80,6 +97,9 @@ def clear(root=None, dry=False, force=False):
         if not dry:
             for name in ("queue.json", "reviews.json", "hooks-seen.json"):
                 locks.enter_context(fs_lock.lock(root / "reports/runs" / name))
+            # plan state lives outside reports/runs/ but is mutated the same way,
+            # so it needs the same protection from an interleaved save()
+            locks.enter_context(fs_lock.lock(root / "reports/plans/state.json"))
         for rel in CLEAR_DIRS:
             d = root / rel
             files = _files_under(d)
@@ -108,5 +128,8 @@ if __name__ == "__main__":
     for t in r["targets"]:
         print(f"  {t}")
     if not dry:
-        print("estate kept: registry, catalog, AGENTS.md, demo repos. "
-              "Rebuild demo state with: make demo-bootstrap && make demo-pr")
+        print("estate kept: registry, catalog, AGENTS.md, demo repos, "
+              "knowledge/repos team notes.")
+        print("Rebuild demo state with: make demo-bootstrap && make demo-pr")
+        print("Repo guidance: knowledge/generated/ rebuilds itself on the next "
+              "AGENTS.md regeneration; re-pull repo-owned files with make sync-guidance")
