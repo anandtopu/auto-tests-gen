@@ -1220,15 +1220,19 @@ $('#check-integrations').addEventListener('click', async () => {
 $('#clear-demo').addEventListener('click', async () => {
   if (needsServer()) return;
   if (!confirm('Delete ALL generated demo data?\\n\\nRemoves run history, archived ' +
-    'diffs, review/queue/webhook state, test plans, test data, exports, logs and ' +
-    'scratch dirs. The registry, catalog and demo repos are kept.\\n\\nThis cannot be undone.')) return;
+    'diffs, review/queue/webhook state, test plans, test data, the bootstrapped test ' +
+    'catalog + coverage evidence, generated guidance, exports, logs and scratch dirs.' +
+    '\\n\\nKept: your repository configuration (remove repos in the Repositories view), ' +
+    'the demo repos, and AGENTS.md.\\n\\nThe page reloads when done. This cannot be undone.')) return;
   const b = $('#clear-demo');
   b.disabled = true;
   const post = force => api('/api/demo/clear', { method: 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force }) });
   try {
     const r = await post(false);
-    toast('Cleared ' + r.removed + ' generated file(s) — reload to see the reset dashboard');
+    toast('Cleared ' + r.removed + ' generated file(s) — reloading…');
+    setTimeout(() => location.reload(), 900);
+    return;
   } catch (err) {
     // A pipeline lock left behind by a killed run used to make this a dead end.
     // Offer the override here rather than sending the user to the shell.
@@ -1236,7 +1240,9 @@ $('#clear-demo').addEventListener('click', async () => {
         confirm(err.message + '\\n\\nClear anyway?')) {
       try {
         const r = await post(true);
-        toast('Cleared ' + r.removed + ' generated file(s) (forced past the lock)');
+        toast('Cleared ' + r.removed + ' generated file(s) (forced past the lock) — reloading…');
+        setTimeout(() => location.reload(), 900);
+        return;
       } catch (e2) { toast(e2.message); }
     } else { toast(err.message); }
   }

@@ -4,9 +4,11 @@
 Deletes everything the pipeline *generated* (run history + archived diffs,
 review/queue/webhook state, plan state + contract snapshots, OpenHands event
 ingest, test plans, test data, exports, logs, scratch dirs, CI-health ingest,
-the SQLite index, and the derived guidance caches under knowledge/generated
-and knowledge/synced) while keeping everything the estate *is* (registry,
-catalog JSONL, AGENTS.md, demo repos, prompts, knowledge/repos team notes). After a clear,
+the SQLite index, the bootstrapped catalog JSONL + review queues, and the
+derived guidance caches under knowledge/generated and knowledge/synced) while
+keeping everything the estate *is*: the registry (your repo CONFIGURATION),
+catalog/bootstrap code, the catalog sample + schema, AGENTS.md, demo repos,
+prompts, and knowledge/repos team notes. After a clear,
 `make demo-bootstrap` / `make demo-pr` rebuild the demo state from scratch.
 
 Refuses to run while a pipeline run holds out/.pipeline.lock.
@@ -44,8 +46,21 @@ CLEAR_DIRS = ["reports/runs", "reports/exports", "reports/inline",
               "out", "workspace", "testplans", "testdata"]
 CLEAR_FILES = ["reports/dashboard.html", "reports/catalog.db", "catalog/health.json"]
 
+# Generated files that live BESIDE committed code/fixtures, so we clear by glob and
+# keep the exceptions rather than wiping the whole directory. The bootstrapped catalog
+# is demo output — `make demo-bootstrap` fully regenerates it (`> catalog/<repo>.jsonl`)
+# — so a "clear" that left it behind is why the Test catalog and Coverage views looked
+# untouched. catalog/bootstrap/ (code), catalog.sample.jsonl and schema.json stay.
+CLEAR_GLOBS = [
+    ("catalog/*.jsonl", {"catalog.sample.jsonl"}),
+    ("catalog/review/*.csv", set()),
+]
+
 # Note: knowledge/repos/ is deliberately absent — those are hand-authored team notes,
-# part of what the estate *is*. Only the derived caches above are cleared.
+# part of what the estate *is*. The registry is likewise kept: it is CONFIGURATION
+# (in a real deployment it holds real repos), not generated demo output, so a
+# demo-reset click must never destroy it. Remove repos individually in the
+# Repositories view. Only derived data and generated caches are cleared here.
 
 
 def _files_under(p):
@@ -116,6 +131,16 @@ def clear(root=None, dry=False, force=False):
                 targets.append(f.relative_to(root).as_posix())
                 if not dry:
                     f.unlink()
+        # Generated files interleaved with committed ones (the bootstrapped catalog):
+        # clear by glob, keeping the named exceptions.
+        for pattern, keep in CLEAR_GLOBS:
+            for f in sorted(root.glob(pattern)):
+                if not f.is_file() or f.name in keep:
+                    continue
+                removed += 1
+                targets.append(f.relative_to(root).as_posix())
+                if not dry:
+                    f.unlink()
     return {"removed": removed, "targets": targets}
 
 
@@ -128,7 +153,8 @@ if __name__ == "__main__":
     for t in r["targets"]:
         print(f"  {t}")
     if not dry:
-        print("estate kept: registry, catalog, AGENTS.md, demo repos, "
+        print("estate kept: registry (repo config — remove repos in the "
+              "Repositories view), catalog/bootstrap code, AGENTS.md, demo repos, "
               "knowledge/repos team notes.")
         print("Rebuild demo state with: make demo-bootstrap && make demo-pr")
         print("Repo guidance: knowledge/generated/ rebuilds itself on the next "
