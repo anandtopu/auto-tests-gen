@@ -38,6 +38,17 @@ TIMEOUT = 15
 _HEALTH_CANDIDATES = ("/health", "/server_info", "/api/v1/users/me")
 
 
+def _ssl_context():
+    """Return an unverified SSL context when AIQE_SSL_VERIFY=0 (corporate CA networks).
+    Returns None (default verified behaviour) otherwise."""
+    if os.environ.get("AIQE_SSL_VERIFY", "1").strip() == "0":
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    return None
+
+
 def _env(k, default=""):
     return os.environ.get(k, default).strip()
 
@@ -63,7 +74,7 @@ def _request(method, url, headers, body=None):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=TIMEOUT, context=_ssl_context()) as resp:
             raw = resp.read()
             try:
                 return resp.status, json.loads(raw) if raw else {}, None

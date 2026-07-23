@@ -47,11 +47,21 @@ def _r(name, status, detail, hint=""):
     return {"name": name, "status": status, "detail": detail, "hint": hint}
 
 
+def _ssl_context():
+    """Return an unverified SSL context when AIQE_SSL_VERIFY=0 (corporate CA networks)."""
+    if _env("AIQE_SSL_VERIFY", "1") == "0":
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
+    return None
+
+
 def _http(url, headers=None, method="GET"):
     """Returns (code, error). code None means the request never completed."""
     req = urllib.request.Request(url, headers=headers or {}, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=TIMEOUT, context=_ssl_context()) as resp:
             return resp.status, None
     except urllib.error.HTTPError as e:
         return e.code, None

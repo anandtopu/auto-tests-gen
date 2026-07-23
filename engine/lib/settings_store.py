@@ -37,6 +37,9 @@ SPEC = [
         {"env": "AIQE_STATUS_URL", "label": "Build-status link URL",
          "help": "URL the ai-qe PR build status links to (e.g. the dashboard)"},
         {"env": "ANTHROPIC_API_KEY", "label": "Anthropic API key", "secret": True},
+        {"env": "AIQE_SSL_VERIFY", "label": "SSL verification",
+         "options": [["1", "enabled (default)"], ["0", "disabled (corporate CA / self-signed)"]],
+         "default": "1"},
      ]},
     {"section": "GitHub", "hint": "Used when SCM adapter is GitHub.",
      "fields": [
