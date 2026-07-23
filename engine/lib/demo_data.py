@@ -22,11 +22,20 @@ import fs_lock
 
 def _rmtree(d):
     """rmtree that also removes read-only files (git objects are r--r--r-- on
-    Windows; plain ignore_errors would silently leave the clone behind)."""
-    def _onexc(fn, path, exc):
+    Windows; plain ignore_errors would silently leave the clone behind).
+
+    The handler ignores its third argument on purpose so ONE function serves both
+    keyword spellings: `onexc` (3.12+) and `onerror` (3.11 — the container image's
+    python). Passing onexc on 3.11 raised TypeError, which broke Clear demo data /
+    Factory reset ONLY inside the container — the class of bug a host-side suite
+    can never catch."""
+    def _fix(fn, path, _exc):
         os.chmod(path, stat.S_IWRITE)
         fn(path)
-    shutil.rmtree(d, onexc=_onexc)
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(d, onexc=_fix)
+    else:
+        shutil.rmtree(d, onerror=_fix)
 
 # Directories whose CONTENTS are demo output (dir is recreated empty) and
 # generated single files. reports/*.log run artifacts are globbed separately.
