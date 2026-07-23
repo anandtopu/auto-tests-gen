@@ -121,9 +121,24 @@ def check_scm():
            "stash": "STASH_TOKEN"}.get(kind, "")
     if not _env(tok):
         return _r(name, "skipped", f"{tok} not set")
-    if kind == "stash" and not (_env("STASH_URL") and _env("STASH_PROJECT")):
-        return _r(name, "fail", "STASH_URL / STASH_PROJECT not set",
-                  "both are required for the Bitbucket Server adapter")
+    if kind == "stash" and not _env("STASH_URL"):
+        return _r(name, "fail", "STASH_URL not set",
+                  "required for the Bitbucket Server adapter")
+    # STASH_PROJECT is only a DEFAULT now — repos can carry their own project via
+    # their url (PROJECT/slug). Warn if neither the default nor any repo declares one.
+    if kind == "stash" and not _env("STASH_PROJECT"):
+        try:
+            from registry import load_registry
+            reg = load_registry()
+            declares = any("/" in str(r.get("url", ""))
+                           for sect in ("source_repositories", "test_repositories")
+                           for r in reg.get(sect, []) if r.get("scm") == "stash")
+        except Exception:
+            declares = False
+        if not declares:
+            return _r(name, "fail", "no Stash project configured",
+                      "set STASH_PROJECT as the default, or give each repo a "
+                      "url of the form PROJECT/slug")
     try:
         from registry import load_registry
         repos = [r["name"] for r in load_registry()["source_repositories"]]

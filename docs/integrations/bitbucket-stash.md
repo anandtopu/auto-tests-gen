@@ -76,9 +76,15 @@ source repos and `REPO_WRITE` on test repos. Fill `.env`:
 
 ```bash
 STASH_URL=https://stash.company.com     # base URL, no trailing slash
-STASH_PROJECT=ENG                       # project key the repos live under
+STASH_PROJECT=ENG                       # DEFAULT project — used only for repos that
+                                        # do not declare their own (see "Multiple
+                                        # projects" below); may be left unset if every
+                                        # repo's url is PROJECT/slug
 STASH_TOKEN=<http access token>
 ```
+
+If the service account needs `PROJECT_READ`/`REPO_READ` across several projects, grant
+them in each project rather than assuming one.
 
 Branch permissions on every test repo: restrict pushes to `test/*` for the service
 account; deny direct pushes to the default branch (the gate is the only push path).
@@ -89,11 +95,33 @@ account; deny direct pushes to the default branch (the gate is the only push pat
 against `rest/api/1.0/projects/<PROJECT>/repos/...`:
 
 - `changed_files <repo> <pr>` → `/pull-requests/<pr>/changes` (file paths)
-- `clone_ro|clone_rw <repo> <dir> [branch]` → `<STASH_URL>/scm/<PROJECT>/<repo>.git`
+- `clone_ro|clone_rw <repo> <dir> [branch]` → `<STASH_URL>/scm/<PROJECT>/<slug>.git`
 - `comment <repo> <pr> <text>` → PR comment
 
-Repos spanning multiple Stash projects: run with a different `STASH_PROJECT` per
-project, or extend the adapter to read the project from the registry `url:` field.
+#### Multiple projects (app repos and E2E repos under different project keys)
+
+The adapter resolves each repo's **project and slug individually** — a single global
+`STASH_PROJECT` is no longer assumed. For every verb, the repo name is passed to
+[engine/lib/stash_target.py](../../engine/lib/stash_target.py), which resolves the
+project in this order:
+
+1. the entry's explicit `stash_project:` field, if set;
+2. the first path segment of its `url:` (`ENG/payments-api` → project `ENG`,
+   slug `payments-api`);
+3. `STASH_PROJECT` — the fallback default for repos that declare neither.
+
+So an estate with app repos under `ENG` and E2E suites under `QA` needs no global
+project at all — each registry entry's `url:` carries its own:
+
+```yaml
+source_repositories:
+  - { name: payments-api,   scm: stash, url: ENG/payments-api }   # project ENG
+test_repositories:
+  - { name: e2e-payments,   scm: stash, url: QA/e2e-payments }    # project QA
+```
+
+The slug may also differ from the registry `name` (the `url:` last segment wins), so a
+friendly registry name can map to a different Stash repo slug.
 
 ### 3. Registry entries
 

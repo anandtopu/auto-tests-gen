@@ -54,7 +54,9 @@ SPEC = [
      "hint": "Used when SCM adapter is Stash (Bitbucket Server/DC).",
      "fields": [
         {"env": "STASH_URL", "label": "Base URL", "help": "https://stash.company.com"},
-        {"env": "STASH_PROJECT", "label": "Project key", "help": "ENG"},
+        {"env": "STASH_PROJECT", "label": "Default project key",
+         "help": "fallback only — repos can live under different projects; set each "
+                 "repo's URL to PROJECT/slug in the Repositories view"},
         {"env": "STASH_TOKEN", "label": "HTTP access token", "secret": True},
      ]},
     {"section": "JIRA", "hint": "Tracker port: tickets, comments, attachments.",

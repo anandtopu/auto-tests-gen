@@ -38,7 +38,7 @@ need ATLASSIAN_MCP_TOKEN
 case "${SCM_KIND:-github}" in
   github)    need GITHUB_TOKEN ;;
   bitbucket) need BITBUCKET_TOKEN ;;
-  stash)     need STASH_URL; need STASH_PROJECT; need STASH_TOKEN ;;
+  stash)     need STASH_URL; need STASH_TOKEN ;;   # STASH_PROJECT is an optional default (repos carry PROJECT/slug)
 esac
 if [ -n "${AIQE_SMOKE_TICKET:-}" ]; then ok "AIQE_SMOKE_TICKET=${AIQE_SMOKE_TICKET}"; \
 else skip "AIQE_SMOKE_TICKET unset — tracker read stage will be skipped"; fi
