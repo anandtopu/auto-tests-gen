@@ -549,6 +549,10 @@ th.gap { color:var(--sr-danger-fg); }
 .chip-danger { background:var(--sr-danger-bg); color:var(--sr-danger-fg); }
 .chip-info { background:var(--sr-info-bg); color:var(--sr-info-fg); }
 .chip-muted { background:var(--sr-bg-muted); color:var(--sr-fg-muted); }
+/* A chip inside a column-flex .stack label would otherwise stretch to the full
+   field width and read as a coloured band rather than a tag. */
+.stack > .lbl { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.stack .chip { align-self:flex-start; flex:none; }
 .pill { background:var(--sr-bg-muted); border-radius:6px; padding:2px 8px; font-size:11px;
   font-weight:600; text-transform:uppercase; color:var(--sr-fg-muted); }
 
@@ -1144,14 +1148,15 @@ async function loadSettings() {
           ? ' <span class="chip chip-info sm" title="from the properties file; saving here writes .env, which overrides it">properties</span>'
           : '';
         if (f.options) {
-          return '<label class="stack">' + escAttr(f.label) + prov +
-            '<select data-env="' + f.env + '">' + f.options.map(o =>
+          return '<label class="stack"><span class="lbl">' + escAttr(f.label) + prov +
+            '</span><select data-env="' + f.env + '">' + f.options.map(o =>
               '<option value="' + o[0] + '"' + (f.value === o[0] ? ' selected' : '') +
               '>' + escAttr(o[1]) + '</option>').join('') + '</select></label>';
         }
         const ph = f.secret ? (f.set ? '•••••• set — type to replace'
                                      : 'not set') : (f.help || '');
-        return '<label class="stack">' + escAttr(f.label) + (f.secret ? ' 🔒' : '') + prov +
+        return '<label class="stack"><span class="lbl">' + escAttr(f.label) +
+          (f.secret ? ' 🔒' : '') + prov + '</span>' +
           '<input data-env="' + f.env + '"' + (f.secret ? ' type="password" autocomplete="new-password"' : '') +
           ' value="' + escAttr(f.value || '') + '" placeholder="' + escAttr(ph) + '"></label>';
       }).join('') + '</div></div>').join('') +
