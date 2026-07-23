@@ -140,3 +140,15 @@ def test_comparison_styles_exist_for_updated_and_deleted():
     src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
     for cls in (".d-add", ".d-del", ".d-ctx", ".diffview"):
         assert cls in src, f"missing diff style {cls}"
+
+
+def test_api_wrapper_explains_a_stale_server_on_501_and_404():
+    """'Factory reset returns error' — on a long-lived server predating the endpoint,
+    the POST answers 501/404 with an HTML body, and the old toast showed a bare
+    status code that sent the user bug-hunting. The wrapper must name the actual
+    cause (stale server process) and the fix (restart make serve)."""
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    i = src.index("async function api(")
+    wrapper = src[i:i + 900]
+    assert "501" in wrapper and "404" in wrapper
+    assert "make serve" in wrapper, "the fix must be named in the error"

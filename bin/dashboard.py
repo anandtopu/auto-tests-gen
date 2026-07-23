@@ -818,7 +818,18 @@ function needsServer() {
 }
 async function api(path, opts) {
   const r = await fetch(path, opts);
-  if (!r.ok) throw new Error((await r.json()).error || r.status);
+  if (!r.ok) {
+    // A 501/404 from an /api/ path means the SERVER process predates this page's
+    // code (it renders the page fresh from disk but keeps its own old handlers).
+    // Say so explicitly — "501" alone sent users hunting for a bug that a restart
+    // fixes. json() also fails on those responses (HTML error body), hence the catch.
+    let msg;
+    try { msg = (await r.json()).error; } catch (e) { msg = null; }
+    if (!msg && (r.status === 501 || r.status === 404))
+      msg = 'The dashboard server is running older code than this page (HTTP '
+        + r.status + '). Restart it — stop and re-run make serve — then retry.';
+    throw new Error(msg || ('HTTP ' + r.status));
+  }
   return r.json();
 }
 const TITLES = { overview: 'Overview', queue: 'Intake & work queue',
