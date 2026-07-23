@@ -1,0 +1,36 @@
+commit 7275e0d51ef199144886a0f3264e84fd81fbd7a7
+Author: anandtopu <anand.goud.2020@gmail.com>
+Date:   Thu Jul 23 10:40:19 2026 -0500
+
+    test(PR-orders-api-201): AI-generated E2E updates
+    
+    Co-Authored-By: ai-qe-agent <ai-qe@company.com>
+
+diff --git a/catalog/generated.jsonl b/catalog/generated.jsonl
+index e69de29..34cfd7a 100644
+--- a/catalog/generated.jsonl
++++ b/catalog/generated.jsonl
+@@ -0,0 +1 @@
++{"test_id":"e2e-api-tests-1::suites/orders/PR-orders-api-201-discount-boundary.spec.js::PR-orders-api-201","file":"suites/orders/PR-orders-api-201-discount-boundary.spec.js","title":"PR-orders-api-201: discount boundary","layer":"api","mapping":{"app_repos":["orders-api"],"feature":"PR-orders-api-201","confidence":1.0,"method":["born_mapped"],"status":"confirmed"}}
+diff --git a/suites/orders/PR-orders-api-201-discount-boundary.spec.js b/suites/orders/PR-orders-api-201-discount-boundary.spec.js
+new file mode 100644
+index 0000000..fb6f24f
+--- /dev/null
++++ b/suites/orders/PR-orders-api-201-discount-boundary.spec.js
+@@ -0,0 +1,16 @@
++// PR-orders-api-201: discount boundary validation (AI-generated)
++const { test } = require('node:test');
++const assert = require('node:assert');
++const BASE = process.env.API_BASE_URL || 'http://localhost:4600';
++
++test('PR-orders-api-201: rejects discount above 90%', async () => {
++  const r = await fetch(`${BASE}/v1/orders/1/discounts`, { method: 'POST',
++    headers: {'Content-Type':'application/json'}, body: JSON.stringify({ code: 'MEGA', pct: 95 }) });
++  assert.strictEqual(r.status, 400);
++});
++
++test('PR-orders-api-201: rejects zero-percent discount', async () => {
++  const r = await fetch(`${BASE}/v1/orders/1/discounts`, { method: 'POST',
++    headers: {'Content-Type':'application/json'}, body: JSON.stringify({ code: 'ZERO', pct: 0 }) });
++  assert.strictEqual(r.status, 400);
++});

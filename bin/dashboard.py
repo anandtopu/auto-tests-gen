@@ -1051,11 +1051,16 @@ document.addEventListener('click', async e => {
     const rows = r.generated || [];
     const wrote = rows.filter(x => x.status === 'written');
     const own = rows.filter(x => x.status === 'skipped_has_own');
+    // Report the actual mix: "already ship their own" is only true for some of them,
+    // and claiming it for repos that merely have a generated file is misleading.
+    const kept = rows.filter(x => x.status === 'skipped_exists');
+    const parts = [];
+    if (wrote.length) parts.push('generated ' + wrote.length);
+    if (own.length) parts.push(own.length + ' ship their own');
+    if (kept.length) parts.push(kept.length + ' already generated');
     toast(wrote.length
-      ? 'Generated AGENTS.md for ' + wrote.length + ' repo(s) — AGENTS.md regenerated'
-      : own.length
-        ? 'Nothing to do — those repos already ship their own guidance'
-        : 'Nothing generated (already present; use Sync to pull the repo-owned file)');
+      ? 'AGENTS.md: ' + parts.join(' · ') + ' — estate knowledge regenerated'
+      : 'Nothing to generate — ' + (parts.join(' · ') || 'no repos registered'));
     await loadNotes();
   } catch (err) { toast(err.message); }
   btn.disabled = false; btn.textContent = idle;
