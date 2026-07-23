@@ -10,7 +10,9 @@ regenerates AGENTS.md so agent phases always see current estate knowledge.
               contract | route-table | url | scm | type
   bin/repos.py link <backend> <frontend>             frontend consumes backend
   bin/repos.py unlink <backend> <frontend>
-  bin/repos.py remove <name>                         deregister a source repo
+  bin/repos.py remove <name> [--force]               deregister an app OR test repo
+      refuses while an app repo is still covered, or a test repo still has
+      cataloged tests; --force overrides
   bin/repos.py add-app <name> --kind ui|service --url U [--scm github|bitbucket|stash]
       [--domains csv] [--paths csv] [--contract F] [--route-table F] [--consumes csv]
   bin/repos.py add-test <name> --layer api|ui --framework F --url U [--scm ...]
@@ -31,6 +33,8 @@ add-app/add-test register the repo so mapping and routing work immediately.
 import argparse, json, os, pathlib, subprocess, sys
 
 sys.stdout.reconfigure(encoding="utf-8")
+# stderr too: sys.exit(msg) writes there, and refusal messages carry em-dashes
+sys.stderr.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import yaml
@@ -145,20 +149,32 @@ def cmd_link(args):
 
 
 def cmd_remove(args):
+    """Remove an app repo OR a test repo — whichever the name refers to.
+
+    Delegates to repo_admin rather than editing the registry here. That is not just
+    deduplication: the library path takes the registry lock, clears the name out of
+    every test repo's `scope`, and regenerates `covers` — none of which this command
+    used to do, so removing an app repo left dangling scope entries and a stale
+    coverage map behind.
+    """
+    import repo_admin
     reg = load_registry()
-    find(reg, args.name)
-    still = [t["name"] for t in reg["test_repositories"] if args.name in t.get("covers", [])]
-    if still and not args.force:
-        sys.exit(f"{args.name} is still covered by {still} - remap those tests first "
-                 f"(bin/qa.py tests --app {args.name}), or pass --force")
-    reg["source_repositories"] = [r for r in reg["source_repositories"] if r["name"] != args.name]
-    for r in reg["source_repositories"]:
-        if args.name in r.get("consumed_by", []):
-            r["consumed_by"].remove(args.name)
-        if args.name in r.get("consumes_services", []):
-            r["consumes_services"].remove(args.name)
-    save_and_verify(reg)
-    print(f"removed {args.name} from the registry")
+    is_app = any(r["name"] == args.name for r in reg["source_repositories"])
+    is_test = any(t["name"] == args.name for t in reg["test_repositories"])
+    if not is_app and not is_test:
+        sys.exit(f"not registered: {args.name}  (see: bin/repos.py list)")
+
+    kind = "app" if is_app else "test"
+    remove = repo_admin.remove_app if is_app else repo_admin.remove_test
+    try:
+        remove(args.name, force=args.force)
+    except SystemExit as e:                    # repo_admin refuses with a reason
+        hint = (f"\n  inspect first: bin/qa.py tests "
+                f"{'--app' if is_app else '--repo'} {args.name}"
+                "\n  or force it:   bin/repos.py remove "
+                f"{args.name} --force") if not args.force else ""
+        sys.exit(f"{e}{hint}")
+    print(f"removed {kind} repo {args.name} from the registry")
 
 
 def cmd_add_app(args):

@@ -194,6 +194,21 @@ def upsert_app(name, kind=None, scm=None, url=None, domains=None,
             "guidance": _ensure_guidance(name, creating)}
 
 
+def _drop_generated_guidance(name):
+    """Remove the AGENTS.md we generated for a repo that is going away.
+
+    Without this, re-adding the same name later finds the stale file and `ensure()`
+    reports skipped_exists — so the repo would silently carry guidance describing its
+    OLD configuration. Best-effort: never block a removal."""
+    try:
+        import shutil, repo_guidance_gen
+        d = repo_guidance_gen.generated_path(name).parent
+        if d.exists():
+            shutil.rmtree(d, ignore_errors=True)
+    except Exception:
+        pass
+
+
 @_locked
 def remove_app(name, force=False):
     reg = load_registry()
@@ -214,6 +229,7 @@ def remove_app(name, force=False):
         if name in t.get("scope", []):
             t["scope"].remove(name)
     save_and_verify(reg, regen_cov=True)
+    _drop_generated_guidance(name)
     return {"name": name, "removed": True}
 
 
@@ -298,6 +314,7 @@ def remove_test(name, force=False):
     reg["test_repositories"] = [t for t in reg["test_repositories"]
                                 if t["name"] != name]
     save_and_verify(reg)
+    _drop_generated_guidance(name)
     return {"name": name, "removed": True}
 
 

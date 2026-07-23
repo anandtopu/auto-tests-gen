@@ -164,3 +164,66 @@ def test_dashboard_renders_repos_view():
     assert 'data-view="repos"' in page
     assert 'id="app-save"' in page and 'id="test-save"' in page
     assert "scope-save" in page and 'id="notes-repo"' in page
+
+
+# --------------------------------------------------- bin/repos.py remove dispatch
+
+def _repos_py(*args, expect=0):
+    import subprocess, sys as _s
+    r = subprocess.run([_s.executable, str(ROOT / "bin/repos.py"), *args], cwd=ROOT,
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", stdin=subprocess.DEVNULL)
+    assert r.returncode == expect, f"exit {r.returncode}: {r.stdout}{r.stderr}"
+    return r.stdout + r.stderr
+
+
+def test_cli_remove_handles_a_test_repo(estate_guard):
+    """It used to only look at source_repositories, so a test repo was 'not registered'."""
+    repo_admin.upsert_test("zz-rm-test", layer="api", framework="playwright-api",
+                           url="org/zz-rm-test")
+    assert repo_admin.summary()["test_repos"][-1]["name"] == "zz-rm-test"
+    out = _repos_py("remove", "zz-rm-test")
+    assert "removed test repo zz-rm-test" in out, out
+    assert not any(t["name"] == "zz-rm-test"
+                   for t in repo_admin.summary()["test_repos"])
+
+
+def test_cli_remove_still_handles_an_app_repo(estate_guard):
+    repo_admin.upsert_app("zz-rm-app", kind="service", url="org/zz-rm-app")
+    out = _repos_py("remove", "zz-rm-app")
+    assert "removed app repo zz-rm-app" in out, out
+    assert not any(r["name"] == "zz-rm-app"
+                   for r in repo_admin.summary()["app_repos"])
+
+
+def test_cli_remove_reports_an_unknown_name(estate_guard):
+    out = _repos_py("remove", "zz-not-a-repo", expect=1)
+    assert "not registered" in out
+
+
+def test_removing_an_app_repo_clears_dangling_scope(estate_guard):
+    """The old hand-rolled CLI path left the name in every test repo's scope."""
+    repo_admin.upsert_app("zz-scoped-app", kind="service", url="org/zz-scoped-app")
+    repo_admin.upsert_test("zz-scope-holder", layer="api", framework="playwright-api",
+                           url="org/zz-scope-holder", scope="zz-scoped-app")
+    holder = next(t for t in repo_admin.summary()["test_repos"]
+                  if t["name"] == "zz-scope-holder")
+    assert "zz-scoped-app" in holder["scope"]
+
+    repo_admin.remove_app("zz-scoped-app", force=True)
+    holder = next(t for t in repo_admin.summary()["test_repos"]
+                  if t["name"] == "zz-scope-holder")
+    assert "zz-scoped-app" not in holder["scope"], "dangling scope reference left behind"
+
+
+def test_removal_drops_generated_guidance(estate_guard, tmp_path, monkeypatch):
+    """Otherwise re-adding the name reuses guidance describing its OLD config."""
+    import repo_guidance_gen as rgg
+    monkeypatch.setattr(rgg, "GEN_DIR", tmp_path / "generated")
+    repo_admin.upsert_app("zz-guided", kind="service", url="org/zz-guided")
+    rgg.ensure("zz-guided", force=True)
+    assert rgg.generated_path("zz-guided").exists()
+
+    repo_admin.remove_app("zz-guided", force=True)
+    assert not rgg.generated_path("zz-guided").exists(), \
+        "stale generated guidance survived removal"
