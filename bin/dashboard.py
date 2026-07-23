@@ -89,40 +89,58 @@ def review_of(key):
 
 
 def specs_from_diff(diff_text):
-    """Extract the generated files from a gate commit (a `git show HEAD`).
+    """Extract each file a gate commit touched (a `git show HEAD`), with enough to
+    render a real before/after comparison — not just the added lines.
 
-    Returns [{"path", "new", "added", "removed", "code", "is_catalog", "lang"}]. `code`
-    is the added content — for a new spec that is the whole file, which is what a
-    reviewer wants to read, rather than the +/- noise of a raw diff. The catalog
-    sidecar (*.jsonl) is flagged so the UI can show test code and mapping separately.
+    Per file: {path, change ('new'|'updated'|'deleted'), added [str], removed [str],
+    hunk [{t: 'add'|'del'|'ctx', text}], code (added joined), is_catalog, lang}. The
+    `hunk` preserves +/-/context order so the UI can colour a unified diff; `code` is
+    the clean added content, still handy for a brand-new spec.
     """
     files, cur = [], None
     for line in diff_text.splitlines():
         if line.startswith("diff --git"):
             if cur:
                 files.append(cur)
-            cur = {"path": "", "new": False, "added": [], "removed": 0}
+            cur = {"a_path": "", "b_path": "", "new": False, "deleted": False,
+                   "added": [], "removed": [], "hunk": []}
         elif cur is None:
             continue
         elif line.startswith("new file"):
             cur["new"] = True
+        elif line.startswith("deleted file"):
+            cur["deleted"] = True
+        elif line.startswith("--- a/"):
+            cur["a_path"] = line[6:]
         elif line.startswith("+++ b/"):
-            cur["path"] = line[6:]
+            cur["b_path"] = line[6:]
+        elif line.startswith("@@"):
+            cur["hunk"].append({"t": "meta", "text": line})
         elif line.startswith("+") and not line.startswith("+++"):
             cur["added"].append(line[1:])
+            cur["hunk"].append({"t": "add", "text": line[1:]})
         elif line.startswith("-") and not line.startswith("---"):
-            cur["removed"] += 1
+            cur["removed"].append(line[1:])
+            cur["hunk"].append({"t": "del", "text": line[1:]})
+        elif line.startswith(" ") and cur["hunk"]:      # context only inside a hunk
+            cur["hunk"].append({"t": "ctx", "text": line[1:]})
     if cur:
         files.append(cur)
     ext_lang = {"js": "javascript", "ts": "typescript", "py": "python",
                 "json": "json", "jsonl": "json", "java": "java"}
     out = []
     for f in files:
-        if not f["path"]:
+        # a deleted file's +++ is /dev/null, so fall back to the a/ path
+        path = f["b_path"] if f["b_path"] and f["b_path"] != "/dev/null" else f["a_path"]
+        if not path:
             continue
-        ext = f["path"].rsplit(".", 1)[-1].lower()
-        out.append({**f, "code": "\n".join(f["added"]),
-                    "is_catalog": f["path"].endswith(".jsonl"),
+        change = "new" if f["new"] else "deleted" if f["deleted"] else "updated"
+        ext = path.rsplit(".", 1)[-1].lower()
+        out.append({"path": path, "change": change,
+                    "new": f["new"], "deleted": f["deleted"],
+                    "added": f["added"], "removed": f["removed"], "hunk": f["hunk"],
+                    "code": "\n".join(f["added"]),
+                    "is_catalog": path.endswith(".jsonl"),
                     "lang": ext_lang.get(ext, "")})
     return out
 
@@ -307,19 +325,33 @@ for key, r in latest_by_key.items():
             # The generated test CODE, rendered clean and expanded — one titled block
             # per spec (the added lines, i.e. the whole file for a new spec), so a
             # reviewer reads the tests without wading through diff markers.
+            chip_for = {"new": "success", "updated": "warning", "deleted": "danger"}
             blocks = ""
             for s in code_files:
-                action = ("new" if s["new"] else "updated")
-                acls = "success" if s["new"] else "info"
-                blocks += (
-                    f'<div class="spec-file"><div class="spec-head">'
-                    f'<code class="mono">{esc(s["path"])}</code>'
-                    f'<span class="chip chip-{acls} sm">{action}</span>'
-                    f'<span class="muted sm">{esc(g["test_repo"])}'
-                    f'{" · +" + str(len(s["added"])) if s["added"] else ""}'
-                    f'{" −" + str(s["removed"]) if s["removed"] else ""}</span></div>'
-                    f'<pre class="code lang-{esc(s["lang"] or "text")}">'
-                    f'{esc(s["code"] or "(no added lines)")}</pre></div>')
+                change = s["change"]
+                counts = (f'{" · +" + str(len(s["added"])) if s["added"] else ""}'
+                          f'{" −" + str(len(s["removed"])) if s["removed"] else ""}')
+                head = (
+                    f'<div class="spec-head"><code class="mono">{esc(s["path"])}</code>'
+                    f'<span class="chip chip-{chip_for[change]} sm">{change}</span>'
+                    f'<span class="muted sm">{esc(g["test_repo"])}{counts}</span></div>')
+                if change == "new":
+                    # Nothing to compare against — show the clean new file.
+                    body = (f'<pre class="code lang-{esc(s["lang"] or "text")}">'
+                            f'{esc(s["code"] or "(no added lines)")}</pre>')
+                else:
+                    # Updated or deleted: render the before/after comparison as a
+                    # coloured unified diff (removed red, added green, context muted).
+                    rows = ""
+                    for h in s["hunk"]:
+                        cls = {"add": "d-add", "del": "d-del",
+                               "ctx": "d-ctx", "meta": "d-meta"}[h["t"]]
+                        sign = {"add": "+", "del": "−", "ctx": " ", "meta": ""}[h["t"]]
+                        rows += (f'<div class="d-line {cls}">'
+                                 f'<span class="d-sign">{sign}</span>'
+                                 f'<span class="d-text">{esc(h["text"])}</span></div>')
+                    body = f'<div class="diffview">{rows or "(no hunks)"}</div>'
+                blocks += f'<div class="spec-file">{head}{body}</div>'
             cat_note = ""
             if catalog_files:
                 cat_note = ('<div class="sm muted spec-catalog">Catalog sidecar: '
@@ -702,6 +734,20 @@ pre { margin:0; background:var(--sr-bg-muted); border:1px solid var(--sr-border)
   border-radius:5px; padding:1px 7px; }
 .spec-file pre.code { margin-top:0; white-space:pre; max-height:420px; overflow:auto; }
 .spec-catalog { margin:2px 0 12px; }
+/* before/after comparison for updated & deleted specs (coloured unified diff) */
+.diffview { border:1px solid var(--sr-border); border-radius:8px; overflow:auto;
+  max-height:460px; font-family:var(--sr-font-mono); font-size:12px; line-height:1.55;
+  background:var(--sr-bg-muted); }
+.d-line { display:flex; white-space:pre; }
+.d-sign { flex:none; width:1.6em; text-align:center; opacity:.7;
+  user-select:none; border-right:1px solid var(--sr-border); }
+.d-text { padding-left:8px; flex:1; }
+.d-add { background:color-mix(in srgb, var(--sr-success-fg) 15%, transparent); }
+.d-del { background:color-mix(in srgb, var(--sr-danger-fg) 15%, transparent); }
+.d-add .d-sign { color:var(--sr-success-fg); }
+.d-del .d-sign { color:var(--sr-danger-fg); }
+.d-meta { color:var(--sr-fg-muted); background:transparent; font-style:italic; }
+.d-ctx { color:var(--sr-fg); }
 .hidden { display:none; }
 [data-view] { display:none; flex-direction:column; gap:24px; }
 [data-view].on { display:flex; }
