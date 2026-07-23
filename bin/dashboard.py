@@ -1536,8 +1536,8 @@ page = f"""<!doctype html>
         the adapters read. Secrets are write-only: a set secret shows as
         <code>••••••</code>; type a new value to replace it, leave blank to keep it.
         Adapter-mode and SCM changes take effect on the next run;
-        restart <code>make serve</code> to switch the server's fetch source.</div></div></div>
-      <span class="grow"></span>
+        restart <code>make serve</code> to switch the server's fetch source.</div></div>
+        <span class="grow"></span>
         <button class="btn btn-sm info" id="check-integrations">Validate connections</button>
       </div>
       <div class="card-b" id="settings-body">
