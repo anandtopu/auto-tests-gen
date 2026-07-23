@@ -765,6 +765,9 @@ pre { margin:0; background:var(--sr-bg-muted); border:1px solid var(--sr-border)
 .d-del .d-sign { color:var(--sr-danger-fg); }
 .d-meta { color:var(--sr-fg-muted); background:transparent; font-style:italic; }
 .d-ctx { color:var(--sr-fg); }
+.stale-banner { background:var(--sr-warning-bg); color:var(--sr-warning-fg);
+  border:1px solid var(--sr-warning-fg); border-radius:8px; padding:10px 14px;
+  margin:16px 24px 0; font-size:13px; font-weight:600; }
 .hidden { display:none; }
 [data-view] { display:none; flex-direction:column; gap:24px; }
 [data-view].on { display:flex; }
@@ -1123,10 +1126,12 @@ async function repoPost(path, payload, okMsg) {
   } catch (err) { toast(err.message); }
 }
 const APP_FIELDS = { name: 'app-name', kind: 'app-kind', scm: 'app-scm', url: 'app-url',
+  stash_project: 'app-stashproj',
   domains: 'app-domains', testable_paths: 'app-paths', contract: 'app-contract',
   route_table: 'app-routes', consumes_services: 'app-consumes' };
 const TEST_FIELDS = { name: 'test-name', layer: 'test-layer', framework: 'test-framework',
-  scm: 'test-scm', url: 'test-url', specs: 'test-specs', fixtures: 'test-fixtures',
+  scm: 'test-scm', url: 'test-url', stash_project: 'test-stashproj',
+  specs: 'test-specs', fixtures: 'test-fixtures',
   scope: 'test-scope' };
 document.addEventListener('click', async e => {
   const edit = e.target.closest('button.repo-edit');
@@ -1276,6 +1281,25 @@ document.addEventListener('click', async e => {
   b.disabled = false; b.textContent = idle;
 });
 
+// ---- stale-server guard: this page is rendered fresh per request, but the server
+// PROCESS keeps whatever code it started with. If its /api/version disagrees (or is
+// absent), actions like "Clear demo data" run OLD logic while the page promises the
+// new — tell the operator to restart instead of letting the mismatch look like a bug.
+const UI_SCHEMA = 2;
+if (served) {
+  fetch('/api/version').then(r => r.ok ? r.json() : {ui_schema: 0})
+    .catch(() => ({ui_schema: 0}))
+    .then(v => {
+      if (v.ui_schema !== UI_SCHEMA) {
+        const b = document.createElement('div');
+        b.className = 'stale-banner';
+        b.textContent = 'The dashboard server is running older code than this page — '
+          + 'buttons may behave stale. Restart it: stop and re-run make serve.';
+        document.querySelector('main').prepend(b);
+      }
+    });
+}
+
 // ---- theme toggle: explicit choice beats the OS preference, both directions
 (function () {
   const KEY = 'aiqe-theme';                    // 'dark' | 'light' | absent = system
@@ -1382,6 +1406,36 @@ $('#check-integrations').addEventListener('click', async () => {
   b.disabled = false; b.textContent = idle;
 });
 
+$('#factory-reset').addEventListener('click', async () => {
+  if (needsServer()) return;
+  if (!confirm('FACTORY RESET?\\n\\nDeletes everything Clear demo data deletes PLUS all '
+    + 'registered repositories and per-repo team notes. The Repositories view will be '
+    + 'empty afterwards.\\n\\nThis cannot be undone.')) return;
+  if (!confirm('Really delete ALL repositories from the registry?')) return;
+  const b = $('#factory-reset');
+  b.disabled = true;
+  try {
+    const r = await api('/api/demo/clear', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ factory: true }) });
+    toast('Factory reset: removed ' + r.removed + ' item(s) — reloading…');
+    setTimeout(() => location.reload(), 900);
+    return;
+  } catch (err) {
+    if (/pipeline run looks active/i.test(err.message) &&
+        confirm(err.message + '\\n\\nReset anyway?')) {
+      try {
+        const r = await api('/api/demo/clear', { method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ factory: true, force: true }) });
+        toast('Factory reset (forced): ' + r.removed + ' item(s) — reloading…');
+        setTimeout(() => location.reload(), 900);
+        return;
+      } catch (e2) { toast(e2.message); }
+    } else { toast(err.message); }
+  }
+  b.disabled = false;
+});
 $('#clear-demo').addEventListener('click', async () => {
   if (needsServer()) return;
   if (!confirm('Delete ALL generated demo data?\\n\\nRemoves run history, archived ' +
@@ -1630,6 +1684,8 @@ page = f"""<!doctype html>
           <label class="stack">SCM<select id="app-scm"><option>bitbucket</option>
             <option>github</option><option>stash</option></select></label>
           <label class="stack">URL / slug<input id="app-url" placeholder="workspace/payments-ui"></label>
+          <label class="stack">Stash project<input id="app-stashproj"
+            placeholder="ENG (Stash only — overrides the URL's project segment)"></label>
           <label class="stack">Domains (csv)<input id="app-domains" placeholder="payments"></label>
           <label class="stack">Testable paths (csv)<input id="app-paths" placeholder="src/**"></label>
           <label class="stack">Contract (service)<input id="app-contract" placeholder="openapi/x.yaml"></label>
@@ -1660,6 +1716,8 @@ page = f"""<!doctype html>
           <label class="stack">SCM<select id="test-scm"><option>bitbucket</option>
             <option>github</option><option>stash</option></select></label>
           <label class="stack">URL / slug<input id="test-url" placeholder="workspace/e2e-payments"></label>
+          <label class="stack">Stash project<input id="test-stashproj"
+            placeholder="QA (Stash only — overrides the URL's project segment)"></label>
           <label class="stack">Specs dir<input id="test-specs" placeholder="tests/"></label>
           <label class="stack">Fixtures dir<input id="test-fixtures" placeholder="fixtures/"></label>
           <label class="stack">Scope (app repos csv)<input id="test-scope" placeholder="payments-api, payments-ui"></label>
@@ -1733,6 +1791,14 @@ page = f"""<!doctype html>
           scratch dirs. The estate itself (repo registry, test catalog, AGENTS.md,
           demo repos) is kept — rebuild demo state with <code>make demo-bootstrap</code>.</div></div>
         <button class="btn danger" id="clear-demo">Clear demo data</button>
+      </div>
+      <div class="card-b danger-row">
+        <div class="grow"><div class="strong">Factory reset</div>
+          <div class="sm muted">Everything above <b>plus the repositories</b>: empties the
+          repo registry and deletes per-repo team notes. The app returns to a blank
+          estate — re-add repositories in the Repositories view, or restore the demo
+          estate with <code>git checkout -- registry/</code>.</div></div>
+        <button class="btn danger" id="factory-reset">Factory reset</button>
       </div>
     </section>
   </div>

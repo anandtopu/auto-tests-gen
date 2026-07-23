@@ -53,6 +53,12 @@ import glob, json, os, pathlib, re, subprocess, sys, threading, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+
+# Bumped whenever a UI action's server contract changes. The page (rendered fresh per
+# request) compares this against its own copy: a mismatch means the SERVER process
+# predates the code on disk — the exact condition that made "Clear demo data" run an
+# old target list while the page promised the new one. Restarting make serve fixes it.
+UI_SCHEMA = 2
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import demo_data, email_notify, export_plan, guidance_sync, inline_ticket, \
     integration_check, openhands_client, openhands_events, openhands_mode, \
@@ -200,6 +206,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, repo_admin.get_notes(repo))
             except SystemExit as e:
                 self._send(404, {"error": str(e)})
+        elif url.path == "/api/version":
+            self._send(200, {"ui_schema": UI_SCHEMA})
         elif url.path == "/api/settings":
             self._send(200, settings_store.get_settings())
         elif url.path == "/api/export/plan":
@@ -318,12 +326,14 @@ class Handler(BaseHTTPRequestHandler):
                         url=p.get("url"), domains=p.get("domains"),
                         testable_paths=p.get("testable_paths"),
                         contract=p.get("contract"), route_table=p.get("route_table"),
-                        consumes_services=p.get("consumes_services"))
+                        consumes_services=p.get("consumes_services"),
+                        stash_project=p.get("stash_project"))
                 elif self.path == "/api/repos/test":
                     result = repo_admin.upsert_test(
                         p["name"], layer=p.get("layer"), framework=p.get("framework"),
                         scm=p.get("scm"), url=p.get("url"), specs=p.get("specs"),
-                        fixtures=p.get("fixtures"), scope=p.get("scope"))
+                        fixtures=p.get("fixtures"), scope=p.get("scope"),
+                        stash_project=p.get("stash_project"))
                 elif self.path == "/api/repos/scope":
                     result = repo_admin.set_scope(p["test_repo"], p.get("apps", ""))
                 elif self.path == "/api/repos/remove":
@@ -434,6 +444,8 @@ class Handler(BaseHTTPRequestHandler):
             cmd = [sys.executable, str(ROOT / "engine/lib/demo_data.py"), "--json"]
             if p.get("force"):
                 cmd.append("--force")
+            if p.get("factory"):
+                cmd.append("--factory")
             r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True,
                                encoding="utf-8", errors="replace",
                                stdin=subprocess.DEVNULL)

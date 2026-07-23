@@ -13,7 +13,7 @@ prompts, and knowledge/repos team notes. After a clear,
 
 Refuses to run while a pipeline run holds out/.pipeline.lock.
 """
-import contextlib, os, pathlib, shutil, stat, sys, time
+import contextlib, os, pathlib, shutil, stat, subprocess, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -97,10 +97,26 @@ def _check_pipeline_lock(root, dry, force):
         f"clear anyway if you know it is dead (force).")
 
 
-def clear(root=None, dry=False, force=False):
+EMPTY_REGISTRY = """# Emptied by the Settings factory reset — add repositories in the
+# Repositories view (or bin/repos.py add-app / add-test), or restore the demo estate
+# with: git checkout -- registry/repo-registry.yaml
+source_repositories: []
+test_repositories: []
+routing_hints:
+  jira_component_map: {}
+  jira_label_map: {}
+"""
+
+
+def clear(root=None, dry=False, force=False, factory=False):
     """Delete generated demo data under `root`. Returns {"removed": n,
     "targets": [relative paths]}; dry=True only reports. `force` clears past a
-    pipeline lock that is younger than the stale threshold."""
+    pipeline lock that is younger than the stale threshold.
+
+    `factory` additionally deletes what a plain clear deliberately KEEPS — the
+    registered repositories (registry -> empty estate) and hand-authored per-repo
+    notes — because "delete all the demo data" to an operator includes the repos
+    they added through the UI. The demo estate is restorable from git."""
     root = pathlib.Path(root or ROOT)
     removed, targets = 0, []
     note = _check_pipeline_lock(root, dry, force)
@@ -141,7 +157,28 @@ def clear(root=None, dry=False, force=False):
                 targets.append(f.relative_to(root).as_posix())
                 if not dry:
                     f.unlink()
-    return {"removed": removed, "targets": targets}
+        if factory:
+            reg = root / "registry/repo-registry.yaml"
+            if reg.exists():
+                removed += 1
+                targets.append("registry/repo-registry.yaml (emptied — all repositories removed)")
+                if not dry:
+                    reg.write_text(EMPTY_REGISTRY, encoding="utf-8", newline="\n")
+            notes = root / "knowledge/repos"
+            for f in sorted(notes.glob("*.md")) if notes.is_dir() else []:
+                removed += 1
+                targets.append(f.relative_to(root).as_posix())
+                if not dry:
+                    f.unlink()
+    if factory and not dry:
+        # The estate knowledge and path skills are DERIVED from the registry — leaving
+        # the old ones behind would keep feeding phases repos that no longer exist.
+        for script in ("bin/gen_agents_md.py", "bin/gen_path_skills.py"):
+            s = root / script
+            if s.exists():                     # absent under a test's tmp root
+                subprocess.run([sys.executable, str(s)], cwd=root,
+                               capture_output=True, stdin=subprocess.DEVNULL)
+    return {"removed": removed, "targets": targets, "factory": factory}
 
 
 if __name__ == "__main__":
@@ -155,7 +192,7 @@ if __name__ == "__main__":
         # before a fix kept clearing the old, incomplete set while the (freshly
         # rendered) page promised the new behaviour.
         try:
-            r = clear(dry=dry, force="--force" in sys.argv)
+            r = clear(dry=dry, force="--force" in sys.argv, factory="--factory" in sys.argv)
             print(_json.dumps({"ok": True, **r}))
             sys.exit(0)
         except SystemExit as e:                        # a run looks active — refusal
@@ -163,7 +200,7 @@ if __name__ == "__main__":
                 raise
             print(_json.dumps({"ok": False, "error": str(e), "can_force": True}))
             sys.exit(9)
-    r = clear(dry=dry, force="--force" in sys.argv)
+    r = clear(dry=dry, force="--force" in sys.argv, factory="--factory" in sys.argv)
     verb = "would remove" if dry else "removed"
     print(f"{verb} {r['removed']} generated file(s):")
     for t in r["targets"]:
