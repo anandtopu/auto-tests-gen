@@ -88,6 +88,45 @@ def review_of(key):
     return reviews.get(key, {})
 
 
+def specs_from_diff(diff_text):
+    """Extract the generated files from a gate commit (a `git show HEAD`).
+
+    Returns [{"path", "new", "added", "removed", "code", "is_catalog", "lang"}]. `code`
+    is the added content — for a new spec that is the whole file, which is what a
+    reviewer wants to read, rather than the +/- noise of a raw diff. The catalog
+    sidecar (*.jsonl) is flagged so the UI can show test code and mapping separately.
+    """
+    files, cur = [], None
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git"):
+            if cur:
+                files.append(cur)
+            cur = {"path": "", "new": False, "added": [], "removed": 0}
+        elif cur is None:
+            continue
+        elif line.startswith("new file"):
+            cur["new"] = True
+        elif line.startswith("+++ b/"):
+            cur["path"] = line[6:]
+        elif line.startswith("+") and not line.startswith("+++"):
+            cur["added"].append(line[1:])
+        elif line.startswith("-") and not line.startswith("---"):
+            cur["removed"] += 1
+    if cur:
+        files.append(cur)
+    ext_lang = {"js": "javascript", "ts": "typescript", "py": "python",
+                "json": "json", "jsonl": "json", "java": "java"}
+    out = []
+    for f in files:
+        if not f["path"]:
+            continue
+        ext = f["path"].rsplit(".", 1)[-1].lower()
+        out.append({**f, "code": "\n".join(f["added"]),
+                    "is_catalog": f["path"].endswith(".jsonl"),
+                    "lang": ext_lang.get(ext, "")})
+    return out
+
+
 # ---------------------------------------------------------------- overview view
 tiles = [
     (len(runs), "pipeline runs", "runs", False),
@@ -262,11 +301,46 @@ for key, r in latest_by_key.items():
     for g in r.get("gates", []):
         if g.get("diff") and (ROOT / g["diff"]).exists():
             diff_text = (ROOT / g["diff"]).read_text(encoding="utf-8", errors="replace")
-            inner += (
-                f'<div class="art-sec"><button class="code-toggle">'
-                f'<span class="chev">▶</span> Generated test code — '
-                f'<code>{esc(g["test_repo"])} @ {esc(g.get("commit") or "")}</code></button>'
-                f'<pre class="code hidden">{esc(diff_text)}</pre></div>')
+            specs = specs_from_diff(diff_text)
+            code_files = [s for s in specs if not s["is_catalog"]]
+            catalog_files = [s for s in specs if s["is_catalog"]]
+            # The generated test CODE, rendered clean and expanded — one titled block
+            # per spec (the added lines, i.e. the whole file for a new spec), so a
+            # reviewer reads the tests without wading through diff markers.
+            blocks = ""
+            for s in code_files:
+                action = ("new" if s["new"] else "updated")
+                acls = "success" if s["new"] else "info"
+                blocks += (
+                    f'<div class="spec-file"><div class="spec-head">'
+                    f'<code class="mono">{esc(s["path"])}</code>'
+                    f'<span class="chip chip-{acls} sm">{action}</span>'
+                    f'<span class="muted sm">{esc(g["test_repo"])}'
+                    f'{" · +" + str(len(s["added"])) if s["added"] else ""}'
+                    f'{" −" + str(s["removed"]) if s["removed"] else ""}</span></div>'
+                    f'<pre class="code lang-{esc(s["lang"] or "text")}">'
+                    f'{esc(s["code"] or "(no added lines)")}</pre></div>')
+            cat_note = ""
+            if catalog_files:
+                cat_note = ('<div class="sm muted spec-catalog">Catalog sidecar: '
+                            + ", ".join(f'<code>{esc(s["path"])}</code>'
+                                        for s in catalog_files)
+                            + ' — every spec is born-mapped in the same commit.</div>')
+            header = (f'<div class="art-row"><h3>Generated test code</h3>'
+                      f'<span class="spacer"></span>'
+                      f'<span class="mono sm muted">{esc(g["test_repo"])} @ '
+                      f'{esc((g.get("commit") or "")[:10])}</span></div>')
+            if blocks:
+                inner += (f'<div class="art-sec">{header}{blocks}{cat_note}'
+                          f'<button class="code-toggle"><span class="chev">▶</span> '
+                          f'Raw commit diff</button>'
+                          f'<pre class="code hidden">{esc(diff_text)}</pre></div>')
+            else:
+                inner += (
+                    f'<div class="art-sec"><button class="code-toggle">'
+                    f'<span class="chev">▶</span> Generated test code — '
+                    f'<code>{esc(g["test_repo"])} @ {esc(g.get("commit") or "")}</code>'
+                    f'</button><pre class="code hidden">{esc(diff_text)}</pre></div>')
 
     head = (f'<div class="art-head"><h2>{esc(key)}</h2>{chip(r.get("overall", "?"))}'
             + (chip(rstat) if rstat else "")
@@ -620,6 +694,14 @@ pre { margin:0; background:var(--sr-bg-muted); border:1px solid var(--sr-border)
   font-family:var(--sr-font-sans); }
 .code-toggle .chev { font-size:11px; color:var(--sr-fg-muted); }
 .code { margin-top:12px; white-space:pre; }
+/* Generated test code: one titled block per spec file */
+.spec-file { margin-bottom:14px; }
+.spec-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+.spec-head code { font-size:12px; font-weight:600; color:var(--sr-fg);
+  background:var(--sr-bg-muted); border:1px solid var(--sr-border);
+  border-radius:5px; padding:1px 7px; }
+.spec-file pre.code { margin-top:0; white-space:pre; max-height:420px; overflow:auto; }
+.spec-catalog { margin:2px 0 12px; }
 .hidden { display:none; }
 [data-view] { display:none; flex-direction:column; gap:24px; }
 [data-view].on { display:flex; }
