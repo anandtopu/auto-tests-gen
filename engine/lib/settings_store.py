@@ -37,6 +37,10 @@ SPEC = [
         {"env": "AIQE_STATUS_URL", "label": "Build-status link URL",
          "help": "URL the ai-qe PR build status links to (e.g. the dashboard)"},
         {"env": "ANTHROPIC_API_KEY", "label": "Anthropic API key", "secret": True},
+        {"env": "AIQE_SSO_HEADER", "label": "SSO identity header",
+         "help": "e.g. X-Forwarded-User — set ONLY behind a reverse proxy that "
+                 "terminates auth and overwrites this header; fails closed (401) "
+                 "when the header is missing. The value signs approvals."},
         {"env": "AIQE_SSL_VERIFY", "label": "SSL verification",
          "options": [["1", "enabled (default)"], ["0", "disabled (corporate CA / self-signed)"]],
          "default": "1"},

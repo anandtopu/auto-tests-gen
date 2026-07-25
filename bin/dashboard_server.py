@@ -59,6 +59,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # predates the code on disk — the exact condition that made "Clear demo data" run an
 # old target list while the page promised the new one. Restarting make serve fixes it.
 UI_SCHEMA = 2
+
+# Reverse-proxy SSO (product-direction H1): the header name a trusted proxy sets
+# with the authenticated user, e.g. X-Forwarded-User. Empty = SSO off.
+SSO_HEADER = os.environ.get("AIQE_SSO_HEADER", "").strip()
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import demo_data, email_notify, export_plan, guidance_sync, inline_ticket, \
     integration_check, openhands_client, openhands_events, openhands_mode, \
@@ -134,8 +138,31 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def _authed(self):
-        """True when AIQE_UI_TOKEN is unset, or the request carries it (query param
-        on first visit -> cookie; Authorization: Bearer for API clients)."""
+        """Authentication, two independent mechanisms:
+
+        SSO header (AIQE_SSO_HEADER, e.g. X-Forwarded-User): set it ONLY when a
+        reverse proxy (OpenShift oauth-proxy, nginx+SSO) terminates auth in front of
+        this server and strips/overwrites the header on incoming traffic — the
+        header is trusted verbatim, so a directly-reachable server with SSO enabled
+        would be spoofable. When configured it FAILS CLOSED: no header -> 401, so a
+        proxy misconfiguration can never silently expose the dashboard. The value
+        becomes the actor for approvals/marks that don't name one explicitly.
+
+        Token (AIQE_UI_TOKEN): unchanged — query param on first visit -> cookie, or
+        Authorization: Bearer. With SSO on, a valid token still authenticates (CLI
+        and health-check clients bypass the proxy), acting as "token-client".
+        """
+        self.user = ""
+        if SSO_HEADER:
+            ident = (self.headers.get(SSO_HEADER) or "").strip()
+            if ident:
+                self.user = ident
+                return True
+            # fall through: a Bearer token may still authenticate an API client
+            if UI_TOKEN and self.headers.get("Authorization", "") == f"Bearer {UI_TOKEN}":
+                self.user = "token-client"
+                return True
+            return False
         if not UI_TOKEN:
             return True
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
@@ -148,6 +175,11 @@ class Handler(BaseHTTPRequestHandler):
         return f"aiqe_token={UI_TOKEN}" in cookies.replace(" ", "").split(";")
 
     def _deny(self):
+        if SSO_HEADER:
+            self._send(401, {"error": f"unauthorized: expected the SSO header "
+                                      f"'{SSO_HEADER}' from the reverse proxy "
+                                      "(or Authorization: Bearer <AIQE_UI_TOKEN>)"})
+            return
         self._send(401, {"error": "unauthorized: open /?token=<AIQE_UI_TOKEN> "
                                   "or send Authorization: Bearer <token>"})
 
@@ -207,7 +239,8 @@ class Handler(BaseHTTPRequestHandler):
             except SystemExit as e:
                 self._send(404, {"error": str(e)})
         elif url.path == "/api/version":
-            self._send(200, {"ui_schema": UI_SCHEMA})
+            self._send(200, {"ui_schema": UI_SCHEMA, "user": getattr(self, "user", ""),
+                             "sso": bool(SSO_HEADER)})
         elif url.path == "/api/trace":
             import trace as trace_lib          # ours; engine/lib precedes stdlib
             key = urllib.parse.parse_qs(url.query).get("key", [""])[0]
@@ -296,7 +329,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 p = json.loads(body or b"{}")
                 entry = review_state.set_status(p["key"], p["status"],
-                                                p.get("by", "dashboard"), p.get("note", ""))
+                                                p.get("by") or self.user or "dashboard", p.get("note", ""))
                 self._send(200, {"ok": True, "key": p["key"], "status": entry["status"]})
             except (KeyError, json.JSONDecodeError) as e:
                 self._send(400, {"error": str(e)})
@@ -389,15 +422,15 @@ class Handler(BaseHTTPRequestHandler):
                 key = p["key"]
                 if self.path.endswith("/save"):
                     result = plan_state.save_plan(key, p.get("text", ""),
-                                                  p.get("by", "dashboard"))
+                                                  p.get("by") or self.user or "dashboard")
                 elif self.path.endswith("/status"):
                     result = plan_state.set_status(key, p["status"],
-                                                   p.get("by", "dashboard"),
+                                                   p.get("by") or self.user or "dashboard",
                                                    p.get("note", ""))
                 elif self.path.endswith("/link"):
                     plan_state.require_approved(key)
                     ref = export_plan.attach_to_jira(key, p.get("format", "pdf"))
-                    result = plan_state.mark_linked(key, ref, p.get("by", "dashboard"))
+                    result = plan_state.mark_linked(key, ref, p.get("by") or self.user or "dashboard")
                     result = {**result, "ref": ref}
                 elif self.path.endswith("/generate"):
                     plan_state.require_approved(key)   # fail fast before queueing

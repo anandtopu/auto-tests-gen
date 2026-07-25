@@ -1383,6 +1383,15 @@ if (served) {
   fetch('/api/version').then(r => r.ok ? r.json() : {ui_schema: 0})
     .catch(() => ({ui_schema: 0}))
     .then(v => {
+      if (v.user && v.user !== 'token-client') {
+        const foot = document.querySelector('.side-foot');
+        if (foot) {
+          const el = document.createElement('div');
+          el.className = 'sm muted';
+          el.textContent = '👤 ' + v.user + (v.sso ? ' (SSO)' : '');
+          foot.prepend(el);
+        }
+      }
       if (v.ui_schema !== UI_SCHEMA) {
         const b = document.createElement('div');
         b.className = 'stale-banner';

@@ -99,7 +99,7 @@ acceptance ≥70% and zero gate escapes.*
   created-vs-updated tests, validation, gate outcome, open questions, advisory
   critic and cost, posted on the PR through the Scm port; silent when triage
   finds no E2E impact.
-- **Auth**: reverse-proxy SSO header support on the dashboard (full RBAC waits for H2).
+- **Auth** ✅ *Shipped* — AIQE_SSO_HEADER reverse-proxy identity: fails closed, Bearer token coexists for API clients, the SSO user signs approvals (full RBAC waits for H2).
 - **Pilot metrics baked into the report**: acceptance rate, escaped noise, cycle time
   saved, cost/run — the scorecard already computes most; make them the pilot's
   weekly one-pager.

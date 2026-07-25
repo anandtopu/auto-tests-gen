@@ -24,6 +24,8 @@ SCM_KIND=github
 AIQE_STATUS_URL=
 # Anthropic API key  ·  SECRET
 ANTHROPIC_API_KEY=
+# SSO identity header  ·  e.g. X-Forwarded-User — set ONLY behind a reverse proxy that terminates auth and overwrites this header; fails closed (401) when the header is missing. The value signs approvals.
+AIQE_SSO_HEADER=
 # SSL verification  ·  one of: 1|0
 AIQE_SSL_VERIFY=1
 
@@ -41,7 +43,7 @@ BITBUCKET_TOKEN=
 # Used when SCM adapter is Stash (Bitbucket Server/DC).
 # Base URL  ·  https://stash.company.com
 STASH_URL=
-# Project key  ·  ENG
+# Default project key  ·  fallback only — repos can live under different projects; set each repo's URL to PROJECT/slug in the Repositories view
 STASH_PROJECT=
 # HTTP access token  ·  SECRET
 STASH_TOKEN=
@@ -123,8 +125,10 @@ SMTP_FROM=
 SMTP_TO=
 
 # --- Budgets ---
-# Per-run guardrails enforced by the OpenHands orchestrator (Path 1); local
-# mock/demo runs do not meter cost.
+# ENFORCED by the pipeline before every phase: over either limit the run
+# aborts (exit 77) and notifies before the gate is reached. Cost comes from
+# each claude phase's reported spend; mock/demo runs meter nothing and only
+# the wall-clock limit applies to them.
 # Max cost per run (USD)
 MAX_COST_USD_PER_RUN=4.00
 # Max wall-clock (min)

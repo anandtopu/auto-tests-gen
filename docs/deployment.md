@@ -219,3 +219,29 @@ Validate credentials before a real run with the staged smoke test
 
 See [diagrams.md](diagrams.md) for the runtime architecture and
 [user-guide.md](user-guide.md) for operating the platform once it is up.
+
+## SSO in front of the dashboard (reverse-proxy header auth)
+
+The dashboard trusts a single identity header when — and only when — you tell it to:
+
+```bash
+AIQE_SSO_HEADER=X-Forwarded-User      # oauth2-proxy/oauth-proxy default
+```
+
+Rules the implementation enforces and you must honor in the deployment:
+
+- **Only enable it behind a proxy that terminates auth and OVERWRITES the header**
+  (OpenShift oauth-proxy sidecar, oauth2-proxy, nginx with auth_request). The header
+  is trusted verbatim; a directly reachable server with SSO on is spoofable —
+  keep the Service/Route pointing at the proxy, never at the app port.
+- **Fails closed:** with the variable set, a request without the header gets 401,
+  so a proxy misconfiguration can never silently expose the dashboard.
+- `Authorization: Bearer <AIQE_UI_TOKEN>` still authenticates API clients that
+  bypass the proxy (health checks, CLI), acting as `token-client`.
+- The identity signs actions: review marks and plan approvals default their
+  `by`/`reviewer` to the SSO user when not explicitly provided, and the sidebar
+  shows who is signed in.
+
+OpenShift sketch: add an `openshift/oauth-proxy` sidecar to the dashboard pod
+(`--upstream=http://localhost:4999`, `--pass-user-headers`), point the Route at the
+proxy port, and set `AIQE_SSO_HEADER=X-Forwarded-User` on the app container.
