@@ -28,6 +28,9 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
                                                 backlog, queue, throughput, estate health
   bin/qa.py openhands                           live OpenHands agent conversations
                                                 (fed by the receiver's webhook routes)
+  bin/qa.py trace [<KEY>]                       the full chain for a story/PR:
+                                                plan -> tests -> gate -> review ->
+                                                release, chronological
   bin/qa.py critic [-n 10] [--findings]         advisory test-quality scores per run
                                                 (vacuous/duplicate/weak specs the gate
                                                 cannot catch; never gates a commit)
@@ -323,6 +326,22 @@ def cmd_openhands(args):
         print(f"{r['conversation_id'][:34]:<34} {r['status']:<12} "
               f"{r['event_count']:>6} {age:>7}  {r['repo'] or r['key'] or '-'}"
               + (f"   ERROR: {r['error'][:50]}" if r["error"] else ""))
+
+
+def cmd_trace(args):
+    """One chronological chain for a key: intent -> plan -> tests -> gate ->
+    review -> release. The EM view of a story or PR without stitching four
+    views together."""
+    import trace as trace_lib
+    if not args.key:
+        print("traceable keys (latest first):")
+        for k in trace_lib.keys()[: args.n]:
+            print(f"  {k}")
+        return
+    t = trace_lib.build(args.key)
+    if not t["events"]:
+        sys.exit(f"no trace for {args.key}")
+    print(trace_lib.render_text(t))
 
 
 def cmd_critic(args):
@@ -622,6 +641,8 @@ if __name__ == "__main__":
     s.add_argument("--out")
     s.set_defaults(fn=cmd_report)
     s = sub.add_parser("openhands"); s.set_defaults(fn=cmd_openhands)
+    s = sub.add_parser("trace"); s.add_argument("key", nargs="?")
+    s.add_argument("-n", type=int, default=20); s.set_defaults(fn=cmd_trace)
     s = sub.add_parser("critic"); s.add_argument("-n", type=int, default=10)
     s.add_argument("--findings", action="store_true"); s.set_defaults(fn=cmd_critic)
     s = sub.add_parser("plan")

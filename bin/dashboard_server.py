@@ -208,6 +208,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, {"error": str(e)})
         elif url.path == "/api/version":
             self._send(200, {"ui_schema": UI_SCHEMA})
+        elif url.path == "/api/trace":
+            import trace as trace_lib          # ours; engine/lib precedes stdlib
+            key = urllib.parse.parse_qs(url.query).get("key", [""])[0]
+            if key:
+                self._send(200, trace_lib.build(key))
+            else:
+                self._send(200, {"keys": trace_lib.keys()[:50]})
         elif url.path == "/api/settings":
             self._send(200, settings_store.get_settings())
         elif url.path == "/api/export/plan":

@@ -383,6 +383,67 @@ for key, r in latest_by_key.items():
                         f'data-art-panel="{esc(key)}">{head}{inner or chr(10)}</article>')
     first = False
 
+# ---------------------------------------------------------------- trace view
+import trace as trace_lib   # ours (engine/lib), shadows stdlib trace by path order
+
+KIND_DOT = {"plan": "info", "run": "success", "review": "warning", "release": "muted"}
+trace_keys_html, trace_panels_html = "", ""
+_tfirst = True
+for _tk in trace_lib.keys()[:12]:
+    _tr = trace_lib.build(_tk)
+    if not _tr["events"]:
+        continue
+    trace_keys_html += (
+        f'<button class="art-key trace-key{" active" if _tfirst else ""}" '
+        f'data-trace="{esc(_tk)}"><span class="strong sm">{esc(_tk)}</span>'
+        f'<span class="sm muted">{len(_tr["events"])} event(s)'
+        f'{" · " + esc(_tr["release"]) if _tr["release"] else ""}</span></button>')
+    rows = ""
+    for ev in _tr["events"]:
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(ev["ts"])) if ev["ts"] else "—"
+        dot = KIND_DOT.get(ev["kind"], "muted")
+        extra = ""
+        if ev["kind"] == "run":
+            m = ev["meta"]
+            dot = {"committed": "success", "quarantined": "danger"}.get(
+                m.get("overall"), "muted")
+            _gcls = {"committed": "success", "no_changes": "muted",
+                     "quarantined": "danger"}
+            bits = "".join(
+                f'<span class="chip chip-{_gcls.get(g["status"], "muted")} sm">'
+                f'{esc(g["repo"])}: {esc(g["status"])}'
+                f'{" @" + esc((g.get("commit") or "")[:7]) if g.get("commit") else ""}</span>'
+                for g in m["gates"])
+            c = m.get("critic")
+            if c:
+                ccls = {"accept": "success", "review": "warning",
+                        "weak": "danger"}.get(c.get("verdict"), "muted")
+                bits += (f'<span class="chip chip-{ccls} sm" title="advisory — never gates">'
+                         f'critic {c.get("score")}</span>')
+            files = "".join(f'<div class="mono sm muted">{esc(x.get("file", "?"))} '
+                            f'({esc(x.get("action", "?"))})</div>'
+                            for x in m.get("tests", [])[:6])
+            extra = (f'<div class="chips" style="margin-top:4px">{bits}</div>{files}'
+                     f'<div class="mono sm muted">run {esc(m.get("run_id") or "")}</div>')
+        actor = f'<span class="muted sm"> — {esc(ev["actor"])}</span>' if ev.get("actor") else ""
+        detail = f'<div class="sm muted">{esc(ev["detail"])}</div>' if ev.get("detail") else ""
+        rows += (f'<div class="tl-row"><div class="tl-dot {dot}"></div>'
+                 f'<div class="tl-body"><div class="tl-when mono sm muted">{when}</div>'
+                 f'<div class="strong sm">{esc(ev["title"])}{actor}</div>'
+                 f'{detail}{extra}</div></div>')
+    head_chips = (
+        (chip(_tr["plan_status"], "") if _tr["plan_status"] else "")
+        + (chip(_tr["review_status"], "") if _tr["review_status"] else "")
+        + (f'<span class="chip chip-muted">release {esc(_tr["release"])}</span>'
+           if _tr["release"] else ""))
+    trace_panels_html += (
+        f'<article class="card art-panel trace-panel{"" if _tfirst else " hidden"}" '
+        f'data-trace-panel="{esc(_tk)}">'
+        f'<div class="art-head"><h2>{esc(_tk)}</h2>'
+        f'<span class="pill">{esc(_tr["trigger_type"] or "?")}</span>{head_chips}</div>'
+        f'<div class="tl">{rows}</div></article>')
+    _tfirst = False
+
 # ---------------------------------------------------------------- catalog view
 repo_opts = "".join(f"<option>{esc(t['name'])}</option>" for t in trepos)
 cat_rows = ""
@@ -523,7 +584,8 @@ gen_ts = time.strftime("%Y-%m-%d %H:%M")
 
 NAV = [("overview", "◧", "Overview"), ("queue", "⇥", "Intake & queue"),
        ("plans", "✎", "Test plans"),
-       ("runs", "▶", "Runs & reviews"), ("artifacts", "❏", "Artifacts"),
+       ("runs", "▶", "Runs & reviews"), ("trace", "⇢", "Trace"),
+       ("artifacts", "❏", "Artifacts"),
        ("catalog", "☰", "Test catalog"), ("repos", "⛁", "Repositories"),
        ("settings", "⚙", "Settings")]
 TITLES = {"overview": "Overview", "queue": "Intake & work queue",
@@ -751,6 +813,20 @@ pre { margin:0; background:var(--sr-bg-muted); border:1px solid var(--sr-border)
   border-radius:5px; padding:1px 7px; }
 .spec-file pre.code { margin-top:0; white-space:pre; max-height:420px; overflow:auto; }
 .spec-catalog { margin:2px 0 12px; }
+/* Trace timeline */
+.tl { padding:6px 24px 18px; }
+.tl-row { display:flex; gap:14px; position:relative; padding:10px 0; }
+.tl-row::before { content:""; position:absolute; left:5px; top:26px; bottom:-10px;
+  width:2px; background:var(--sr-border); }
+.tl-row:last-child::before { display:none; }
+.tl-dot { flex:none; width:12px; height:12px; border-radius:50%; margin-top:4px;
+  border:2px solid var(--sr-border); background:var(--sr-bg); z-index:1; }
+.tl-dot.success { background:var(--sr-success-fg); border-color:var(--sr-success-fg); }
+.tl-dot.danger  { background:var(--sr-danger-fg);  border-color:var(--sr-danger-fg); }
+.tl-dot.warning { background:var(--sr-warning-fg); border-color:var(--sr-warning-fg); }
+.tl-dot.info    { background:var(--sr-info-fg, #5b8def); border-color:var(--sr-info-fg, #5b8def); }
+.tl-body { flex:1; min-width:0; }
+.tl-when { margin-bottom:1px; }
 /* before/after comparison for updated & deleted specs (coloured unified diff) */
 .diffview { border:1px solid var(--sr-border); border-radius:8px; overflow:auto;
   max-height:460px; font-family:var(--sr-font-mono); font-size:12px; line-height:1.55;
@@ -834,7 +910,8 @@ async function api(path, opts) {
 }
 const TITLES = { overview: 'Overview', queue: 'Intake & work queue',
   plans: 'Test plans — review & approval',
-  runs: 'Runs & team reviews', artifacts: 'Generated artifacts',
+  runs: 'Runs & team reviews', trace: 'Trace — story/PR to release',
+  artifacts: 'Generated artifacts',
   catalog: 'Test knowledge catalog', repos: 'Repositories & mapping',
   settings: 'Settings & integrations' };
 function go(view) {
@@ -883,9 +960,14 @@ document.addEventListener('click', async e => {
 // ---- artifacts key switcher + code toggles
 document.addEventListener('click', e => {
   const k = e.target.closest('.art-key');
+  if (k && k.dataset.trace !== undefined) {
+    $$('.trace-key').forEach(x => x.classList.toggle('active', x === k));
+    $$('.trace-panel').forEach(p => p.classList.toggle('hidden', p.dataset.tracePanel !== k.dataset.trace));
+    return;
+  }
   if (k) {
-    $$('.art-key').forEach(x => x.classList.toggle('active', x === k));
-    $$('.art-panel').forEach(p => p.classList.toggle('hidden', p.dataset.artPanel !== k.dataset.art));
+    $$('.art-key:not(.trace-key)').forEach(x => x.classList.toggle('active', x === k));
+    $$('.art-panel:not(.trace-panel)').forEach(p => p.classList.toggle('hidden', p.dataset.artPanel !== k.dataset.art));
     return;
   }
   const t = e.target.closest('.code-toggle');
@@ -1615,6 +1697,16 @@ page = f"""<!doctype html>
           <th>team review</th></tr></thead>
         <tbody>{runs_rows}</tbody></table></div>
     </section>
+  </div>
+
+  <div data-view="trace">
+    <div class="art-layout">
+      <nav class="card art-list">
+        <div class="art-list-h">Keys with a trace</div>
+        {trace_keys_html or '<div class="empty">No traced keys yet.</div>'}
+      </nav>
+      <div>{trace_panels_html or '<div class="card"><div class="empty">No traces yet — run make demo-pr / demo-jira.</div></div>'}</div>
+    </div>
   </div>
 
   <div data-view="artifacts">
