@@ -65,7 +65,7 @@ docker compose logs -f          # follow logs (run from deploy/local)
 ```
 
 Equivalent Make targets from the repo root: `make deploy-local` (add `SEED=1`),
-`make deploy-local-down`, and `make docker-build` (add `IMAGE=…` / `REAL=1`).
+`make deploy-local-down`, and `make docker-build` (add `IMAGE=…` / `REAL=1`). The build engine is auto-detected — docker (with a live daemon), else podman, else podman inside the default WSL machine; podman consumes the same Dockerfile unchanged. Force one with `ENGINE=…`, e.g. `make docker-build ENGINE=podman`.
 
 ---
 

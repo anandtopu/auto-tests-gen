@@ -88,8 +88,23 @@ prune:
 clear-demo:
 	python3 engine/lib/demo_data.py $(if $(DRY),--dry,)
 
+# Container image. Engine auto-detected at run time: docker, else podman (same
+# Dockerfile — podman consumes it unchanged), else podman inside the default WSL
+# machine (covers a Windows box where the podman.exe shim isn't installed).
+# Override explicitly with ENGINE=..., e.g.:
+#   make docker-build ENGINE=podman
+#   make docker-build ENGINE="wsl -d podman-machine-default podman"
 docker-build:
-	docker build -t $(or $(IMAGE),ai-qe-platform:local) $(if $(REAL),--build-arg INSTALL_REAL_TOOLS=1,) .
+	@set -e; ENG="$(ENGINE)"; \
+	if [ -z "$$ENG" ]; then \
+	  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then ENG=docker; \
+	  elif command -v podman >/dev/null 2>&1; then ENG=podman; \
+	  elif wsl -d podman-machine-default podman --version >/dev/null 2>&1; then ENG="wsl -d podman-machine-default podman"; \
+	  elif command -v docker >/dev/null 2>&1; then ENG=docker; \
+	  else echo "ERROR: no container engine found (docker or podman; or set ENGINE=...)" >&2; exit 1; fi; \
+	fi; \
+	echo "[docker-build] engine: $$ENG"; \
+	$$ENG build -t $(or $(IMAGE),ai-qe-platform:local) $(if $(REAL),--build-arg INSTALL_REAL_TOOLS=1,) .
 
 deploy-local:
 	bash deploy/local/deploy.sh $(if $(SEED),--seed,)
