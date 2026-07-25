@@ -64,6 +64,10 @@ if runs:
               f"scored runs (advisory — never gates a commit)")
     if not scored:
         print("Escaped noise: n/a — no critic signal yet (critic.enabled in org-config)")
+    costs = [r["cost_usd"] for r in runs if isinstance(r.get("cost_usd"), (int, float))]
+    if costs:
+        print(f"Cost per run: ${sum(costs) / len(costs):.2f} avg over {len(costs)} "
+              f"metered run(s) (limit enforced at exit 77 — see engine/lib/budget.py)")
 else:
     print("Run outcomes: n/a — no run records yet")
 

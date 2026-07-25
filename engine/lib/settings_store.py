@@ -124,8 +124,10 @@ SPEC = [
          "help": "qa-team@example.com, lead@example.com"},
      ]},
     {"section": "Budgets",
-     "hint": "Per-run guardrails enforced by the OpenHands orchestrator (Path 1); "
-             "local mock/demo runs do not meter cost.",
+     "hint": "ENFORCED by the pipeline before every phase: over either limit the "
+             "run aborts (exit 77) and notifies before the gate is reached. Cost "
+             "comes from each claude phase's reported spend; mock/demo runs meter "
+             "nothing and only the wall-clock limit applies to them.",
      "fields": [
         {"env": "MAX_COST_USD_PER_RUN", "label": "Max cost per run (USD)",
          "default": "4.00"},

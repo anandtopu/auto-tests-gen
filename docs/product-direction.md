@@ -92,10 +92,9 @@ data already exists in run records; this is a presentation gap, not a data gap.
 *Goal: a design partner runs Workflow A+B on their estate for 4 weeks with
 acceptance ≥70% and zero gate escapes.*
 
-- **Enforce the budgets.** `MAX_COST_USD_PER_RUN` / `MAX_WALLCLOCK_MIN` are settings
-  today, not controls. Meter tokens per phase, hard-stop a runaway run. This is the
+- **Enforce the budgets.** ✅ *Shipped.* `MAX_COST_USD_PER_RUN` / `MAX_WALLCLOCK_MIN` were settings, not controls. Meter tokens per phase, hard-stop a runaway run. This is the
   #1 objection enterprise buyers raise about agentic tools.
-- **Trace view** (EM ask above) — join what run records already contain.
+- **Trace view** ✅ *Shipped* — dashboard view + `/api/trace` + `qa.py trace`.
 - **PR comment with coverage delta** — the build status exists; add "3 behaviors
   covered, 1 open question" to the PR itself, where developers live.
 - **Auth**: reverse-proxy SSO header support on the dashboard (full RBAC waits for H2).

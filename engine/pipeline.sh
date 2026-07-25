@@ -44,9 +44,9 @@ if [ "${AIQE_MOCK:-0}" = "1" ]; then
   TELEM() { bash adapters/mock/telemetry.sh "$@"; }
   if [ "${AIQE_REAL_LLM:-0}" = "1" ]; then
     # Parity mode: REAL claude -p phases against the demo estate + mock adapters
-    PHASE() { bash engine/phases/run_phase.sh "$1" "prompts/$2" workspace "${@:3}"; }
+    _PHASE_IMPL() { bash engine/phases/run_phase.sh "$1" "prompts/$2" workspace "${@:3}"; }
   else
-    PHASE() { bash engine/phases/mock_phase.sh "$1" "$KEY" workspace; }
+    _PHASE_IMPL() { bash engine/phases/mock_phase.sh "$1" "$KEY" workspace; }
   fi
 else
   SCM() { bash "$(python3 -c "import yaml;print(yaml.safe_load(open('registry/org-config.yaml'))['adapters']['scm']['${SCM_KIND:-github}'])")" "$@"; }
@@ -61,8 +61,31 @@ else
     esac
   }
   TELEM() { bash adapters/telemetry/splunk.sh "$@"; }
-  PHASE() { bash engine/phases/run_phase.sh "$1" "prompts/$2" workspace "${@:3}"; }
+  _PHASE_IMPL() { bash engine/phases/run_phase.sh "$1" "prompts/$2" workspace "${@:3}"; }
 fi
+
+# Budget enforcement (docs/product-direction.md H1): every phase's actual spend —
+# claude -p reports total_cost_usd in out/<phase>.json — lands in out/cost.tsv, and
+# the guard runs BEFORE each phase. Over the cost or wall-clock limit the run aborts
+# with exit 77, notifies, and never reaches the gate: a runaway loop can overshoot
+# by at most one phase. Mock phases meter nothing (AIQE_MOCK_PHASE_COST simulates).
+RUN_START=$(date +%s)
+rm -f out/cost.tsv
+_budget_guard() {
+  local why
+  if ! why=$(python3 engine/lib/budget.py check --start "$RUN_START"); then
+    echo "$why"
+    local msg="AI-QE run ${RUN_ID:-?} for ${KEY:-?} ABORTED before phase '$1': $why"
+    { [ "${MODE:-}" = "jira" ] && TRACKER comment "$KEY" "$msg"; } || true
+    NOTIFY post "$msg" || true
+    exit 77
+  fi
+}
+PHASE() {
+  _budget_guard "$1"
+  _PHASE_IMPL "$@"
+  python3 engine/lib/budget.py record "$1" "out/$1.json" || true
+}
 
 RUN_ID=$(date +%s)-$RANDOM
 if [ "$MODE" = "pr" ]; then

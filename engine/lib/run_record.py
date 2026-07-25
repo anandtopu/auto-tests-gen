@@ -37,4 +37,12 @@ record = {"run_id": run_id, "trigger": {"type": mode, "key": key},
 signal = critic_lib.load()
 if signal:
     record["critic"] = signal
+# Spend from the budget ledger (real phases meter; mock runs record 0/simulated).
+try:
+    import budget
+    _tot, _metered, _ = budget.total()
+    if _metered:
+        record["cost_usd"] = round(_tot, 4)
+except Exception:
+    pass
 print(json.dumps(record))

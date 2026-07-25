@@ -142,7 +142,14 @@ resolution:
 catalog:
   auto_accept_confidence: 0.85
   review_band: [0.5, 0.85]    # between these → human review queue; below → orphan
-budgets:           # per-run cost ceilings
+budgets:           # per-run cost ceilings — ENFORCED: the pipeline checks cost
+                   # + wall-clock BEFORE every phase; over-limit runs abort with
+                   # exit 77 and a notification, before the gate. Precedence:
+                   # MAX_COST_USD_PER_RUN (.env / Settings) beats these; cross_repo
+                   # applies when a run targets >1 test repo. Mock runs meter
+                   # nothing (only wall-clock applies); real claude phases meter
+                   # their reported total_cost_usd into out/cost.tsv and the run
+                   # record's cost_usd.
 adapters:          # which adapter script serves each port
 ```
 
