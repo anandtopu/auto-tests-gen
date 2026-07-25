@@ -8,8 +8,29 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-COMPOSE="docker compose"
-docker compose version >/dev/null 2>&1 || COMPOSE="docker-compose"
+# Compose engine, auto-detected (mirrors make docker-build's engine detection).
+# Order: docker compose — only with a LIVE daemon (a CLI whose daemon is down is
+# the trap this machine sat in) — then docker-compose, podman compose,
+# podman-compose, and finally podman compose inside the default WSL machine.
+# Override explicitly:  COMPOSE="podman compose" ./deploy.sh
+if [ -z "${COMPOSE:-}" ]; then
+  if docker compose version >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    COMPOSE="docker compose"
+  elif command -v docker-compose >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    COMPOSE="docker-compose"                     # v1 talks to the same daemon
+  elif podman compose version >/dev/null 2>&1; then
+    COMPOSE="podman compose"
+  elif command -v podman-compose >/dev/null 2>&1 && podman info >/dev/null 2>&1; then
+    COMPOSE="podman-compose"
+  elif wsl -d podman-machine-default podman compose version >/dev/null 2>&1; then
+    COMPOSE="wsl -d podman-machine-default podman compose"
+  else
+    echo "ERROR: no compose engine found (docker compose / docker-compose /" >&2
+    echo "       podman compose / podman-compose; or set COMPOSE=...)" >&2
+    exit 1
+  fi
+fi
+echo "==> compose engine: $COMPOSE"
 
 case "${1:-up}" in
   --down|down) exec $COMPOSE down ;;
