@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""The PR coverage-delta comment — the developer-facing summary of a Workflow-A run.
+
+docs/product-direction.md H1: the build status says pass/fail, but the PR itself is
+where developers live — tell them THERE what E2E coverage changed because of their
+change: which behaviors are now covered, which tests were created vs extended, what
+the validation and gate said, what stayed open, and what the run cost. Everything is
+read from the run's own out/ artifacts; nothing here talks to the network — the
+pipeline posts the text through the Scm port's `comment` verb, best-effort, after
+the gates have decided.
+
+    build(out_dir=".", run_id="", key="") -> markdown string ("" when there is
+    nothing worth saying, e.g. triage found no behavior change)
+"""
+import json, os, pathlib, sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+
+def _load(p):
+    try:
+        return json.load(open(p, encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def build(out_dir=".", run_id="", key=""):
+    out = pathlib.Path(out_dir)
+    triage = _load(out / "out/triage.contract.json")
+    gen = _load(out / "out/generate.contract.json")
+    validate = _load(out / "out/validate.contract.json")
+
+    tests = gen.get("tests", []) or []
+    created = [t for t in tests if t.get("action") == "created"]
+    updated = [t for t in tests if t.get("action") == "updated"]
+    open_qs = gen.get("open_questions", []) or []
+    areas = triage.get("areas", []) or []
+
+    gates = []
+    tsv = out / "out/gate_results.tsv"
+    if tsv.exists():
+        for line in tsv.read_text(encoding="utf-8").splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 3:
+                gates.append({"repo": parts[0], "status": parts[1],
+                              "sha": parts[3] if len(parts) > 3 else ""})
+
+    if not tests and not gates:
+        # Triage decided no E2E impact (impact=none) or the run never generated —
+        # a comment saying nothing would just be noise on the PR.
+        return ""
+
+    lines = [f"## AI-QE — E2E coverage delta{' for ' + key if key else ''}", ""]
+
+    # The delta itself, in the developer's terms.
+    if areas:
+        lines.append("**Behaviors covered by this change:** "
+                     + ", ".join(str(a) for a in areas[:6]))
+    verb = {"create": "new coverage added", "update": "existing coverage extended",
+            "none": "no E2E impact"}.get(triage.get("impact"), None)
+    if verb:
+        lines.append(f"**Triage:** {verb}"
+                     + (f" (risk: {triage['risk']})" if triage.get("risk") else ""))
+    lines.append("")
+
+    if tests:
+        lines.append(f"**Tests:** {len(created)} created · {len(updated)} updated")
+        for t in tests[:8]:
+            lines.append(f"- `{t.get('file', '?')}` ({t.get('action', '?')})")
+        if len(tests) > 8:
+            lines.append(f"- … and {len(tests) - 8} more")
+        lines.append("")
+
+    if validate:
+        failed = validate.get("failed", 0)
+        lines.append(f"**Validation:** {validate.get('passed', '?')} passed, "
+                     f"{failed} failed"
+                     + (f", {validate.get('repair_loops')} repair loop(s)"
+                        if validate.get("repair_loops") else ""))
+
+    for g in gates:
+        mark = {"committed": "✅", "no_changes": "➖", "quarantined": "❌"}.get(
+            g["status"], "•")
+        sha = f" `{g['sha'][:7]}`" if g.get("sha") else ""
+        lines.append(f"- {mark} {g['repo']}: {g['status']}{sha}")
+
+    # Advisory signal + spend — context, never verdicts.
+    try:
+        import critic as critic_lib
+        sig = critic_lib.load(out / "out/critic.contract.json")
+        if sig:
+            lines.append(f"- 🔍 critic (advisory): {sig['score']} {sig['verdict']}")
+    except Exception:
+        pass
+    try:
+        import budget
+        tot, metered, _ = budget.total(out / "out/cost.tsv")
+        if metered:
+            lines.append(f"- 💰 run cost: ${tot:.2f}")
+    except Exception:
+        pass
+
+    if open_qs:
+        lines.append("")
+        lines.append(f"**Open questions ({len(open_qs)}):** the agent did not guess —")
+        for q in open_qs[:4]:
+            lines.append(f"- {q}")
+
+    url = os.environ.get("AIQE_STATUS_URL", "").strip()
+    tail = f" · [dashboard]({url})" if url else ""
+    lines.append("")
+    lines.append(f"<sub>run `{run_id}` — tests were committed by the deterministic "
+                 f"gate; review them on the `test/{key}-ai-qe` branch{tail}</sub>"
+                 if any(g["status"] == "committed" for g in gates) else
+                 f"<sub>run `{run_id}`{tail}</sub>")
+    return "\n".join(lines)
+
+
+if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")
+    run_id = sys.argv[1] if len(sys.argv) > 1 else ""
+    key = sys.argv[2] if len(sys.argv) > 2 else ""
+    print(build(".", run_id, key))

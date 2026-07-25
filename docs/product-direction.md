@@ -95,8 +95,10 @@ acceptance ≥70% and zero gate escapes.*
 - **Enforce the budgets.** ✅ *Shipped.* `MAX_COST_USD_PER_RUN` / `MAX_WALLCLOCK_MIN` were settings, not controls. Meter tokens per phase, hard-stop a runaway run. This is the
   #1 objection enterprise buyers raise about agentic tools.
 - **Trace view** ✅ *Shipped* — dashboard view + `/api/trace` + `qa.py trace`.
-- **PR comment with coverage delta** — the build status exists; add "3 behaviors
-  covered, 1 open question" to the PR itself, where developers live.
+- **PR comment with coverage delta** ✅ *Shipped* — behaviors covered,
+  created-vs-updated tests, validation, gate outcome, open questions, advisory
+  critic and cost, posted on the PR through the Scm port; silent when triage
+  finds no E2E impact.
 - **Auth**: reverse-proxy SSO header support on the dashboard (full RBAC waits for H2).
 - **Pilot metrics baked into the report**: acceptance rate, escaped noise, cycle time
   saved, cost/run — the scorecard already computes most; make them the pilot's

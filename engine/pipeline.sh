@@ -261,6 +261,12 @@ if [ "$MODE" = "pr" ]; then
   HEAD_SHA=$(git -C "workspace/src/$REPO" rev-parse HEAD 2>/dev/null || echo "")
   STATE=success; echo "$SUMMARY" | grep -q quarantined && STATE=failure
   if [ -n "$HEAD_SHA" ]; then SCM set_status "$REPO" "$HEAD_SHA" "$STATE" "AI-QE run ${RUN_ID}" || true; fi
+  # Coverage-delta comment ON the PR (product-direction H1): behaviors covered,
+  # created-vs-updated tests, validation, gate outcome, open questions. Composed
+  # from this run's own out/ artifacts; empty (no comment) when triage found no
+  # E2E impact, so PRs never accumulate noise. Best-effort like every notify.
+  PR_COMMENT=$(python3 engine/lib/pr_comment.py "$RUN_ID" "$KEY" 2>/dev/null || true)
+  if [ -n "$PR_COMMENT" ]; then SCM comment "$REPO" "$PR" "$PR_COMMENT" || true; fi
 fi
 # Run record: persisted for QA monitoring (reports/runs/) AND emitted as telemetry
 python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY" \
