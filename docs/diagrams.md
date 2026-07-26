@@ -95,6 +95,7 @@ sequenceDiagram
     end
     P->>P: clone src/ (read-only), tests/ (branch test/KEY-ai-qe)
     P->>P: refresh AGENTS.md + coverage gaps (surface with NO test)
+    Note over P,LLM: budget guard BEFORE every phase (cost from out/cost.tsv +<br/>wall-clock vs org-config budgets / MAX_COST_USD_PER_RUN) —<br/>over limit → exit 77 BUDGET_EXCEEDED + notify, gate never runs
     P->>LLM: triage (diff + catalog slice + gaps) → generate specs + sidecar → validate
     P->>LLM: critic (advisory quality score — read-only, never gates)
     par one gate per test repo (parallel)
@@ -105,8 +106,8 @@ sequenceDiagram
         ENV-->>ENV: teardown (trap — guaranteed)
         G-->>P: GATE_STATUS=COMMITTED sha
     end
-    P->>SCM: aggregated summary comment
     P->>SCM: set_status: ai-qe success|failure on the PR head commit
+    P->>SCM: coverage-delta PR comment (pr_comment.py): behaviors covered,<br/>created vs updated, validation, gate outcome, critic + cost —<br/>silent when triage finds no E2E impact
     Note over P: diff archived to reports/runs/ · review state → pending_review
 ```
 
@@ -130,6 +131,7 @@ sequenceDiagram
     P->>P: release captured (fixVersions) · issue-type guidance selected<br/>(story | bug regression | security negative-tests)
     P->>C: get_linked_docs (PRD page BODIES, budgeted, untrusted data)
     P->>P: resolve (component map + label restrictions, e.g. api-only)
+    Note over P,LLM: budget guard before every phase (same as Workflow A) —<br/>over limit → exit 77 + notify
     P->>LLM: analyze (guidance + ticket + Confluence)
     P->>LLM: testplan (+ coverage gaps) → testdata → generate → validate
     P->>LLM: critic (advisory quality score — read-only, never gates)
@@ -286,7 +288,8 @@ flowchart LR
 
     subgraph SURFACES["QA surfaces"]
         ST["make status / reviews<br/>(review + release columns)"]
-        DB["make serve — authed dashboard (8 views):<br/>Overview · Intake &amp; queue · <b>Test plans</b> ·<br/>Runs &amp; reviews · Artifacts · Test catalog ·<br/>Repositories · Settings"]
+        DB["make serve — authed dashboard (9 views):<br/>Overview · Intake &amp; queue · <b>Test plans</b> ·<br/>Runs &amp; reviews · <b>Trace</b> (story→plan→tests→<br/>gate→review→release timeline) · Artifacts<br/>(code + before/after diff) · Test catalog ·<br/>Repositories · Settings"]
+        TRC["qa.py trace &lt;KEY&gt; · GET /api/trace<br/>(trace.py joins plans + runs + reviews)"]
         AR["qa.py artifacts &lt;KEY&gt;<br/>plan · data · tests · diffs"]
         REP["make report / qa.py report<br/>(md·html·docx·pdf): completed work ·<br/>queue · throughput · estate health"]
         SC["eval/scorecard.py: commit rate ·<br/>repair loops · update-vs-create ·<br/>acceptance · flakiness"]
@@ -294,6 +297,8 @@ flowchart LR
 
     RR --> ST
     RR --> DB
+    RR --> TRC
+    RS --> TRC
     RR --> AR
     RR --> REP
     RR --> SC
@@ -365,16 +370,18 @@ flowchart TD
         A3["Per-repo guidance editor<br/>(knowledge/repos/&lt;name&gt;.md)"]
     end
     subgraph SETV["Settings view"]
-        B1["Integrations → .env<br/>(GitHub/Bitbucket/Stash · JIRA ·<br/>Confluence · OpenHands · Jenkins ·<br/>Slack/Splunk · budgets · adapter mode)<br/>secrets are write-only"]
-        B2["Danger zone: Clear demo data<br/>(generated state only; estate kept)"]
+        B1["Integrations → .env<br/>(GitHub/Bitbucket/Stash · JIRA ·<br/>Confluence · OpenHands · Jenkins ·<br/>Slack/Splunk · budgets · adapter mode)<br/>secrets are write-only ·<br/>'properties' chip = value from aiqe.properties"]
+        B2["Danger zone: Clear demo data<br/>(generated state incl. bootstrapped catalog;<br/>registry kept) · <b>Factory reset</b><br/>(registry emptied too — double-confirmed)"]
     end
     A1 --> REG2["registry (validated · goldens re-run)"]
     A2 --> REG2
     A2 -- "covers = evidence ∪ scope" --> REG2
     A3 --> AG2["AGENTS.md regenerated"]
     REG2 --> AG2
+    PROPS["aiqe.properties (ConfigMap-friendly baseline)"] -- "lowest precedence" --> ENV
     B1 --> ENV[".env (secrets masked on read;<br/>loaded by pipeline + server + exports)"]
-    B2 --> DEMO["demo_data.clear()<br/>(locked · refuses during a run)"]
+    ENV -- "explicit env always wins" --> PH2
+    B2 --> DEMO["demo_data.clear(factory?)<br/>(locked · refuses during a run)"]
     AG2 --> PH2["injected into every LLM phase"]
 ```
 

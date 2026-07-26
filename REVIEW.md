@@ -69,6 +69,67 @@ P6 `extract_contract.py` read files with cp1252 on Windows · P7 contract extrac
 grabbed the last brace-blob (often a code snippet in prose) → rewritten to parse the last
 valid JSON object carrying the schema's required keys.
 
+## Pass 6 — Post-H1 multi-pass review (July 2026: code scan + deep feature review + docs audit)
+Three parallel review passes over the estate after the H1 features landed (budgets, Trace,
+PR coverage-delta comment, SSO, properties config, per-repo Stash, factory reset). All
+confirmed findings fixed in-flight and pinned by new/updated tests; full suite green after.
+
+**Deep review of the H1 modules (13 findings, 11 fixed):**
+F1/F2 `source .env` neither exported values to children nor honored the documented
+precedence (`aiqe.properties < .env < explicit env`) — on the CLI path, `.env`-only
+budgets/credentials never reached adapters or `budget.py`, and a stale `.env` clobbered
+Secret-injected env. Replaced with two defaults-only `export` emitters
+(`props_file.py dotenv-defaults` then `shell-defaults`; first-fill wins) ·
+F3 the budget guard could fire between validate and the gate (at the advisory critic),
+aborting a fully-paid-for run with exit 77 — critic now runs outside the PHASE wrapper
+(still metered) · F4 `AIQE_COST_LEDGER` override was never truncated at run start ·
+F5 **Windows path traversal**: `/runs/..\..\.env` served arbitrary files (posix `.name`
+doesn't split on backslash; the pathlib join does) — strict-charset basename now enforced,
+regression-tested · F7 `/hooks/openhands/*` ingestion broke the day UI auth was enabled —
+hooks now gated on `AIQE_HOOK_TOKEN` (receiver contract) instead of UI auth ·
+F8 `settings_store._parse` corrupted quoted secrets containing `#`/`'` that its own
+`save()` wrote (round-trip now tested) · F9 a digit-leading properties key emitted invalid
+bash and killed every run at startup · F10 **Stash/GitHub/Bitbucket `fetch_file` mapped
+every failure (expired token, outage) to exit 3 "file absent"**, which made guidance_sync
+delete the cached estate guidance — now 404-only; transport/auth errors exit 1 ·
+F11 `clear()` rmtree'd the very lock dirs it was holding, voiding its interleave
+protection — held `*.lock` dirs are now preserved during the wipe · F12 fs_lock broke
+60s-old locks even when the owner PID was alive (long clears) — liveness check added ·
+F13 the PR comment's "no noise" guard never fired (gate rows always exist) — all-`no_changes`
++ zero tests is now silent. Deliberately NOT changed: explicit `by` still beats the SSO
+identity on approvals (delegation is the documented, test-pinned contract).
+
+**Estate-wide code scan (14 findings, all fixed):**
+S1 the resolver's `skip` verdict was dead code — a docs-only PR ran the full LLM phase
+chain (real spend) and posted a success build status; the pipeline now exits on skip
+(golden-pinned) · S2 `out/*.contract.json` was never cleared at run start, so run records
+absorbed phases from the PREVIOUS run (a pr record carried the jira run's analyze/testplan);
+`tests` mode's missing-snapshot fallback could shape generation with a different key's plan
+(now fatal) · S3 the catalog slice fed to phases globbed only `catalog/e2e-*.jsonl` — any
+differently-named test repo lost duplicate-prevention context · S4 `run_bootstrap.sh`
+hardcoded the GitHub adapter and, on a failed clone, truncated an existing catalog to empty
+(then `covers` regeneration silently unrouted the repo) — adapter now resolved like the
+pipeline, failed clone is fatal · S5 registry writes outside `fs_lock` in `repos.py`,
+`onboard.sh`, and the `regen_coverage` call sites — all locked + atomic now ·
+S6 `eval/run_fixture.py` used plain `"bash"` (WSL stub trap) and leaked its temp file ·
+S7 JIRA-keyed `plan`/`tests` runs never commented on the ticket (summary, budget abort,
+clarification were `jira`-mode-only) · S8 the critic's `|| { }` failure handler was dead
+code (set -e suppression inside PHASE) — rc now captured explicitly · S9 `harvest_facts.py`
+crashed (KeyError) on a backend repo registered without `contract` (`Path/""` == `Path`) ·
+S10 `regen_coverage.py` crashed on a blank catalog line · S11 `with-env.sh` leaked one temp
+log per gate invocation · S12 `integration_check --json` always exited 0, masking hard
+failures in CI · S13 `email_notify` CLI swallowed option values as positionals ·
+S14 the gate's born-mapped check matched the spec path as a regex substring — now a
+fixed-string, quote-delimited JSON-value match.
+
+**Docs audit (22 findings, all applied):** exit-code table corrected (7 = PUSH_FAILED,
+77 = BUDGET_EXCEEDED documented), Trace view documented across user-guide/README/
+getting-started/architecture/diagrams, dashboard view counts unified at nine, budget
+enforcement + PR comment added to the workflow diagrams (order fixed: set_status then
+comment), factory reset + properties layering + SSO documented in user-guide/deployment/
+diagrams, adapter verb lists completed (7 verbs), stale KPI rows and persona text in
+product-direction refreshed, lock-break time corrected to 90 min.
+
 ## Open items (ticketed, not blocking)
 1. ~~Real-LLM parity run~~ — **done, Pass 5 above.** Full `AIQE_MOCK=0` (real adapters) still needs estate credentials.
 2. Mock stubs still bypass `extract_contract.py` (real path now proven; stub passthrough remains cosmetic).

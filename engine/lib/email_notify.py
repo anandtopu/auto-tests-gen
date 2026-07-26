@@ -214,15 +214,28 @@ def _main(argv):
         return rest[rest.index(name) + 1] if name in rest else default
     to = opt("--to")
 
+    def positionals():
+        # Skip each --option AND its value: `run --to a@b 1234-5` must yield
+        # ["1234-5"], not pick up "a@b" as the run id.
+        pos, skip = [], False
+        for a in rest:
+            if skip:
+                skip = False
+            elif a.startswith("--"):
+                skip = True
+            else:
+                pos.append(a)
+        return pos
+
     if cmd == "send":
-        pos = [a for a in rest if not a.startswith("--")]
+        pos = positionals()
         subject, body = (pos + ["", ""])[:2]
         html = None
         if opt("--html"):
             html = pathlib.Path(opt("--html")).read_text(encoding="utf-8")
         print(send(subject, body, html, to))
     elif cmd == "run":
-        rid = [a for a in rest if not a.startswith("--")][0]
+        rid = positionals()[0]
         print(send(*run_summary(rid), to=to))
     elif cmd == "digest":
         print(send(*review_digest(), to=to))

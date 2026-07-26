@@ -50,10 +50,18 @@ def test_critic_phase_has_no_write_tools():
 
 def test_pipeline_runs_the_critic_non_fatally_and_after_the_gate_is_decided():
     src = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
-    # a failing critic phase must not abort the run under `set -e`
-    assert "PHASE critic critic.md" in src
-    idx = src.index("PHASE critic critic.md")
-    assert "||" in src[idx:idx + 400], "critic phase is not guarded against failure"
+    # The critic runs OUTSIDE the PHASE wrapper: the budget guard must not fire
+    # between validate and the gate (all the spend already happened — an exit-77
+    # there would discard a fully-paid-for run over an advisory signal)...
+    assert "_PHASE_IMPL critic critic.md" in src
+    assert "PHASE critic" not in src, \
+        "critic must not go through PHASE — the budget guard would abort pre-gate"
+    idx = src.index("_PHASE_IMPL critic critic.md")
+    # ...and a failing critic phase must not abort the run under `set -e`
+    assert "|| CRITIC_RC=$?" in src[idx:idx + 200], \
+        "critic phase is not guarded against failure"
+    # its spend is still metered for the run record
+    assert "budget.py record critic" in src[idx:idx + 400]
     # stale signal from a previous run must never be attributed to this one
     assert src.index("rm -f out/critic.contract.json") < idx
     # the score is appended to the summary only after the gate loop has run

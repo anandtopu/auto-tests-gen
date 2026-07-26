@@ -18,6 +18,35 @@ STALE_S = 60
 ORPHAN_GRACE_S = 5
 
 
+def _pid_alive(pid):
+    """Best-effort holder liveness. STALE_S (60 s) is shorter than a legitimate
+    long hold (demo_data.clear rmtree'ing workspace/ can take minutes and never
+    refreshes its stamp), so age alone must not break a lock whose owner process
+    is still running. Unknown -> assume alive: never tear down a live writer."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if os.name == "nt":
+        try:
+            import ctypes
+            SYNCHRONIZE = 0x00100000
+            h = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+            if h:
+                ctypes.windll.kernel32.CloseHandle(h)
+                return True
+            return False
+        except Exception:                      # noqa: BLE001 — err on "alive"
+            return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except OSError:                            # EPERM etc. — exists, not ours
+        return True
+
+
 @contextlib.contextmanager
 def lock(path, timeout=10.0):
     """Exclusive lock named after `path` (creates `<path>.lock/`)."""
@@ -35,10 +64,11 @@ def lock(path, timeout=10.0):
                 stamp = float(owner_txt.split()[1])
             except (OSError, IndexError, ValueError):
                 owner_txt, stamp = None, None      # ownerless orphan (see above)
-            if stamp is not None and time.time() - stamp > STALE_S:
-                # Re-verify the owner is unchanged right before breaking — a
-                # concurrent waiter may have already broken and re-acquired
-                # this lock; tearing down the NEW holder would give two
+            if stamp is not None and time.time() - stamp > STALE_S \
+                    and not _pid_alive(owner_txt.split()[0]):
+                # Old stamp AND dead owner. Re-verify the owner is unchanged right
+                # before breaking — a concurrent waiter may have already broken and
+                # re-acquired this lock; tearing down the NEW holder would give two
                 # writers. (Narrows the race window to microseconds.)
                 try:
                     if (lockdir / "owner").read_text(encoding="utf-8") == owner_txt:

@@ -30,7 +30,9 @@ only — protect main), `pullrequest:read` + `pullrequest:write` (comments). Fil
 Edit [adapters/scm/bitbucket.sh](../../adapters/scm/bitbucket.sh): replace the
 `workspace` placeholder in the `BB=` base URL and clone URLs with your workspace slug.
 Verbs: `changed_files` (PR diffstat), `clone_ro`, `clone_rw` (creates
-`test/<KEY>-ai-qe`), `comment`.
+`test/<KEY>-ai-qe`), `comment`, `diff` (raw patch → phase context), `set_status`
+(the `ai-qe` build status on the PR head), `fetch_file` (guidance sync without a
+clone; exit 3 = file absent).
 
 ### 3. Registry entries
 
@@ -91,12 +93,15 @@ account; deny direct pushes to the default branch (the gate is the only push pat
 
 ### 2. Adapter
 
-[adapters/scm/stash.sh](../../adapters/scm/stash.sh) implements the same four verbs
+[adapters/scm/stash.sh](../../adapters/scm/stash.sh) implements the same seven verbs
 against `rest/api/1.0/projects/<PROJECT>/repos/...`:
 
 - `changed_files <repo> <pr>` → `/pull-requests/<pr>/changes` (file paths)
 - `clone_ro|clone_rw <repo> <dir> [branch]` → `<STASH_URL>/scm/<PROJECT>/<slug>.git`
 - `comment <repo> <pr> <text>` → PR comment
+- `diff <repo> <pr>` → flattened hunks from `/pull-requests/<pr>/diff` (phase context)
+- `set_status <repo> <sha> <state> <desc>` → the `ai-qe` build status on the PR head
+- `fetch_file <repo> <path> [ref]` → raw file for guidance sync (exit 3 = absent)
 
 #### Multiple projects (app repos and E2E repos under different project keys)
 

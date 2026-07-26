@@ -128,6 +128,19 @@ def test_explicit_by_still_beats_the_header(server):
     assert data["SSO-2"]["reviewer"] == "delegate"
 
 
+def test_runs_route_rejects_windows_path_traversal(server):
+    """/runs/..\\..\\.env must 404, never serve the credentials file: posix .name
+    doesn't split on backslash, but the pathlib join on Windows does."""
+    base, _ = server()
+    for evil in ("/runs/..%5C..%5C.env", "/runs/..%5C..%5CMakefile",
+                 "/reports%5C..%5C.env.log", "/runs/.."):
+        code, _body = _req(base + evil)
+        assert code == 404, f"{evil} must be rejected, got {code}"
+    # a legitimate (missing) run id still gets a clean 404, not a 500
+    code, _body = _req(base + "/runs/none-such.json")
+    assert code == 404
+
+
 def test_deployment_doc_states_the_spoofing_boundary():
     """The header is trusted verbatim — enabling it on a directly-reachable server
     is the one way to get this wrong, and the doc must say so."""

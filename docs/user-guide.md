@@ -77,7 +77,13 @@ commit in another.
 | 4 | `UNMAPPED_TEST` | New spec without a catalog sidecar entry (born-mapped rule) |
 | 5 | `TESTS_FAILED` | Generated specs failed against the provisioned environment |
 | 6 | `GATE_REFUSED` | Working directory is not a standalone test repo (safety backstop) |
-| 7/8 | `APP_START_FAILED` / `APP_REPO_NOT_FOUND` | Environment provisioning failure (from `with-env.sh`) |
+| 7 | `PUSH_FAILED` | Commit succeeded but the push to the configured remote failed |
+
+Environment-provisioning failures (`with-env.sh`'s own exits 7/8) surface through the
+gate as **exit 5** with `APP_START_FAILED` / `APP_REPO_NOT_FOUND` in the run log.
+Separately, **pipeline exit 77 = `BUDGET_EXCEEDED`** (cost or wall-clock ceiling hit
+before a phase) — the run aborts and notifies before any gate runs, so no gate exit
+code is emitted at all.
 
 Non-zero exits quarantine the run for human inspection; they are never auto-retried.
 The adversarial suite (`make test-gate`) permanently regression-tests codes 2–5.
@@ -255,7 +261,10 @@ code is reviewable long after the run (and in real estates, before merging the
 `test/<KEY>-ai-qe` branch).
 
 The dashboard has the same view: the **Generated artifacts** section lists the latest
-run per key with expandable plan, scenarios, data, and test-code blocks.
+run per key with expandable plan, scenarios, data, and test-code blocks — each
+generated spec rendered with syntax highlighting and, for updated or deleted specs, a
+**before/after comparison** built from the archived gate diff (new / updated / deleted
+chips per file, hunk-level view).
 
 ### Running from pasted JIRA context (no ticket needed)
 
@@ -292,6 +301,12 @@ hunks on Stash) — not just the changed-file list. After the gate, the run post
 **build status** to the PR head commit (Scm `set_status`: success/failure as
 `ai-qe`), so quarantined runs are visible in the merge UI, not only in comments.
 
+After the build status, the run also posts a **coverage-delta comment** on the PR
+(`engine/lib/pr_comment.py`): behaviors now covered, tests created vs updated,
+validation outcome, gate result with a pointer to the `test/<KEY>-ai-qe` branch when
+committed, open questions, and the advisory critic score + run cost. It stays silent
+when triage finds no E2E impact — no noise on refactor-only PRs.
+
 ### Team-review tracking (who has looked at the generated tests?)
 
 Every PR / JIRA key whose run **commits** generated artifacts is automatically marked
@@ -326,16 +341,34 @@ narrow the table), and the artifact cards — so the team can answer "which rele
 work belong to, and has it been reviewed?" in one view. Status transitions never touch
 the release; changing it appends to the key's history with its source (`jira`/`manual`).
 
+### Trace: story/PR → plan → tests → gate → review → release
+
+One chronological view of everything that happened to a key — the traceability chain
+engineering managers ask for, exportable evidence included:
+
+```bash
+python3 bin/qa.py trace PROJ-301            # timeline on stdout
+python3 bin/qa.py trace PR-orders-api-201
+```
+
+Events are joined from the plan store (drafted / edited / approved — **who and when**),
+the run records (phases, tests created vs updated, validation, per-repo gate outcome,
+advisory critic score, cost), and the review board (status transitions, release
+assignments). The served dashboard has the same thing as the **Trace** view (pick a
+key, `GET /api/trace?key=...`) — with the SSO identity on approval events when
+`AIQE_SSO_HEADER` is configured.
+
 ### Interactive dashboard: fetch by release & manual work queue
 
 ```bash
 make serve        # http://localhost:4999 — the dashboard with live actions
 ```
 
-The dashboard (implemented from the "QA Dashboard" Claude Design) is a six-view app
+The dashboard (implemented from the "QA Dashboard" Claude Design) is a nine-view app
 with sidebar navigation: **Overview** (KPI tiles, a needs-attention feed, the coverage
-matrix), **Intake & queue**, **Runs & reviews**, **Artifacts**, **Test catalog**, and
-**Settings** — with toast feedback and pending-work badges on the nav.
+matrix), **Intake & queue**, **Test plans**, **Runs & reviews**, **Trace**,
+**Artifacts**, **Test catalog**, **Repositories**, and **Settings** — with toast
+feedback and pending-work badges on the nav.
 
 Served (rather than opened as a file), the **Intake & queue** view becomes active:
 pick a release, *Fetch items* lists the JIRA tickets targeting that fixVersion (via
@@ -526,10 +559,19 @@ The view's **danger zone** has *Clear demo data* (`POST /api/demo/clear`, or
 `make clear-demo` / `DRY=1` from the CLI — `engine/lib/demo_data.py`): it deletes
 everything the pipeline *generated* — run history + archived diffs,
 review/queue/webhook state, test plans, test data, exports, logs, `out/`,
-`workspace/`, the SQLite index and CI-health ingest — while keeping everything the
-estate *is* (repo registry, test catalog, `AGENTS.md`, demo repos, prompts). It
-refuses to run while a pipeline holds the run lock. Rebuild demo state afterwards
-with `make demo-bootstrap && make demo-pr`.
+`workspace/`, the bootstrapped test catalog (JSONL + review queues; the committed
+sample and schema stay), the SQLite index, CI-health ingest, and generated/synced
+repo guidance — while keeping what the estate *is* (repo registry with your
+configured repos, catalog bootstrap code, demo repos, prompts; `AGENTS.md` is
+regenerated). It refuses to run while a pipeline holds the run lock. Rebuild demo
+state afterwards with `make demo-bootstrap && make demo-pr`.
+
+Below it sits **Factory reset** (`--factory` on the CLI, double-confirmed in the UI):
+everything a plain clear deletes **plus** everything a plain clear deliberately keeps
+— the repository registry is emptied (all app and E2E repos removed), team notes
+under `knowledge/repos/` are cleared, and `AGENTS.md` + path skills are regenerated
+against the now-empty estate. Use it to hand the platform over with no residue;
+re-add repos via the Repositories view or `bin/onboard.sh` afterwards.
 
 On the lock: a run that was killed or crashed leaves `out/.pipeline.lock` behind, so
 refusing on its mere presence made the button fail forever with a message that wasn't
@@ -700,13 +742,19 @@ coverage regenerates → `make test-routing` still pins routing behavior.
 ### Team-scale operations (P1)
 
 - **Run isolation & parallel gates:** the pipeline takes an exclusive per-checkout lock
-  (`out/.pipeline.lock` — waits up to 2 min, breaks stale locks after 30) because
+  (`out/.pipeline.lock` — waits up to 2 min, breaks stale locks after 90) because
   `workspace/` and `out/` are shared scratch; parallel capacity comes from one
   sandbox/checkout per run (OpenHands). *Within* a run, per-test-repo gates execute in
   parallel, each booting its own app instance on an OS-assigned free port.
 - **Dashboard auth:** set `AIQE_UI_TOKEN` before `make serve` and every request needs
   the token — first browser visit via `/?token=<value>` (sets an HttpOnly cookie),
   API clients via `Authorization: Bearer <value>`. Unset = auth off (localhost dev).
+  Behind a reverse proxy, set `AIQE_SSO_HEADER` (e.g. `X-Forwarded-User`) instead:
+  requests without the header get **401** (fails closed — a proxy misconfiguration
+  never silently opens the dashboard), the header's value becomes the signed-in
+  identity shown in the footer, and it **signs approvals and review marks** that don't
+  name an explicit actor. The Bearer token keeps working alongside SSO for API
+  clients that bypass the proxy. Details: [deployment.md](deployment.md).
 - **State-store locking:** `reviews.json` and `queue.json` mutations go through a
   cross-platform advisory lock (`engine/lib/fs_lock.py`), so multiple queue workers,
   the dashboard server, and CLI calls can't corrupt them; queue workers claim items
@@ -829,7 +877,10 @@ every generated test must be born-mapped.
 ## 8. Known limitations (PoC)
 
 Tracked in [REVIEW.md](../REVIEW.md) ("Open items"):
-real-LLM parity run pending an API key; mock phase stubs bypass JSON-schema contract
-extraction (real path validates); Playwright execution validated only via the
-framework-agnostic abstraction (demo runs `node --test`); OpenHands Path-1 live wiring
-scheduled for rollout weeks 3–4.
+mock phase stubs bypass JSON-schema contract extraction (the real path validates —
+and the parity runs in §7 have exercised it end-to-end); Playwright execution
+validated only via the framework-agnostic abstraction (demo runs `node --test`);
+state stores are JSON files (honest at PoC scale — the PostgreSQL migration is an H2
+item in [product-direction.md](product-direction.md)). OpenHands is **optional** by
+design: `AIQE_OPENHANDS=off|auto|required` sets how much an outage matters
+(see [integrations/standalone-operation.md](integrations/standalone-operation.md)).

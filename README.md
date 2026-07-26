@@ -58,13 +58,17 @@ make smoke-openhands            # staged live smoke test of the OpenHands integr
 python3 bin/qa.py run-inline "<pasted JIRA text>" --repos orders-api --type Bug
 
 # QA operations (bin/qa.py + services)
-make serve                      # interactive dashboard :4999 — 8 views: Overview,
+make serve                      # interactive dashboard :4999 — 9 views: Overview,
                                 #   Intake & queue, Test plans (review/approve),
-                                #   Runs & reviews, Artifacts, Test catalog,
+                                #   Runs & reviews, Trace (story→plan→tests→gate→
+                                #   review→release timeline), Artifacts (code +
+                                #   before/after diff), Test catalog,
                                 #   Repositories (add/edit/map + guidance + SCM sync),
                                 #   Settings (integrations -> .env, clear demo data)
 make hook-server                # TaskEvent webhook receiver :4998 (dedupe + enqueue)
 make status / reviews / coverage / gaps    # runs, team review board, matrix, coverage gaps
+python3 bin/qa.py trace PROJ-301           # traceability timeline for one key
+make config                     # which aiqe.properties file is loaded (names only)
 make report [DAYS=7] [RELEASE=x] [FORMAT=pdf]   # team status report (completed work,
                                 #   queue, throughput, estate health)
 make queue-run                  # drain the manual work queue

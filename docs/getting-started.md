@@ -90,11 +90,13 @@ correctly restricts routing to the API test repo, and the summary is posted back
 ```bash
 python3 bin/qa.py artifacts PROJ-301 --full   # view the generated plan + test code
 make status          # runs with per-repo gate outcomes, team review + release columns
-make serve           # interactive dashboard :4999 — eight views: Overview, Intake &
+make serve           # interactive dashboard :4999 — nine views: Overview, Intake &
                      #   queue, Test plans (review/edit/approve), Runs & reviews,
-                     #   Artifacts, Test catalog, Repositories (add/edit/map repos +
-                     #   per-repo guidance + SCM sync), Settings (integrations -> .env,
-                     #   clear demo data)
+                     #   Trace (story→plan→tests→gate→review→release timeline),
+                     #   Artifacts (rendered code + before/after diff), Test catalog,
+                     #   Repositories (add/edit/map repos + per-repo guidance + SCM
+                     #   sync), Settings (integrations -> .env, clear demo data)
+python3 bin/qa.py trace PROJ-301   # the same traceability timeline on the CLI
 make demo-plan       # plan-first: author a plan from PROJ-301 and STOP for review
                      #   then: make plan-approve KEY=PROJ-301 && make demo-plan-tests
 make sync-guidance   # pull repo-owned AGENTS.md/CLAUDE.md from the SCM (make sync-status)
@@ -104,6 +106,8 @@ make report DAYS=7 FORMAT=pdf                 # team status report (completed/qu
 make export-plan KEY=PROJ-301 FORMAT=pdf      # shareable export (also docx/html/md)
 python3 bin/qa.py run-inline "Bug: ...\nAC-1: ..." --repos orders-api --type Bug
 make repos           # configure repos: add-app/add-test/scope/notes (covers = evidence ∪ scope)
+make config          # which aiqe.properties file is loaded + keys it sets (going real:
+                     #   credentials can come from aiqe.properties < .env < environment)
 make ingest-results FILE=eval/benchmark/results/junit-sample.xml   # CI health demo
 python3 bin/qa.py sql "SELECT title, pass_rate FROM tests"         # catalog index
 ```

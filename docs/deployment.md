@@ -11,7 +11,7 @@ The platform runs two long-lived HTTP services that share filesystem state:
 
 | Service | Port | Role |
 |---|---|---|
-| **Dashboard** (`bin/dashboard_server.py`) | 4999 | Seven-view QA UI; also runs the pipeline when you drain the work queue |
+| **Dashboard** (`bin/dashboard_server.py`) | 4999 | Nine-view QA UI; also runs the pipeline when you drain the work queue |
 | **TaskEvent receiver** (`bin/taskevent_receiver.py`) | 4998 | Webhook endpoint: validates, de-duplicates, and enqueues events |
 
 Both coordinate through an advisory lock (`engine/lib/fs_lock.py`) on a shared
@@ -35,7 +35,8 @@ arbitrary non-root UID — no root, no fixed UID.
 
 ## 1. Local deployment (Docker Compose)
 
-Prerequisites: Docker with the Compose plugin.
+Prerequisites: Docker **or Podman** — both the image build and compose engines are
+auto-detected (see the paragraph after the Make targets below).
 
 ```bash
 cd deploy/local
@@ -170,10 +171,22 @@ the same image serves every environment.)
 | `AIQE_HOOK_TOKEN` | *(unset)* | If set, receiver requires `X-AIQE-Token` |
 | `AIQE_HOOK_AUTORUN` | `0` | `1` = drain the queue in-process when an event is accepted |
 | `SCM_KIND` | `github` | Real-mode SCM adapter: `github` \| `bitbucket` \| `stash` |
+| `AIQE_SSO_HEADER` | *(unset)* | Trust this reverse-proxy identity header (e.g. `X-Forwarded-User`); fails closed — see the SSO section below |
+| `MAX_COST_USD_PER_RUN` / `MAX_WALLCLOCK_MIN` | org-config `budgets:` | Per-run cost / wall-clock ceilings; over-limit runs abort with exit 77 before the gate |
+| `AIQE_OPENHANDS` | `auto` | How much an OpenHands outage matters: `off` \| `auto` (degraded, never fatal) \| `required` |
+| `AIQE_STATUS_URL` | *(unset)* | Dashboard base URL linked from PR build statuses and comments |
 
 Real-mode credentials (`ANTHROPIC_API_KEY`, `GITHUB_TOKEN`, `JIRA_URL`,
 `ATLASSIAN_MCP_TOKEN`, `CONFLUENCE_URL`, `OPENHANDS_URL`, …) live in the Secret; the
 full list is in [`.env.example`](../.env.example) and the dashboard **Settings** view.
+
+> **Properties-file baseline.** Everything above can also come from a Java-style
+> `aiqe.properties` file — the natural shape for an OpenShift **ConfigMap mount**:
+> mount it at `/app/aiqe.properties` (or point `AIQE_PROPERTIES` at the path) and
+> both the pipeline and every Python entry point load it at startup. Precedence is
+> `aiqe.properties < .env < explicit environment`, so ConfigMap values are the
+> deploy-time baseline and container env vars still win. `make config` shows which
+> file loaded and the key names it set (never values).
 
 > **Persisting Settings-UI edits.** The Settings view writes `.env`. In a container
 > that file is inside the image layer and is lost on restart, so treat the

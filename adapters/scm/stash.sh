@@ -22,8 +22,10 @@ req() {
   if [ -n "$repo" ]; then
     # Per-repo project (test repos and app repos can live under different projects)
     local line
+    # Exit 4, NOT 3: 3 is fetch_file's "file absent" contract — a resolution
+    # failure surfacing as 3 would make guidance_sync delete cached files.
     line="$(python3 "${AIQE_ROOT:-$HERE}/engine/lib/stash_target.py" "$repo")" \
-      || { echo "stash: cannot resolve project for '$repo' (set its url to PROJECT/slug, a stash_project field, or STASH_PROJECT)" >&2; exit 3; }
+      || { echo "stash: cannot resolve project for '$repo' (set its url to PROJECT/slug, a stash_project field, or STASH_PROJECT)" >&2; exit 4; }
     PROJ="${line%%$'\t'*}"; SLUG="${line#*$'\t'}"
   fi
   PROJ="${PROJ:-${STASH_PROJECT:?STASH_PROJECT not set}}"
@@ -48,11 +50,16 @@ case "$VERB" in
   clone_ro) req "$1"
     git clone --depth 1 "${CLONE_BASE}/$SLUG.git" "$2" ;;
   # fetch_file <repo> <path> [ref] — raw file without cloning (Server raw endpoint).
-  # Exit 3 = file absent.
+  # Exit 3 = file absent (HTTP 404 ONLY). Transport errors and auth failures exit 1:
+  # callers (guidance_sync) treat 3 as "remote deleted it" and drop the cached copy,
+  # so an expired token or an outage must never be reported as absence.
   fetch_file) req "$1"
-    OUT=$(curl -sf "${SSL_FLAG[@]}" "${AUTH[@]}" "$S/repos/$SLUG/raw/$2${3:+?at=$3}") \
-      || { echo "NOT_FOUND: $1:$2" >&2; exit 3; }
-    printf '%s' "$OUT" ;;
+    BODY=$(mktemp "${TMPDIR:-/tmp}/aiqe-stash.XXXXXX")
+    HTTP=$(curl -s -o "$BODY" -w '%{http_code}' "${SSL_FLAG[@]}" "${AUTH[@]}" \
+           "$S/repos/$SLUG/raw/$2${3:+?at=$3}") || { rm -f "$BODY"; echo "FETCH_FAILED (transport): $1:$2" >&2; exit 1; }
+    if [ "$HTTP" = "404" ]; then rm -f "$BODY"; echo "NOT_FOUND: $1:$2" >&2; exit 3; fi
+    if [ "$HTTP" != "200" ]; then rm -f "$BODY"; echo "FETCH_FAILED (HTTP $HTTP): $1:$2" >&2; exit 1; fi
+    cat "$BODY"; rm -f "$BODY" ;;
   clone_rw) req "$1"
     git clone "${CLONE_BASE}/$SLUG.git" "$2" \
       && git -C "$2" checkout -B "$3" ;;

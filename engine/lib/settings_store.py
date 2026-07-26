@@ -149,7 +149,17 @@ def _parse(text):
         if not s or s.startswith("#") or "=" not in s:
             continue
         k, v = s.split("=", 1)
-        v = v.split(" #", 1)[0].strip().strip('"').strip("'")
+        v = v.strip()
+        # Quoted values must round-trip what save() writes: strip the outer quotes
+        # and undo bash single-quote escaping ('\''), and never comment-split
+        # inside them — `SMTP_PASSWORD='pass #word'` is the whole value. Only an
+        # UNQUOTED value can carry an inline ` #` comment.
+        if len(v) >= 2 and v[0] == v[-1] == "'":
+            v = v[1:-1].replace("'\\''", "'")
+        elif len(v) >= 2 and v[0] == v[-1] == '"':
+            v = v[1:-1]
+        else:
+            v = v.split(" #", 1)[0].strip()
         vals[k.strip()] = v
     return vals
 

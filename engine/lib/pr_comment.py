@@ -45,9 +45,11 @@ def build(out_dir=".", run_id="", key=""):
                 gates.append({"repo": parts[0], "status": parts[1],
                               "sha": parts[3] if len(parts) > 3 else ""})
 
-    if not tests and not gates:
+    if not tests and (not gates or all(g["status"] == "no_changes" for g in gates)):
         # Triage decided no E2E impact (impact=none) or the run never generated —
-        # a comment saying nothing would just be noise on the PR.
+        # a comment saying nothing would just be noise on the PR. The gate loop
+        # always emits a row per resolved repo, so all-no_changes rows with zero
+        # tests still mean "nothing happened here".
         return ""
 
     lines = [f"## AI-QE — E2E coverage delta{' for ' + key if key else ''}", ""]

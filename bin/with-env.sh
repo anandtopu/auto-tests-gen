@@ -10,8 +10,14 @@ TREPO_DIR=${1:?path to test repo}; shift
 CFG="$TREPO_DIR/.ai-qe/config.yaml"
 MODE=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['test_env']['mode'])")
 VAR=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['test_env']['base_url_env'])")
-PID=""
-cleanup() { [ -n "$PID" ] && kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; }
+PID=""; LOG=""
+# Teardown also removes the per-invocation app log — the failure paths below cat it
+# to stdout first, so keeping the temp file would only leak one per gate invocation.
+cleanup() {
+  [ -n "$PID" ] && kill "$PID" 2>/dev/null || true
+  wait "$PID" 2>/dev/null || true
+  [ -n "$LOG" ] && rm -f "$LOG" 2>/dev/null || true
+}
 trap cleanup EXIT
 
 if [ "$MODE" = "compose" ]; then

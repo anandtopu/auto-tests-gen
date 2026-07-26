@@ -366,7 +366,9 @@ if __name__ == "__main__":
     out = run(args or None)
     if "--json" in sys.argv:
         print(json.dumps(out, indent=2))
-        sys.exit(0)
+        # Same contract as the text path: a hard failure must be a non-zero exit,
+        # or a CI job consuming the JSON goes green on broken credentials.
+        sys.exit(1 if out["summary"]["fail"] else 0)
     mark = {"ok": "[ OK ]", "fail": "[FAIL]", "degraded": "[warn]", "skipped": "[skip]"}
     print("Integration checks (read-only; nothing is posted, pushed or sent)\n")
     for r in out["results"]:

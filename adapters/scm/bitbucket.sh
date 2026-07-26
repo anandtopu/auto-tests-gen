@@ -23,9 +23,14 @@ case "$VERB" in
   # fetch_file <repo> <path> [ref] — raw file from the repo without cloning.
   # Exit 3 = file absent (callers treat that as "this repo has no such guidance").
   fetch_file)
+    # Exit 3 = HTTP 404 ONLY. guidance_sync treats 3 as "remote deleted it" and
+    # drops the cached copy — an expired token or outage must exit 1 instead.
     REF=${3:-HEAD}
-    OUT=$(curl -sf -u "x-token-auth:${BITBUCKET_TOKEN}" \
-          "$BB/$1/src/${REF}/$2") || { echo "NOT_FOUND: $1:$2" >&2; exit 3; }
-    printf '%s' "$OUT" ;;
+    BODY=$(mktemp "${TMPDIR:-/tmp}/aiqe-bb.XXXXXX")
+    HTTP=$(curl -s -o "$BODY" -w '%{http_code}' -u "x-token-auth:${BITBUCKET_TOKEN}" \
+          "$BB/$1/src/${REF}/$2") || { rm -f "$BODY"; echo "FETCH_FAILED (transport): $1:$2" >&2; exit 1; }
+    if [ "$HTTP" = "404" ]; then rm -f "$BODY"; echo "NOT_FOUND: $1:$2" >&2; exit 3; fi
+    if [ "$HTTP" != "200" ]; then rm -f "$BODY"; echo "FETCH_FAILED (HTTP $HTTP): $1:$2" >&2; exit 1; fi
+    cat "$BODY"; rm -f "$BODY" ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

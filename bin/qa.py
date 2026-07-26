@@ -80,8 +80,13 @@ def save_catalog(path, entries):
 
 
 def regen_coverage():
-    subprocess.run([sys.executable, str(ROOT / "catalog/bootstrap/regen_coverage.py")],
-                   cwd=ROOT, check=True)
+    # Hold the registry lock while the child rewrites covers[] — otherwise this
+    # races a dashboard/CLI repo mutation's own read-modify-write (repo_admin runs
+    # the same script while holding this lock).
+    import fs_lock
+    with fs_lock.lock(ROOT / "registry/repo-registry.yaml"):
+        subprocess.run([sys.executable, str(ROOT / "catalog/bootstrap/regen_coverage.py")],
+                       cwd=ROOT, check=True)
     subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")],
                    cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
     subprocess.run([sys.executable, str(ROOT / "catalog/bootstrap/index_db.py")],

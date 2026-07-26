@@ -185,15 +185,28 @@ def status():
             "count": len(keys), "keys": keys}
 
 
+def _emit_defaults(items):
+    """Print `export K='v'` for keys absent from the environment — single-quoted so
+    a value can never be word-split or executed by bash, and restricted to valid
+    shell identifiers (a digit-leading key would make the whole `eval` fail)."""
+    import re
+    for k, v in sorted(items):
+        if v != "" and k not in os.environ and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k):
+            print(f"export {k}='" + v.replace("'", "'\\''") + "'")
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     cmd = sys.argv[1] if len(sys.argv) > 1 else "show"
     if cmd == "shell-defaults":
-        # Emitted for `eval` in pipeline.sh: only keys absent from the environment,
-        # single-quoted so a value can never be word-split or executed by bash.
-        for k, v in sorted(load().items()):
-            if v != "" and k not in os.environ and k.replace("_", "").isalnum():
-                print(f"export {k}='" + v.replace("'", "'\\''") + "'")
+        _emit_defaults(load().items())
+    elif cmd == "dotenv-defaults":
+        # Same defaults-only contract for .env: pipeline.sh evals this INSTEAD of
+        # `source .env`, which (a) never exported anything to child processes and
+        # (b) clobbered the explicit environment, violating the documented
+        # precedence aiqe.properties < .env < explicit environment.
+        import settings_store
+        _emit_defaults(settings_store.load().items())
     else:
         s = status()
         if not s["path"]:

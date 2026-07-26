@@ -35,7 +35,10 @@ fi
 NEW_SPECS=$(echo "$CHANGED" | grep -E '\.spec\.(ts|js)$' || true)
 for spec in $NEW_SPECS; do
   git ls-files --error-unmatch "$spec" >/dev/null 2>&1 && continue   # existing (modified) spec
-  grep -q "$spec" catalog/*.jsonl 2>/dev/null || { echo "UNMAPPED_TEST: $spec"; exit 4; }
+  # Fixed-string, quote-delimited match: the path must appear as a complete JSON
+  # string value ("file" field). A plain `grep -q "$spec"` would treat the dots as
+  # regex wildcards and accept any superstring/mention of the path.
+  grep -qF "\"$spec\"" catalog/*.jsonl 2>/dev/null || { echo "UNMAPPED_TEST: $spec"; exit 4; }
 done
 
 # 3. Static checks

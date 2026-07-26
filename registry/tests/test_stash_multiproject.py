@@ -89,10 +89,19 @@ def stubbed(tmp_path, monkeypatch):
     stub = tmp_path / "bin"
     stub.mkdir()
     for name in ("git", "curl"):
+        # curl-like enough for the adapter's real invocations: with `-o <file>` the
+        # URL echo goes into the body file (the adapter cats it back to stdout),
+        # and `-w` prints a 200 status code — so fetch_file's 404-vs-transport
+        # discrimination sees a success while the test still observes the URL.
         (stub / name).write_text(
-            '#!/usr/bin/env bash\nfor a in "$@"; do case "$a" in '
-            'http*|/scm/*|*/projects/*) echo "URL: $a";; esac; done\n'
-            'case "$1$*" in *raw*) echo "{}";; esac\nexit 0\n', encoding="utf-8")
+            '#!/usr/bin/env bash\nOUT=""; W=0; prev=""\n'
+            'for a in "$@"; do [ "$prev" = "-o" ] && OUT="$a"; '
+            'case "$a" in -w) W=1;; esac; prev="$a"; done\n'
+            'urls() { for a in "$@"; do case "$a" in '
+            'http*|/scm/*|*/projects/*) echo "URL: $a";; esac; done; }\n'
+            'if [ -n "$OUT" ]; then urls "$@" > "$OUT"; else urls "$@"; fi\n'
+            'case "$*" in *raw*) [ -z "$OUT" ] && echo "{}";; esac\n'
+            '[ "$W" = 1 ] && printf 200\nexit 0\n', encoding="utf-8")
         os.chmod(stub / name, 0o755)
     repo_admin.upsert_app("zz-st-eng", kind="service", scm="stash", url="ENG/zz-st-eng")
     repo_admin.upsert_test("zz-st-qa", layer="api", framework="playwright-api",

@@ -49,7 +49,13 @@ STR_FIELDS = {"contract": "contract", "route-table": "route_table",
 
 
 def save_and_verify(reg, skip_tests=False):
-    REG_PATH.write_text(yaml.safe_dump(reg, sort_keys=False), encoding="utf-8")
+    # Locked + atomic like repo_admin.save_and_verify: the registry is shared with
+    # the dashboard server, and a plain write_text can race or leave half a file.
+    import fs_lock
+    with fs_lock.lock(REG_PATH):
+        tmp = REG_PATH.with_suffix(".yaml.tmp")
+        tmp.write_text(yaml.safe_dump(reg, sort_keys=False), encoding="utf-8")
+        os.replace(tmp, REG_PATH)
     # Never re-run pytest when invoked FROM pytest (recursive test explosion), and
     # skip it when pytest isn't installed at all (the runtime container) rather than
     # reporting the change as broken.

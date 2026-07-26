@@ -7,15 +7,15 @@
 #                                  validate -> gate
 set -euo pipefail
 MODE=${1:?pr|jira|plan|tests}; export AIQE_ROOT="$PWD"; mkdir -p out workspace
-# .env supplies defaults only — an explicitly-set caller AIQE_MOCK (make demo-* =1,
-# make run-* =0, queue workers) must never be silently inverted by the file.
-_PRE_MOCK="${AIQE_MOCK:-}"
 # Config layers, lowest first: aiqe.properties < .env < explicit environment.
-# shell-defaults only emits keys absent from the environment, so exporting a variable
-# still wins; `source .env` runs after, so .env overrides the properties baseline.
+# Both emitters print `export K='v'` lines ONLY for keys absent from the
+# environment, so an explicitly-exported variable always wins (the file can never
+# invert a caller's AIQE_MOCK), and — unlike the old `source .env` — every value
+# is EXPORTED, so adapters, phases and python children actually see it.
+# .env is applied FIRST: first-fill wins, so .env beats the properties baseline
+# (the Settings page writes .env — a UI save must never be masked by properties).
+eval "$(python3 engine/lib/props_file.py dotenv-defaults 2>/dev/null || true)"
 eval "$(python3 engine/lib/props_file.py shell-defaults 2>/dev/null || true)"
-source .env 2>/dev/null || true
-if [ -n "$_PRE_MOCK" ]; then AIQE_MOCK="$_PRE_MOCK"; fi
 
 # Run isolation: workspace/ and out/ are shared scratch, so one run at a time per
 # checkout (parallel capacity = one sandbox/checkout per run, e.g. OpenHands).
@@ -70,21 +70,31 @@ fi
 # with exit 77, notifies, and never reaches the gate: a runaway loop can overshoot
 # by at most one phase. Mock phases meter nothing (AIQE_MOCK_PHASE_COST simulates).
 RUN_START=$(date +%s)
-rm -f out/cost.tsv
+# Fresh run scratch: cost ledger, phase contracts and gate results are all
+# PER-RUN — a leftover contract from a previous run (e.g. a jira run's analyze/
+# testplan before a pr run) would be absorbed into this run's record by
+# run_record.py's out/*.contract.json glob.
+rm -f "${AIQE_COST_LEDGER:-out/cost.tsv}" out/*.contract.json out/gate_results.tsv
 _budget_guard() {
   local why
   if ! why=$(python3 engine/lib/budget.py check --start "$RUN_START"); then
     echo "$why"
     local msg="AI-QE run ${RUN_ID:-?} for ${KEY:-?} ABORTED before phase '$1': $why"
-    { [ "${MODE:-}" = "jira" ] && TRACKER comment "$KEY" "$msg"; } || true
+    case "${MODE:-}" in jira|plan|tests) TRACKER comment "$KEY" "$msg" || true ;; esac
     NOTIFY post "$msg" || true
     exit 77
   fi
 }
+# PHASE captures the phase's own exit explicitly: if a caller ever attaches a
+# `|| handler`, set -e is suppressed inside this body, so without the capture a
+# failing _PHASE_IMPL would fall through and PHASE would return the metering
+# line's 0 — making the caller's failure handler dead code.
 PHASE() {
   _budget_guard "$1"
-  _PHASE_IMPL "$@"
+  local rc=0
+  _PHASE_IMPL "$@" || rc=$?
   python3 engine/lib/budget.py record "$1" "out/$1.json" || true
+  return $rc
 }
 
 RUN_ID=$(date +%s)-$RANDOM
@@ -130,7 +140,16 @@ fi
 
 if [ "$(python3 -c "import json;print(json.load(open('out/resolve.contract.json')).get('needs_clarification', False))")" = "True" ]; then
   MSG="AI-QE cannot confidently route ${KEY}. Candidates: $(cat out/resolve.contract.json). Reply with '@openhands use <repos>'."
-  [ "$MODE" = "jira" ] && TRACKER comment "$KEY" "$MSG"; NOTIFY post "$MSG"
+  case "$MODE" in jira|plan|tests) TRACKER comment "$KEY" "$MSG" || true ;; esac
+  NOTIFY post "$MSG"
+  exit 0
+fi
+
+# Honor the resolver's skip decision: a PR touching no testable paths (or resolving
+# to no test repos) has nothing to sync — end here rather than spending LLM phases
+# and posting a build status for work that never existed.
+if [ "$(python3 -c "import json;d=json.load(open('out/resolve.contract.json'));print(bool(d.get('skip')) or ('$MODE'=='pr' and not d.get('test_repos')))")" = "True" ]; then
+  echo "RESOLVE_SKIP: no testable changes / no test repos resolved for ${KEY} — nothing to do."
   exit 0
 fi
 
@@ -146,8 +165,15 @@ done
 # CURRENT contracts/routes/coverage (AGENTS.md is passed as phase context below).
 python3 bin/gen_agents_md.py > /dev/null || true
 
-# Catalog slice: existing-test knowledge handed to the phases (P2)
-grep -h . catalog/e2e-*.jsonl 2>/dev/null > out/catalog-slice.jsonl || true
+# Catalog slice: existing-test knowledge handed to the phases (P2). Any test-repo
+# name is valid (bootstrap writes catalog/<repo>.jsonl) — only the committed sample
+# is excluded, matching every Python reader's glob.
+: > out/catalog-slice.jsonl
+for _cf in catalog/*.jsonl; do
+  [ -f "$_cf" ] || continue
+  [ "$(basename "$_cf")" = "catalog.sample.jsonl" ] && continue
+  grep -h . "$_cf" >> out/catalog-slice.jsonl 2>/dev/null || true
+done
 # Coverage gaps: surface with NO test evidence — generation targets these first
 python3 engine/lib/coverage_gaps.py md > out/coverage-gaps.md 2>/dev/null || : > out/coverage-gaps.md
 
@@ -166,7 +192,12 @@ if [ "$MODE" = "pr" ]; then
 elif [ "$MODE" = "tests" ]; then
   # Resume from the APPROVED plan. The reviewed markdown is authoritative (it may have
   # been edited), so it is passed to both phases alongside the snapshotted contract.
-  cp "reports/plans/${KEY}.contract.json" out/testplan.contract.json 2>/dev/null || true
+  # The snapshot must exist (plan mode wrote it) — a silent fallback here would let
+  # a stale contract from a different key shape generation.
+  if ! cp "reports/plans/${KEY}.contract.json" out/testplan.contract.json 2>/dev/null; then
+    echo "PLAN_SNAPSHOT_MISSING: reports/plans/${KEY}.contract.json — re-run 'pipeline.sh plan ${KEY}'"
+    exit 64
+  fi
   PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json "testplans/${KEY}.md"
   PHASE generate pr-generate.md  AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md"
 else
@@ -201,10 +232,17 @@ if python3 engine/lib/critic.py enabled; then
   for extra in out/testplan.contract.json out/catalog-slice.jsonl out/coverage-gaps.md; do
     if [ -f "$extra" ]; then CRITIC_CTX+=("$extra"); fi
   done
-  PHASE critic critic.md "${CRITIC_CTX[@]}" || {
+  # Deliberately NOT via PHASE: the budget guard must not fire here. All the spend
+  # already happened (generate/validate are done) — aborting with 77 between
+  # validate and the gate would discard a fully-paid-for run over an advisory
+  # signal. The critic's own cost is still metered for the record.
+  CRITIC_RC=0
+  _PHASE_IMPL critic critic.md "${CRITIC_CTX[@]}" || CRITIC_RC=$?
+  python3 engine/lib/budget.py record critic out/critic.json || true
+  if [ "$CRITIC_RC" -ne 0 ]; then
     echo "[critic] phase failed — advisory signal skipped, run continues"
     rm -f out/critic.contract.json
-  }
+  fi
 fi
 
 # Per-test-repo gate; partial success is allowed and reported honestly (§5.8.5).
@@ -254,7 +292,8 @@ if [ -f out/critic.contract.json ]; then
 fi
 # Best-effort notifications: an unreachable tracker/Slack must not abort the run
 # before the run record, build status, and review-state transition are persisted.
-{ [ "$MODE" = "jira" ] && TRACKER comment "$KEY" "$SUMMARY"; } || true
+# tests mode is the plan-first resume of a JIRA ticket — the ticket gets the summary too
+case "$MODE" in jira|tests) TRACKER comment "$KEY" "$SUMMARY" || true ;; esac
 NOTIFY post "$SUMMARY" || true
 # P0: surface the outcome as a build status on the PR head (merge-gate visibility)
 if [ "$MODE" = "pr" ]; then

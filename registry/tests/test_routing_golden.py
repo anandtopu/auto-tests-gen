@@ -21,6 +21,19 @@ def test_docs_only_pr_skips(tmp_path):
     out = run_resolve("pr", "web-storefront-ui", "--changed-files", str(f))
     assert out.get("skip") is True and out["test_repos"] == []
 
+
+def test_pipeline_honors_the_resolver_skip():
+    """The skip verdict above must actually END the run: without this guard a
+    docs-only PR ran the full LLM phase chain (real API spend) and then posted a
+    success build status for work that never existed."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[2] / "engine/pipeline.sh") \
+        .read_text(encoding="utf-8")
+    assert "RESOLVE_SKIP" in src
+    i = src.index("RESOLVE_SKIP")
+    assert "exit 0" in src[i:i + 200], "the skip branch must end the run"
+    assert i < src.index("PHASE triage"), "the skip check must run before any phase"
+
 def test_contract_change_fans_out(tmp_path):
     f = tmp_path / "changed.txt"; f.write_text("app/orders.py\nopenapi/orders.yaml\n")
     out = run_resolve("pr", "orders-api", "--changed-files", str(f))

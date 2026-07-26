@@ -148,8 +148,23 @@ def clear(root=None, dry=False, force=False, factory=False):
             removed += len(files)
             targets.append(rel + "/")
             if not dry:
-                _rmtree(d)
-                d.mkdir(parents=True, exist_ok=True)
+                # Wipe CONTENTS but keep advisory `*.lock` dirs alive: this clear
+                # is itself holding several of them (see the ExitStack above), and
+                # a plain rmtree would delete the held locks mid-wipe — from that
+                # moment any concurrent worker could acquire by plain mkdir and
+                # interleave writes with the wipe. Stale survivors are broken by
+                # fs_lock's own orphan/stale logic later.
+                for child in sorted(d.iterdir()):
+                    if child.is_dir() and child.name.endswith(".lock"):
+                        continue
+                    if child.is_dir():
+                        _rmtree(child)
+                    else:
+                        try:
+                            child.unlink()
+                        except PermissionError:
+                            os.chmod(child, stat.S_IWRITE)
+                            child.unlink()
         for f in list((root / "reports").glob("*.log")) + [root / p for p in CLEAR_FILES]:
             if f.exists():
                 removed += 1

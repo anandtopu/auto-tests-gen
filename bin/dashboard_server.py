@@ -289,18 +289,39 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(content)
         elif url.path.startswith("/runs/"):
-            f = ROOT / "reports/runs" / pathlib.PurePosixPath(url.path).name
+            # Strict-charset basename, not just PurePosixPath().name: on Windows a
+            # request like /runs/..\..\.env survives the posix .name (backslash is
+            # not a posix separator) but IS a traversal for the pathlib join below.
+            name = pathlib.PurePosixPath(url.path).name
+            if not re.fullmatch(r"[\w.-]+", name) or ".." in name:
+                return self._send(404, {"error": "not found"})
+            f = ROOT / "reports/runs" / name
             self._send(200, f.read_bytes(), "text/plain; charset=utf-8") \
                 if f.exists() else self._send(404, {"error": "not found"})
         elif url.path.endswith(".log"):
-            f = ROOT / "reports" / pathlib.PurePosixPath(url.path).name
+            name = pathlib.PurePosixPath(url.path).name
+            if not re.fullmatch(r"[\w.-]+", name) or ".." in name:
+                return self._send(404, {"error": "not found"})
+            f = ROOT / "reports" / name
             self._send(200, f.read_bytes(), "text/plain; charset=utf-8") \
                 if f.exists() else self._send(404, {"error": "not found"})
         else:
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if not self._authed():
+        # /hooks/* is machine-to-machine ingest (OpenHands Agent Server): the sender
+        # has no SSO header or UI token, so gate it on AIQE_HOOK_TOKEN (same contract
+        # as the receiver on :4998 — X-AIQE-Token or Bearer) instead of UI auth.
+        # With UI auth configured but no hook token, hooks stay closed (fail closed).
+        if self.path.startswith("/hooks/"):
+            hook_tok = os.environ.get("AIQE_HOOK_TOKEN", "")
+            sent = self.headers.get("X-AIQE-Token", "") or \
+                (self.headers.get("Authorization", "").removeprefix("Bearer ").strip())
+            ui_locked = bool(UI_TOKEN or SSO_HEADER)
+            if (hook_tok and sent != hook_tok) or (not hook_tok and ui_locked):
+                return self._send(401, {"error": "hook auth: set AIQE_HOOK_TOKEN and "
+                                                 "send it as X-AIQE-Token or Bearer"})
+        elif not self._authed():
             return self._deny()
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0)
         if self.path == "/api/queue":

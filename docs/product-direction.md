@@ -81,10 +81,11 @@ code comparison, coverage gaps. Priority: shorten review time — approve from t
 ticket itself (Forge/Connect app, H2), batch approvals, diff-only re-review when a
 plan is edited.
 
-**QA lead / EM** (weekly): traceability and trend. Priority: make the chain a
-first-class page — one "Trace" view per key: story → plan (who approved, when) →
-tests (files, actions) → gate → review → release; exportable for compliance. All the
-data already exists in run records; this is a presentation gap, not a data gap.
+**QA lead / EM** (weekly): traceability and trend. The chain is now a first-class
+page — the shipped **Trace** view (dashboard + `qa.py trace` + `/api/trace`) renders
+one timeline per key: story → plan (who approved, when) → tests (files, actions) →
+gate → review → release. Next priority: compliance-grade export of that timeline
+(PDF/CSV) and trend across keys.
 
 ## 4. Roadmap — three horizons
 
@@ -151,8 +152,8 @@ acceptance ≥70% and zero gate escapes.*
 | Team acceptance of generated tests | ≥ 70% | 100% (3 decisions — needs real volume) |
 | Escaped noise (critic) | ≤ 10% | 0% |
 | Routing accuracy | ≥ 95% | 100% |
-| Commit rate | informational | 99% of 189 runs |
-| Cost per run | ≤ $2 single / $4 cross-repo | unenforced — H1 item |
+| Commit rate | informational | 100% of 215 runs |
+| Cost per run | ≤ $2 single / $4 cross-repo | enforced — pre-phase guard, exit-77 abort, metered to `out/cost.tsv` (~$0.25/run observed in parity runs) |
 | Cycle time vs manual authoring | ≥ 50% reduction | measure in pilot |
 
 ## 7. Top risks and mitigations

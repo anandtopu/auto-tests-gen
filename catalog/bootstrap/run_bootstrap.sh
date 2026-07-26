@@ -4,8 +4,22 @@
 set -euo pipefail
 TREPO=${1:?test_repo_name}
 WS=workspace/bootstrap/$TREPO; mkdir -p "$WS" catalog/review
-# Stage 0: clone test repo + harvest app-repo facts (contracts, route tables)
-bash adapters/scm/github.sh clone_ro "$TREPO" "$WS/repo" 2>/dev/null || true
+# Stage 0: clone test repo + harvest app-repo facts (contracts, route tables).
+# The SCM adapter is resolved the same way the pipeline does (SCM_KIND -> org-config
+# map; mock under AIQE_MOCK=1) — hardcoding github here broke Bitbucket/Stash estates.
+# A failed clone is FATAL: continuing with no repo used to truncate an existing
+# catalog/<repo>.jsonl to empty at Stage 4, which then stripped `covers` and
+# silently unrouted the repo.
+if [ "${AIQE_MOCK:-0}" = "1" ]; then
+  SCM_SH=adapters/mock/scm.sh
+else
+  SCM_SH=$(python3 -c "import yaml;print(yaml.safe_load(open('registry/org-config.yaml'))['adapters']['scm']['${SCM_KIND:-github}'])")
+fi
+rm -rf "$WS/repo"
+if ! bash "$SCM_SH" clone_ro "$TREPO" "$WS/repo" || [ ! -d "$WS/repo" ]; then
+  echo "BOOTSTRAP_CLONE_FAILED: $TREPO via $SCM_SH — existing catalog left untouched" >&2
+  exit 1
+fi
 python3 catalog/bootstrap/harvest_facts.py > "$WS/app-facts.json"
 # Stage 1: EXTRACT
 python3 catalog/bootstrap/extract.py "$WS/repo" "$TREPO" > "$WS/extracted.jsonl"

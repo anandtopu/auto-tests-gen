@@ -182,11 +182,55 @@ def test_status_reports_names_but_never_values(props):
     assert "super-secret-value" not in repr(s), "status leaked a credential"
 
 
-def test_pipeline_loads_properties_before_dotenv():
+def test_pipeline_applies_dotenv_defaults_before_properties():
+    """Both layers are defaults-only `export` emitters (first-fill wins), so .env
+    must be evaluated BEFORE properties to beat it — and a raw `source .env`
+    (which never exported values to children and clobbered explicit env) must
+    never come back."""
     src = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
+    assert "props_file.py dotenv-defaults" in src
     assert "props_file.py shell-defaults" in src
-    assert src.index("shell-defaults") < src.index("source .env"), \
-        ".env must be sourced AFTER properties so it overrides them"
+    assert src.index("dotenv-defaults") < src.index("shell-defaults"), \
+        ".env must be applied first (first-fill wins) so it beats properties"
+    import re as _re
+    assert not _re.search(r"(?m)^\s*source \.env", src), \
+        "a live `source .env` command must never come back (comments are fine)"
+
+
+def test_dotenv_defaults_exports_only_unset_keys(tmp_path, monkeypatch):
+    import os
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("MAX_COST_USD_PER_RUN=2.50\nSCM_KIND=stash\n", encoding="utf-8")
+    env = {**os.environ, "AIQE_ENV_FILE": str(dotenv), "SCM_KIND": "github"}
+    env.pop("MAX_COST_USD_PER_RUN", None)
+    env.pop("AIQE_PROPERTIES", None)
+    r = subprocess.run([sys.executable, str(ROOT / "engine/lib/props_file.py"),
+                        "dotenv-defaults"], cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
+                       env=env)
+    assert "export MAX_COST_USD_PER_RUN='2.50'" in r.stdout, \
+        ".env values must be EXPORTED so budget.py/adapters (children) see them"
+    assert "SCM_KIND" not in r.stdout, "would have clobbered an exported variable"
+
+
+def test_dotenv_parse_round_trips_quoted_secrets(tmp_path, monkeypatch):
+    """What save() writes, load() must read back verbatim — including values with
+    an embedded quote or ' #' that the old parser corrupted."""
+    dotenv = tmp_path / ".env"
+    monkeypatch.setenv("AIQE_ENV_FILE", str(dotenv))
+    tricky = "pass #word's"
+    ss.save({"SMTP_PASSWORD": tricky})
+    assert ss.load()["SMTP_PASSWORD"] == tricky
+
+
+def test_shell_defaults_rejects_invalid_identifiers(props):
+    """A digit-leading key would make the whole eval'd export block fail."""
+    props("2FOO=bad\nGOOD_KEY=ok\n")
+    r = subprocess.run([sys.executable, str(ROOT / "engine/lib/props_file.py"),
+                        "shell-defaults"], cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
+    assert "2FOO" not in r.stdout
+    assert "export GOOD_KEY='ok'" in r.stdout
 
 
 def test_example_covers_every_settings_variable():
