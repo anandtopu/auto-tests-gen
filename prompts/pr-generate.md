@@ -7,6 +7,13 @@ Using the prior phase contract (triage or testplan+testdata), create or update E
 specs INSIDE the writable test repos under workspace/tests/ only.
 
 Rules (also see each test repo's CLAUDE.md — it is authoritative for conventions):
+- FOLLOW THE EXISTING APPROACH. The "Existing approach" context contains REAL shared
+  helpers and exemplar specs from each target repo — mirror their imports, client and
+  helper usage, assertion style, layout and naming exactly. Do NOT introduce a new
+  approach: no new HTTP clients, wrappers, assertion helpers, frameworks or file
+  layouts. If a needed helper does not exist, follow the closest existing pattern and
+  add an open question rather than inventing an abstraction. (Exemplars from paths
+  like legacy/ are shown penalized — do not copy those either.)
 - Update existing tests listed in the contract before creating new ones.
 - Every test title starts with the key: "{{KEY}}: ...". Tag specs with @{{KEY}}.
 - Reuse page objects / service clients; extend, never duplicate.

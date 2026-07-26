@@ -7,6 +7,9 @@ Run ONLY the new/changed specs (list from the generate contract) with
 `npx playwright test <files>`. If failures occur:
 - Distinguish test defects from environment flakiness (rerun a failing spec once
   before concluding). Fix TEST defects only — never modify application source.
+- Repairs must PRESERVE the repo's existing approach (see the "Existing approach"
+  context): fix within the same helpers, clients and assertion style — never rewrite
+  a spec onto a different approach just to make it pass.
 - At most {{REPAIR_LOOPS}} repair iterations. If still failing, stop and report;
   the gate will quarantine with your diagnosis.
 

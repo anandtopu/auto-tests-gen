@@ -96,7 +96,7 @@ sequenceDiagram
     P->>P: clone src/ (read-only), tests/ (branch test/KEY-ai-qe)
     P->>P: refresh AGENTS.md + coverage gaps (surface with NO test)
     Note over P,LLM: budget guard BEFORE every phase (cost from out/cost.tsv +<br/>wall-clock vs org-config budgets / MAX_COST_USD_PER_RUN) —<br/>over limit → exit 77 BUDGET_EXCEEDED + notify, gate never runs
-    P->>LLM: triage (diff + catalog slice + gaps) → generate specs + sidecar → validate
+    P->>LLM: triage (diff + catalog slice + gaps) → generate specs + sidecar<br/>(+ existing-approach exemplars: real helper/spec code<br/>from the target repo — no new approach) → validate
     P->>LLM: critic (advisory quality score — read-only, never gates)
     par one gate per test repo (parallel)
         P->>G: gate.sh KEY repo
@@ -133,7 +133,7 @@ sequenceDiagram
     P->>P: resolve (component map + label restrictions, e.g. api-only)
     Note over P,LLM: budget guard before every phase (same as Workflow A) —<br/>over limit → exit 77 + notify
     P->>LLM: analyze (guidance + ticket + Confluence)
-    P->>LLM: testplan (+ coverage gaps) → testdata → generate → validate
+    P->>LLM: testplan (+ coverage gaps) → testdata → generate<br/>(+ existing-approach exemplars — no new approach) → validate
     P->>LLM: critic (advisory quality score — read-only, never gates)
     P->>G: parallel gates (same as Workflow A)
     G-->>P: GATE_STATUS per repo

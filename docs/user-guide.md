@@ -421,6 +421,28 @@ python3 bin/repos.py add-test e2e-payments --layer api --framework playwright-ap
 python3 bin/repos.py scope e2e-payments "payments-api, orders-api"
 ```
 
+### Generated tests follow your repo's existing approach
+
+Convention *text* alone can't stop a model from inventing a new pattern that still
+passes the gate. So every generation (and repair) phase also receives an
+**existing-approach context** built deterministically from the target test repo's
+own code (`engine/lib/spec_exemplars.py` → `out/repo-conventions.md`):
+
+- **shared helpers** — modules imported by two or more existing specs (the repo's
+  sanctioned client/util layer), included as full code so the agent *reuses* them
+  instead of hand-rolling equivalents;
+- **exemplar specs** — the existing specs whose imports best match the repo norm,
+  shown as "mirror this shape" (paths under `legacy/`/`deprecated/` are penalized —
+  they demonstrate the old approach new tests must not copy either);
+- **observed conventions** — test-fn style (`test`/`it`), `require` vs `import`,
+  assertion library, file naming.
+
+The generate prompt makes it binding ("no new HTTP clients, wrappers, assertion
+helpers, frameworks or layouts"), the repair phase must fix *within* the existing
+approach, and the advisory critic flags any `new-approach` deviation for the
+reviewer. A brand-new test repo with no specs yet degrades to its
+CLAUDE.md/AGENTS.md conventions — there is no approach to follow until one exists.
+
 ### Per-repo agent guidance (AGENTS.md / CLAUDE.md)
 
 Two guidance sources steer test generation, test plans and coverage-gap fixes for

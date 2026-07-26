@@ -313,7 +313,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785043452.787844,
+      "ts": 1785097347.0294576,
       "verdict": "accept"
     },
     "history": [
@@ -354,7 +354,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785043553.2596745,
+      "ts": 1785097448.1059973,
       "verdict": "accept"
     },
     "history": [

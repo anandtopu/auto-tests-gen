@@ -1,7 +1,7 @@
 {
   "PROJ-301": {
-    "by": "rev",
-    "generated_run": "1785042623-4400",
+    "by": "conv",
+    "generated_run": "1785097201-15532",
     "history": [
       {
         "by": "pipeline",
@@ -410,6 +410,24 @@
         "note": "tests generated (run 1785042623-4400)",
         "status": "approved",
         "ts": 1785042640.6971915
+      },
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1785097198.7884421
+      },
+      {
+        "by": "conv",
+        "note": "",
+        "status": "approved",
+        "ts": 1785097199.8938262
+      },
+      {
+        "by": "pipeline",
+        "note": "tests generated (run 1785097201-15532)",
+        "status": "approved",
+        "ts": 1785097218.154219
       }
     ],
     "linked": {
@@ -419,6 +437,6 @@
     },
     "note": "",
     "status": "approved",
-    "updated": 1785042622.3689303
+    "updated": 1785097199.8938239
   }
 }

@@ -27,6 +27,10 @@ post that question and stop — never guess routing.
 
 - Extend an existing spec before creating a new one (the catalog slice shows what
   exists); every NEW spec needs a catalog sidecar entry in the same change.
+- **Follow the repo's existing approach** — the run context includes real shared
+  helpers and exemplar specs from the target repo (`out/repo-conventions.md`):
+  mirror them. Never hand-roll what an existing helper does, never introduce a new
+  client, wrapper, assertion style or layout.
 - The per-discipline skills (`e2e-api-conventions` / `e2e-ui-conventions`) fire on
   the files you touch — follow them; they are derived from each repo's registry entry.
 - Open questions go in the contract's `open_questions`, never as invented assertions.

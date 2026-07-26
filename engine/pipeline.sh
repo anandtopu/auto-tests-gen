@@ -176,6 +176,12 @@ for _cf in catalog/*.jsonl; do
 done
 # Coverage gaps: surface with NO test evidence — generation targets these first
 python3 engine/lib/coverage_gaps.py md > out/coverage-gaps.md 2>/dev/null || : > out/coverage-gaps.md
+# Existing-approach exemplars: REAL helper + spec code from each resolved test repo,
+# so generated tests mirror the repo's own approach instead of inventing a new one.
+python3 engine/lib/spec_exemplars.py out/repo-conventions.md \
+  $(python3 -c "import json;print(' '.join(json.load(open('out/resolve.contract.json'))['test_repos']))") \
+  > /dev/null 2>&1 || : > out/repo-conventions.md
+[ -f out/repo-conventions.md ] || : > out/repo-conventions.md
 
 # Control-repo artifacts (test plans, canonical data) belong at the root; real phases
 # run with cwd=workspace so relocate anything written there (no-op in mock mode).
@@ -188,7 +194,7 @@ relocate_artifacts() {
 # Phase chain (Workflow A: triage->generate->validate; B: analyze->plan->data->generate->validate)
 if [ "$MODE" = "pr" ]; then
   PHASE triage   pr-triage.md    AGENTS.md out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md
-  PHASE generate pr-generate.md  AGENTS.md out/triage.contract.json out/pr.diff out/coverage-gaps.md
+  PHASE generate pr-generate.md  AGENTS.md out/triage.contract.json out/pr.diff out/coverage-gaps.md out/repo-conventions.md
 elif [ "$MODE" = "tests" ]; then
   # Resume from the APPROVED plan. The reviewed markdown is authoritative (it may have
   # been edited), so it is passed to both phases alongside the snapshotted contract.
@@ -199,7 +205,7 @@ elif [ "$MODE" = "tests" ]; then
     exit 64
   fi
   PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json "testplans/${KEY}.md"
-  PHASE generate pr-generate.md  AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md"
+  PHASE generate pr-generate.md  AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md" out/repo-conventions.md
 else
   PHASE analyze  jira-analyze.md AGENTS.md out/issue-guidance.md out/ticket.json out/confluence.md
   PHASE testplan jira-testplan.md AGENTS.md out/issue-guidance.md out/analyze.contract.json out/coverage-gaps.md
@@ -215,9 +221,9 @@ else
     exit 0
   fi
   PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json
-  PHASE generate pr-generate.md  AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json
+  PHASE generate pr-generate.md  AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json out/repo-conventions.md
 fi
-PHASE validate validate-repair.md out/generate.contract.json
+PHASE validate validate-repair.md out/generate.contract.json out/repo-conventions.md
 
 relocate_artifacts
 

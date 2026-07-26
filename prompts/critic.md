@@ -22,6 +22,10 @@ re-report any of that. Judge only what running a test cannot reveal:
 - **brittle** — fixed sleeps, real clock/`now`, ordering assumptions between tests,
   hardcoded IDs a fresh environment would not have.
 - **unclear** — a title that does not state the behavior being verified.
+- **new-approach** — the spec deviates from the repo's existing approach (see the
+  "Existing approach" context when present): hand-rolls what a shared helper already
+  does, uses a different client/assertion style than the exemplars, or introduces a
+  new abstraction or layout. A green test written the wrong way still rots the estate.
 
 `noise_count` counts only the **vacuous, weak and duplicate** specs — that is the
 "escaped noise" metric (architecture §8). A `missing` finding is real and worth
@@ -33,6 +37,6 @@ thresholds, so report the score you actually believe.
 
 Finally print exactly one JSON object:
 {"score":0.0,"verdict":"accept|review|weak","noise_count":N,"specs_reviewed":N,
- "findings":[{"file":"path/to/spec","kind":"vacuous|weak|duplicate|missing|brittle|unclear",
+ "findings":[{"file":"path/to/spec","kind":"vacuous|weak|duplicate|missing|brittle|unclear|new-approach",
               "severity":"low|med|high","note":"one sentence, concrete"}],
  "rationale":"one or two sentences"}
