@@ -107,11 +107,28 @@ def check_llm():
                               capture_output=True, text=True,
                               encoding="utf-8", errors="replace",
                               stdin=subprocess.DEVNULL).returncode == 0
-    # Deliberately no API call here — a probe would bill the account. Presence only.
+    cli = "; claude CLI on PATH" if have_cli else "; claude CLI NOT on PATH"
+    cli_hint = "" if have_cli else "install the Claude Code CLI for real phases"
+    # GET /v1/models is FREE and read-only — it validates the key without billing
+    # a token, so "connection established" means the key actually works, not just
+    # that the variable is set.
+    base = _env("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
+    code, err = _http(base + "/v1/models",
+                      headers={"x-api-key": _env("ANTHROPIC_API_KEY"),
+                               "anthropic-version": "2023-06-01"})
+    if err is not None:
+        return _r("LLM (Anthropic)", "fail",
+                  f"{base} unreachable: {err}{cli}",
+                  "check network egress to api.anthropic.com (sandbox allowlist)")
+    if code in (401, 403):
+        return _r("LLM (Anthropic)", "fail",
+                  f"API key REJECTED (HTTP {code}){cli}",
+                  "the key is set but not valid — rotate ANTHROPIC_API_KEY")
+    if code >= 400:
+        return _r("LLM (Anthropic)", "fail",
+                  f"unexpected response (HTTP {code}){cli}", cli_hint)
     return _r("LLM (Anthropic)", "ok",
-              "API key set" + ("; claude CLI on PATH" if have_cli
-                               else "; claude CLI NOT on PATH"),
-              "" if have_cli else "install the Claude Code CLI for real phases")
+              f"API key accepted (models endpoint, HTTP {code}){cli}", cli_hint)
 
 
 def check_scm():

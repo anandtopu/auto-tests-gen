@@ -333,6 +333,30 @@ def cmd_openhands(args):
               + (f"   ERROR: {r['error'][:50]}" if r["error"] else ""))
 
 
+def cmd_openhands_run(args):
+    """Launch a named OpenHands agent preset (pr-review, test-generation,
+    test-review, test-plan, test-coverage, test-data). --dry prints the
+    conversation message without contacting anything — OpenHands stays optional."""
+    import openhands_agents
+    if args.agent == "list":
+        subprocess.run([sys.executable, str(ROOT / "engine/lib/openhands_agents.py"),
+                        "list"], cwd=ROOT, stdin=subprocess.DEVNULL)
+        return
+    msg = openhands_agents.build(args.agent, args.target or "", args.pr or "")
+    if args.dry:
+        print(msg)
+        return
+    import openhands_mode
+    if not openhands_mode.enabled():
+        raise SystemExit("AIQE_OPENHANDS=off — agent launch disabled; the same jobs "
+                         "run standalone (pipeline.sh / qa.py; see the skill files)")
+    import openhands_client
+    r = openhands_client.start(msg, repo=args.repo or None,
+                               title=f"AI-QE agent: {args.agent} "
+                                     f"{args.target or ''}".strip())
+    print(json.dumps(r, indent=2))
+
+
 def cmd_trace(args):
     """One chronological chain for a key: intent -> plan -> tests -> gate ->
     review -> release. The EM view of a story or PR without stitching four
@@ -646,6 +670,15 @@ if __name__ == "__main__":
     s.add_argument("--out")
     s.set_defaults(fn=cmd_report)
     s = sub.add_parser("openhands"); s.set_defaults(fn=cmd_openhands)
+    s = sub.add_parser("openhands-run")
+    s.add_argument("agent", help="list | pr-review | test-generation | test-review | "
+                                 "test-plan | test-coverage | test-data")
+    s.add_argument("target", nargs="?", default="")
+    s.add_argument("pr", nargs="?", default="")
+    s.add_argument("--repo", help="repository the conversation opens on")
+    s.add_argument("--dry", action="store_true",
+                   help="print the conversation message; contact nothing")
+    s.set_defaults(fn=cmd_openhands_run)
     s = sub.add_parser("trace"); s.add_argument("key", nargs="?")
     s.add_argument("-n", type=int, default=20); s.set_defaults(fn=cmd_trace)
     s = sub.add_parser("critic"); s.add_argument("-n", type=int, default=10)

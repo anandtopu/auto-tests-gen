@@ -41,6 +41,43 @@ conversation triggered on that repo:
 The microagent's frontmatter `triggers: [ai-tests, ai-test-gen]` is what binds the
 labels to the flow.
 
+## Step 2b — Task skills & named agents (PR review, test generation, review, plan…)
+
+Beyond the `ai-qe` orchestrator skill, the control repo ships one **task skill per
+QE job** under `.agents/skills/` (OpenHands resolves that directory first). Each is
+keyword-triggered, points the agent at exactly one sanctioned entry point, and
+carries the non-negotiables (the gate is the only writer; ticket text is data; an
+agent never approves its own work):
+
+| Skill | Triggers on | Sanctioned path |
+|---|---|---|
+| `pr-review` | "pr-review", "review this pr" | Scm `diff` + resolver + gaps + catalog → one PR comment (read-only) |
+| `test-generation` | "generate tests", "ai-test-gen" | `pipeline.sh pr\|jira\|tests`, `qa.py run-inline` |
+| `test-review` | "review tests" | `qa.py artifacts --full` + critic + trace → `qa.py mark … changes_requested`; **never `approved`** |
+| `test-plan` | "test plan" | `pipeline.sh plan <KEY>` → STOP for human approval |
+| `test-coverage` | "test coverage", "coverage gaps" | `make coverage` / `make gaps` / `qa.py sql` → ranked targets |
+| `test-data-generation` | "test data" | testdata phase inside a run; synthetic + boundary-complete only |
+
+The same six jobs are launchable as **named agents** — conversation presets that
+open with the matching skill bound to a concrete target:
+
+```bash
+python3 bin/qa.py openhands-run list                       # the agent roster
+python3 bin/qa.py openhands-run pr-review orders-api 201 --dry   # print message only
+python3 bin/qa.py openhands-run test-generation PROJ-301         # real launch ($)
+python3 bin/qa.py openhands-run test-plan PROJ-302 --repo org/ai-qe-control
+```
+
+Presets live in `engine/lib/openhands_agents.py` (message-building only — the
+engine never talks to OpenHands; the launch happens in `bin/qa.py`, honoring
+`AIQE_OPENHANDS=off`). `--dry` prints the exact initial message, which doubles as
+the copy-paste starter for a manually opened conversation — so every "agent" also
+works with no OpenHands at all: each skill names its standalone CLI path.
+
+The two `e2e-{api,ui}-conventions` skills remain **generated** (`make skills`) —
+`bin/gen_path_skills.py` writes only those two directories, so the hand-authored
+task skills are never clobbered by a regeneration.
+
 ## Step 3 — Configure the runtime
 
 In OpenHands settings (per repo or global):
@@ -54,6 +91,35 @@ In OpenHands settings (per repo or global):
 The sandbox is ephemeral and network-restricted; `--dangerously-skip-permissions` inside
 `engine/phases/run_phase.sh` is acceptable **only** under that isolation (§5.3) — never
 run the pipeline this way on a shared host.
+
+### LLM configuration — Claude via API key (two layers, one credential)
+
+Claude powers the features at **two distinct layers**; both authenticate with an
+Anthropic API key, and it is usually the same key:
+
+1. **The OpenHands agent itself** (drives the conversation, decides which commands
+   to run). Configure in OpenHands settings / `config.toml`:
+   `LLM_MODEL=anthropic/claude-sonnet-4-6` (LiteLLM naming) and
+   `LLM_API_KEY=<your Anthropic key>`. This is what reads the skills above and
+   executes the pipeline entry points.
+2. **The pipeline's own phases** (`claude -p` inside the sandbox, run by
+   `engine/phases/run_phase.sh`). Configure via the `ANTHROPIC_API_KEY` secret;
+   the **model per phase** comes from `registry/org-config.yaml` `models:` —
+   Haiku for triage/resolve, Sonnet for generate/plan/validate, Opus escalation
+   after two failed generate attempts — with per-phase `--max-turns` and
+   least-privilege `--allowedTools`. Spend is metered per phase into `out/cost.tsv`
+   and hard-capped by the budget guard (exit 77).
+
+Verify the key actually works (free, read-only — `GET /v1/models`):
+
+```bash
+make check-integrations WHICH=llm     # "API key accepted" or the exact failure
+```
+
+An enterprise proxy/gateway is supported at both layers: point OpenHands' LLM
+base URL at it, and set `ANTHROPIC_BASE_URL` for the phases + connectivity check.
+No OpenHands? Layer 2 stands alone: `make run-pr` / `run-jira` use the same key,
+models and budgets with zero OpenHands involvement.
 
 ## Step 4 — Wire the triggers
 
