@@ -1,0 +1,596 @@
+<!doctype html>
+<!-- AI QE Platform — demo slide deck. Published copy (same content) lives at
+     https://claude.ai/code/artifact/42b1620d-39c5-4b98-9064-85027600d336
+     Self-contained: no external assets; renders from a file:// open. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI QE Platform — Demo</title>
+
+<style>
+  /* ── Tokens: the platform's own palette, so the deck looks like the product ── */
+  :root {
+    --bg:        hsl(210 40% 98%);
+    --bg-raised: hsl(0 0% 100%);
+    --bg-sunken: hsl(210 40% 95%);
+    --ink:       hsl(222 47% 11%);
+    --ink-muted: hsl(215 16% 45%);
+    --line:      hsl(214 32% 89%);
+    --accent:    hsl(160 84% 30%);   /* "committed" — the product's core promise */
+    --accent-bg: hsl(160 84% 30% / .12);
+    --danger:    hsl(0 72% 45%);
+    --danger-bg: hsl(0 72% 45% / .10);
+    --warn:      hsl(32 81% 35%);
+    --warn-bg:   hsl(38 92% 50% / .16);
+    --info:      hsl(217 91% 40%);
+    --info-bg:   hsl(217 91% 60% / .12);
+
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --measure: 62ch;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:        hsl(222 47% 7%);
+      --bg-raised: hsl(222 44% 10%);
+      --bg-sunken: hsl(222 47% 5%);
+      --ink:       hsl(210 40% 96%);
+      --ink-muted: hsl(215 20% 62%);
+      --line:      hsl(217 33% 20%);
+      --accent:    hsl(160 70% 52%);
+      --accent-bg: hsl(160 70% 52% / .14);
+      --danger:    hsl(0 76% 66%);
+      --danger-bg: hsl(0 76% 66% / .13);
+      --warn:      hsl(38 92% 62%);
+      --warn-bg:   hsl(38 92% 62% / .14);
+      --info:      hsl(217 91% 70%);
+      --info-bg:   hsl(217 91% 70% / .14);
+    }
+  }
+  /* Viewer toggle must win over the media query, in both directions */
+  :root[data-theme="light"] {
+    --bg: hsl(210 40% 98%); --bg-raised: hsl(0 0% 100%); --bg-sunken: hsl(210 40% 95%);
+    --ink: hsl(222 47% 11%); --ink-muted: hsl(215 16% 45%); --line: hsl(214 32% 89%);
+    --accent: hsl(160 84% 30%); --accent-bg: hsl(160 84% 30% / .12);
+    --danger: hsl(0 72% 45%); --danger-bg: hsl(0 72% 45% / .10);
+    --warn: hsl(32 81% 35%); --warn-bg: hsl(38 92% 50% / .16);
+    --info: hsl(217 91% 40%); --info-bg: hsl(217 91% 60% / .12);
+  }
+  :root[data-theme="dark"] {
+    --bg: hsl(222 47% 7%); --bg-raised: hsl(222 44% 10%); --bg-sunken: hsl(222 47% 5%);
+    --ink: hsl(210 40% 96%); --ink-muted: hsl(215 20% 62%); --line: hsl(217 33% 20%);
+    --accent: hsl(160 70% 52%); --accent-bg: hsl(160 70% 52% / .14);
+    --danger: hsl(0 76% 66%); --danger-bg: hsl(0 76% 66% / .13);
+    --warn: hsl(38 92% 62%); --warn-bg: hsl(38 92% 62% / .14);
+    --info: hsl(217 91% 70%); --info-bg: hsl(217 91% 70% / .14);
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-snap-type: y proximity; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); font-size: 16px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Slide frame ───────────────────────────────────────────────────────── */
+  .slide {
+    scroll-snap-align: start;
+    min-height: 100vh;
+    display: flex; flex-direction: column; justify-content: center;
+    gap: 28px;
+    padding: 72px 32px 88px;
+    max-width: 1040px; margin: 0 auto;
+    border-bottom: 1px solid var(--line);
+    position: relative;
+  }
+  .slide:last-child { border-bottom: none; }
+  @media (max-width: 720px) {
+    html { scroll-snap-type: none; }
+    .slide { min-height: auto; padding: 56px 20px 64px; gap: 22px; }
+  }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--ink-muted);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow::before {
+    content: ""; width: 22px; height: 2px; background: var(--accent); border-radius: 2px;
+  }
+
+  h1 {
+    font-size: clamp(38px, 6.4vw, 66px); line-height: 1.04; letter-spacing: -.03em;
+    font-weight: 700; margin: 0; text-wrap: balance;
+  }
+  h2 {
+    font-size: clamp(27px, 3.9vw, 40px); line-height: 1.12; letter-spacing: -.022em;
+    font-weight: 680; margin: 0; text-wrap: balance;
+  }
+  h3 { font-size: 15px; font-weight: 650; margin: 0; letter-spacing: -.005em; }
+  p { margin: 0; max-width: var(--measure); color: var(--ink-muted); font-size: 17px; }
+  p.lead { font-size: clamp(18px, 2.1vw, 21px); color: var(--ink); line-height: 1.5; }
+  strong { color: var(--ink); font-weight: 620; }
+
+  code, .mono { font-family: var(--mono); font-size: .88em; }
+  code {
+    background: var(--bg-sunken); border: 1px solid var(--line);
+    padding: 1px 6px; border-radius: 5px; white-space: nowrap;
+  }
+
+  /* ── Components ────────────────────────────────────────────────────────── */
+  .grid { display: grid; gap: 14px; }
+  .grid.two   { grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); }
+  .grid.three { grid-template-columns: repeat(auto-fit, minmax(212px, 1fr)); }
+
+  .card {
+    background: var(--bg-raised); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; display: flex; flex-direction: column; gap: 7px;
+  }
+  .card p { font-size: 14.5px; line-height: 1.55; }
+  /* A card can carry a hue when it stands for a verdict, not just a container */
+  .card.edge-ok   { border-left: 3px solid var(--accent); }
+  .card.edge-warn { border-left: 3px solid var(--warn); }
+
+  /* Step cards carry a real sequence, so they're numbered */
+  .step { position: relative; padding-left: 52px; }
+  .step::before {
+    content: attr(data-n);
+    position: absolute; left: 18px; top: 18px;
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+    color: var(--accent); background: var(--accent-bg);
+    width: 22px; height: 22px; border-radius: 6px;
+    display: grid; place-items: center;
+  }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+    padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+  }
+  .chip.ok   { background: var(--accent-bg); color: var(--accent); }
+  .chip.no   { background: var(--danger-bg); color: var(--danger); }
+  .chip.warn { background: var(--warn-bg);   color: var(--warn); }
+  .chip.info { background: var(--info-bg);   color: var(--info); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  /* Metrics */
+  .metric { display: flex; flex-direction: column; gap: 2px; }
+  .metric .n {
+    font-size: clamp(30px, 4.6vw, 44px); font-weight: 700; letter-spacing: -.03em;
+    font-variant-numeric: tabular-nums; line-height: 1; color: var(--ink);
+  }
+  .metric .n.good { color: var(--accent); }
+  .metric .l { font-size: 13px; color: var(--ink-muted); }
+
+  /* Gate ladder — exit codes are the subject's own vernacular */
+  .ladder { display: flex; flex-direction: column; gap: 0; border-radius: 12px; overflow: hidden;
+            border: 1px solid var(--line); }
+  .rung {
+    display: flex; align-items: center; gap: 14px; padding: 11px 16px;
+    background: var(--bg-raised); border-bottom: 1px solid var(--line); font-size: 14.5px;
+  }
+  .rung:last-child { border-bottom: none; }
+  .rung .code {
+    font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--danger);
+    background: var(--danger-bg); border-radius: 5px; padding: 2px 7px; min-width: 54px;
+    text-align: center;
+  }
+  .rung.pass .code { color: var(--accent); background: var(--accent-bg); }
+  .rung .what { flex: 1; }
+  .rung .why { color: var(--ink-muted); font-size: 13px; }
+  @media (max-width: 620px) { .rung .why { display: none; } }
+
+  /* Score scale — the critic's own vernacular: a 0..1 band with a threshold */
+  .scale { display: flex; flex-direction: column; gap: 10px; }
+  .scale .track {
+    position: relative; height: 46px; border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--line);
+    background: linear-gradient(90deg,
+      var(--danger-bg) 0%, var(--danger-bg) 50%,
+      var(--warn-bg) 50%, var(--warn-bg) 80%,
+      var(--accent-bg) 80%, var(--accent-bg) 100%);
+  }
+  .scale .seg {
+    position: absolute; top: 0; bottom: 0; display: flex; align-items: center;
+    justify-content: center; font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+    letter-spacing: .04em; text-transform: uppercase;
+  }
+  .scale .seg.weak   { left: 0;   width: 50%; color: var(--danger); }
+  .scale .seg.review { left: 50%; width: 30%; color: var(--warn); }
+  .scale .seg.ok     { left: 80%; width: 20%; color: var(--accent); }
+  .scale .seg + .seg { border-left: 1px dashed var(--line); }
+  .scale .ends { display: flex; justify-content: space-between;
+                 font-family: var(--mono); font-size: 11px; color: var(--ink-muted); }
+
+  /* Terminal block for the live-demo script */
+  .term {
+    background: var(--bg-sunken); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 18px; overflow-x: auto;
+    font-family: var(--mono); font-size: 13.5px; line-height: 1.85;
+  }
+  .term .cmd { color: var(--ink); display: block; white-space: pre; }
+  .term .cmd::before { content: "$ "; color: var(--accent); }
+  .term .note { color: var(--ink-muted); }
+
+  ul.plain { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 9px; }
+  ul.plain li { display: flex; gap: 10px; font-size: 15.5px; align-items: baseline; }
+  ul.plain li::before { content: "▸"; color: var(--accent); font-size: 12px; flex: none; }
+
+  /* Flow strip */
+  .flow { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; }
+  .flow .node {
+    flex: 1 1 132px; background: var(--bg-raised); border: 1px solid var(--line);
+    border-radius: 10px; padding: 12px 13px; font-size: 13.5px; display: flex;
+    flex-direction: column; gap: 3px;
+  }
+  .flow .node .t { font-weight: 620; font-size: 13.5px; }
+  .flow .node .s { color: var(--ink-muted); font-size: 12.5px; font-family: var(--mono); }
+  .flow .node.hl { border-color: var(--accent); background: var(--accent-bg); }
+  .flow .node.stop { border-color: var(--warn); background: var(--warn-bg); }
+  .flow .node.ghost { border-style: dashed; color: var(--ink-muted); }
+
+  /* Agent roster — a skill name is a command, so it reads in mono */
+  .agent h3 { font-family: var(--mono); font-size: 13.5px; color: var(--accent); }
+
+  .footnote { font-size: 13px; color: var(--ink-muted); font-family: var(--mono); }
+
+  /* Progress + nav */
+  #bar {
+    position: fixed; top: 0; left: 0; height: 2px; background: var(--accent);
+    width: 0%; z-index: 20; transition: width .15s linear;
+  }
+  #counter {
+    position: fixed; bottom: 16px; right: 18px; z-index: 20;
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-muted);
+    background: var(--bg-raised); border: 1px solid var(--line);
+    padding: 5px 10px; border-radius: 999px;
+  }
+  @media (max-width: 720px) { #counter { display: none; } }
+  a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+</style>
+</head>
+<body>
+
+<div id="bar"></div>
+<div id="counter" aria-hidden="true">1 / 12</div>
+
+<!-- 1 ───────────────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">AI QE Platform · Proof of concept</div>
+  <h1>Tests that write themselves — and still have to earn their way in.</h1>
+  <p class="lead">
+    An agentic pipeline that keeps an E2E test estate current: it syncs tests when a
+    pull request changes a service, and authors new tests from a JIRA ticket. Every
+    generated test passes a deterministic gate before it is ever committed.
+  </p>
+  <div class="chips">
+    <span class="chip ok">✓ 389 tests green</span>
+    <span class="chip info">9-view dashboard</span>
+    <span class="chip info">6 named QE agents</span>
+    <span class="chip ok">runs with zero credentials</span>
+  </div>
+</section>
+
+<!-- 2 ───────────────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">The problem</div>
+  <h2>E2E suites rot faster than teams can maintain them.</h2>
+  <div class="grid two">
+    <div class="card">
+      <h3>What goes wrong</h3>
+      <p>A service ships a change; its E2E coverage lags weeks behind. Nobody knows which
+      of the six test repos owns the gap, or whether a test already covers it.</p>
+    </div>
+    <div class="card">
+      <h3>What this does</h3>
+      <p>Routes each change to the right test repositories, checks the existing suite
+      first, writes only what's missing, and proves it runs before committing.</p>
+    </div>
+  </div>
+  <p class="footnote">Multi-repo estate · UI and API suites · one pipeline, two triggers</p>
+</section>
+
+<!-- 3 ───────────────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">Workflow A</div>
+  <h2>A pull request arrives. Coverage catches up.</h2>
+  <div class="flow">
+    <div class="node"><span class="t">PR opened</span><span class="s">bitbucket / github</span></div>
+    <div class="node"><span class="t">Route</span><span class="s">registry rules</span></div>
+    <div class="node"><span class="t">Triage diff</span><span class="s">real hunks</span></div>
+    <div class="node"><span class="t">Generate</span><span class="s">extend &gt; create</span></div>
+    <div class="node hl"><span class="t">Gate</span><span class="s">lint · run · scan</span></div>
+    <div class="node"><span class="t">Commit</span><span class="s">+ PR status</span></div>
+  </div>
+  <ul class="plain">
+    <li>Routing is <strong>rules-first</strong> — a contract change fans out to consumer UI suites too. Below the confidence threshold it asks a human instead of guessing.</li>
+    <li>The agent reads the <strong>existing catalog first</strong>, so it extends a test rather than duplicating one.</li>
+    <li>Outcome posts back as an <code>ai-qe</code> build status <strong>plus a coverage-delta comment</strong> on the PR — behaviors covered, created vs updated, critic score and cost. Silent on no-impact PRs.</li>
+  </ul>
+</section>
+
+<!-- 4 ───────────────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">Workflow B · headline feature</div>
+  <h2>A JIRA ticket becomes a test plan you approve before a line is generated.</h2>
+  <div class="flow">
+    <div class="node"><span class="t">Ticket</span><span class="s">story or bug</span></div>
+    <div class="node"><span class="t">Test plan</span><span class="s">scenarios + data</span></div>
+    <div class="node stop"><span class="t">STOP</span><span class="s">awaiting review</span></div>
+    <div class="node"><span class="t">Edit &amp; approve</span><span class="s">who · when · why</span></div>
+    <div class="node"><span class="t">Link to JIRA</span><span class="s">attached</span></div>
+    <div class="node hl"><span class="t">Generate</span><span class="s">then the gate</span></div>
+  </div>
+  <div class="grid two">
+    <div class="card">
+      <h3>Generation is gated, not suggested</h3>
+      <p>Test generation refuses unless the plan is <strong>approved</strong> — and the check
+      runs before any repository clone or model call.</p>
+    </div>
+    <div class="card">
+      <h3>Edits revoke approval</h3>
+      <p>Change an approved plan and it drops back to draft. A modified plan can never
+      inherit a stale sign-off.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 5 ───────────────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">The reliability anchor</div>
+  <h2>The gate is not an LLM.</h2>
+  <p class="lead">Every generated test runs the same ordered checks inside the real test
+  repository. Each failure has its own exit code, and nothing is auto-retried.</p>
+  <div class="ladder">
+    <div class="rung"><span class="code">exit 2</span><span class="what">Scope &amp; filename charset</span><span class="why">only test paths; no shell-unsafe names</span></div>
+    <div class="rung"><span class="code">exit 4</span><span class="what">Born-mapped</span><span class="why">every new spec ships a catalog entry</span></div>
+    <div class="rung"><span class="code">exit 5</span><span class="what">Tests actually run</span><span class="why">executed against a provisioned app</span></div>
+    <div class="rung"><span class="code">exit 3</span><span class="what">Secret / PII scan</span><span class="why">on all new content</span></div>
+    <div class="rung"><span class="code">exit 7</span><span class="what">Push verified</span><span class="why">a failed push is never reported as success</span></div>
+    <div class="rung pass"><span class="code">✓ 0</span><span class="what">Committed</span><span class="why">the only path that writes to a repo</span></div>
+  </div>
+  <p class="footnote">The gate is the only component that commits or pushes. No model phase touches git. Runaway runs abort at the cost/wall-clock budget — exit 77, before the gate.</p>
+</section>
+
+<!-- 6 ───────────────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">After the gate · advisory</div>
+  <h2>A test can pass and still be worthless. The gate can't see that.</h2>
+  <p class="lead">Execution proves a spec runs, passes, and is safe. It cannot tell a real
+  assertion from <code>expect(true)</code>, or spot the fourth test that re-checks what three
+  others already do. A second reader scores exactly that blind spot.</p>
+  <div class="grid two">
+    <div class="card edge-ok">
+      <h3>What execution proves</h3>
+      <p>Lints, runs green, holds no secrets, sits in scope, ships a catalog entry.
+      Deterministic — and structurally blind to whether the test asserts anything worth asserting.</p>
+    </div>
+    <div class="card edge-warn">
+      <h3>What the critic reads</h3>
+      <p>Every generated spec is scored for the defects execution hides: vacuous or weak
+      assertions, duplicates, brittleness. This is the estate's <strong>escaped-noise</strong> signal.</p>
+    </div>
+  </div>
+  <div class="scale" aria-hidden="true">
+    <div class="track">
+      <span class="seg weak">weak</span>
+      <span class="seg review">review</span>
+      <span class="seg ok">accept</span>
+    </div>
+    <div class="ends"><span>0.00 — still commits</span><span>1.00</span></div>
+  </div>
+  <p class="footnote">Advisory by construction: read-only tools, never read by the gate. A 0.05 score still commits — the score reaches the reviewer and the scorecard, it never blocks.</p>
+</section>
+
+<!-- 7 ───────────────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">Knowing what you already have</div>
+  <h2>A catalog of every test, and an honest map of the gaps.</h2>
+  <div class="grid three">
+    <div class="card">
+      <h3>Test catalog</h3>
+      <p>Each test is mapped to the app repos it covers, with evidence and a confidence
+      score — from contracts, route tables and git history.</p>
+    </div>
+    <div class="card">
+      <h3>Coverage gaps</h3>
+      <p>Live endpoints and UI routes with no test evidence are marked
+      <code>[NO TEST]</code> and handed to generation as a priority.</p>
+    </div>
+    <div class="card">
+      <h3>CI health</h3>
+      <p>Real pass rates and flakiness ingested from JUnit/Jenkins, so a recommendation
+      accounts for tests that already misbehave.</p>
+    </div>
+  </div>
+  <p>Coverage maps are always <strong>generated from evidence</strong>, never hand-edited —
+  so the map can't quietly drift from the territory.</p>
+</section>
+
+<!-- 8 ───────────────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">Team conventions</div>
+  <h2>Your repos teach the agent how you write tests.</h2>
+  <div class="grid two">
+    <div class="card step" data-n="1">
+      <h3>Guidance lives in your repositories</h3>
+      <p>Each app and test repo owns an <code>AGENTS.md</code> or <code>CLAUDE.md</code> —
+      selectors, auth flows, fixtures, naming.</p>
+    </div>
+    <div class="card step" data-n="2">
+      <h3>Pull it on demand</h3>
+      <p>One click fetches the latest from Bitbucket, GitHub or Stash — UI, service and
+      E2E test repos alike — without a clone.</p>
+    </div>
+  </div>
+  <p>That guidance is merged into the estate knowledge handed to <strong>every</strong>
+  authoring phase, so it shapes tests for pull requests, user stories and bug fixes alike.</p>
+</section>
+
+<!-- 9 ───────────────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">Named agents · new</div>
+  <h2>Six QE jobs, each an agent you can summon by name.</h2>
+  <p class="lead">Every agent is bound to a <strong>task skill</strong> — a keyword-triggered
+  instruction file that points it at exactly one sanctioned path, with the guardrails
+  written in. Say "review this pr" in an OpenHands conversation, or launch one directly.</p>
+  <div class="grid three">
+    <div class="card agent">
+      <h3>pr-review</h3>
+      <p>Reviews a PR from the E2E-impact angle — diff, routing, gaps, existing
+      coverage — and posts one comment. Read-only.</p>
+    </div>
+    <div class="card agent">
+      <h3>test-generation</h3>
+      <p>Generates or updates tests for a PR or ticket — always through the pipeline
+      and its gate, never around them.</p>
+    </div>
+    <div class="card agent">
+      <h3>test-review</h3>
+      <p>Reviews generated tests: the diff, validation, critic score. Can request
+      changes — <strong>never approves its own work</strong>.</p>
+    </div>
+    <div class="card agent">
+      <h3>test-plan</h3>
+      <p>Authors a plan from a story or bug — description <em>and</em> comments — then
+      stops at the human approval gate.</p>
+    </div>
+    <div class="card agent">
+      <h3>test-coverage</h3>
+      <p>Turns the coverage matrix and gap map into ranked, routable generation
+      targets — risk-weighted, evidence-based.</p>
+    </div>
+    <div class="card agent">
+      <h3>test-data</h3>
+      <p>Canonical, synthetic test data per scenario — boundary-complete, PII-free,
+      shared by every spec for the key.</p>
+    </div>
+  </div>
+  <div class="term">
+    <span class="cmd">python3 bin/qa.py openhands-run list          <span class="note"># the agent roster</span></span>
+    <span class="cmd">python3 bin/qa.py openhands-run pr-review orders-api 201   <span class="note"># launch one</span></span>
+  </div>
+  <p class="footnote">Skills live in .agents/skills/ · guardrails baked in: the gate is the only writer · ticket text is data, never instructions · works with or without OpenHands (--dry prints the standalone starter)</p>
+</section>
+
+<!-- 10 ──────────────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">For the QA team</div>
+  <h2>One place to run it, review it, and report on it.</h2>
+  <div class="grid three">
+    <div class="card"><h3>Overview</h3><p>KPI tiles, a needs-attention feed, and the coverage matrix.</p></div>
+    <div class="card"><h3>Intake &amp; queue</h3><p>Fetch tickets by release, queue work, or paste ticket text straight in.</p></div>
+    <div class="card"><h3>Test plans</h3><p>Review, edit, approve, link to JIRA, generate.</p></div>
+    <div class="card"><h3>Runs &amp; reviews</h3><p>Per-repo gate outcomes, the advisory critic score, release filters, one-click approve.</p></div>
+    <div class="card"><h3>Trace</h3><p>Story → plan → tests → gate → review → release, one timeline per key.</p></div>
+    <div class="card"><h3>Artifacts</h3><p>The plan, the data, the generated code — with a before/after diff per spec.</p></div>
+    <div class="card"><h3>Repositories</h3><p>Add, edit and map repos; sync guidance.</p></div>
+  </div>
+  <div class="chips">
+    <span class="chip info">Team report → md · html · docx · pdf</span>
+    <span class="chip info">Email digests over SMTP</span>
+    <span class="chip info">SSO header auth — fails closed</span>
+  </div>
+</section>
+
+<!-- 11 ──────────────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">Fits your estate</div>
+  <h2>Vendor-neutral by construction, and deployable where you already run.</h2>
+  <div class="grid two">
+    <div class="card">
+      <h3>Six ports, swappable adapters</h3>
+      <p>SCM, tracker, knowledge, CI/CD, notify, telemetry. Bitbucket Cloud, Bitbucket
+      Server/Stash and GitHub all speak the same verbs — the engine never imports a vendor.</p>
+    </div>
+    <div class="card">
+      <h3>Runs on OpenShift</h3>
+      <p>One container image, arbitrary non-root UID, persistent state on a PVC, routes
+      for the dashboard and webhook receiver. Docker or Podman locally — auto-detected.</p>
+    </div>
+  </div>
+  <p><strong>Demo mode needs no credentials at all</strong> — mock adapters and a bundled
+  demo estate exercise the real gate, the real environment provisioning and real git.
+  One Anthropic API key powers both the agents and the pipeline's phases, with per-phase
+  model tiers and an enforced per-run budget.</p>
+</section>
+
+<!-- 12 ──────────────────────────────────────────────────────────────────── -->
+<section class="slide">
+  <div class="eyebrow">Live demo</div>
+  <h2>What we'll run, in order.</h2>
+  <div class="term">
+    <span class="cmd">make check-integrations    <span class="note"># JIRA, Stash, OpenHands, Anthropic key — all read-only</span></span>
+    <span class="cmd">make demo-bootstrap        <span class="note"># catalog the existing suites</span></span>
+    <span class="cmd">make demo-pr               <span class="note"># PR → routed → generated → gated → committed + PR comment</span></span>
+    <span class="cmd">make demo-plan KEY=PROJ-301   <span class="note"># ticket → plan → STOP for review</span></span>
+    <span class="cmd">make plan-approve KEY=PROJ-301 BY=you</span>
+    <span class="cmd">make demo-plan-tests KEY=PROJ-301  <span class="note"># approved plan → tests → critic</span></span>
+    <span class="cmd">python3 bin/qa.py openhands-run list   <span class="note"># the six named agents</span></span>
+    <span class="cmd">python3 bin/qa.py trace PROJ-301       <span class="note"># the full story→release timeline</span></span>
+    <span class="cmd">make serve                 <span class="note"># the dashboard, on :4999</span></span>
+    <span class="cmd">make review                <span class="note"># the whole regression suite</span></span>
+  </div>
+  <div class="grid three">
+    <div class="metric"><span class="n good">389</span><span class="l">tests passing</span></div>
+    <div class="metric"><span class="n good">4/4</span><span class="l">gate attacks blocked</span></div>
+    <div class="metric"><span class="n">100%</span><span class="l">routing accuracy</span></div>
+    <div class="metric"><span class="n">100%</span><span class="l">commit rate, 248 runs</span></div>
+    <div class="metric"><span class="n good">0%</span><span class="l">escaped noise (advisory critic)</span></div>
+    <div class="metric"><span class="n">$0.22</span><span class="l">avg cost per run — enforced</span></div>
+  </div>
+  <p class="footnote">Adversarial suite: planted credential · out-of-scope write · unmapped test · failing test — all refused.</p>
+</section>
+
+<script>
+  (function () {
+    var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+    var bar = document.getElementById('bar');
+    var counter = document.getElementById('counter');
+
+    function current() {
+      var mid = window.innerHeight / 2, best = 0, bestD = Infinity;
+      slides.forEach(function (s, i) {
+        var r = s.getBoundingClientRect();
+        var d = Math.abs(r.top + r.height / 2 - mid);
+        if (d < bestD) { bestD = d; best = i; }
+      });
+      return best;
+    }
+    function paint() {
+      var doc = document.documentElement;
+      var max = doc.scrollHeight - window.innerHeight;
+      bar.style.width = (max > 0 ? (window.scrollY / max) * 100 : 0) + '%';
+      counter.textContent = (current() + 1) + ' / ' + slides.length;
+    }
+    var ticking = false;
+    window.addEventListener('scroll', function () {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(function () { paint(); ticking = false; });
+    }, { passive: true });
+    window.addEventListener('resize', paint);
+
+    document.addEventListener('keydown', function (e) {
+      var t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      var i = current(), next = null;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') next = i + 1;
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') next = i - 1;
+      else if (e.key === 'Home') next = 0;
+      else if (e.key === 'End') next = slides.length - 1;
+      if (next === null) return;
+      e.preventDefault();
+      slides[Math.max(0, Math.min(slides.length - 1, next))].scrollIntoView({ block: 'start' });
+    });
+
+    paint();
+  })();
+</script>
+
+</body>
+</html>
