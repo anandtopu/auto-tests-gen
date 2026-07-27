@@ -199,9 +199,19 @@ def clear(root=None, dry=False, force=False, factory=False):
                 targets.append(f.relative_to(root).as_posix())
                 if not dry:
                     f.unlink()
-    if factory and not dry:
-        # The estate knowledge and path skills are DERIVED from the registry — leaving
-        # the old ones behind would keep feeding phases repos that no longer exist.
+    if not dry:
+        # `covers:` is GENERATED state (catalog evidence ∪ scope) and the evidence
+        # was just deleted — without regenerating, the registry keeps stale
+        # coverage and the Repositories & mapping page still shows repos as
+        # covered/mapped after a clear. Same registry lock as every other caller.
+        regen = root / "catalog/bootstrap/regen_coverage.py"
+        if regen.exists() and (root / "registry/repo-registry.yaml").exists():
+            with fs_lock.lock(root / "registry/repo-registry.yaml"):
+                subprocess.run([sys.executable, str(regen)], cwd=root,
+                               capture_output=True, stdin=subprocess.DEVNULL)
+        # The estate knowledge and path skills are DERIVED from the registry and
+        # the (now empty) catalog — regenerate on EVERY clear, not only factory,
+        # or AGENTS.md keeps feeding phases coverage that no longer exists.
         for script in ("bin/gen_agents_md.py", "bin/gen_path_skills.py"):
             s = root / script
             if s.exists():                     # absent under a test's tmp root

@@ -1,9 +1,18 @@
-"""Regression tests for the team status report (engine/lib/team_report.py)."""
-import pathlib, subprocess, sys
+"""Regression tests for the team status report (engine/lib/team_report.py).
+
+The build/filter tests run against a SEEDED estate (fixture below), not live
+state — a fresh clone or a just-cleared demo estate must not fail them (they
+used to assert e.g. "some run has an updated action" against whatever run
+history happened to exist)."""
+import json, pathlib, subprocess, sys, time
+
+import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
+import review_state
 import team_report
+import work_queue
 
 
 def run_cli(args):
@@ -12,14 +21,64 @@ def run_cli(args):
                           stdin=subprocess.DEVNULL)
 
 
-def test_build_totals_are_consistent():
+def _record(key, ktype, ts, overall, tests=(), gates=()):
+    return {"run_id": f"r{int(ts)}", "ts": ts,
+            "trigger": {"type": ktype, "key": key}, "overall": overall,
+            "phases": [{"name": "generate",
+                        "contract": {"tests": list(tests)}},
+                       {"name": "validate",
+                        "contract": {"repair_loops": 1}}],
+            "gates": list(gates)}
+
+
+@pytest.fixture
+def estate(tmp_path, monkeypatch):
+    """A deterministic mini-estate: 2 committed (old jira + fresh PR with a
+    created AND an updated action), 1 quarantined, 1 no_changes."""
+    runs = tmp_path / "reports/runs"
+    runs.mkdir(parents=True)
+    (tmp_path / "catalog").mkdir()
+    now = time.time()
+    gate_ok = [{"test_repo": "e2e-api-tests-1", "status": "committed",
+                "commit": "abc1234def"}]
+    for rec in (
+        _record("PR-orders-api-9", "pr", now - 60, "committed",
+                tests=[{"file": "a.spec.js", "action": "created"},
+                       {"file": "b.spec.js", "action": "updated"}],
+                gates=gate_ok),
+        _record("PROJ-77", "jira", now - 3 * 86400, "committed",
+                tests=[{"file": "c.spec.js", "action": "created"}], gates=gate_ok),
+        _record("PR-orders-api-8", "pr", now - 120, "quarantined",
+                gates=[{"test_repo": "e2e-api-tests-1", "status": "quarantined",
+                        "commit": ""}]),
+        _record("PROJ-78", "jira", now - 240, "no_changes"),
+    ):
+        (runs / f"{rec['run_id']}.json").write_text(json.dumps(rec),
+                                                    encoding="utf-8")
+    reviews = {
+        "PR-orders-api-9": {"status": "pending_review", "release": "2026.09",
+                            "updated": now, "history": []},
+        "PROJ-77": {"status": "approved", "release": "2026.08",
+                    "updated": now, "history": []},
+        "PR-orders-api-8": {"status": "pending_review", "release": "2026.09",
+                            "updated": now, "history": []},
+    }
+    (runs / "reviews.json").write_text(json.dumps(reviews), encoding="utf-8")
+    monkeypatch.setattr(team_report, "ROOT", tmp_path)
+    monkeypatch.setattr(review_state, "FILE", runs / "reviews.json")
+    monkeypatch.setattr(work_queue, "FILE", runs / "queue.json")
+    return tmp_path
+
+
+def test_build_totals_are_consistent(estate):
     d = team_report.build()
     t = d["totals"]
+    assert t["runs"] == 4
     assert t["runs"] == t["committed"] + t["quarantined"] + t["no_changes"]
-    assert t["committed"] == len(d["completed"])
-    assert t["quarantined"] == len(d["quarantined"])
-    assert t["tests_generated"] == t["tests_created"] + t["tests_updated"]
-    assert t["tests_updated"] > 0        # actions are past-tense ("updated")
+    assert t["committed"] == len(d["completed"]) == 2
+    assert t["quarantined"] == len(d["quarantined"]) == 1
+    assert t["tests_generated"] == t["tests_created"] + t["tests_updated"] == 3
+    assert t["tests_updated"] == 1       # actions are past-tense ("updated")
     assert sum(d["per_day"].values()) == t["runs"]
     # committed rows carry gate commits and review status fields
     for row in d["completed"]:
@@ -27,21 +86,20 @@ def test_build_totals_are_consistent():
         assert any(g["status"] == "committed" and g["commit"] for g in row["gates"])
 
 
-def test_state_files_never_parsed_as_runs():
+def test_state_files_never_parsed_as_runs(estate):
     assert set(team_report.STATE_FILES) == {"reviews.json", "queue.json",
                                             "hooks-seen.json"}
     keys = [r["trigger"]["key"] for r in team_report._runs()]
-    assert keys and all(keys)                     # every record is a real run
+    assert len(keys) == 4 and all(keys)          # reviews.json never parsed
 
 
-def test_days_and_release_filters_narrow_the_report():
+def test_days_and_release_filters_narrow_the_report(estate):
     all_time = team_report.build()
-    windowed = team_report.build(days=1)
-    assert windowed["totals"]["runs"] <= all_time["totals"]["runs"]
+    windowed = team_report.build(days=1)         # excludes the 3-day-old PROJ-77
+    assert windowed["totals"]["runs"] == all_time["totals"]["runs"] - 1
     rel = team_report.build(release="2026.09")
     keys = {r["key"] for r in rel["completed"] + rel["quarantined"]}
-    assert keys, "expected runs tracked against release 2026.09"
-    assert all(k.startswith("PR-") for k in keys)
+    assert keys == {"PR-orders-api-9", "PR-orders-api-8"}
     for p in rel["pending_review"]:
         assert p["release"] == "2026.09"
 

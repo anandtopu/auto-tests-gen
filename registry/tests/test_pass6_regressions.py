@@ -44,6 +44,10 @@ def test_stale_phase_transcript_cannot_disarm_the_budget_guard():
     total_cost_usd — phase_cost reads it as 'metered at $0', the
     AIQE_MOCK_PHASE_COST simulation never applies, and the exit-77 guard goes
     dead. The pipeline must clean phase transcripts at run start."""
+    # Routed estate is a precondition: on a just-cleared estate the resolver's
+    # skip guard exits 0 before any phase and the guard never gets a chance to
+    # fire. demo-bootstrap is idempotent and restores the coverage evidence.
+    _run([BASH, "bin/demo-bootstrap.sh", "e2e-api-tests-1"], timeout=300)
     poisoned = ROOT / "out/triage.json"
     (ROOT / "out").mkdir(exist_ok=True)
     poisoned.write_text(json.dumps({"type": "result", "total_cost_usd": 0}),
@@ -130,6 +134,35 @@ def test_clear_preserves_the_lock_dirs_it_is_holding(tmp_path):
     # the store dir itself and a fresh lock acquisition works immediately.
     with fs_lock.lock(runs / "queue.json", timeout=2):
         pass
+
+
+def test_clear_regenerates_generated_state_not_just_deletes_evidence(tmp_path):
+    """Repositories & mapping page bug: `covers:` is generated from catalog
+    evidence, and a clear deletes the evidence — without re-running the
+    generators the page keeps showing stale coverage/mapping. clear() must
+    invoke regen_coverage + gen_agents_md on EVERY clear (not only factory)."""
+    import demo_data
+    (tmp_path / "reports/runs").mkdir(parents=True)
+    (tmp_path / "registry").mkdir()
+    (tmp_path / "registry/repo-registry.yaml").write_text(
+        "source_repositories: []\ntest_repositories: []\n", encoding="utf-8")
+    for rel, marker in (("catalog/bootstrap/regen_coverage.py", "regen-ran"),
+                        ("bin/gen_agents_md.py", "agents-ran"),
+                        ("bin/gen_path_skills.py", "skills-ran")):
+        p = tmp_path / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(f"import pathlib; pathlib.Path('{marker}').touch()\n",
+                     encoding="utf-8")
+    demo_data.clear(root=tmp_path)
+    for marker in ("regen-ran", "agents-ran", "skills-ran"):
+        assert (tmp_path / marker).exists(), f"{marker.split('-')[0]} generator " \
+            "must run on a PLAIN clear — stale generated state otherwise survives"
+    # dry mode must run nothing
+    for m in ("regen-ran", "agents-ran", "skills-ran"):
+        (tmp_path / m).unlink()
+    demo_data.clear(root=tmp_path, dry=True)
+    assert not any((tmp_path / m).exists()
+                   for m in ("regen-ran", "agents-ran", "skills-ran"))
 
 
 def test_clear_skips_a_foreign_held_lock_dir(tmp_path):

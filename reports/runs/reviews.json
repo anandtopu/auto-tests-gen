@@ -1,334 +1,4 @@
 {
-  "ADHOC-1785131604-f521": {
-    "critic": {
-      "findings": [
-        {
-          "file": "suites/orders/ADHOC-1785131604-f521-discount-boundary.spec.js",
-          "kind": "missing",
-          "note": "no case for a discount above the cap",
-          "severity": "low"
-        }
-      ],
-      "noise_count": 0,
-      "rationale": "assertions check the discounted total, not just the status code",
-      "score": 0.86,
-      "specs_reviewed": 2,
-      "ts": 1785131625.5709813,
-      "verdict": "accept"
-    },
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1785131626.396897
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1785131626.396897
-  },
-  "ADHOC-42": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784656267.6277497
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784656267.6277497
-  },
-  "ADHOC-E2E": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784661245.2604556
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784661245.2604556
-  },
-  "ADHOC-UI1": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784656338.7826955
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784656338.7826955
-  },
-  "ADHOC-V10": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784696832.832378
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784696832.832378
-  },
-  "ADHOC-V11": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784699277.2991478
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784699277.2991478
-  },
-  "ADHOC-V12": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784701273.656716
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784701273.656716
-  },
-  "ADHOC-V13": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784703018.1336956
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784703018.1336956
-  },
-  "ADHOC-V14": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784734551.8453045
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784734551.8453045
-  },
-  "ADHOC-V15": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784738842.6129289
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784738842.6129289
-  },
-  "ADHOC-V16": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784743675.9221227
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784743675.9221227
-  },
-  "ADHOC-V17": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784744213.3595765
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784744213.3595765
-  },
-  "ADHOC-V18": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784747172.590962
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784747172.590962
-  },
-  "ADHOC-V19": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784748542.426657
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784748542.426657
-  },
-  "ADHOC-V20": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784750029.3462183
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784750029.3462183
-  },
-  "ADHOC-V3": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784663987.9741266
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784663987.9741266
-  },
-  "ADHOC-V4": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784665848.1530619
-      },
-      {
-        "note": "",
-        "reviewer": "dashboard",
-        "status": "approved",
-        "ts": 1784667203.332026
-      }
-    ],
-    "note": "",
-    "reviewer": "dashboard",
-    "status": "approved",
-    "updated": 1784667203.332026
-  },
-  "ADHOC-V5": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784668187.101729
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784668187.101729
-  },
-  "ADHOC-V6": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784672585.5422885
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784672585.5422885
-  },
-  "ADHOC-V7": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784674823.2058117
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784674823.2058117
-  },
-  "ADHOC-V8": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784686262.3480978
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784686262.3480978
-  },
-  "ADHOC-V9": {
-    "history": [
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784693311.6504202
-      }
-    ],
-    "note": "new AI-generated artifacts committed",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784693311.6504202
-  },
   "PR-orders-api-201": {
     "critic": {
       "findings": [
@@ -343,7 +13,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785134813.9146261,
+      "ts": 1785176302.9521616,
       "verdict": "accept"
     },
     "history": [
@@ -351,24 +21,13 @@
         "note": "new AI-generated artifacts committed",
         "reviewer": "pipeline",
         "status": "pending_review",
-        "ts": 1784608021.0058577
-      },
-      {
-        "release": "2026.08",
-        "source": "manual",
-        "ts": 1784608404.078866
-      },
-      {
-        "release": "2026.09",
-        "source": "manual",
-        "ts": 1784610849.2996473
+        "ts": 1785175368.3560588
       }
     ],
     "note": "new AI-generated artifacts committed",
-    "release": "2026.09",
     "reviewer": "pipeline",
     "status": "pending_review",
-    "updated": 1784608021.0058577
+    "updated": 1785175368.3560588
   },
   "PROJ-301": {
     "critic": {
@@ -384,68 +43,26 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785134917.1253996,
+      "ts": 1785176401.6829746,
       "verdict": "accept"
     },
     "history": [
       {
-        "note": "backfill: artifacts committed by run 1784602319-9471",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784608021.4064512
-      },
-      {
-        "note": "reviewing boundary cases",
-        "reviewer": "anand",
-        "status": "in_review",
-        "ts": 1784608021.8320765
-      },
-      {
-        "note": "LGTM - boundary coverage complete",
-        "reviewer": "anand",
-        "status": "approved",
-        "ts": 1784608022.2668042
-      },
-      {
         "release": "2026.08",
         "source": "jira",
-        "ts": 1784608379.664668
+        "ts": 1785175371.1922834
       },
       {
-        "note": "new AI-generated artifacts committed (resets previous status: approved)",
+        "note": "new AI-generated artifacts committed",
         "reviewer": "pipeline",
         "status": "pending_review",
-        "ts": 1784608403.5268
-      },
-      {
-        "note": "e2e demo verification",
-        "reviewer": "anand",
-        "status": "approved",
-        "ts": 1784650854.5805657
-      },
-      {
-        "note": "new AI-generated artifacts committed (resets previous status: approved)",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1784650963.9230623
-      },
-      {
-        "note": "",
-        "reviewer": "dashboard",
-        "status": "approved",
-        "ts": 1785130519.6197364
-      },
-      {
-        "note": "new AI-generated artifacts committed (resets previous status: approved)",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1785133782.0398314
+        "ts": 1785175387.943677
       }
     ],
-    "note": "new AI-generated artifacts committed (resets previous status: approved)",
+    "note": "new AI-generated artifacts committed",
     "release": "2026.08",
     "reviewer": "pipeline",
     "status": "pending_review",
-    "updated": 1785133782.0398314
+    "updated": 1785175387.943677
   }
 }

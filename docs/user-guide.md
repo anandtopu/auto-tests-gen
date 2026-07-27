@@ -584,9 +584,12 @@ review/queue/webhook state, test plans, test data, exports, logs, `out/`,
 `workspace/`, the bootstrapped test catalog (JSONL + review queues; the committed
 sample and schema stay), the SQLite index, CI-health ingest, and generated/synced
 repo guidance — while keeping what the estate *is* (repo registry with your
-configured repos, catalog bootstrap code, demo repos, prompts; `AGENTS.md` is
-regenerated). It refuses to run while a pipeline holds the run lock. Rebuild demo
-state afterwards with `make demo-bootstrap && make demo-pr`.
+configured repos, catalog bootstrap code, demo repos, prompts). Because `covers:`
+and `AGENTS.md` are *generated* from that now-deleted evidence, both are
+**regenerated as part of the clear** — the Repositories & mapping view drops to
+scope-only coverage immediately instead of showing stale mappings. It refuses to
+run while a pipeline holds the run lock. Rebuild demo state afterwards with
+`make demo-bootstrap && make demo-pr`.
 
 Below it sits **Factory reset** (`--factory` on the CLI, double-confirmed in the UI):
 everything a plain clear deletes **plus** everything a plain clear deliberately keeps
