@@ -32,8 +32,12 @@ if [ -s "$WS/residue.jsonl" ]; then
     --output-format json --max-turns 5 --allowedTools Read \
     --model claude-haiku-4-5-20251001 > "$WS/classified.json" || true
 fi
-# Stage 4: tier by confidence -> auto / review queue / orphan
-python3 catalog/bootstrap/tier.py "$WS" > "catalog/${TREPO}.jsonl"
+# Stage 4: tier by confidence -> auto / review queue / orphan.
+# Write-then-move: `> catalog/x.jsonl` truncates BEFORE tier.py runs, so a tier
+# crash (e.g. malformed classified.json from a partial claude run, tolerated
+# above) would empty an existing catalog and silently unroute the repo.
+python3 catalog/bootstrap/tier.py "$WS" > "$WS/tiered.jsonl"
+mv "$WS/tiered.jsonl" "catalog/${TREPO}.jsonl"
 python3 catalog/review/export_review_queue.py "catalog/${TREPO}.jsonl" > "catalog/review/${TREPO}-queue.csv"
 bash adapters/notify/slack.sh post "Catalog bootstrap ${TREPO}: $(wc -l < catalog/${TREPO}.jsonl) tests cataloged; review queue: catalog/review/${TREPO}-queue.csv" || true
 # Stage 5: regenerate registry coverage maps + estate knowledge + query index

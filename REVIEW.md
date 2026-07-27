@@ -130,6 +130,41 @@ comment), factory reset + properties layering + SSO documented in user-guide/dep
 diagrams, adapter verb lists completed (7 verbs), stale KPI rows and persona text in
 product-direction refreshed, lock-break time corrected to 90 min.
 
+## Pass 7 — Test-gap closure + follow-up review (July 2026)
+Pass 6 fixed 27 bugs but pinned only 5 with tests. This pass added the missing
+32 regression tests (test_pass6_regressions.py, test_hooks_auth.py, plus
+extensions) and ran a fresh review over the newest modules — 11 further
+findings, all fixed:
+
+**Caught by the new tests immediately:** the budget guard was DEAD on this
+checkout — an aborted real-LLM run left `out/triage.json` behind carrying
+`total_cost_usd`, mock phases never overwrite phase transcripts, so
+`phase_cost` read every phase as "metered at $0" and exit-77 never fired.
+Pipeline now clears `out/*.json` at run start (pinned).
+
+**Review findings fixed:** fs_lock waiter busy-spun at 100% CPU forever when a
+stale lock couldn't be released (falls through to the timeout now) and a
+recycled PID wedged stale-break permanently (HARD_STALE_S=1h ceiling) ·
+`fetch_file` in all three adapters treated a repo-level 404 (how GitHub/
+Bitbucket answer for repos a token cannot SEE) as "file absent", which made
+guidance_sync drop the cached estate guidance — a bare 404 now requires the
+repo itself to answer 200 · `tier.py > catalog/x.jsonl` truncated the catalog
+before tier ran (write-then-move now) · spec_exemplars: pathological relative
+imports crashed the profile (silently disabling the feature for the run),
+out-of-repo imports crashed relative_to, `*.test.js` estates were misread as
+"no approach", helper tie-break was hash-order nondeterministic ·
+openhands_agents accepted a missing target/PR and built broken pipeline
+commands · demo_data left symlinked dirs behind while counting them removed ·
+`pipeline.sh bogus KEY` silently ran the JIRA branch (INVALID_MODE exit 64) ·
+fetch_file temp files leaked on EPIPE (trap cleanup) + bitbucket fetch_file
+follows redirects like its sibling verbs.
+
+Functional/E2E coverage added along the way: the real gate running in a temp
+git repo (superstring born-mapped rejection), a real 401 HTTP server against
+the LLM check, the dashboard /hooks auth truth table against a real server
+process, bootstrap clone-failure catalog preservation, with-env teardown.
+Suite: 429 passing.
+
 ## Open items (ticketed, not blocking)
 1. ~~Real-LLM parity run~~ — **done, Pass 5 above.** Full `AIQE_MOCK=0` (real adapters) still needs estate credentials.
 2. Mock stubs still bypass `extract_contract.py` (real path now proven; stub passthrough remains cosmetic).

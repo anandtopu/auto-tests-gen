@@ -343,7 +343,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785097347.0294576,
+      "ts": 1785134813.9146261,
       "verdict": "accept"
     },
     "history": [
@@ -384,7 +384,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785130417.8440917,
+      "ts": 1785134917.1253996,
       "verdict": "accept"
     },
     "history": [
@@ -434,12 +434,18 @@
         "reviewer": "dashboard",
         "status": "approved",
         "ts": 1785130519.6197364
+      },
+      {
+        "note": "new AI-generated artifacts committed (resets previous status: approved)",
+        "reviewer": "pipeline",
+        "status": "pending_review",
+        "ts": 1785133782.0398314
       }
     ],
-    "note": "",
+    "note": "new AI-generated artifacts committed (resets previous status: approved)",
     "release": "2026.08",
-    "reviewer": "dashboard",
-    "status": "approved",
-    "updated": 1785130519.6197364
+    "reviewer": "pipeline",
+    "status": "pending_review",
+    "updated": 1785133782.0398314
   }
 }

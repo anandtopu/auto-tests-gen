@@ -157,6 +157,11 @@ def clear(root=None, dry=False, force=False, factory=False):
                 for child in sorted(d.iterdir()):
                     if child.is_dir() and child.name.endswith(".lock"):
                         continue
+                    if child.is_symlink():
+                        # is_dir() follows links; rmtree refuses symlinks — the
+                        # link itself is the thing to remove.
+                        child.unlink()
+                        continue
                     if child.is_dir():
                         _rmtree(child)
                     else:

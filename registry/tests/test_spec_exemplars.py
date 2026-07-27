@@ -48,6 +48,36 @@ def test_shared_helpers_are_detected_and_included(tmp_path):
     assert "module.exports.get" in helpers["suites/_lib/client.js"]
 
 
+def test_dot_test_js_naming_is_recognized(tmp_path):
+    """A mature repo on the idiomatic node--test naming (*.test.js) must not be
+    misread as 'no approach to follow yet'."""
+    _mk(tmp_path, "suites/orders/checkout.test.js",
+        "const { test } = require('node:test');\ntest('x', () => {});\n")
+    pr = spec_exemplars.profile(tmp_path, "x", "suites/")
+    assert pr["specs"] == 1
+    assert any(".test.js" in f for f in pr["facts"])
+
+
+def test_pathological_imports_never_crash_the_profile(tmp_path):
+    """A crash here silently disables the whole feature for the run (the
+    pipeline falls back to an empty conventions file)."""
+    _mk(tmp_path, "suites/deep.spec.js",
+        "require('../../../../../../../../..');\ntest('d', () => {});\n")
+    pr = spec_exemplars.profile(tmp_path, "x", "suites/")
+    assert pr["specs"] == 1                        # profiled, not raised
+
+
+def test_out_of_repo_imports_are_not_helpers(tmp_path):
+    """A monorepo-style import resolving into a sibling checkout is not this
+    repo's helper (and relative_to() on it used to raise)."""
+    _mk(tmp_path, "shared/util.js", "module.exports = 1;\n")
+    repo = tmp_path / "repo"
+    _mk(repo, "suites/a.spec.js", "require('../../shared/util');\ntest('a',()=>{});\n")
+    _mk(repo, "suites/b.spec.js", "require('../../shared/util');\ntest('b',()=>{});\n")
+    pr = spec_exemplars.profile(repo, "x", "suites/")
+    assert pr["helpers"] == [], "outside-the-repo modules must not be included"
+
+
 def test_empty_repo_degrades_to_a_note_not_an_error(tmp_path):
     md = spec_exemplars.to_markdown([spec_exemplars.profile(tmp_path, "fresh", "suites/")])
     assert "fresh" in md and "No existing specs" in md

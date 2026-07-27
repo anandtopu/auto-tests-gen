@@ -75,7 +75,11 @@ def build(agent, target="", pr=""):
     a = AGENTS.get(agent)
     if a is None:
         raise SystemExit(f"unknown agent '{agent}' — one of: {', '.join(sorted(AGENTS))}")
+    if agent == "pr-review" and (not target or not pr):
+        raise SystemExit(f"agent 'pr-review' needs a repo AND a PR number ({a['args']})")
     if agent == "test-generation":
+        if not target:
+            raise SystemExit(f"agent 'test-generation' needs a target ({a['args']})")
         # PR form: <repo> <pr>; JIRA form: <KEY>
         mode, pipeline_args = ("pr", f"{target} {pr}") if pr else ("jira", target)
         body = a["message"].format(mode=mode, pipeline_args=pipeline_args)

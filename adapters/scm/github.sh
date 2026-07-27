@@ -15,13 +15,18 @@ case "$VERB" in
   comment)   gh pr comment "$2" --repo "org/$1" --body "$3" ;;
   # fetch_file <repo> <path> [ref] — raw file without cloning.
   # Exit 3 = file absent (callers treat that as "no such guidance in this repo").
-  # Exit 3 = HTTP 404 ONLY (guidance_sync drops cached files on 3); every other
-  # failure — expired token, rate limit, network — exits 1.
+  # Exit 3 = FILE absent (404 on the file with the REPO confirmed visible).
+  # GitHub answers 404 — not 403 — for a private repo the token cannot see, so a
+  # bare 404 must not read as "file deleted" (guidance_sync drops cached files
+  # on 3). Every other failure — expired token, rate limit, network — exits 1.
   fetch_file) ERR=$(mktemp "${TMPDIR:-/tmp}/aiqe-gh.XXXXXX")
+    trap 'rm -f "$ERR"' EXIT
     if gh api "repos/org/$1/contents/$2${3:+?ref=$3}" \
-         -H "Accept: application/vnd.github.raw" 2>"$ERR"; then rm -f "$ERR"
-    elif grep -q "HTTP 404" "$ERR"; then rm -f "$ERR"; echo "NOT_FOUND: $1:$2" >&2; exit 3
-    else cat "$ERR" >&2; rm -f "$ERR"; echo "FETCH_FAILED: $1:$2" >&2; exit 1; fi ;;
+         -H "Accept: application/vnd.github.raw" 2>"$ERR"; then :
+    elif grep -q "HTTP 404" "$ERR"; then
+      if gh api "repos/org/$1" >/dev/null 2>&1; then echo "NOT_FOUND: $1:$2" >&2; exit 3; fi
+      echo "FETCH_FAILED (repo invisible or renamed): $1:$2" >&2; exit 1
+    else cat "$ERR" >&2; echo "FETCH_FAILED: $1:$2" >&2; exit 1; fi ;;
   open_pr)   gh pr create --repo "org/$1" --head "$2" --title "$3" --body "$4" ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

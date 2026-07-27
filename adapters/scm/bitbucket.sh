@@ -23,14 +23,23 @@ case "$VERB" in
   # fetch_file <repo> <path> [ref] — raw file from the repo without cloning.
   # Exit 3 = file absent (callers treat that as "this repo has no such guidance").
   fetch_file)
-    # Exit 3 = HTTP 404 ONLY. guidance_sync treats 3 as "remote deleted it" and
-    # drops the cached copy — an expired token or outage must exit 1 instead.
+    # Exit 3 = FILE absent (404 with the repo confirmed reachable). Everything
+    # else exits 1: guidance_sync treats 3 as "remote deleted it" and drops the
+    # cached copy — an expired token, an outage, or a repo the token can no
+    # longer see (Cloud answers 404, not 403, for invisible repos) must never
+    # read as absence.
     REF=${3:-HEAD}
     BODY=$(mktemp "${TMPDIR:-/tmp}/aiqe-bb.XXXXXX")
-    HTTP=$(curl -s -o "$BODY" -w '%{http_code}' -u "x-token-auth:${BITBUCKET_TOKEN}" \
-          "$BB/$1/src/${REF}/$2") || { rm -f "$BODY"; echo "FETCH_FAILED (transport): $1:$2" >&2; exit 1; }
-    if [ "$HTTP" = "404" ]; then rm -f "$BODY"; echo "NOT_FOUND: $1:$2" >&2; exit 3; fi
-    if [ "$HTTP" != "200" ]; then rm -f "$BODY"; echo "FETCH_FAILED (HTTP $HTTP): $1:$2" >&2; exit 1; fi
-    cat "$BODY"; rm -f "$BODY" ;;
+    trap 'rm -f "$BODY"' EXIT
+    HTTP=$(curl -sL -o "$BODY" -w '%{http_code}' -u "x-token-auth:${BITBUCKET_TOKEN}" \
+          "$BB/$1/src/${REF}/$2") || { echo "FETCH_FAILED (transport): $1:$2" >&2; exit 1; }
+    if [ "$HTTP" = "404" ]; then
+      REPO_HTTP=$(curl -sL -o /dev/null -w '%{http_code}' -u "x-token-auth:${BITBUCKET_TOKEN}" \
+                  "$BB/$1") || REPO_HTTP=000
+      if [ "$REPO_HTTP" = "200" ]; then echo "NOT_FOUND: $1:$2" >&2; exit 3; fi
+      echo "FETCH_FAILED (repo unreachable, HTTP $REPO_HTTP): $1:$2" >&2; exit 1
+    fi
+    if [ "$HTTP" != "200" ]; then echo "FETCH_FAILED (HTTP $HTTP): $1:$2" >&2; exit 1; fi
+    cat "$BODY" ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

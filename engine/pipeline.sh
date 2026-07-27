@@ -7,6 +7,9 @@
 #                                  validate -> gate
 set -euo pipefail
 MODE=${1:?pr|jira|plan|tests}; export AIQE_ROOT="$PWD"; mkdir -p out workspace
+# Validate — MODE is interpolated into python -c strings below, and an unknown
+# mode would silently take the jira branch.
+case "$MODE" in pr|jira|plan|tests) ;; *) echo "INVALID_MODE: $MODE (pr|jira|plan|tests)"; exit 64 ;; esac
 # Config layers, lowest first: aiqe.properties < .env < explicit environment.
 # Both emitters print `export K='v'` lines ONLY for keys absent from the
 # environment, so an explicitly-exported variable always wins (the file can never
@@ -70,11 +73,13 @@ fi
 # with exit 77, notifies, and never reaches the gate: a runaway loop can overshoot
 # by at most one phase. Mock phases meter nothing (AIQE_MOCK_PHASE_COST simulates).
 RUN_START=$(date +%s)
-# Fresh run scratch: cost ledger, phase contracts and gate results are all
-# PER-RUN — a leftover contract from a previous run (e.g. a jira run's analyze/
-# testplan before a pr run) would be absorbed into this run's record by
-# run_record.py's out/*.contract.json glob.
-rm -f "${AIQE_COST_LEDGER:-out/cost.tsv}" out/*.contract.json out/gate_results.tsv
+# Fresh run scratch: cost ledger, phase transcripts+contracts and gate results
+# are all PER-RUN. Stale contracts get absorbed into this run's record
+# (run_record.py globs out/*.contract.json); a stale out/<phase>.json is worse —
+# a leftover real-run transcript carrying total_cost_usd poisons budget metering
+# for every later mock run (phase_cost reads it as "metered", so the
+# AIQE_MOCK_PHASE_COST simulation never applies and the exit-77 guard is dead).
+rm -f "${AIQE_COST_LEDGER:-out/cost.tsv}" out/*.json out/gate_results.tsv
 _budget_guard() {
   local why
   if ! why=$(python3 engine/lib/budget.py check --start "$RUN_START"); then

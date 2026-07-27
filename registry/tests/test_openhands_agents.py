@@ -88,6 +88,10 @@ def test_unknown_agent_and_missing_target_fail_cleanly():
         openhands_agents.build("no-such-agent", "x")
     with pytest.raises(SystemExit):
         openhands_agents.build("test-review")          # target required
+    with pytest.raises(SystemExit):
+        openhands_agents.build("test-generation")      # would build `pipeline.sh jira `
+    with pytest.raises(SystemExit):
+        openhands_agents.build("pr-review", "orders-api")   # PR number required
 
 
 def test_qa_cli_dry_run_needs_no_network():

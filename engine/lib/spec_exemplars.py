@@ -48,34 +48,45 @@ def _rel_imports(text):
 
 
 def _resolve(spec_path, rel):
-    """Resolve a relative import to a repo file (tries as-is, .js, .ts, /index.js)."""
-    base = (spec_path.parent / rel).resolve()
-    for cand in (base, base.with_suffix(base.suffix + ".js") if not base.suffix else base,
-                 pathlib.Path(str(base) + ".js"), pathlib.Path(str(base) + ".ts"),
-                 base / "index.js", base / "index.ts"):
-        if cand.is_file():
-            return cand
+    """Resolve a relative import to a repo file (tries as-is, .js, .ts, /index.js).
+    Total: a pathological import (e.g. one that walks to the filesystem root)
+    returns None rather than raising — a crash here would silently disable the
+    whole existing-approach feature for the run."""
+    try:
+        base = (spec_path.parent / rel).resolve()
+        for cand in (base, pathlib.Path(str(base) + ".js"),
+                     pathlib.Path(str(base) + ".ts"),
+                     base / "index.js", base / "index.ts"):
+            if cand.is_file():
+                return cand
+    except (OSError, ValueError):
+        pass
     return None
 
 
 def profile(repo_root, name, specs_dir):
-    repo_root = pathlib.Path(repo_root)
+    repo_root = pathlib.Path(repo_root).resolve()
     spec_root = repo_root / specs_dir if specs_dir else repo_root
-    specs = sorted(p for pat in ("**/*.spec.js", "**/*.spec.ts")
+    # Both idiomatic namings: *.spec.* and *.test.* (node --test convention) —
+    # a mature .test.js estate must not be misread as "no approach to follow".
+    specs = sorted(p for pat in ("**/*.spec.js", "**/*.spec.ts",
+                                 "**/*.test.js", "**/*.test.ts")
                    for p in spec_root.glob(pat))
     if not specs:
         return {"name": name, "specs": 0}
 
     texts = {p: _read(p) for p in specs}
-    # Shared helpers: relative modules 2+ specs import
+    # Shared helpers: relative modules 2+ specs import. Only files INSIDE the
+    # repo qualify (a monorepo import that resolves into a sibling clone is not
+    # this repo's helper — and relative_to() on it would crash the run).
     helper_users = {}
     for p, t in texts.items():
         for rel in set(_rel_imports(t)):
             target = _resolve(p, rel)
-            if target is not None:
+            if target is not None and str(target).startswith(str(repo_root)):
                 helper_users.setdefault(target, set()).add(p)
     helpers = sorted((h for h, users in helper_users.items() if len(users) >= 2),
-                     key=lambda h: (-len(helper_users[h]), h.name))[:MAX_HELPERS]
+                     key=lambda h: (-len(helper_users[h]), str(h)))[:MAX_HELPERS]
 
     # Convention facts (counted over all specs — the repo norm, not one file's habit)
     joined = "\n".join(texts.values())
@@ -91,8 +102,9 @@ def profile(repo_root, name, specs_dir):
         if lib in joined:
             facts.append(label)
             break
-    suffixes = sorted({p.suffix for p in specs})
-    facts.append(f"spec files end in `.spec{'/'.join(suffixes)}` under `{specs_dir or './'}`")
+    # Derive the naming fact from what actually matched (.spec.js vs .test.ts …)
+    endings = sorted({"".join(p.suffixes[-2:]) for p in specs})
+    facts.append(f"spec files end in `{'` / `'.join(endings)}` under `{specs_dir or './'}`")
 
     # Exemplars: most-representative specs — imports closest to the repo norm,
     # legacy-ish paths penalized, recency as tie-break, then name (determinism).

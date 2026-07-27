@@ -50,16 +50,26 @@ case "$VERB" in
   clone_ro) req "$1"
     git clone --depth 1 "${CLONE_BASE}/$SLUG.git" "$2" ;;
   # fetch_file <repo> <path> [ref] — raw file without cloning (Server raw endpoint).
-  # Exit 3 = file absent (HTTP 404 ONLY). Transport errors and auth failures exit 1:
-  # callers (guidance_sync) treat 3 as "remote deleted it" and drop the cached copy,
-  # so an expired token or an outage must never be reported as absence.
+  # Exit 3 = FILE absent (HTTP 404 on the file, with the REPO confirmed reachable).
+  # Everything else exits 1: callers (guidance_sync) treat 3 as "remote deleted it"
+  # and drop the cached copy, so an expired token, an outage, or a repo the token
+  # can no longer see (servers answer 404, not 403, for invisible repos) must
+  # never be reported as absence.
   fetch_file) req "$1"
     BODY=$(mktemp "${TMPDIR:-/tmp}/aiqe-stash.XXXXXX")
+    trap 'rm -f "$BODY"' EXIT
     HTTP=$(curl -s -o "$BODY" -w '%{http_code}' "${SSL_FLAG[@]}" "${AUTH[@]}" \
-           "$S/repos/$SLUG/raw/$2${3:+?at=$3}") || { rm -f "$BODY"; echo "FETCH_FAILED (transport): $1:$2" >&2; exit 1; }
-    if [ "$HTTP" = "404" ]; then rm -f "$BODY"; echo "NOT_FOUND: $1:$2" >&2; exit 3; fi
-    if [ "$HTTP" != "200" ]; then rm -f "$BODY"; echo "FETCH_FAILED (HTTP $HTTP): $1:$2" >&2; exit 1; fi
-    cat "$BODY"; rm -f "$BODY" ;;
+           "$S/repos/$SLUG/raw/$2${3:+?at=$3}") || { echo "FETCH_FAILED (transport): $1:$2" >&2; exit 1; }
+    if [ "$HTTP" = "404" ]; then
+      # Distinguish "file absent" from "repo invisible/renamed": 404 on the file
+      # only counts as absence when the repo itself answers.
+      REPO_HTTP=$(curl -s -o /dev/null -w '%{http_code}' "${SSL_FLAG[@]}" "${AUTH[@]}" \
+                  "$S/repos/$SLUG") || REPO_HTTP=000
+      if [ "$REPO_HTTP" = "200" ]; then echo "NOT_FOUND: $1:$2" >&2; exit 3; fi
+      echo "FETCH_FAILED (repo unreachable, HTTP $REPO_HTTP): $1:$2" >&2; exit 1
+    fi
+    if [ "$HTTP" != "200" ]; then echo "FETCH_FAILED (HTTP $HTTP): $1:$2" >&2; exit 1; fi
+    cat "$BODY" ;;
   clone_rw) req "$1"
     git clone "${CLONE_BASE}/$SLUG.git" "$2" \
       && git -C "$2" checkout -B "$3" ;;
