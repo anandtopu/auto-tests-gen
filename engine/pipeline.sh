@@ -19,6 +19,18 @@ case "$MODE" in pr|jira|plan|tests) ;; *) echo "INVALID_MODE: $MODE (pr|jira|pla
 # (the Settings page writes .env — a UI save must never be masked by properties).
 eval "$(python3 engine/lib/props_file.py dotenv-defaults 2>/dev/null || true)"
 eval "$(python3 engine/lib/props_file.py shell-defaults 2>/dev/null || true)"
+# Map AIQE_* proxy vars to standard env vars so curl (adapters) and Python urllib
+# both pick them up automatically — including NO_PROXY bypass for internal hosts.
+if [ -n "${AIQE_HTTPS_PROXY:-}" ]; then
+  export HTTPS_PROXY="${HTTPS_PROXY:-$AIQE_HTTPS_PROXY}"
+  export HTTP_PROXY="${HTTP_PROXY:-$AIQE_HTTPS_PROXY}"
+  export https_proxy="${https_proxy:-$AIQE_HTTPS_PROXY}"
+  export http_proxy="${http_proxy:-$AIQE_HTTPS_PROXY}"
+fi
+if [ -n "${AIQE_NO_PROXY:-}" ]; then
+  export NO_PROXY="${NO_PROXY:-$AIQE_NO_PROXY}"
+  export no_proxy="${no_proxy:-$AIQE_NO_PROXY}"
+fi
 
 # Run isolation: workspace/ and out/ are shared scratch, so one run at a time per
 # checkout (parallel capacity = one sandbox/checkout per run, e.g. OpenHands).

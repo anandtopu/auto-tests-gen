@@ -44,6 +44,14 @@ SPEC = [
         {"env": "AIQE_SSL_VERIFY", "label": "SSL verification",
          "options": [["1", "enabled (default)"], ["0", "disabled (corporate CA / self-signed)"]],
          "default": "1"},
+        {"env": "AIQE_HTTPS_PROXY", "label": "HTTPS proxy",
+         "help": "e.g. http://desktop.proxy.vzwcorp.com:5150 — used for all outbound "
+                 "HTTPS calls (OpenHands, JIRA, Stash, Anthropic). Leave blank for "
+                 "direct connections."},
+        {"env": "AIQE_NO_PROXY", "label": "No-proxy bypass",
+         "help": "comma-separated hostnames/domains that should bypass the proxy, "
+                 "e.g. .verizon.com,localhost,127.0.0.1 — internal Stash/JIRA hosts "
+                 "typically don't need the proxy and should be listed here."},
      ]},
     {"section": "GitHub", "hint": "Used when SCM adapter is GitHub.",
      "fields": [
@@ -208,6 +216,19 @@ def load_env_into(environ=None, refresh=False):
         applied += props_file.apply_to(environ)     # baseline; may be absent
     except Exception:
         pass                                        # config file must never break startup
+    # Map AIQE_* proxy vars to standard env vars so curl and urllib's default
+    # ProxyHandler both pick them up automatically. Standard vars are only set
+    # when the AIQE_ var is present — we never clear pre-existing values.
+    proxy = environ.get("AIQE_HTTPS_PROXY", "").strip()
+    if proxy:
+        for k in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"):
+            if k not in environ:
+                environ[k] = proxy
+    no_proxy = environ.get("AIQE_NO_PROXY", "").strip()
+    if no_proxy:
+        for k in ("NO_PROXY", "no_proxy"):
+            if k not in environ:
+                environ[k] = no_proxy
     return applied
 
 

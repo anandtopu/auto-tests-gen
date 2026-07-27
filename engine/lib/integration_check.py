@@ -65,11 +65,28 @@ def _ssl_context():
     return None
 
 
+def _make_opener():
+    """Build a urllib opener that combines proxy and SSL settings.
+
+    Uses the standard HTTPS_PROXY / NO_PROXY env vars (mapped from AIQE_HTTPS_PROXY
+    / AIQE_NO_PROXY by settings_store.load_env_into()). No-arg ProxyHandler() reads
+    those vars automatically, so NO_PROXY bypasses are respected without extra code.
+    Respects AIQE_SSL_VERIFY=0 for corporate CA / self-signed certs.
+    """
+    handlers = []
+    if _env("HTTPS_PROXY") or _env("AIQE_HTTPS_PROXY"):
+        handlers.append(urllib.request.ProxyHandler())
+    ctx = _ssl_context()
+    if ctx:
+        handlers.append(urllib.request.HTTPSHandler(context=ctx))
+    return urllib.request.build_opener(*handlers)
+
+
 def _http(url, headers=None, method="GET"):
     """Returns (code, error). code None means the request never completed."""
     req = urllib.request.Request(url, headers=headers or {}, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT, context=_ssl_context()) as resp:
+        with _make_opener().open(req, timeout=TIMEOUT) as resp:
             return resp.status, None
     except urllib.error.HTTPError as e:
         return e.code, None

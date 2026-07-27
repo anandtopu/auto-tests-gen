@@ -28,6 +28,10 @@ ANTHROPIC_API_KEY=
 AIQE_SSO_HEADER=
 # SSL verification  ·  one of: 1|0
 AIQE_SSL_VERIFY=1
+# HTTPS proxy  ·  e.g. http://desktop.proxy.vzwcorp.com:5150
+AIQE_HTTPS_PROXY=
+# No-proxy bypass  ·  comma-separated hosts/domains that reach directly, e.g. .verizon.com,localhost
+AIQE_NO_PROXY=
 
 # --- GitHub ---
 # Used when SCM adapter is GitHub.

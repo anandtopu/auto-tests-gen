@@ -5,9 +5,21 @@ VERB=${1:?verb}; shift || true
 # Tracker port: get_item | search_release | comment | attach
 # Primary path: Atlassian Remote MCP inside the Claude Code session (registered in
 # sandbox/mcp-setup.sh). This CLI adapter is the pipeline-side fallback via REST.
-J="${JIRA_URL:-https://your-domain.atlassian.net}/rest/api/3"
+# JIRA_API_VERSION: 2 = Jira Server / Data Center (on-prem); 3 = Jira Cloud (ADF bodies).
+# Default to 2 — the adf() parser already handles both plain strings and ADF objects,
+# so v2 works against Cloud too, making it the safer default for on-prem estates.
+J="${JIRA_URL:-https://your-domain.atlassian.net}/rest/api/${JIRA_API_VERSION:-2}"
+
+# Proxy and SSL flags shared by every curl call in this adapter.
+# Proxy is handled via standard HTTPS_PROXY / NO_PROXY env vars (mapped from
+# AIQE_HTTPS_PROXY / AIQE_NO_PROXY by settings_store.load_env_into() or by
+# pipeline.sh which sources .env). curl reads these automatically, so internal
+# hosts listed in NO_PROXY are reached directly without needing explicit -x flags.
+CURL_FLAGS=(-s)
+if [[ "${AIQE_SSL_VERIFY:-1}" == "0" ]]; then CURL_FLAGS+=(-k); fi
+
 case "$VERB" in
-  get_item) curl -s -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
+  get_item) curl "${CURL_FLAGS[@]}" -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
     "$J/issue/$1?fields=summary,description,components,labels,fixVersions,issuetype,comment" \
     | python3 -c "
 import json,sys; i=json.load(sys.stdin); f=i['fields']
@@ -40,7 +52,7 @@ print(json.dumps({'key':i['key'],'summary':f['summary'],
  'remote_links_url':'$J/issue/'+i['key']+'/remotelink'}))" ;;
   search_release)  # JQL: tickets targeting a fixVersion (empty arg = all with any fixVersion)
     JQL="fixVersion is not EMPTY"; [ -n "${1:-}" ] && JQL="fixVersion = \"$1\""
-    curl -s -G -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
+    curl "${CURL_FLAGS[@]}" -G -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
       --data-urlencode "jql=$JQL" --data-urlencode "fields=summary,fixVersions" \
       "$J/search" | python3 -c "
 import json,sys
@@ -49,14 +61,14 @@ print(json.dumps([{'key':i['key'],'summary':i['fields']['summary'],
  'fix_versions':[v['name'] for v in i['fields'].get('fixVersions',[])]}
  for i in r.get('issues',[])]))" ;;
   attach)  # attach <KEY> <file> — upload as a Jira issue attachment
-    curl -s -X POST -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
+    curl "${CURL_FLAGS[@]}" -X POST -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
       -H "X-Atlassian-Token: no-check" \
       -F "file=@$2" "$J/issue/$1/attachments" \
       | python3 -c "
 import json,sys
 r=json.load(sys.stdin)
 print('attached: ' + ', '.join(a['filename'] for a in r))" ;;
-  comment) curl -s -X POST -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
+  comment) curl "${CURL_FLAGS[@]}" -X POST -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
     -H 'Content-Type: application/json' \
     -d "$(python3 -c "import json,sys;print(json.dumps({'body':{'type':'doc','version':1,'content':[{'type':'paragraph','content':[{'type':'text','text':sys.argv[1]}]}]}}))" "$2")" \
     "$J/issue/$1/comment" >/dev/null && echo ok ;;

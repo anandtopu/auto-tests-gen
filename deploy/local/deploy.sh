@@ -39,13 +39,15 @@ esac
 echo "==> Building image and starting services (mock mode; no credentials needed)…"
 $COMPOSE up -d --build
 
-echo "==> Waiting for the dashboard to become healthy…"
+echo "==> Waiting for the services to become healthy…"
+# Use the receiver's unauthenticated /healthz (port 4998) — the dashboard's
+# /api/queue requires auth when AIQE_UI_TOKEN is set, so it would return 401.
 for i in $(seq 1 40); do
-  if curl -fsS -o /dev/null "http://localhost:4999/api/queue" 2>/dev/null; then
-    echo "    dashboard is up."
+  if curl -fsS -o /dev/null "http://localhost:4998/healthz" 2>/dev/null; then
+    echo "    services are up."
     break
   fi
-  [ "$i" -eq 40 ] && { echo "    dashboard did not come up in time — check: $COMPOSE logs dashboard"; exit 1; }
+  [ "$i" -eq 40 ] && { echo "    services did not come up in time — check: $COMPOSE logs"; exit 1; }
   sleep 1
 done
 
@@ -55,14 +57,18 @@ if [ "${1:-}" = "--seed" ]; then
     || echo "    (seed step reported an issue — the services are still up)"
 fi
 
+UI_TOKEN=$(grep -E '^AIQE_UI_TOKEN=' .env 2>/dev/null | cut -d= -f2- | tr -d "'\"" || true)
+HOOK_TOKEN=$(grep -E '^AIQE_HOOK_TOKEN=' .env 2>/dev/null | cut -d= -f2- | tr -d "'\"" || true)
+MOCK=$(grep -E '^AIQE_MOCK=' .env 2>/dev/null | cut -d= -f2- || echo "1")
+
 cat <<EOF
 
 AI QE platform is running locally:
-  Dashboard          http://localhost:4999
-  TaskEvent receiver http://localhost:4998/hooks/taskevent  (X-AIQE-Token: change-me)
+  Dashboard          http://localhost:4999${UI_TOKEN:+/?token=$UI_TOKEN}
+  TaskEvent receiver http://localhost:4998/hooks/taskevent${HOOK_TOKEN:+  (X-AIQE-Token: $HOOK_TOKEN)}
 
   Logs:   $COMPOSE logs -f
   Stop:   ./deploy.sh --down   (named volumes keep run history / queue / reviews)
 
-Mock mode is on. For real runs, see docs/deployment.md → "Going real".
+$([ "$MOCK" = "0" ] && echo "Real mode (AIQE_MOCK=0): using live adapters." || echo "Mock mode is on (AIQE_MOCK=1). For real runs, set AIQE_MOCK=0 in .env.")
 EOF
