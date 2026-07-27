@@ -44,7 +44,9 @@ def _env(k, d=""):
 def _load_env():
     try:
         import settings_store
-        settings_store.load_env_into()
+        # refresh=True: update any keys we loaded at server startup so that
+        # Settings-UI saves are visible in the check without a server restart.
+        settings_store.load_env_into(refresh=True)
     except Exception:
         pass
 
@@ -137,6 +139,17 @@ def check_scm():
     tok = {"github": "GITHUB_TOKEN", "bitbucket": "BITBUCKET_TOKEN",
            "stash": "STASH_TOKEN"}.get(kind, "")
     if not _env(tok):
+        # Detect common misconfiguration: Stash creds filled in but SCM_KIND not updated.
+        if kind == "github" and _env("STASH_TOKEN") and _env("STASH_URL"):
+            return _r(name, "fail",
+                      f"{tok} not set — but STASH_TOKEN+STASH_URL are configured",
+                      "change SCM adapter to 'Bitbucket Server / DC (Stash)' "
+                      "in the General section of Settings (sets SCM_KIND=stash)")
+        if kind == "github" and _env("BITBUCKET_TOKEN"):
+            return _r(name, "fail",
+                      f"{tok} not set — but BITBUCKET_TOKEN is configured",
+                      "change SCM adapter to 'Bitbucket Cloud' "
+                      "in the General section of Settings (sets SCM_KIND=bitbucket)")
         return _r(name, "skipped", f"{tok} not set")
     if kind == "stash" and not _env("STASH_URL"):
         return _r(name, "fail", "STASH_URL not set",
@@ -156,14 +169,30 @@ def check_scm():
             return _r(name, "fail", "no Stash project configured",
                       "set STASH_PROJECT as the default, or give each repo a "
                       "url of the form PROJECT/slug")
-    try:
-        from registry import load_registry
-        repos = [r["name"] for r in load_registry()["source_repositories"]]
-    except Exception:
-        repos = []
-    if not repos:
-        return _r(name, "skipped", "no source repositories registered")
-    repo = _env("AIQE_SMOKE_REPO") or repos[0]
+    smoke_repo = _env("AIQE_SMOKE_REPO")
+    if not smoke_repo:
+        try:
+            from registry import load_registry
+            reg = load_registry()
+            all_repos = reg.get("source_repositories", [])
+            # Prefer repos that match the configured SCM kind so demo repos
+            # declared with a different adapter (scm: github) are not probed
+            # through the wrong adapter (stash), which produces false 404s.
+            typed = [r["name"] for r in all_repos if r.get("scm") == kind]
+            untyped = [r["name"] for r in all_repos if not r.get("scm")]
+            candidate = (typed or untyped or [r["name"] for r in all_repos])
+        except Exception:
+            candidate = []
+        if not candidate:
+            return _r(name, "skipped", "no source repositories registered")
+        if not typed and not untyped:
+            # All registered repos are declared for a different SCM adapter.
+            return _r(name, "ok",
+                      f"credentials configured; no repos with scm={kind} registered to probe",
+                      f"add a repo with scm: {kind} to the registry, "
+                      f"or set AIQE_SMOKE_REPO to an existing {kind} repo name")
+        smoke_repo = candidate[0]
+    repo = smoke_repo
     try:
         rc, out, err = _adapter(f"adapters/scm/{kind}.sh", "fetch_file", repo, "README.md")
     except subprocess.TimeoutExpired:
@@ -179,9 +208,14 @@ def check_scm():
 def check_tracker():
     if not _env("ATLASSIAN_MCP_TOKEN"):
         return _r("JIRA", "skipped", "ATLASSIAN_MCP_TOKEN not set")
+    if not _env("JIRA_URL"):
+        return _r("JIRA", "fail", "token set but JIRA_URL not configured",
+                  "set JIRA_URL in the JIRA section of Settings")
     key = _env("AIQE_SMOKE_TICKET")
     if not key:
-        return _r("JIRA", "skipped", "token set, but no ticket to read",
+        # Token + URL are configured — return ok (configured/unverified) rather than
+        # skipped so the UI shows "connected" instead of the misleading "not configured".
+        return _r("JIRA", "ok", "token and URL configured; read path not verified",
                   "set AIQE_SMOKE_TICKET=PROJ-123 to verify the read path")
     try:
         rc, out, err = _adapter("adapters/tracker/jira.sh", "get_item", key)

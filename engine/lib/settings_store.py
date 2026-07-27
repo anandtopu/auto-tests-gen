@@ -141,6 +141,11 @@ SPEC = [
 
 ALL_KEYS = {f["env"]: f for s in SPEC for f in s["fields"]}
 
+# Track which env-var keys were loaded from .env by load_env_into() so that
+# refresh=True can update them on a subsequent call without touching keys that
+# the user's shell environment set explicitly.
+_env_file_keys: set = set()
+
 
 def _parse(text):
     vals = {}
@@ -169,7 +174,7 @@ def load():
     return _parse(f.read_text(encoding="utf-8")) if f.exists() else {}
 
 
-def load_env_into(environ=None):
+def load_env_into(environ=None, refresh=False):
     """Apply configured settings as process-env DEFAULTS — for entry points that
     spawn adapters without going through pipeline.sh's `source .env` (dashboard
     server, publish/attach CLI paths, integration checks).
@@ -182,15 +187,22 @@ def load_env_into(environ=None):
     .env is what the Settings page writes, and a UI save that appeared to do nothing
     because a properties file outranked it would be a miserable bug to diagnose.
     Anything already exported wins over both.
+
+    refresh=True: also update keys that were previously set by an earlier call to
+    this function (i.e. came from .env, not from the user's shell environment).
+    Use this when re-checking settings after a UI save, so stale values from the
+    startup load don't shadow newly-saved .env values.
     """
     environ = os.environ if environ is None else environ
     applied = []
     # ORDER MATTERS: each layer only fills keys that are still unset, so the layer
     # applied FIRST wins. .env therefore goes before properties, not after.
-    for k, v in load().items():
-        if v and k not in environ:
+    current_env = load()
+    for k, v in current_env.items():
+        if v and (k not in environ or (refresh and k in _env_file_keys)):
             environ[k] = v
             applied.append(k)
+            _env_file_keys.add(k)
     try:
         import props_file
         applied += props_file.apply_to(environ)     # baseline; may be absent
