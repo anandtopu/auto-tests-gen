@@ -1,0 +1,15 @@
+{
+  "scenarios": [
+    {
+      "id": "PROJ-301-S1",
+      "title": "boundary rejection",
+      "layer": "api",
+      "target_repo": "e2e-api-tests-1",
+      "behavior_ref": "B2",
+      "data_needs": "d1"
+    }
+  ],
+  "open_questions": [
+    "stacking undefined"
+  ]
+}

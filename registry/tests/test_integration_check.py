@@ -192,10 +192,23 @@ def test_slack_is_validated_without_posting(monkeypatch):
     assert r["status"] == "fail" and "hooks.slack.com" in r["detail"]
 
 
-def test_jira_skips_when_no_ticket_to_read(monkeypatch):
+def test_jira_token_without_url_fails_with_a_settings_hint(monkeypatch):
+    """Token set but JIRA_URL missing is a misconfiguration, not 'not configured'."""
     monkeypatch.setenv("ATLASSIAN_MCP_TOKEN", "tok")
+    monkeypatch.delenv("JIRA_URL", raising=False)
     r = ic.check_tracker()
-    assert r["status"] == "skipped" and "AIQE_SMOKE_TICKET" in r["hint"]
+    assert r["status"] == "fail" and "JIRA_URL" in r["hint"]
+
+
+def test_jira_configured_without_smoke_ticket_reads_ok_unverified(monkeypatch):
+    """Token + URL with no AIQE_SMOKE_TICKET: 'ok (configured/unverified)' — the
+    old 'skipped' rendered as the misleading 'not configured' in the UI."""
+    monkeypatch.setenv("ATLASSIAN_MCP_TOKEN", "tok")
+    monkeypatch.setenv("JIRA_URL", "https://jira.example.com")
+    monkeypatch.delenv("AIQE_SMOKE_TICKET", raising=False)
+    r = ic.check_tracker()
+    assert r["status"] == "ok" and "AIQE_SMOKE_TICKET" in r["hint"]
+    assert "not verified" in r["detail"]
 
 
 def test_checks_never_use_a_mutating_adapter_verb():

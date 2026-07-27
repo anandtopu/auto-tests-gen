@@ -1,0 +1,15 @@
+[
+  {
+    "id": "q1785179283-1",
+    "mode": "jira",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "taskevent",
+    "status": "done",
+    "ts": 1785179283.6731813,
+    "finished": 1785179304.4518359,
+    "exit_code": 0,
+    "inline_file": null
+  }
+]
