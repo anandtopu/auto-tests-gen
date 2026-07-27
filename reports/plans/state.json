@@ -1,7 +1,7 @@
 {
   "PROJ-301": {
-    "by": "sweep43",
-    "generated_run": "1785179212-3675",
+    "by": "pipeline",
+    "generated_run": null,
     "history": [
       {
         "by": "pipeline",
@@ -20,10 +20,16 @@
         "note": "tests generated (run 1785179212-3675)",
         "status": "approved",
         "ts": 1785179230.6592555
+      },
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1785191804.5448637
       }
     ],
-    "note": "",
-    "status": "approved",
-    "updated": 1785179211.42839
+    "note": "test plan authored",
+    "status": "draft",
+    "updated": 1785191804.5448623
   }
 }

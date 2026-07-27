@@ -63,8 +63,8 @@ def key_of(item):
 
 def add(mode, target, pr=None, release="", requested_by="", inline_file=None):
     # "tests" resumes generation from an approved test plan (pipeline.sh tests <KEY>)
-    if mode not in ("pr", "jira", "tests"):
-        sys.exit("mode must be pr|jira|tests")
+    if mode not in ("pr", "jira", "plan", "tests"):
+        sys.exit("mode must be pr|jira|plan|tests")
     if mode == "pr" and not pr:
         sys.exit("pr mode needs a PR number")
     with fs_lock.lock(FILE):

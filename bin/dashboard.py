@@ -283,6 +283,22 @@ for key, r in latest_by_key.items():
             f'<button class="btn btn-sm info attachjira" data-key="{esc(key)}">Attach to JIRA (pdf)</button>'
             f'</div><pre>{esc(plan.read_text(encoding="utf-8"))}</pre></div>')
 
+    if r.get("trigger", {}).get("type") == "pr":
+        # The coverage-delta report Workflow A posts on the PR, rebuilt from the
+        # run record so it stays viewable/downloadable long after the run.
+        try:
+            import pr_comment
+            cov = pr_comment.from_record(r)
+        except Exception:
+            cov = ""
+        if cov:
+            inner += (
+                f'<div class="art-sec"><div class="art-row">'
+                f'<h3>PR coverage report</h3><span class="spacer"></span>'
+                f'<a class="btn btn-sm info" '
+                f'href="/api/pr-coverage?key={esc(key)}&download=1">Download md</a>'
+                f'</div><pre>{esc(cov)}</pre></div>')
+
     left, right = "", ""
     scen = contracts.get("testplan", {}).get("scenarios", [])
     if scen:
@@ -1084,17 +1100,24 @@ $('#fetch-btn').addEventListener('click', async () => {
       '<tr><td><span class="pill">' + escHtml(i.mode) + '</span></td>' +
       '<td class="strong">' + escHtml(i.key) + '</td><td>' + escHtml(i.summary) + '</td>' +
       '<td class="mono sm muted">' + escHtml(i.release || '—') + '</td>' +
-      '<td class="right"><button class="btn btn-sm fq" data-n="' + n + '" ' +
+      '<td class="right">' +
+      (i.mode === 'jira'
+        ? '<button class="btn btn-sm fq" data-n="' + n + '" data-mode="plan">Plan only</button> '
+        : '') +
+      '<button class="btn btn-sm fq" data-n="' + n + '" ' +
       (i.queued ? 'disabled' : '') + '>' + (i.queued ? 'Queued' : 'Queue') + '</button></td></tr>'
     ).join('') : '<tr><td colspan="5"><div class="empty">No items for this release.</div></td></tr>';
     $('#fetch-msg').textContent = items.length + ' item(s) found';
     $$('#fetched-table button.fq').forEach(b => b.addEventListener('click', async () => {
       const i = items[+b.dataset.n];
+      const mode = b.dataset.mode === 'plan' ? 'plan' : i.mode;
       try {
         await api('/api/queue', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: i.mode, target: i.target, pr: i.pr, release: i.release }) });
+          body: JSON.stringify({ mode: mode, target: i.target, pr: i.pr, release: i.release }) });
         b.disabled = true; b.textContent = 'Queued';
-        toast('Queued ' + i.key + ' — press Run queue to execute'); refreshQueue();
+        toast('Queued ' + i.key + (mode === 'plan'
+          ? ' (plan only — stops for human approval)' : '') +
+          ' — press Run queue to execute'); refreshQueue();
       } catch (err) { toast(err.message); }
     }));
   } catch (err) { toast('Fetch failed: ' + err.message); }
@@ -1117,7 +1140,48 @@ $('#inl-queue').addEventListener('click', async () => {
     $('#inl-text').value = ''; $('#inl-key').value = ''; refreshQueue();
   } catch (err) { toast(err.message); }
 });
+$('#inl-plan-oh').addEventListener('click', async () => {
+  if (needsServer()) return;
+  const text = $('#inl-text').value.trim();
+  if (!text) { toast('Paste the ticket description first'); return; }
+  try {
+    const r = await api('/api/openhands/agent', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: 'test-plan',
+        target: $('#inl-key').value.trim() || 'ADHOC-inline',
+        description: text }) });
+    toast('OpenHands conversation started: ' + (r.conversation_id || 'ok') +
+      ' — the plan will stop for human approval');
+  } catch (err) { toast(err.message); }
+});
 refreshQueue();
+
+// ---- plan authoring (Test plans view)
+if ($('#plan-author')) {
+  $('#plan-author').addEventListener('click', async () => {
+    if (needsServer()) return;
+    const key = $('#plan-new-key').value.trim();
+    if (!key) { toast('Enter a ticket key'); return; }
+    try {
+      await api('/api/queue', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'plan', target: key }) });
+      toast('Queued plan authoring for ' + key +
+        ' — run the queue from Intake; the plan stops here for approval');
+    } catch (err) { toast(err.message); }
+  });
+  $('#plan-author-oh').addEventListener('click', async () => {
+    if (needsServer()) return;
+    const key = $('#plan-new-key').value.trim();
+    if (!key) { toast('Enter a ticket key'); return; }
+    try {
+      const r = await api('/api/openhands/agent', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent: 'test-plan', target: key }) });
+      toast('OpenHands conversation started: ' + (r.conversation_id || 'ok'));
+    } catch (err) { toast(err.message); }
+  });
+}
 
 // ---- OpenHands agent runs (fed by the receiver's webhook routes)
 const OH_CHIP = { running: ['● running','warning'], finished: ['✓ finished','success'],
@@ -1332,8 +1396,63 @@ document.addEventListener('click', async e => {
   } catch (err) { toast(err.message); }
   btn.disabled = false; btn.textContent = idle;
 });
+// ---- curated guidance (durable per-repo AGENTS.md / CLAUDE.md)
+let curatedCache = { files: {}, generated: '' };
+async function loadCurated() {
+  if (!served || !$('#cur-text')) return;
+  try {
+    const repo = $('#notes-repo').value;
+    curatedCache = await api('/api/repos/curated?repo=' + encodeURIComponent(repo));
+    const fn = $('#cur-file').value;
+    $('#cur-text').value = curatedCache.files[fn] || '';
+    const have = Object.keys(curatedCache.files);
+    $('#cur-status').textContent =
+      (have.length ? 'Curated on disk: ' + have.join(', ') : 'No curated file yet') +
+      '  ·  effective sources for the phases: ' +
+      (curatedCache.effective.join(', ') || 'none');
+  } catch (err) { $('#cur-status').textContent = err.message; }
+}
+if ($('#cur-text')) {
+  $('#cur-file').addEventListener('change', () => {
+    $('#cur-text').value = curatedCache.files[$('#cur-file').value] || '';
+  });
+  $('#cur-load-gen').addEventListener('click', async () => {
+    if (needsServer()) return;
+    if (!curatedCache.generated) {
+      // Produce a draft on demand for repos that never had one generated.
+      try {
+        await api('/api/repos/guidance', { method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repo: $('#notes-repo').value, force: true }) });
+        curatedCache = await api('/api/repos/curated?repo=' +
+          encodeURIComponent($('#notes-repo').value));
+      } catch (err) { toast(err.message); return; }
+    }
+    if (!curatedCache.generated) { toast('No generated draft available'); return; }
+    $('#cur-text').value = curatedCache.generated;
+    toast('Generated draft loaded — edit and Save to make it durable');
+  });
+  $('#cur-save').addEventListener('click', async () => {
+    if (needsServer()) return;
+    try {
+      const r = await api('/api/repos/curated', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo: $('#notes-repo').value,
+          file: $('#cur-file').value, content: $('#cur-text').value }) });
+      toast(r.deleted ? 'Curated ' + r.file + ' deleted for ' + r.repo
+                      : 'Saved ' + r.path + ' (durable) — AGENTS.md regenerated');
+      await loadCurated();
+    } catch (err) { toast(err.message); }
+  });
+  $('#cur-export').addEventListener('click', () => {
+    if (needsServer()) return;
+    location.href = '/api/repos/curated/export?repo=' +
+      encodeURIComponent($('#notes-repo').value) +
+      '&file=' + encodeURIComponent($('#cur-file').value);
+  });
+}
 if ($('#notes-repo')) {
-  $('#notes-repo').addEventListener('change', loadNotes);
+  $('#notes-repo').addEventListener('change', () => { loadNotes(); loadCurated(); });
   $('#notes-save').addEventListener('click', async () => {
     if (needsServer()) return;
     try {
@@ -1345,6 +1464,7 @@ if ($('#notes-repo')) {
     } catch (err) { toast(err.message); }
   });
   loadNotes();
+  loadCurated();
 }
 
 // ---- team report
@@ -1642,8 +1762,10 @@ page = f"""<!doctype html>
         <div class="sub">Pull tickets and PRs for a release, queue them, then run the
         queue — items are processed in order.</div></div></div>
       <div class="card-b filters">
-        <label class="f">Release <select id="fetch-rel"><option value="">all releases</option>
-          {release_opts}</select></label>
+        <label class="f">Release / fixVersion <input id="fetch-rel" class="h32"
+          list="fetch-rel-known" placeholder="any fixVersion — empty = all"
+          style="width:190px"></label>
+        <datalist id="fetch-rel-known">{release_opts}</datalist>
         <button class="btn" id="fetch-btn">Fetch items</button>
         <span class="sub" id="fetch-msg"></span>
       </div>
@@ -1668,8 +1790,12 @@ page = f"""<!doctype html>
           <label class="stack">Issue type<select id="inl-type">
             <option>Story</option><option>Bug</option><option>Security</option></select></label>
         </div>
-        <div><button class="btn btn-primary" id="inl-queue" style="height:36px">
-          Queue inline ticket</button></div>
+        <div style="display:flex; gap:8px">
+          <button class="btn btn-primary" id="inl-queue" style="height:36px">
+          Queue inline ticket</button>
+          <button class="btn info" id="inl-plan-oh" style="height:36px"
+            title="Hand the pasted description to an OpenHands conversation (LLM) that authors the test plan and stops for approval">
+          Plan via OpenHands</button></div>
       </div>
     </section>
     <section class="card">
@@ -1753,6 +1879,10 @@ page = f"""<!doctype html>
         review, edit and approve it here. Test generation is blocked until the plan is
         approved; editing an approved plan revokes the approval.</div></div>
         <span class="grow"></span>
+        <label class="f">Ticket <input id="plan-new-key" class="h32"
+          placeholder="PROJ-123" style="width:110px"></label>
+        <button class="btn btn-sm" id="plan-author">Author plan (queue)</button>
+        <button class="btn btn-sm info" id="plan-author-oh">Author via OpenHands</button>
         <span class="sub" id="plans-count">{n_plans} plan(s) · {n_appr} approved</span>
       </div>
       <div class="scroll"><table id="plans-table">
@@ -1862,6 +1992,31 @@ page = f"""<!doctype html>
           placeholder="Conventions, selectors, auth flows, data setup for this repo…"></textarea>
         <div><button class="btn btn-primary" id="notes-save" style="height:36px">
           Save guidance</button></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><div><h2>Curated guidance file (durable)</h2>
+        <div class="sub">A full <code>AGENTS.md</code> or <code>CLAUDE.md</code> the
+        platform keeps for this repo — <b>committed with the control repo</b>, so it
+        survives redeployments, and editable/exportable here. <b>Load generated
+        draft</b> starts from the platform-generated file (registry + harvested
+        surface + catalog evidence); edit, then <b>Save</b>. Ranking: a file the
+        repo itself ships always wins, then this curated copy, then generated
+        scratch — so curating never overrides a team's own committed guidance.
+        Kept by "Clear demo data"; removed only by factory reset.</div></div>
+        <span class="grow"></span>
+        <label class="f">File <select id="cur-file" class="h32">
+          <option>AGENTS.md</option><option>CLAUDE.md</option></select></label>
+        <button class="btn btn-sm" id="cur-load-gen">Load generated draft</button>
+        <button class="btn btn-sm info" id="cur-export">Export</button>
+      </div>
+      <div class="card-b" style="display:flex; flex-direction:column; gap:10px">
+        <div class="sm muted" id="cur-status"></div>
+        <textarea id="cur-text" rows="12" class="mono"
+          placeholder="No curated file yet — Load generated draft, edit, then Save. Saving empty content deletes the curated file."></textarea>
+        <div><button class="btn btn-primary" id="cur-save" style="height:36px">
+          Save curated file</button></div>
       </div>
     </section>
   </div>

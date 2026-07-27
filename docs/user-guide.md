@@ -307,6 +307,12 @@ validation outcome, gate result with a pointer to the `test/<KEY>-ai-qe` branch 
 committed, open questions, and the advisory critic score + run cost. It stays silent
 when triage finds no E2E impact — no noise on refactor-only PRs.
 
+The same report is viewable **after the fact** without the PR: the dashboard's
+Artifacts view shows a **PR coverage report** panel for PR keys (rebuilt from the
+persisted run record) with a markdown download, and
+`GET /api/pr-coverage?key=PR-…` (add `&download=1` for the file) serves it to
+scripts.
+
 ### Team-review tracking (who has looked at the generated tests?)
 
 Every PR / JIRA key whose run **commits** generated artifacts is automatically marked
@@ -371,10 +377,18 @@ matrix), **Intake & queue**, **Test plans**, **Runs & reviews**, **Trace**,
 feedback and pending-work badges on the nav.
 
 Served (rather than opened as a file), the **Intake & queue** view becomes active:
-pick a release, *Fetch items* lists the JIRA tickets targeting that fixVersion (via
-the Tracker port's `search_release` verb — JQL in real mode, benchmark fixtures in
+type any release/fixVersion (known versions autocomplete; free text works — the
+Tracker port's `search_release` verb takes an arbitrary fixVersion), *Fetch items*
+lists the JIRA tickets targeting it (JQL in real mode, benchmark fixtures in
 mock) plus known PRs whose tracked release matches, and each row has a *Queue*
-button. *Run queue* drains the queue — items run through `engine/pipeline.sh`
+button — JIRA rows also get **Plan only**, which queues `pipeline.sh plan <KEY>`
+so the ticket becomes a draft test plan that stops for human approval instead of
+generating tests immediately. The Test plans view has the same two entry points
+(*Author plan (queue)* / *Author via OpenHands*) plus the inline card's **Plan
+via OpenHands**, which hands a pasted description to an OpenHands conversation
+(framed as data, never instructions) that authors the plan via LLM and stops at
+the approval gate (`POST /api/openhands/agent`; refused with a hint when
+`AIQE_OPENHANDS=off`). *Run queue* drains the queue — items run through `engine/pipeline.sh`
 sequentially, statuses (`queued → running → done|failed`) refresh live, and finished
 runs appear under Runs & reviews on reload. That view also has release/review filters
 and an **Approve** button per pending run (`POST /api/review` — the dashboard
@@ -454,6 +468,23 @@ each repo, both merged into the estate `AGENTS.md` (injected into every LLM phas
 2. **Repo-local files** — any `AGENTS.md` or `CLAUDE.md` committed inside the app or
    test repo itself. Teams own their guidance in their own repos; the platform ingests
    it on every regeneration.
+
+#### Curated guidance: durable, editable, exportable per-repo AGENTS.md / CLAUDE.md
+
+Generated guidance (`knowledge/generated/`) is rebuildable scratch. When you want
+to OWN a repo's guidance from the platform — edit it, keep it across deployments,
+export it — curate it in the Repositories view's **Curated guidance file** card:
+*Load generated draft* pulls the platform-generated AGENTS.md into the editor,
+edit, pick `AGENTS.md` or `CLAUDE.md`, **Save** (persists to
+`knowledge/curated/<repo>/`, a **tracked** directory — committed with the control
+repo, which is what makes it survive redeployments), **Export** downloads it.
+Saving empty content deletes the curated file. API:
+`GET/POST /api/repos/curated`, `GET /api/repos/curated/export`.
+
+Ranking: a file the repo itself ships **always wins** (non-negotiable), then the
+curated copy, then the demo fixture, then generated scratch — curating never
+overrides a team's own committed guidance. "Clear demo data" keeps curated files
+(they are user content); only factory reset removes them.
 
 #### Syncing repo guidance from the SCM
 

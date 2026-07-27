@@ -238,9 +238,76 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, repo_admin.get_notes(repo))
             except SystemExit as e:
                 self._send(404, {"error": str(e)})
+        elif url.path == "/api/repos/curated":
+            # Durable, user-editable per-repo guidance + a generated draft to
+            # start from (never auto-persisted — the user saves what they own).
+            import curated_guidance, repo_guidance_gen as rgg
+            q = urllib.parse.parse_qs(url.query)
+            repo = q.get("repo", [""])[0]
+            try:
+                files = curated_guidance.get(repo)
+            except SystemExit as e:
+                self._send(404, {"error": str(e)})
+                return
+            gen = rgg.generated_path(repo)
+            self._send(200, {"repo": repo, "files": files,
+                             "generated": gen.read_text(encoding="utf-8",
+                                                        errors="replace")
+                             if gen.exists() else "",
+                             "effective": [f["path"] for f in
+                                           repo_admin.repo_local_files(repo)]})
+        elif url.path == "/api/repos/curated/export":
+            import curated_guidance
+            q = urllib.parse.parse_qs(url.query)
+            repo, fn = q.get("repo", [""])[0], q.get("file", ["AGENTS.md"])[0]
+            try:
+                content = curated_guidance.get(repo).get(fn)
+            except SystemExit as e:
+                self._send(404, {"error": str(e)})
+                return
+            if content is None:
+                self._send(404, {"error": f"no curated {fn} for {repo}"})
+                return
+            data = content.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/markdown; charset=utf-8")
+            self.send_header("Content-Disposition",
+                             f'attachment; filename="{repo}-{fn}"')
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
         elif url.path == "/api/version":
             self._send(200, {"ui_schema": UI_SCHEMA, "user": getattr(self, "user", ""),
                              "sso": bool(SSO_HEADER)})
+        elif url.path == "/api/pr-coverage":
+            # Coverage-delta report for a key's latest run, rebuilt from the
+            # persisted run record (the same report Workflow A posts on the PR).
+            import pr_comment
+            q = urllib.parse.parse_qs(url.query)
+            key = q.get("key", [""])[0]
+            recs = sorted((json.loads(pathlib.Path(f).read_text(encoding="utf-8"))
+                           for f in glob.glob(str(ROOT / "reports/runs/*.json"))
+                           if pathlib.Path(f).name not in
+                           ("reviews.json", "queue.json", "hooks-seen.json")),
+                          key=lambda r: r.get("ts", 0))
+            recs = [r for r in recs if r.get("trigger", {}).get("key") == key]
+            if not recs:
+                self._send(404, {"error": f"no run recorded for {key}"})
+                return
+            md = pr_comment.from_record(recs[-1]) or \
+                "_This run generated no tests and changed no coverage._"
+            if q.get("download", [""])[0]:
+                data = md.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/markdown; charset=utf-8")
+                self.send_header("Content-Disposition",
+                                 f'attachment; filename="{key}-coverage.md"')
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            self._send(200, {"key": key, "run_id": recs[-1].get("run_id", ""),
+                             "markdown": md})
         elif url.path == "/api/trace":
             import trace as trace_lib          # ours; engine/lib precedes stdlib
             key = urllib.parse.parse_qs(url.query).get("key", [""])[0]
@@ -414,6 +481,13 @@ class Handler(BaseHTTPRequestHandler):
                     if any(r["status"] == "written" for r in rows):
                         guidance_sync.regenerate_agents_md()
                     result = {"generated": rows}
+                elif self.path == "/api/repos/curated":
+                    # Save (or delete, on empty content) the durable curated
+                    # guidance, then refresh the estate knowledge immediately.
+                    import curated_guidance
+                    result = curated_guidance.save(p["repo"], p.get("file", "AGENTS.md"),
+                                                   p.get("content", ""))
+                    guidance_sync.regenerate_agents_md()
                 elif self.path == "/api/repos/sync":
                     # Pull AGENTS.md/CLAUDE.md from the SCM, then refresh the estate
                     # knowledge so the next generation run uses the latest guidance.
@@ -529,6 +603,35 @@ class Handler(BaseHTTPRequestHandler):
                                     "run"], cwd=ROOT, stdin=subprocess.DEVNULL)
             threading.Thread(target=drain, daemon=True).start()
             self._send(200, {"started": True})
+        elif self.path == "/api/openhands/agent":
+            # Launch a NAMED agent preset (pr-review, test-plan, …) — the same
+            # roster as `qa.py openhands-run`, with an optional JIRA description
+            # handed to the conversation as framed DATA (test-plan generation
+            # from a pasted description, per the UI).
+            try:
+                p = json.loads(body or b"{}")
+                import openhands_agents
+                settings_store.load_env_into()
+                if not openhands_mode.enabled():
+                    self._send(409, {"error": "OpenHands is disabled (AIQE_OPENHANDS=off).",
+                                     "hint": "Use the plan-only queue mode instead — "
+                                             "the same job runs standalone."})
+                    return
+                try:
+                    message = openhands_agents.build(
+                        p.get("agent", ""), p.get("target", ""),
+                        str(p.get("pr") or ""), p.get("description", ""))
+                except SystemExit as e:
+                    self._send(400, {"error": str(e)})
+                    return
+                result = openhands_client.start(
+                    message, repo=os.environ.get("AIQE_CONTROL_REPO", "") or None,
+                    title=f"AI-QE agent: {p.get('agent')} {p.get('target', '')}".strip())
+                self._send(200, {"ok": True, **result})
+            except (KeyError, json.JSONDecodeError) as e:
+                self._send(400, {"error": str(e)})
+            except RuntimeError as e:
+                self._send(502, {"error": str(e)})
         elif self.path == "/api/openhands/trigger":
             # Start an OpenHands conversation (Path 1) for a work item.
             # Body fields:

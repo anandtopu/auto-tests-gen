@@ -30,12 +30,6 @@ def build(out_dir=".", run_id="", key=""):
     gen = _load(out / "out/generate.contract.json")
     validate = _load(out / "out/validate.contract.json")
 
-    tests = gen.get("tests", []) or []
-    created = [t for t in tests if t.get("action") == "created"]
-    updated = [t for t in tests if t.get("action") == "updated"]
-    open_qs = gen.get("open_questions", []) or []
-    areas = triage.get("areas", []) or []
-
     gates = []
     tsv = out / "out/gate_results.tsv"
     if tsv.exists():
@@ -44,6 +38,49 @@ def build(out_dir=".", run_id="", key=""):
             if len(parts) >= 3:
                 gates.append({"repo": parts[0], "status": parts[1],
                               "sha": parts[3] if len(parts) > 3 else ""})
+
+    critic_sig = None
+    try:
+        import critic as critic_lib
+        critic_sig = critic_lib.load(out / "out/critic.contract.json")
+    except Exception:
+        pass
+    cost = None
+    try:
+        import budget
+        tot, metered, _ = budget.total(out / "out/cost.tsv")
+        if metered:
+            cost = tot
+    except Exception:
+        pass
+    return _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key)
+
+
+def from_record(record):
+    """The same coverage-delta report, rebuilt AFTER the fact from a persisted
+    run record (reports/runs/<id>.json) — the out/ scratch a live run composes
+    from is gone once the next run starts. Powers GET /api/pr-coverage."""
+    contracts = {p.get("name"): p.get("contract") or {}
+                 for p in record.get("phases", [])}
+    gates = [{"repo": g.get("test_repo", "?"), "status": g.get("status", "?"),
+              "sha": g.get("commit") or ""} for g in record.get("gates", [])]
+    critic_sig = None
+    c = contracts.get("critic") or {}
+    if isinstance(c.get("score"), (int, float)) and c.get("verdict"):
+        critic_sig = {"score": c["score"], "verdict": c["verdict"]}
+    cost = record.get("cost_usd") if record.get("cost_usd") else None
+    return _compose(contracts.get("triage") or {}, contracts.get("generate") or {},
+                    contracts.get("validate") or {}, gates, critic_sig, cost,
+                    record.get("run_id", ""),
+                    record.get("trigger", {}).get("key", ""))
+
+
+def _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key):
+    tests = gen.get("tests", []) or []
+    created = [t for t in tests if t.get("action") == "created"]
+    updated = [t for t in tests if t.get("action") == "updated"]
+    open_qs = gen.get("open_questions", []) or []
+    areas = triage.get("areas", []) or []
 
     if not tests and (not gates or all(g["status"] == "no_changes" for g in gates)):
         # Triage decided no E2E impact (impact=none) or the run never generated —
@@ -87,20 +124,11 @@ def build(out_dir=".", run_id="", key=""):
         lines.append(f"- {mark} {g['repo']}: {g['status']}{sha}")
 
     # Advisory signal + spend — context, never verdicts.
-    try:
-        import critic as critic_lib
-        sig = critic_lib.load(out / "out/critic.contract.json")
-        if sig:
-            lines.append(f"- 🔍 critic (advisory): {sig['score']} {sig['verdict']}")
-    except Exception:
-        pass
-    try:
-        import budget
-        tot, metered, _ = budget.total(out / "out/cost.tsv")
-        if metered:
-            lines.append(f"- 💰 run cost: ${tot:.2f}")
-    except Exception:
-        pass
+    if critic_sig:
+        lines.append(f"- 🔍 critic (advisory): {critic_sig['score']} "
+                     f"{critic_sig['verdict']}")
+    if cost:
+        lines.append(f"- 💰 run cost: ${cost:.2f}")
 
     if open_qs:
         lines.append("")

@@ -199,6 +199,16 @@ def clear(root=None, dry=False, force=False, factory=False):
                 targets.append(f.relative_to(root).as_posix())
                 if not dry:
                     f.unlink()
+            # Curated guidance is user content tied to the (now removed) repos —
+            # a factory reset deletes it; a plain clear deliberately KEEPS it.
+            curated = root / "knowledge/curated"
+            for d in sorted(curated.iterdir()) if curated.is_dir() else []:
+                if not d.is_dir():
+                    continue
+                removed += len(_files_under(d))
+                targets.append(d.relative_to(root).as_posix() + "/")
+                if not dry:
+                    _rmtree(d)
     if not dry:
         # `covers:` is GENERATED state (catalog evidence ∪ scope) and the evidence
         # was just deleted — without regenerating, the registry keeps stale

@@ -224,6 +224,16 @@ def upsert_app(name, kind=None, scm=None, url=None, domains=None,
             "guidance": _ensure_guidance(name, creating)}
 
 
+def _drop_curated_guidance(name):
+    """Remove curated guidance for a repo that is going away — curated files
+    describe a repo, so they leave with it. Best-effort: never block a removal."""
+    try:
+        import curated_guidance
+        curated_guidance.drop(name)
+    except Exception:
+        pass
+
+
 def _drop_generated_guidance(name):
     """Remove the AGENTS.md we generated for a repo that is going away.
 
@@ -260,6 +270,7 @@ def remove_app(name, force=False):
             t["scope"].remove(name)
     save_and_verify(reg, regen_cov=True)
     _drop_generated_guidance(name)
+    _drop_curated_guidance(name)
     return {"name": name, "removed": True}
 
 
@@ -346,6 +357,7 @@ def remove_test(name, force=False):
                                 if t["name"] != name]
     save_and_verify(reg)
     _drop_generated_guidance(name)
+    _drop_curated_guidance(name)
     return {"name": name, "removed": True}
 
 
@@ -387,6 +399,14 @@ def repo_local_files(name):
             pick = ("clone", clone)
         elif cached:
             pick = ("cache", cached)
+        if pick is None:
+            # Curated: the durable, user-edited platform copy (Repositories view).
+            # Below anything the repo itself ships — a team's committed file
+            # always wins — but above the demo fixture and generated scratch.
+            cur = next((c for c in _curated_files(name)
+                        if pathlib.Path(c["path"]).name == fname), None)
+            if cur:
+                pick = ("cache", cur)
         if pick is None:                              # demo fixture fallback
             p = ROOT / "demo" / name / fname
             if p.exists():
@@ -407,6 +427,14 @@ def repo_local_files(name):
             out.append({"path": pick[1].relative_to(ROOT).as_posix(),
                         "text": pick[1].read_text(encoding="utf-8", errors="ignore")})
     return out
+
+
+def _curated_files(name):
+    try:
+        import curated_guidance
+        return curated_guidance.curated_files(name)
+    except Exception:                                 # curated guidance is optional
+        return []
 
 
 def _generated_files(name):
