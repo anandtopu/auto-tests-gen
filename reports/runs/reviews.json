@@ -1,4 +1,34 @@
 {
+  "ADHOC-1785131604-f521": {
+    "critic": {
+      "findings": [
+        {
+          "file": "suites/orders/ADHOC-1785131604-f521-discount-boundary.spec.js",
+          "kind": "missing",
+          "note": "no case for a discount above the cap",
+          "severity": "low"
+        }
+      ],
+      "noise_count": 0,
+      "rationale": "assertions check the discounted total, not just the status code",
+      "score": 0.86,
+      "specs_reviewed": 2,
+      "ts": 1785131625.5709813,
+      "verdict": "accept"
+    },
+    "history": [
+      {
+        "note": "new AI-generated artifacts committed",
+        "reviewer": "pipeline",
+        "status": "pending_review",
+        "ts": 1785131626.396897
+      }
+    ],
+    "note": "new AI-generated artifacts committed",
+    "reviewer": "pipeline",
+    "status": "pending_review",
+    "updated": 1785131626.396897
+  },
   "ADHOC-42": {
     "history": [
       {
@@ -354,7 +384,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785097448.1059973,
+      "ts": 1785130417.8440917,
       "verdict": "accept"
     },
     "history": [
@@ -398,12 +428,18 @@
         "reviewer": "pipeline",
         "status": "pending_review",
         "ts": 1784650963.9230623
+      },
+      {
+        "note": "",
+        "reviewer": "dashboard",
+        "status": "approved",
+        "ts": 1785130519.6197364
       }
     ],
-    "note": "new AI-generated artifacts committed (resets previous status: approved)",
+    "note": "",
     "release": "2026.08",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1784650963.9230623
+    "reviewer": "dashboard",
+    "status": "approved",
+    "updated": 1785130519.6197364
   }
 }

@@ -135,5 +135,6 @@ product-direction refreshed, lock-break time corrected to 90 min.
 2. Mock stubs still bypass `extract_contract.py` (real path now proven; stub passthrough remains cosmetic).
 3. Playwright execution unproven in this sandbox (browser CDN blocked) — framework abstraction verified via node-test; validate Playwright path in week 1 of real rollout.
 4. OpenHands Path-1 live wiring (weeks 3–4 of the delivery plan); Path-2 mechanics fully proven.
+5. **Parity re-run against the existing-approach exemplars** (July 2026): `make parity-pr` is currently blocked by an expired Claude CLI OAuth session (`claude login`, or set `ANTHROPIC_API_KEY` in `.env` — the CLI path exports it since the config-layering fix). Once re-authed, run it to watch real generation mirror `out/repo-conventions.md` (helpers/exemplars) and confirm the critic raises no `new-approach` findings.
 
 **Verdict: build phases B1–B5 complete; five review passes green including real-LLM parity; PoC is integration-ready by demonstration, not assertion.**
