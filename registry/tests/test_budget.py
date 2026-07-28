@@ -136,12 +136,16 @@ def test_under_budget_metered_run_commits_and_records_spend():
     r = _pipeline({"AIQE_MOCK_PHASE_COST": "0.05", "MAX_COST_USD_PER_RUN": "4"})
     assert r.returncode == 0, r.stdout[-800:]
     assert "GATE_STATUS=COMMITTED" in r.stdout
-    # the freshest run record carries the summed spend
-    import glob
-    f = max((p for p in glob.glob(str(ROOT / "reports/runs/*.json"))
-             if pathlib.Path(p).name not in ("reviews.json", "queue.json",
-                                             "hooks-seen.json")),
-            key=lambda p: pathlib.Path(p).stat().st_mtime)
+    # THIS run's record carries the summed spend. Select it by the run id the
+    # pipeline printed — "the newest file on disk" belongs to whichever
+    # pipeline-running test finished last, and several tests now run real runs
+    # against the shared estate.
+    import glob, re as _re
+    m = _re.search(r"AI-QE run (\S+) for", r.stdout)
+    assert m, f"no run id in output: {r.stdout[-400:]}"
+    run_id = m.group(1)
+    f = ROOT / f"reports/runs/{run_id}.json"
+    assert f.exists(), f"no record for run {run_id}"
     rec = json.load(open(f, encoding="utf-8"))
     assert rec.get("cost_usd") and rec["cost_usd"] > 0
 

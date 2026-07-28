@@ -285,11 +285,14 @@ def test_clone_failure_skips_the_repo_but_commits_the_rest():
         assert r.returncode == 0, r.stdout[-400:] + r.stderr[-400:]
         assert "GATE_STATUS=COMMITTED" in r.stdout, "good repos must still commit"
         assert "clone failed for test repo 'zz-nofetch'" in r.stdout
-        import glob
-        recs = sorted(f for f in glob.glob(str(ROOT / "reports/runs/*.json"))
-                      if pathlib.Path(f).name not in
-                      ("reviews.json", "queue.json", "hooks-seen.json"))
-        d = json.loads(pathlib.Path(recs[-1]).read_text(encoding="utf-8"))
+        # Select THIS run's record by id — "newest file" belongs to whichever
+        # pipeline-running test finished last on the shared estate.
+        import re as _re
+        m = _re.search(r"AI-QE run (\S+) for", r.stdout)
+        assert m, f"no run id in output: {r.stdout[-400:]}"
+        rec_path = ROOT / f"reports/runs/{m.group(1)}.json"
+        assert rec_path.exists(), f"no record for run {m.group(1)}"
+        d = json.loads(rec_path.read_text(encoding="utf-8"))
         st = {g["test_repo"]: g["status"] for g in d["gates"]}
         assert st.get("zz-nofetch") == "clone_failed"
         assert "committed" in st.values()
