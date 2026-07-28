@@ -13,7 +13,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785271324.1579113,
+      "ts": 1785273292.5833027,
       "verdict": "accept"
     },
     "history": [
@@ -21,25 +21,13 @@
         "note": "new AI-generated artifacts committed",
         "reviewer": "pipeline",
         "status": "pending_review",
-        "ts": 1785175368.3560588
-      },
-      {
-        "note": "",
-        "reviewer": "demo-lead",
-        "status": "approved",
-        "ts": 1785216562.373857
-      },
-      {
-        "note": "new AI-generated artifacts committed (resets previous status: approved)",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1785216763.2887287
+        "ts": 1785273296.290872
       }
     ],
-    "note": "new AI-generated artifacts committed (resets previous status: approved)",
+    "note": "new AI-generated artifacts committed",
     "reviewer": "pipeline",
     "status": "pending_review",
-    "updated": 1785216763.2887287
+    "updated": 1785273296.290872
   },
   "PROJ-301": {
     "critic": {
@@ -55,26 +43,26 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785271245.883962,
+      "ts": 1785273335.053048,
       "verdict": "accept"
     },
     "history": [
       {
         "release": "2026.08",
         "source": "jira",
-        "ts": 1785175371.1922834
+        "ts": 1785273301.5970397
       },
       {
         "note": "new AI-generated artifacts committed",
         "reviewer": "pipeline",
         "status": "pending_review",
-        "ts": 1785175387.943677
+        "ts": 1785273337.0844088
       }
     ],
     "note": "new AI-generated artifacts committed",
     "release": "2026.08",
     "reviewer": "pipeline",
     "status": "pending_review",
-    "updated": 1785175387.943677
+    "updated": 1785273337.0844088
   }
 }
