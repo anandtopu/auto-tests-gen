@@ -252,9 +252,18 @@ def publish_to_confluence(key, space=None, title=None):
     return r.stdout.strip()
 
 
-def attach_to_jira(key, fmt="pdf"):
+def attach_to_jira(key, fmt="pdf", by=""):
     """Export the plan and attach it to the JIRA ticket via the Tracker port
-    (mock unless AIQE_MOCK=0)."""
+    (mock unless AIQE_MOCK=0), and record the reference on the plan state.
+
+    Recording lives HERE, not in the callers, because there are four ways to reach
+    this (`qa.py plan link`, `qa.py attach-plan`, POST /api/plans/link, POST
+    /api/export/attach) and only two of them used to record it. The result was a
+    ticket that genuinely had the plan attached while the platform reported it did
+    not — the J6 linking comment dropped its "Plan attachment" line and the wizard's
+    link step looked unfinished. Attaching and recording are one operation; making
+    them one function is what stops a fifth caller regressing it.
+    """
     import os, subprocess
     import work_queue
     path = export(key, fmt)                       # reports/exports/<KEY>-testplan.<fmt>
@@ -268,7 +277,16 @@ def attach_to_jira(key, fmt="pdf"):
                        stdin=subprocess.DEVNULL)
     if r.returncode != 0:
         sys.exit(f"attach failed: {r.stdout}{r.stderr}".strip())
-    return r.stdout.strip()
+    ref = r.stdout.strip()
+    # Bookkeeping only — the attach already succeeded, so nothing here may undo it.
+    # A key with a plan file but no state entry (never went through plan mode) has
+    # nothing to annotate; that is not an error.
+    try:
+        import plan_state
+        plan_state.mark_linked(key, ref, by)
+    except SystemExit:
+        pass                                     # no plan state entry for this key
+    return ref
 
 
 # --- DOCX (OOXML zip, stdlib only) ----------------------------------------------

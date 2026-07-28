@@ -251,3 +251,66 @@ def test_disabling_the_adversary_leaves_the_authored_plan_untouched():
     contract = json.loads((ROOT / "reports/plans/PROJ-301.contract.json")
                           .read_text(encoding="utf-8"))
     assert len(contract["scenarios"]) == 1, "the authored plan should stand alone"
+
+
+# ------------------------------------------- attach/link bookkeeping (J6)
+
+def test_every_attach_path_records_the_reference(tmp_path, monkeypatch):
+    """There are four ways to attach a plan to its ticket. Two of them used to
+    record the reference and two did not, so a ticket could genuinely have the plan
+    attached while the platform reported it did not — the J6 linking comment dropped
+    its "Plan attachment" line and the wizard's link step looked unfinished.
+
+    Recording now lives inside attach_to_jira, so this pins BOTH that it happens and
+    that no caller re-records it (which would double the history entries).
+    """
+    import export_plan
+    import plan_state
+
+    monkeypatch.setattr(plan_state, "FILE", tmp_path / "state.json")
+    plan_state.record_plan("ZZ-1", {"scenarios": []}, adversary="")
+    calls = []
+
+    class _R:
+        returncode = 0
+        stdout = "[mock-jira] attached to ZZ-1: out/x.pdf"
+        stderr = ""
+
+    monkeypatch.setattr(export_plan, "export", lambda k, f, *a: tmp_path / "p.pdf")
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: (calls.append(a) or _R()))
+
+    ref = export_plan.attach_to_jira("ZZ-1", "pdf", by="tester")
+    e = plan_state.get("ZZ-1")
+    assert e["linked"]["ref"] == ref and e["linked"]["by"] == "tester"
+    linked_events = [h for h in e["history"] if "linked to tracker" in h.get("note", "")]
+    assert len(linked_events) == 1, "the reference must be recorded exactly once"
+
+    # ...and it reaches the human: the J6 comment names the attachment.
+    assert "Plan attachment:" in plan_state.ticket_comment("ZZ-1")
+
+
+def test_attach_survives_a_key_with_no_plan_state(tmp_path, monkeypatch):
+    """The attach already succeeded — bookkeeping must never undo it. A key that
+    never went through plan mode has nothing to annotate, and that is not an error."""
+    import export_plan
+    import plan_state
+
+    monkeypatch.setattr(plan_state, "FILE", tmp_path / "empty.json")
+
+    class _R:
+        returncode = 0
+        stdout = "[mock-jira] attached to NO-STATE: out/x.pdf"
+        stderr = ""
+
+    monkeypatch.setattr(export_plan, "export", lambda k, f, *a: tmp_path / "p.pdf")
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: _R())
+    assert "attached to NO-STATE" in export_plan.attach_to_jira("NO-STATE", "pdf")
+
+
+def test_no_caller_double_records_the_link():
+    """One recording site. A caller that also calls mark_linked would append a second
+    history entry for a single attach."""
+    for f in ("bin/qa.py", "bin/dashboard_server.py"):
+        src = (ROOT / f).read_text(encoding="utf-8")
+        assert "mark_linked" not in src, \
+            f"{f} must let attach_to_jira record the reference, not do it itself"

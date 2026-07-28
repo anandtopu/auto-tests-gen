@@ -309,7 +309,8 @@ def cmd_publish_plan(args):
 
 def cmd_attach_plan(args):
     import export_plan
-    print(export_plan.attach_to_jira(args.key, args.format))
+    print(export_plan.attach_to_jira(args.key, args.format,
+                                     by=getattr(args, "by", "") or "cli"))
 
 
 def cmd_gaps(args):
@@ -459,8 +460,8 @@ def cmd_plan(args):
     elif act == "link":
         plan_state.require_approved(key)       # only approved plans go to the ticket
         import export_plan
-        ref = export_plan.attach_to_jira(key, args.format or "pdf")
-        plan_state.mark_linked(key, ref, args.by or "cli")
+        # attach_to_jira records the reference itself — see its docstring.
+        ref = export_plan.attach_to_jira(key, args.format or "pdf", by=args.by or "cli")
         print(f"{key}: {ref}")
     else:
         sys.exit(f"unknown plan action: {act}")

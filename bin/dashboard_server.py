@@ -456,7 +456,9 @@ class Handler(BaseHTTPRequestHandler):
                     result = export_plan.publish_to_confluence(
                         p["key"], p.get("space"), p.get("title"))
                 else:
-                    result = export_plan.attach_to_jira(p["key"], p.get("format", "pdf"))
+                    result = export_plan.attach_to_jira(
+                        p["key"], p.get("format", "pdf"),
+                        by=self.user or "dashboard")
                 self._send(200, {"ok": True, "result": result})
             except (KeyError, json.JSONDecodeError) as e:
                 self._send(400, {"error": str(e)})
@@ -550,9 +552,11 @@ class Handler(BaseHTTPRequestHandler):
                                                    p.get("note", ""))
                 elif self.path.endswith("/link"):
                     plan_state.require_approved(key)
-                    ref = export_plan.attach_to_jira(key, p.get("format", "pdf"))
-                    result = plan_state.mark_linked(key, ref, p.get("by") or self.user or "dashboard")
-                    result = {**result, "ref": ref}
+                    # attach_to_jira records the reference itself — see its docstring.
+                    ref = export_plan.attach_to_jira(
+                        key, p.get("format", "pdf"),
+                        by=p.get("by") or self.user or "dashboard")
+                    result = {**plan_state.get(key), "ref": ref}
                 elif self.path.endswith("/comment"):
                     # J6: one ticket comment linking the plan AND the generated
                     # E2E tests (files, gate commits, branch) — the durable

@@ -788,6 +788,11 @@ make attach-plan KEY=PROJ-301 FORMAT=docx
 python3 bin/qa.py attach-plan PROJ-301 --format docx
 ```
 
+Every attach path records the resulting reference on the plan state, so the J6 linking
+comment names the attachment and the wizard's *Link plan + tests* step shows done — no
+matter which one you used. `make plan-link` is the same attach with an approval gate in
+front of it (a draft plan is refused); `make attach-plan` attaches whatever exists.
+
 The served dashboard's artifact cards have an **attach to JIRA (pdf)** button next to
 *publish to Confluence*. Mock mode drops the file in `out/mock-jira-attachments/`;
 real mode POSTs it to `/issue/<KEY>/attachments` with the existing Jira credentials.
