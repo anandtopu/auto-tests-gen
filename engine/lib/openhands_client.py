@@ -181,11 +181,49 @@ def start(message, repo=None, branch="main", title=None, extra=None):
 
     code, resp, err = _request("POST", base + conv_path, _headers(api_key), body)
 
+    # 404/405 on the conversations POST means the PATH is wrong for this
+    # deployment, not that the request was bad: self-hosted Agent Server and
+    # Cloud V1 expose different endpoints, and a raw "HTTP 405: Method not
+    # allowed" sent users hunting for a bug in their ticket. Try the other
+    # known shape (with its matching body) before giving up, and if both fail
+    # say exactly which knob fixes it.
+    if code in (404, 405) and not _env("OPENHANDS_CONVERSATIONS_PATH"):
+        alt_path = "/api/v1/app-conversations" if not is_cloud else "/api/conversations"
+        if _is_cloud_path(alt_path):
+            alt_body = {"initial_message": {"content": [{"type": "text", "text": message}]}}
+            if repo:
+                alt_body["selected_repository"] = repo
+                alt_body["selected_branch"] = branch
+            if title:
+                alt_body["title"] = title
+        else:
+            alt_body = {"initial_user_msg": message}
+            if repo:
+                alt_body["repository"] = repo
+        if extra:
+            alt_body.update(extra)
+        alt_code, alt_resp, alt_err = _request("POST", base + alt_path,
+                                               _headers(api_key), alt_body)
+        if alt_code and alt_code < 400:
+            conv_path, is_cloud = alt_path, _is_cloud_path(alt_path)
+            code, resp, err = alt_code, alt_resp, alt_err
+        elif alt_code in (404, 405) or alt_code is None:
+            raise RuntimeError(
+                f"OpenHands rejected both conversation endpoints "
+                f"({conv_path} -> HTTP {code}, {alt_path} -> HTTP {alt_code}). "
+                f"Set OPENHANDS_CONVERSATIONS_PATH to the path your deployment "
+                f"exposes (Settings -> OpenHands), e.g. /api/conversations for a "
+                f"self-hosted Agent Server or /api/v1/app-conversations for Cloud.")
+
     if err and code is None:
         raise RuntimeError(f"could not reach {base + conv_path}: {err}")
     if code and code >= 400:
         detail = (resp or {}).get("detail") or (resp or {}).get("error") or str(resp)
-        raise RuntimeError(f"OpenHands returned HTTP {code}: {detail}")
+        hint = (" — if this is a path problem, set OPENHANDS_CONVERSATIONS_PATH "
+                "in Settings to the endpoint your deployment exposes"
+                if code in (404, 405) else "")
+        raise RuntimeError(f"OpenHands returned HTTP {code} for {conv_path}: "
+                           f"{detail}{hint}")
 
     resp = resp or {}
 

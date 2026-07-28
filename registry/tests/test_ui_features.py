@@ -461,3 +461,83 @@ def test_queue_endpoint_accepts_plan_mode(server):
     item = json.loads(raw)["item"]
     assert item["mode"] == "plan"
     work_queue.remove(item["id"])
+
+
+# ------------------------------- OpenHands conversation-endpoint negotiation
+
+@pytest.fixture
+def fake_openhands(monkeypatch):
+    """A stand-in OpenHands whose per-path responses the test chooses."""
+    import http.server, threading
+
+    def start(responder):
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length", 0) or 0)
+                self.rfile.read(n)
+                code, payload = responder(self.path)
+                body = json.dumps(payload).encode() if payload is not None else b""
+                self.send_response(code)
+                if body:
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                if body:
+                    self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+
+        s = socket.socket(); s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]; s.close()
+        srv = http.server.HTTPServer(("127.0.0.1", port), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        monkeypatch.setenv("OPENHANDS_URL", f"http://127.0.0.1:{port}")
+        monkeypatch.setenv("OPENHANDS_API_KEY", "k")
+        monkeypatch.delenv("OPENHANDS_CONVERSATIONS_PATH", raising=False)
+        return srv
+
+    yield start
+
+
+def test_405_on_the_default_path_falls_back_to_the_other_shape(fake_openhands):
+    """The reported bug: 'Author via OpenHands' surfaced a raw
+    'HTTP 405: Method not allowed' — the deployment simply exposes the OTHER
+    conversations endpoint. Negotiate instead of failing."""
+    import importlib, openhands_client as oc
+    importlib.reload(oc)
+    srv = fake_openhands(lambda p: (200, {"id": "conv-42", "status": "running"})
+                         if p == "/api/v1/app-conversations" else (405, None))
+    try:
+        r = oc.start("hello", title="t")
+        assert r["conversation_id"] == "conv-42"
+    finally:
+        srv.shutdown()
+
+
+def test_both_endpoints_failing_gives_an_actionable_message(fake_openhands):
+    import importlib, openhands_client as oc
+    importlib.reload(oc)
+    srv = fake_openhands(lambda p: (405, None))
+    try:
+        with pytest.raises(RuntimeError) as e:
+            oc.start("hello")
+        assert "OPENHANDS_CONVERSATIONS_PATH" in str(e.value)
+        assert "/api/conversations" in str(e.value)
+    finally:
+        srv.shutdown()
+
+
+def test_an_explicit_path_is_respected_without_fallback(fake_openhands, monkeypatch):
+    """A user who SET the path gets their path honored — no silent retries."""
+    import importlib, openhands_client as oc
+    importlib.reload(oc)
+    srv = fake_openhands(lambda p: (405, None))
+    monkeypatch.setenv("OPENHANDS_CONVERSATIONS_PATH", "/api/conversations")
+    try:
+        with pytest.raises(RuntimeError) as e:
+            oc.start("hello")
+        assert "HTTP 405" in str(e.value)
+        assert "rejected both" not in str(e.value)
+    finally:
+        srv.shutdown()

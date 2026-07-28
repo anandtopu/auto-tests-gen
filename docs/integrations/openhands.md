@@ -315,6 +315,7 @@ Then the end-to-end trigger path:
 | Symptom | Check |
 |---|---|
 | Cannot reach the Agent Server / Enterprise install at all | Not a blocker — run standalone ([standalone-operation.md](standalone-operation.md)), or self-host the MIT core (§6 there). `make check-integrations` reports this as `[warn] degraded`, not a failure |
+| `HTTP 405` / `404` starting a conversation | The deployment exposes the *other* conversations endpoint. The client now auto-negotiates (self-hosted `/api/conversations` ↔ Cloud `/api/v1/app-conversations`) when `OPENHANDS_CONVERSATIONS_PATH` is blank; if both are rejected the error names the setting to pin. Leave the Settings field empty unless your endpoint is non-standard |
 | Conversation starts but no pipeline run | Microagent file present in the *source repo*? Frontmatter triggers match the label? |
 | `GATE_REFUSED` (exit 6) | The sandbox cloned test repos without `.git` — clone through the SCM adapter, never `cp` |
 | Clarification comment instead of tests | Routing confidence < threshold — expected for unmapped repos; fix registry/`covers` or reply with pinned routing |
