@@ -596,6 +596,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": str(e)})
                 return
             cmd = [sys.executable, str(ROOT / "engine/lib/demo_data.py"), "--json"]
+            # Honor dry-run intent: silently ignoring {"dry": true} would turn a
+            # caller's preview request into a REAL destructive clear.
+            if p.get("dry"):
+                cmd.append("--dry")
             if p.get("force"):
                 cmd.append("--force")
             if p.get("factory"):

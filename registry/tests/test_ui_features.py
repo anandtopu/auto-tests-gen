@@ -430,6 +430,25 @@ def test_openhands_agent_endpoint_validates_before_any_network(server):
     assert code == 400 and "unknown agent" in json.loads(raw)["error"]
 
 
+def test_demo_clear_endpoint_honors_dry_run(server):
+    """A caller expressing dry-run intent must NEVER trigger a real clear —
+    the endpoint used to silently ignore {"dry": true} and delete for real."""
+    base = server()
+    sentinel = ROOT / "reports/runs/zz-dry-sentinel.json"
+    sentinel.write_text(json.dumps({"run_id": "zz-dry", "ts": 1,
+                                    "trigger": {"type": "pr", "key": "ZZ-DRY"}}),
+                        encoding="utf-8")
+    try:
+        code, _, raw = _req(base + "/api/demo/clear", "POST", {"dry": True})
+        assert code == 200, raw
+        d = json.loads(raw)
+        assert d.get("removed", 0) > 0, "dry mode still PREVIEWS the targets"
+        assert sentinel.exists(), \
+            "dry:true deleted for real — the destructive-clear guard regressed"
+    finally:
+        sentinel.unlink(missing_ok=True)
+
+
 def test_queue_endpoint_accepts_plan_mode(server):
     base = server()
     code, _, raw = _req(base + "/api/queue", "POST",

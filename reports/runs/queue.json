@@ -232,5 +232,18 @@
     "finished": 1785216592.4454656,
     "exit_code": 0,
     "inline_file": null
+  },
+  {
+    "id": "q1785218863-19",
+    "mode": "plan",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "final",
+    "status": "done",
+    "ts": 1785218863.0600853,
+    "finished": 1785218878.3268661,
+    "exit_code": 0,
+    "inline_file": null
   }
 ]
