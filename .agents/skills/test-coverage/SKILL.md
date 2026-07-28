@@ -4,6 +4,9 @@ description: Answer "what is and isn't covered" from the test catalog and harves
   surface, and turn the gaps into concrete generation targets — evidence-based, never
   hand-edited coverage.
 triggers: [test coverage, coverage gaps, improve coverage, coverage report]
+metadata:
+  version: "1.1"
+  bundles: scripts/coverage-snapshot.sh
 ---
 # Test coverage (AI-QE agent)
 
@@ -12,6 +15,15 @@ Coverage here is EVIDENCE: every cataloged test maps to app repos with confidenc
 are computed by diffing the harvested API/route surface against that evidence.
 
 ## Steps
+
+0. One bundled command gives you the whole picture:
+
+   ```bash
+   bash ./scripts/coverage-snapshot.sh
+   ```
+
+   (matrix + ranked gaps + rotting coverage). The individual commands, if you
+   need them separately:
 
 1. `make coverage` — the app-repo × test-repo matrix with gap warnings.
 2. `make gaps` — harvested surface (endpoints, routes) with NO test evidence; the

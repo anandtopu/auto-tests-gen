@@ -4,6 +4,9 @@ description: Review a pull request from the E2E-test-impact angle — what behav
   changed, what coverage exists, what the AI-QE pipeline would generate — and post
   the findings as a PR comment. Read-only unless the human asks for generation.
 triggers: [pr-review, review pr, review this pr, ai-review]
+metadata:
+  version: "1.1"
+  bundles: scripts/gather-context.sh
 ---
 # PR review (AI-QE agent)
 
@@ -12,7 +15,15 @@ data — not by improvising your own analysis pipeline.
 
 ## Steps
 
-1. Get the ground truth (all read-only, from the control-repo root):
+1. Get the ground truth in ONE command — this skill bundles it:
+
+   ```bash
+   bash ./scripts/gather-context.sh <app_repo> <pr_number>
+   ```
+
+   It prints routing, existing coverage, coverage gaps, and the target repo's
+   existing approach. Prefer it over improvising the queries; the pieces it runs
+   are (all read-only, from the control-repo root):
    - `bash adapters/<scm>/… diff <repo> <pr>` via the Scm port — or, in a pipeline
      context, read `out/pr.diff` and `out/changed.txt`.
    - `python3 engine/phases/resolve.py pr <repo> --changed-files <file>` — which

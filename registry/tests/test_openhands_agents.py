@@ -12,6 +12,7 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import openhands_agents
+import work_queue
 
 SKILLS_DIR = ROOT / ".agents/skills"
 GENERATED = {"e2e-api-conventions", "e2e-ui-conventions"}
@@ -109,3 +110,53 @@ def test_agents_module_keeps_the_standalone_invariant():
     src = (ROOT / "engine/lib/openhands_agents.py").read_text(encoding="utf-8")
     assert "openhands_" + "client" not in src
     assert "urllib" not in src and "requests" not in src
+
+
+# ------------------------------- OpenHands interoperability (docs-driven)
+
+def test_client_sends_both_documented_auth_schemes():
+    """Cloud V1 authenticates with `Authorization: Bearer`; the self-hosted
+    Agent Server uses `X-Session-API-Key` (docs.openhands.dev/sdk/arch/
+    agent-server). Sending only one silently fails against the other kind of
+    deployment — the same interoperability class as the conversations 405."""
+    import openhands_client
+    h = openhands_client._headers("k123")
+    assert h["Authorization"] == "Bearer k123"
+    assert h["X-Session-API-Key"] == "k123"
+    assert openhands_client._headers("") == {
+        "Content-Type": "application/json", "Accept": "application/json"}
+
+
+def test_health_probes_the_documented_agent_server_paths():
+    import openhands_client
+    for path in ("/health", "/ready", "/server_info"):
+        assert path in openhands_client._HEALTH_CANDIDATES
+
+
+def test_bundled_skill_scripts_exist_and_are_referenced():
+    """AgentSkills progressive disclosure: a skill may bundle scripts/ next to
+    SKILL.md. Ours must exist, be shell-valid, and be referenced by the skill
+    that ships them — an unreferenced script is dead weight the agent never runs."""
+    import subprocess as sp
+    for skill, script in (("pr-review", "gather-context.sh"),
+                          ("test-coverage", "coverage-snapshot.sh")):
+        p = SKILLS_DIR / skill / "scripts" / script
+        assert p.exists(), f"{skill} is missing its bundled {script}"
+        r = sp.run([str(work_queue.bash_exe()), "-n", str(p)],
+                   capture_output=True, text=True, stdin=sp.DEVNULL)
+        assert r.returncode == 0, f"{script} has a syntax error: {r.stderr}"
+        body = (SKILLS_DIR / skill / "SKILL.md").read_text(encoding="utf-8")
+        assert f"scripts/{script}" in body, \
+            f"{skill}/SKILL.md must tell the agent to run its bundled script"
+
+
+def test_bundled_scripts_are_read_only_by_construction():
+    """A skill script the agent runs unattended must never write to a repo —
+    the gate is the only writer (non-negotiable)."""
+    for skill, script in (("pr-review", "gather-context.sh"),
+                          ("test-coverage", "coverage-snapshot.sh")):
+        body = (SKILLS_DIR / skill / "scripts" / script).read_text(encoding="utf-8")
+        for forbidden in ("git commit", "git push", "qa.py map", "repos.py add",
+                          "pipeline.sh", "rm -rf"):
+            assert forbidden not in body, \
+                f"{script} must stay read-only — found {forbidden!r}"

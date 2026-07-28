@@ -246,3 +246,69 @@ would cost us per-phase `--allowedTools` and `--max-turns`. 3.3 (sub-agents) and
 Licence reality check: everything under `enterprise/` is **PolyForm Free Trial** (30
 days/year without a commercial licence). The SDK, agent server, `extensions` skills and
 benchmarks are MIT. Items 1–4 above rely only on MIT-licensed surfaces.
+
+---
+
+## 7. AgentSkills deep-dive — second pass (2026-07)
+
+A focused re-read of the **skills** documentation (`overview/skills`, `sdk/guides/skill`,
+`sdk/arch/agent-server`) against our seven hand-authored task skills. The question was
+narrow: which documented AgentSkills mechanics are we leaving on the table for PR review,
+test generation, test-plan creation and PR-driven E2E authoring?
+
+### 7.1 The skill anatomy we were only half-using
+
+A skill is a **directory**, not a file: `SKILL.md` plus optional `scripts/`,
+`references/` and `assets/`. Loading is progressively disclosed — the agent sees only
+`name` + `description` in `<available_skills>`, and the body is read on invocation.
+Relative paths inside a skill resolve against the skill's own directory, so a skill can
+ship executables it calls by relative path.
+
+We shipped seven skills as prose-only `SKILL.md` files. Prose told the agent to run five
+or six separate read-only commands and reconcile them itself — non-deterministic, and
+every agent did it slightly differently.
+
+**Adopted.** Two skills now bundle the exact command sequence:
+
+| Skill | Bundled script | Prints |
+|---|---|---|
+| `pr-review` | `scripts/gather-context.sh <app_repo> <pr>` | resolver routing + confidence, existing catalog coverage for the repo, `[NO TEST]` gaps, and the target repo's existing approach from `out/repo-conventions.md` |
+| `test-coverage` | `scripts/coverage-snapshot.sh` | app×test matrix, ranked gaps, rotting coverage (CI pass-rate) |
+
+Both are read-only by construction — `registry/tests/test_openhands_agents.py` fails the
+build if either script gains `git commit`, `git push`, `pipeline.sh`, a mapping mutation
+or `rm -rf`, and asserts each script is referenced by the `SKILL.md` that ships it.
+The frontmatter records the bundle under the documented `metadata:` field
+(`version`, `bundles`), which the spec reserves for arbitrary author data.
+
+This directly serves the PR→E2E journey: the agent now gets *one* deterministic answer to
+"what does this PR touch, what already covers it, and what approach does the target E2E
+repo use" instead of improvising the query set.
+
+### 7.2 Agent Server authentication — a real interoperability bug, fixed
+
+`sdk/arch/agent-server` documents that the self-hosted Agent Server authenticates session
+API keys with the **`X-Session-API-Key`** header. Cloud V1 uses
+`Authorization: Bearer`. We sent only Bearer, so a self-hosted server rejected us with no
+usable hint — the same failure class as the conversations-endpoint `405` the user hit.
+
+`engine/lib/openhands_client._headers()` now sends **both**; each server ignores the one
+it does not use. Health probing also learned the documented `/ready` endpoint alongside
+`/health`, `/server_info`. Pinned by tests.
+
+### 7.3 Explored and deliberately not adopted (yet)
+
+| Mechanic | What it does | Verdict |
+|---|---|---|
+| `` !`command` `` dynamic rendering | The skill body can embed a shell command whose output is substituted **at render time**, before the agent reads it | Tempting for injecting live coverage numbers into `test-coverage`. Not adopted: it runs on *every* render including irrelevant ones, and our snapshot needs arguments the render has no access to. The bundled script gives the same data on demand. Revisit if render-time cost proves negligible. |
+| `references/` bundles | Long reference material loaded only when the agent asks for it | Our long-form context (`AGENTS.md`, `out/repo-conventions.md`, coverage gaps) is already generated per-run and injected by the pipeline. A static `references/` copy would go stale — the generated artifacts are the better source. Do **not** duplicate them into skills. |
+| Path-triggered rules | Deterministic, non-model-mediated activation by file glob | Already adopted for the UI/API convention split (§2.4). Confirmed by this pass that path rules **do not fire in ACP conversations** — which is exactly why `AGENTS.md` must stay always-on. |
+| User-level `~/.agents/skills/` | Per-developer skills, precedence below repo skills | Not ours to ship. Worth telling onboarding users about: their personal skills won't override the repo's. |
+| Org + public skills (`load_public_skills()`) | The SDK can clone community skill repos into a session | Deliberately declined for the pipeline. Skills reachable by our agents must be reviewable in *this* repo — a community skill fetched at runtime is unreviewed instruction text entering an agent that can touch test repos. If we ever want one, vendor it into `.agents/skills/` and review it like any other file. |
+| Precedence chain `.agents/skills/` > `.openhands/skills/` > `.openhands/microagents/` | Where skills are discovered | We use only `.agents/skills/` — the highest-precedence, tool-neutral location. No change needed; recorded so nobody "helpfully" adds a second copy under `.openhands/`. |
+
+### 7.4 Standing constraint
+
+Bundled scripts do not weaken any non-negotiable. They are read-only reporting; the gate
+remains the only writer, and a skill that wants tests generated still has to call
+`engine/pipeline.sh`, which runs the gate.

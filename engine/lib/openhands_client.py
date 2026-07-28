@@ -35,7 +35,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 TIMEOUT = 15
 # Health check path — most self-hosted Agent Servers expose /health or /server_info;
 # Cloud responds at /api/v1/users/me (auth-gated, 401 still proves reachability).
-_HEALTH_CANDIDATES = ("/health", "/server_info", "/api/v1/users/me")
+_HEALTH_CANDIDATES = ("/health", "/ready", "/server_info", "/api/v1/users/me")
 
 
 def _ssl_context():
@@ -80,9 +80,18 @@ def _configured():
 
 
 def _headers(api_key):
+    """Both documented auth schemes at once.
+
+    Cloud V1 takes `Authorization: Bearer <key>`; the self-hosted Agent Server
+    authenticates session API keys with `X-Session-API-Key` (docs.openhands.dev
+    /sdk/arch/agent-server). Sending only Bearer meant a self-hosted server
+    rejected us with no hint — the same interoperability class as the
+    conversations-path 405. Each server ignores the header it does not use, so
+    sending both is safe and removes a whole category of setup failure."""
     h = {"Content-Type": "application/json", "Accept": "application/json"}
     if api_key:
         h["Authorization"] = f"Bearer {api_key}"
+        h["X-Session-API-Key"] = api_key
     return h
 
 
