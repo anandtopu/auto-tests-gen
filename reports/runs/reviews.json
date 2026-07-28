@@ -13,7 +13,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785207570.1377048,
+      "ts": 1785217739.8862677,
       "verdict": "accept"
     },
     "history": [
@@ -22,12 +22,24 @@
         "reviewer": "pipeline",
         "status": "pending_review",
         "ts": 1785175368.3560588
+      },
+      {
+        "note": "",
+        "reviewer": "demo-lead",
+        "status": "approved",
+        "ts": 1785216562.373857
+      },
+      {
+        "note": "new AI-generated artifacts committed (resets previous status: approved)",
+        "reviewer": "pipeline",
+        "status": "pending_review",
+        "ts": 1785216763.2887287
       }
     ],
-    "note": "new AI-generated artifacts committed",
+    "note": "new AI-generated artifacts committed (resets previous status: approved)",
     "reviewer": "pipeline",
     "status": "pending_review",
-    "updated": 1785175368.3560588
+    "updated": 1785216763.2887287
   },
   "PROJ-301": {
     "critic": {
@@ -43,7 +55,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785207675.3283694,
+      "ts": 1785217429.342414,
       "verdict": "accept"
     },
     "history": [

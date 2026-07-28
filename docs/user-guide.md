@@ -675,6 +675,19 @@ opens an editor with *Save edits*, *Mark in review*, *Request changes*, *Approve
 *Link to JIRA*, and *Generate tests* (which queues a `tests` run). Demo it end to end
 with mock adapters via `make demo-plan` / `make demo-plan-tests`.
 
+#### Linking the plan and the generated tests to the ticket
+
+Two complementary actions in the plan editor (and CLI):
+
+- **Link to JIRA** (`make plan-link`) — exports the approved plan and *attaches*
+  the file to the ticket (Tracker `attach`).
+- **Comment plan + tests** (`qa.py plan comment <KEY>`, `POST
+  /api/plans/comment`) — posts ONE ticket comment linking everything the
+  platform produced for the key: the plan (status + approver), the attachment
+  ref, the generated E2E tests (files + created/updated), each repo's gate
+  outcome with commit SHA and the `test/<KEY>-ai-qe` branch, and the run-record
+  id. The durable pointer from the ticket to the delivered tests.
+
 ### Exporting a ticket's test plan
 
 Share the generated plan with stakeholders outside Git:

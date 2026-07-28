@@ -452,6 +452,10 @@ def cmd_plan(args):
         if status == "approved":
             print(f"  next: link it to the ticket (make plan-link KEY={key}) "
                   f"and generate tests (make plan-tests KEY={key})")
+    elif act == "comment":
+        r = plan_state.post_ticket_comment(key)
+        print(r["result"] or "commented")
+        print(r["comment"])
     elif act == "link":
         plan_state.require_approved(key)       # only approved plans go to the ticket
         import export_plan
@@ -690,7 +694,7 @@ if __name__ == "__main__":
     s.add_argument("--findings", action="store_true"); s.set_defaults(fn=cmd_critic)
     s = sub.add_parser("plan")
     s.add_argument("action", choices=["show", "list", "edit", "review", "approve",
-                                      "request-changes", "link"])
+                                      "request-changes", "link", "comment"])
     s.add_argument("key", nargs="?", default="")
     s.add_argument("--file"); s.add_argument("--by"); s.add_argument("--note")
     s.add_argument("--format", default="pdf")

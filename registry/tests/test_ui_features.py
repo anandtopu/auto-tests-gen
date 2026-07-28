@@ -260,6 +260,66 @@ def test_description_is_ignored_for_review_agents():
     assert "sneaky text" not in msg
 
 
+# ------------------------------------------ partial success on clone failure
+
+def test_clone_failure_skips_the_repo_but_commits_the_rest():
+    """Journey 3 trap: a mapped test repo whose clone fails (bad creds, renamed
+    slug, no material yet) must not kill the work every OTHER repo gets. The
+    failed repo enters the record as clone_failed and the run is flagged."""
+    import repo_admin
+    try:
+        repo_admin.upsert_test("zz-nofetch", layer="api",
+                               framework="playwright-api", scm="stash",
+                               url="ZZ/zz-nofetch")
+        repo_admin.set_scope("zz-nofetch", ["orders-api"])
+        r = subprocess.run([work_queue.bash_exe(), "engine/pipeline.sh",
+                            "pr", "orders-api", "201"],
+                           cwd=ROOT, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace",
+                           stdin=subprocess.DEVNULL, timeout=600,
+                           env={**os.environ, "AIQE_MOCK": "1"})
+        assert r.returncode == 0, r.stdout[-400:] + r.stderr[-400:]
+        assert "GATE_STATUS=COMMITTED" in r.stdout, "good repos must still commit"
+        assert "clone failed for test repo 'zz-nofetch'" in r.stdout
+        import glob
+        recs = sorted(f for f in glob.glob(str(ROOT / "reports/runs/*.json"))
+                      if pathlib.Path(f).name not in
+                      ("reviews.json", "queue.json", "hooks-seen.json"))
+        d = json.loads(pathlib.Path(recs[-1]).read_text(encoding="utf-8"))
+        st = {g["test_repo"]: g["status"] for g in d["gates"]}
+        assert st.get("zz-nofetch") == "clone_failed"
+        assert "committed" in st.values()
+        assert d["overall"] == "quarantined", \
+            "a clone failure must flag the run for attention"
+    finally:
+        import repo_admin as ra
+        try:
+            ra.remove_test("zz-nofetch", force=True)
+        except SystemExit:
+            pass
+
+
+# ------------------------------------------------- J6: ticket linking comment
+
+def test_ticket_comment_links_plan_and_tests():
+    import importlib, plan_state as ps
+    importlib.reload(ps)                       # escape any tmp-path env cache
+    text = ps.ticket_comment("PROJ-301")
+    assert "AI-QE summary for PROJ-301" in text
+    assert "testplans/PROJ-301.md" in text
+    # tests + gates appear whenever a run exists for the key (demo estate does)
+    if "E2E tests" in text:
+        assert ".spec.js" in text and "Gate " in text and "Run record:" in text
+
+
+def test_ticket_comment_posts_via_the_tracker_port():
+    import importlib, plan_state as ps
+    importlib.reload(ps)
+    r = ps.post_ticket_comment("PROJ-301")     # mock tracker under AIQE_MOCK
+    assert "PROJ-301" in r["result"]
+    assert "AI-QE summary" in r["comment"]
+
+
 # --------------------------------------------------------- server endpoints
 
 def _free_port():

@@ -174,8 +174,19 @@ fi
 for r in $(python3 -c "import json;print(' '.join(json.load(open('out/resolve.contract.json'))['source_repos']))"); do
   SCM clone_ro "$r" "workspace/src/$r"
 done
+# Partial success starts HERE (§5.8.5): one test repo whose clone fails — bad
+# credentials, renamed slug, a mapped repo with no material yet — must not kill
+# the work every OTHER repo would get. Failed clones are skipped with a
+# clone_failed gate row so the run record and summary stay honest.
+: > out/cloned-tests.txt
+: > out/clone_failures.tsv
 for t in $(python3 -c "import json;print(' '.join(json.load(open('out/resolve.contract.json'))['test_repos']))"); do
-  SCM clone_rw "$t" "workspace/tests/$t" "test/${KEY}-ai-qe"
+  if SCM clone_rw "$t" "workspace/tests/$t" "test/${KEY}-ai-qe"; then
+    echo "$t" >> out/cloned-tests.txt
+  else
+    echo "[warn] clone failed for test repo '$t' — skipping it this run"
+    printf '%s\tclone_failed\t1\t\n' "$t" >> out/clone_failures.tsv
+  fi
 done
 
 # Refresh estate knowledge from the just-cloned sources so every LLM phase sees
@@ -275,8 +286,17 @@ SUMMARY="AI-QE run ${RUN_ID} for ${KEY}:"
 mkdir -p reports/runs out/gates
 # Gate ONLY the repos resolved for THIS run — a glob over workspace/tests/*/ would
 # re-gate (and commit under the wrong KEY) stale clones left by previous runs.
+# Gate only the repos that actually CLONED; repos whose clone failed enter the
+# results as clone_failed rows (run record marks the run for attention while
+# every successfully-cloned repo still gets its commit — partial success).
+if [ -s out/clone_failures.tsv ]; then
+  cat out/clone_failures.tsv >> out/gate_results.tsv
+  while IFS=$'\t' read -r cf_name _rest; do
+    SUMMARY+=$'\n'"- ${cf_name}: clone failed ⚠ (skipped this run)"
+  done < out/clone_failures.tsv
+fi
 GATE_NAMES=()
-for name in $(python3 -c "import json;print(' '.join(json.load(open('out/resolve.contract.json'))['test_repos']))"); do
+for name in $(cat out/cloned-tests.txt); do
   t="workspace/tests/$name/"
   GATE_NAMES+=("$name")
   (

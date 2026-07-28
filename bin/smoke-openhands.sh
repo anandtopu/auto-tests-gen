@@ -16,7 +16,12 @@
 #   AIQE_SMOKE_REPO + AIQE_SMOKE_PR           a real, open PR to read
 set -u
 cd "$(dirname "$0")/.."
-source .env 2>/dev/null || true
+# Defaults-only, like engine/pipeline.sh: a raw `source .env` clobbered the
+# EXPLICIT environment (an empty `KEY=` line in .env erased a caller-provided
+# credential), and never exported values to child processes. First-fill wins,
+# so .env beats aiqe.properties and an exported variable beats both.
+eval "$(python3 engine/lib/props_file.py dotenv-defaults 2>/dev/null || true)"
+eval "$(python3 engine/lib/props_file.py shell-defaults 2>/dev/null || true)"
 DRY=0; [ "${1:-}" = "--dry" ] && DRY=1
 
 PASS=0; FAIL=0; SKIP=0

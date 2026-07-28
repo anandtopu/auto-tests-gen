@@ -1265,7 +1265,7 @@ document.addEventListener('click', async e => {
   const open = e.target.closest('button.plan-open');
   if (open) { if (needsServer()) return; openPlan(open.dataset.key).catch(x => toast(x.message)); return; }
   const id = e.target.id;
-  if (!planKey || !['plan-save','plan-review','plan-changes','plan-approve','plan-link','plan-generate'].includes(id)) return;
+  if (!planKey || !['plan-save','plan-review','plan-changes','plan-approve','plan-link','plan-comment','plan-generate'].includes(id)) return;
   if (needsServer()) return;
   if (id === 'plan-save')
     return planPost('/api/plans/save', { text: $('#plan-text').value },
@@ -1278,6 +1278,7 @@ document.addEventListener('click', async e => {
     return planPost('/api/plans/status', { status: 'changes_requested', note }, 'Changes requested');
   }
   if (id === 'plan-link')     return planPost('/api/plans/link', {}, r => 'Linked to JIRA: ' + r.ref);
+  if (id === 'plan-comment')  return planPost('/api/plans/comment', {}, r => 'Commented on the ticket: plan + tests linked');
   if (id === 'plan-generate') return planPost('/api/plans/generate', {},
     'Queued test generation from the approved plan — press Run queue');
 });
@@ -1914,6 +1915,9 @@ page = f"""<!doctype html>
         <button class="btn btn-sm danger" id="plan-changes">Request changes</button>
         <button class="btn btn-sm approve" id="plan-approve">Approve</button>
         <button class="btn btn-sm info" id="plan-link">Link to JIRA</button>
+        <button class="btn btn-sm info" id="plan-comment"
+          title="Post one ticket comment linking the plan AND the generated E2E tests (files, gate commits, branch)">
+          Comment plan + tests</button>
         <button class="btn btn-primary" id="plan-generate">Generate tests</button>
       </div>
       <div class="card-b" style="display:flex; flex-direction:column; gap:10px">

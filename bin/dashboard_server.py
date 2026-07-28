@@ -30,6 +30,7 @@ Endpoints:
   POST /api/plans/save        {"key","text","by"?}   edit (resets an approved plan)
   POST /api/plans/status      {"key","status","by"?,"note"?}  review/approve/changes
   POST /api/plans/link        {"key","format"?}      attach the approved plan to JIRA
+  POST /api/plans/comment     {"key"}  post the plan+tests linking comment on the ticket
   POST /api/plans/generate    {"key"}                queue test generation (needs approval)
   GET  /api/repos             estate summary (app repos, test repos, scope, guidance)
   POST /api/repos/app         add/edit an app repo (repo_admin.upsert_app fields)
@@ -540,6 +541,11 @@ class Handler(BaseHTTPRequestHandler):
                     ref = export_plan.attach_to_jira(key, p.get("format", "pdf"))
                     result = plan_state.mark_linked(key, ref, p.get("by") or self.user or "dashboard")
                     result = {**result, "ref": ref}
+                elif self.path.endswith("/comment"):
+                    # J6: one ticket comment linking the plan AND the generated
+                    # E2E tests (files, gate commits, branch) — the durable
+                    # pointer from the JIRA ticket to everything produced for it.
+                    result = plan_state.post_ticket_comment(key)
                 elif self.path.endswith("/generate"):
                     plan_state.require_approved(key)   # fail fast before queueing
                     item, fresh = work_queue.add("tests", key, release="",

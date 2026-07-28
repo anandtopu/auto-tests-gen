@@ -196,3 +196,69 @@ if __name__ == "__main__":
         print(json.dumps(set_status(a[1], a[2], opt("--by"), opt("--note")), indent=2))
     else:
         sys.exit(f"unknown command: {a[0]}")
+
+
+def ticket_comment(key):
+    """Compose the J6 linking comment: the plan (status, approver, file) and the
+    generated E2E tests (files, actions, gate commit + branch) for this key, in
+    one ticket comment — the durable pointer from the JIRA ticket to everything
+    the platform produced for it. Composition only; the caller posts it via the
+    Tracker port's `comment` verb."""
+    import glob
+    e = get(key)
+    lines = [f"AI-QE summary for {key}:"]
+    p = plan_path(key)
+    if p.exists():
+        st = e.get("status", "draft")
+        by = (e.get("by") or "").strip()
+        lines.append(f"- Test plan: testplans/{key}.md — {st}"
+                     + (f" (approved by {by})" if st == "approved" and by else ""))
+    if e.get("linked"):
+        lines.append(f"- Plan attachment: {e['linked'].get('ref', '')}")
+    # Latest run for this key (defensive parse — records are written via tee)
+    latest = None
+    for f in glob.glob(str(ROOT / "reports/runs/*.json")):
+        if pathlib.Path(f).name in ("reviews.json", "queue.json", "hooks-seen.json"):
+            continue
+        try:
+            r = json.load(open(f, encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if isinstance(r, dict) and r.get("trigger", {}).get("key") == key \
+                and r.get("ts", 0) >= (latest or {}).get("ts", 0):
+            latest = r
+    if latest:
+        contracts = {ph.get("name"): ph.get("contract") or {}
+                     for ph in latest.get("phases", [])}
+        tests = contracts.get("generate", {}).get("tests", []) or []
+        if tests:
+            lines.append(f"- E2E tests ({len(tests)}):")
+            for t in tests[:8]:
+                lines.append(f"  - {t.get('file', '?')} ({t.get('action', '?')})")
+        for g in latest.get("gates", []):
+            sha = (g.get("commit") or "")[:7]
+            lines.append(f"- Gate {g.get('test_repo')}: {g.get('status')}"
+                         + (f" @{sha} on branch test/{key}-ai-qe" if sha else ""))
+        lines.append(f"- Run record: {latest.get('run_id', '')}")
+    if len(lines) == 1:
+        lines.append("- No plan or test artifacts recorded yet.")
+    return "\n".join(lines)
+
+
+def post_ticket_comment(key):
+    """Compose + post the linking comment via the Tracker port (mock unless
+    AIQE_MOCK=0). Returns {comment, result}."""
+    import os, subprocess
+    import settings_store, work_queue
+    text = ticket_comment(key)
+    settings_store.load_env_into()
+    mock = os.environ.get("AIQE_MOCK", "1") == "1"
+    adapter = ROOT / ("adapters/mock/tracker.sh" if mock
+                      else "adapters/tracker/jira.sh")
+    r = subprocess.run([work_queue.bash_exe(), str(adapter), "comment", key, text],
+                       cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace",
+                       stdin=subprocess.DEVNULL, timeout=60)
+    if r.returncode != 0:
+        raise SystemExit(f"comment failed: {(r.stdout + r.stderr).strip()[:200]}")
+    return {"comment": text, "result": r.stdout.strip()}

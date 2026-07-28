@@ -25,7 +25,8 @@ if os.path.exists("out/gate_results.tsv"):
                       "log": f"reports/{key}-{repo}.log",
                       "diff": diff if os.path.exists(diff) else None})
 
-overall = ("quarantined" if any(g["status"] == "quarantined" for g in gates)
+overall = ("quarantined" if any(g["status"] in ("quarantined", "clone_failed")
+                                for g in gates)
            else "committed" if any(g["status"] == "committed" for g in gates)
            else "no_changes")
 # Advisory critic score lifted to the top level so the scorecard and dashboard don't

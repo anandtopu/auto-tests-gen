@@ -206,5 +206,31 @@
     "finished": 1785207164.920592,
     "exit_code": 0,
     "inline_file": null
+  },
+  {
+    "id": "q1785216562-17",
+    "mode": "plan",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "demo",
+    "status": "done",
+    "ts": 1785216562.9190006,
+    "finished": 1785216572.5554202,
+    "exit_code": 0,
+    "inline_file": null
+  },
+  {
+    "id": "q1785216573-18",
+    "mode": "tests",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "dashboard-plan",
+    "status": "done",
+    "ts": 1785216573.6177704,
+    "finished": 1785216592.4454656,
+    "exit_code": 0,
+    "inline_file": null
   }
 ]
