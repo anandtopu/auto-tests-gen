@@ -121,6 +121,27 @@ def remove(item_id):
     return item
 
 
+def prune_done(keep=50):
+    """Data retention for the queue HISTORY: keep the newest `keep` done items,
+    drop the rest (and their now-useless inline ticket files). Pending, running
+    and failed items are never touched — they are work, not history. The run
+    records a done item produced live in reports/runs/ and have their own
+    retention (qa.py prune)."""
+    with fs_lock.lock(FILE):
+        items = load()
+        done = sorted((i for i in items if i.get("status") == "done"),
+                      key=lambda i: i.get("finished") or i.get("ts") or 0,
+                      reverse=True)
+        doomed = done[keep:]
+        doomed_ids = {i["id"] for i in doomed}
+        for i in doomed:
+            f = i.get("inline_file")
+            if f:
+                pathlib.Path(f).unlink(missing_ok=True)
+        save([i for i in items if i["id"] not in doomed_ids])
+    return {"kept": min(len(done), keep), "removed": len(doomed)}
+
+
 def run_all():
     """Process queued items in order. Mock mode unless AIQE_MOCK is set by the caller."""
     env = {**os.environ}

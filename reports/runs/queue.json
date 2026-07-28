@@ -180,5 +180,31 @@
     "finished": 1785206601.5409923,
     "exit_code": 0,
     "inline_file": null
+  },
+  {
+    "id": "q1785206847-15",
+    "mode": "plan",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "e2e-test",
+    "status": "done",
+    "ts": 1785206847.291944,
+    "finished": 1785206853.3919215,
+    "exit_code": 0,
+    "inline_file": null
+  },
+  {
+    "id": "q1785207155-16",
+    "mode": "plan",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "e2e-test",
+    "status": "done",
+    "ts": 1785207155.1945844,
+    "finished": 1785207164.920592,
+    "exit_code": 0,
+    "inline_file": null
   }
 ]

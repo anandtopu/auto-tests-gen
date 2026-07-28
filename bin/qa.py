@@ -533,6 +533,11 @@ def cmd_prune(args):
         removed += 1
     print(f"kept {min(len(records), args.keep)} run record(s); "
           f"removed {len(doomed)} old record(s) ({removed} files)")
+    # Queue HISTORY retention rides along: done items accumulate one per drained
+    # run and nothing else ever trims them.
+    import work_queue
+    q = work_queue.prune_done(keep=max(args.keep // 4, 25))
+    print(f"queue history: kept {q['kept']} done item(s); removed {q['removed']}")
 
 
 def cmd_run_inline(args):

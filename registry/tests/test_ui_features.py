@@ -136,6 +136,31 @@ def test_queue_still_rejects_unknown_modes():
         work_queue.add("bogus", "X")
 
 
+def test_prune_done_trims_history_but_never_pending_work(monkeypatch, tmp_path):
+    """Data retention: done queue items accumulate forever without this; work
+    (queued/failed/running) must never be touched."""
+    qfile = tmp_path / "queue.json"
+    monkeypatch.setattr(work_queue, "FILE", qfile)
+    import json as _json, time as _t
+    items = ([{"id": f"d{i}", "mode": "jira", "target": f"K-{i}", "pr": None,
+               "release": "", "requested_by": "t", "status": "done",
+               "ts": i, "finished": i} for i in range(10)] +
+             [{"id": "q1", "mode": "jira", "target": "K-q", "pr": None,
+               "release": "", "requested_by": "t", "status": "queued", "ts": 99},
+              {"id": "f1", "mode": "jira", "target": "K-f", "pr": None,
+               "release": "", "requested_by": "t", "status": "failed", "ts": 98}])
+    qfile.write_text(_json.dumps(items), encoding="utf-8")
+    r = work_queue.prune_done(keep=3)
+    assert r == {"kept": 3, "removed": 7}
+    left = _json.loads(qfile.read_text(encoding="utf-8"))
+    statuses = [i["status"] for i in left]
+    assert statuses.count("done") == 3
+    assert "queued" in statuses and "failed" in statuses, \
+        "pending work must survive history pruning"
+    kept_done = sorted(i["id"] for i in left if i["status"] == "done")
+    assert kept_done == ["d7", "d8", "d9"], "must keep the NEWEST done items"
+
+
 # ------------------------------------------------------ pr coverage report
 
 def _record(tests, gates, key="PR-x-9"):
