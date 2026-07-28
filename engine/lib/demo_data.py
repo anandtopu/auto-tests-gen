@@ -194,7 +194,10 @@ def clear(root=None, dry=False, force=False, factory=False):
                 if not dry:
                     reg.write_text(EMPTY_REGISTRY, encoding="utf-8", newline="\n")
             notes = root / "knowledge/repos"
-            for f in sorted(notes.glob("*.md")) if notes.is_dir() else []:
+            # README.md is documentation, not a team note — it survives factory
+            for f in (sorted(x for x in notes.glob("*.md")
+                             if x.name.lower() != "readme.md")
+                      if notes.is_dir() else []):
                 removed += 1
                 targets.append(f.relative_to(root).as_posix())
                 if not dry:
