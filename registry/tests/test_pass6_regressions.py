@@ -417,3 +417,41 @@ def test_with_env_removes_its_app_log():
     leaked = [p for p in tmpdir.glob("aiqe-env.*.log")
               if p.stat().st_mtime >= before - 1]
     assert not leaked, f"teardown must remove the app log: {leaked}"
+
+
+# ------------------------------------------ mock clone robustness (Windows)
+
+def test_clone_survives_a_locked_workspace_dir(tmp_path):
+    """A transient Windows lock on a workspace clone used to kill the ENTIRE
+    pipeline run under set -e — no run record, nothing to diagnose (seen as a
+    'non-reproducible' plan-tests flake). The clone must recover."""
+    target = ROOT / "workspace/src/zz-locked-probe"
+    target.mkdir(parents=True, exist_ok=True)
+    victim = target / "held.txt"
+    victim.write_text("locked", encoding="utf-8")
+    fh = open(victim, "r", encoding="utf-8")        # hold a handle open
+    try:
+        r = _run([BASH, "adapters/mock/scm.sh", "clone_ro", "orders-api",
+                  "workspace/src/zz-locked-probe"], timeout=180)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert (target / "app").is_dir(), "the clone must still land"
+        assert not (target / "orders-api").exists(), \
+            "contents must be copied, never nested under a second level"
+    finally:
+        fh.close()
+        import shutil
+        shutil.rmtree(target, ignore_errors=True)
+
+
+def test_clone_is_idempotent_over_an_existing_checkout():
+    target = ROOT / "workspace/src/zz-idem-probe"
+    try:
+        for _ in range(2):
+            r = _run([BASH, "adapters/mock/scm.sh", "clone_ro", "orders-api",
+                      "workspace/src/zz-idem-probe"], timeout=180)
+            assert r.returncode == 0, r.stdout + r.stderr
+        assert (target / "app").is_dir()
+        assert not (target / "orders-api").exists()
+    finally:
+        import shutil
+        shutil.rmtree(target, ignore_errors=True)
