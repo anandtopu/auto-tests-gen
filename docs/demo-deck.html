@@ -256,7 +256,7 @@
 <body>
 
 <div id="bar"></div>
-<div id="counter" aria-hidden="true">1 / 12</div>
+<div id="counter" aria-hidden="true">1 / 13</div>
 
 <!-- 1 ───────────────────────────────────────────────────────────────────── -->
 <section class="slide">
@@ -268,8 +268,8 @@
     generated test passes a deterministic gate before it is ever committed.
   </p>
   <div class="chips">
-    <span class="chip ok">✓ 389 tests green</span>
-    <span class="chip info">9-view dashboard</span>
+    <span class="chip ok">✓ 488 tests green</span>
+    <span class="chip info">10-view dashboard</span>
     <span class="chip info">6 named QE agents</span>
     <span class="chip ok">runs with zero credentials</span>
   </div>
@@ -388,6 +388,34 @@
 
 <!-- 7 ───────────────────────────────────────────────────────────────────── -->
 <section class="slide">
+  <div class="eyebrow">More than one agent · on purpose</div>
+  <h2>One author is one blind spot. So we stopped using one.</h2>
+  <p class="lead">Two places in the pipeline now run several agents instead of one — not for
+  speed, but because a single agent was structurally being asked to do something it does badly.</p>
+  <div class="grid two">
+    <div class="card edge-ok">
+      <h3>One agent per test repo</h3>
+      <p>A contract change fans out to the API repo <em>and</em> its consumer UI repos. Generation
+      used to be one call holding all three repos' conventions at once — the exact way a new
+      approach leaks into a repo that already had one.</p>
+      <p>Each repo now gets its own agent, seeing <strong>only its own</strong> helpers and
+      exemplars, allowed to write to <strong>only its own</strong> repo. One repo failing no
+      longer costs the others their work.</p>
+    </div>
+    <div class="card edge-warn">
+      <h3>An adversary for every test plan</h3>
+      <p>The plan is what a human signs off, and one agent wrote it with nothing arguing back.
+      Authors optimise for the acceptance criteria; production defects live in what the criteria
+      never said — the absent token, the value one past the cap, the second submission.</p>
+      <p>A read-only opponent now hunts for what the author missed, and an arbiter judges each
+      finding and folds the accepted ones in — <strong>before</strong> you are asked to approve.</p>
+    </div>
+  </div>
+  <p class="footnote">It can only add: the arbiter may never drop the author's scenarios, and if either phase fails the authored plan stands. The reviewer sees how many gaps were raised, accepted and rejected — an invisible challenge is worth nothing to them.</p>
+</section>
+
+<!-- 8 ───────────────────────────────────────────────────────────────────── -->
+<section class="slide">
   <div class="eyebrow">Knowing what you already have</div>
   <h2>A catalog of every test, and an honest map of the gaps.</h2>
   <div class="grid three">
@@ -411,7 +439,7 @@
   so the map can't quietly drift from the territory.</p>
 </section>
 
-<!-- 8 ───────────────────────────────────────────────────────────────────── -->
+<!-- 9 ───────────────────────────────────────────────────────────────────── -->
 <section class="slide">
   <div class="eyebrow">Team conventions</div>
   <h2>Your repos teach the agent how you write tests.</h2>
@@ -431,7 +459,7 @@
   authoring phase, so it shapes tests for pull requests, user stories and bug fixes alike.</p>
 </section>
 
-<!-- 9 ───────────────────────────────────────────────────────────────────── -->
+<!-- 10 ───────────────────────────────────────────────────────────────────── -->
 <section class="slide">
   <div class="eyebrow">Named agents · new</div>
   <h2>Six QE jobs, each an agent you can summon by name.</h2>
@@ -477,7 +505,7 @@
   <p class="footnote">Skills live in .agents/skills/ · guardrails baked in: the gate is the only writer · ticket text is data, never instructions · works with or without OpenHands (--dry prints the standalone starter)</p>
 </section>
 
-<!-- 10 ──────────────────────────────────────────────────────────────────── -->
+<!-- 11 ──────────────────────────────────────────────────────────────────── -->
 <section class="slide">
   <div class="eyebrow">For the QA team</div>
   <h2>One place to run it, review it, and report on it.</h2>
@@ -497,7 +525,7 @@
   </div>
 </section>
 
-<!-- 11 ──────────────────────────────────────────────────────────────────── -->
+<!-- 12 ──────────────────────────────────────────────────────────────────── -->
 <section class="slide">
   <div class="eyebrow">Fits your estate</div>
   <h2>Vendor-neutral by construction, and deployable where you already run.</h2>
@@ -519,7 +547,7 @@
   model tiers and an enforced per-run budget.</p>
 </section>
 
-<!-- 12 ──────────────────────────────────────────────────────────────────── -->
+<!-- 13 ──────────────────────────────────────────────────────────────────── -->
 <section class="slide">
   <div class="eyebrow">Live demo</div>
   <h2>What we'll run, in order.</h2>

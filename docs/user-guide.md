@@ -143,6 +143,20 @@ critic:            # advisory test-quality score; NEVER gates a commit (§5.8.7)
   enabled: true             # AIQE_CRITIC=0 skips the phase for a single run
   accept_threshold: 0.8     # >= this -> "accept";  >= review_threshold -> "review"
   review_threshold: 0.5     # below it -> "weak" (still commits — the gate decides)
+plan_adversary:    # adversarial test-plan review, BEFORE the human approval gate
+  enabled: true             # AIQE_PLAN_ADVERSARY=0 skips it for a single run
+                            # A read-only adversary hunts for what the plan author
+                            # missed (negative / boundary / authz / state /
+                            # cross-repo / data) and an arbiter folds the accepted
+                            # gaps in as extra scenarios. It only ever ADDS, and if
+                            # either phase fails the authored plan stands unchanged.
+generate_fanout:   # one generate agent per resolved test repo
+  enabled: true             # AIQE_GENERATE_FANOUT=0 forces the single-agent path
+                            # With >=2 test repos each agent sees ONLY its own repo's
+                            # conventions and may write only to that repo, so a
+                            # contract change fanning out to an API repo plus consumer
+                            # UI repos cannot cross-wire their approaches. A single
+                            # resolved repo takes the original single-call path.
 resolution:
   confidence_threshold: 0.8   # below this the pipeline asks a human instead of guessing
 catalog:
@@ -683,6 +697,21 @@ make plans                        # every plan + status, linked, generating run
 
 Lifecycle: `draft → in_review → approved` (or `changes_requested`), tracked in
 `reports/plans/state.json` with an append-only history of who did what.
+
+**The plan is challenged before you see it.** Step 1 does not just author the plan: a
+read-only *adversary* phase then hunts for what the author missed — negative paths,
+boundaries, authorization on mutating behaviors, state/sequencing, cross-repo
+consequences, vague data needs — and an *arbiter* judges each finding and folds the
+accepted ones in as extra scenarios. The rewritten plan carries an **Adversarial
+review** section saying how many gaps were raised, how many were accepted, and why any
+were rejected, and the summary line appears on the ticket comment, the Test plans view
+and the Guided run wizard.
+
+It can only add: the arbiter is forbidden from dropping the author's scenarios, and if
+either phase fails the authored plan stands unchanged and the run continues. It also
+happens *before* the approval gate, so it changes what you are asked to approve, never
+whether you are asked. Set `AIQE_PLAN_ADVERSARY=0` (or `plan_adversary.enabled: false`)
+to skip it.
 
 Two safety properties are enforced, not merely documented:
 

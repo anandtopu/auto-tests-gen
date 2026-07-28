@@ -186,15 +186,27 @@ def test_agents_md_is_context_for_pr_and_jira_generation():
     guidance shapes tests for PRs, stories and bug fixes alike."""
     # Authoring phases need estate knowledge; `validate` only repairs against the
     # generate contract, so it is intentionally excluded.
-    AUTHORING = {"triage", "analyze", "testplan", "testdata", "generate"}
+    # `generate` is dispatched through the GENERATE wrapper (per-repo fan-out), which
+    # forwards its caller's context verbatim — so its call sites are what must carry
+    # AGENTS.md. planadversary/planarbiter author the plan too and are held to the same
+    # rule. Phases invoked INSIDE a wrapper pass "$@"/"${ctx[@]}" and are skipped here.
+    AUTHORING = {"triage", "analyze", "testplan", "testdata",
+                 "planadversary", "planarbiter"}
     pipe = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
     seen = set()
     for line in pipe.splitlines():
         parts = line.strip().split()
-        if len(parts) > 1 and parts[0] == "PHASE" and parts[1] in AUTHORING:
-            seen.add(parts[1])
+        if not parts:
+            continue
+        if parts[0] == "GENERATE":
+            seen.add("generate")
             assert "AGENTS.md" in line, f"phase without estate knowledge: {line.strip()}"
-    assert AUTHORING <= seen, f"phases not exercised: {AUTHORING - seen}"
+        elif len(parts) > 1 and parts[0] == "PHASE" and parts[1] in AUTHORING:
+            seen.add(parts[1])
+            assert "AGENTS.md" in line or '"$@"' in line or '"${ctx[@]}"' in line, \
+                f"phase without estate knowledge: {line.strip()}"
+    assert (AUTHORING | {"generate"}) <= seen, \
+        f"phases not exercised: {(AUTHORING | {'generate'}) - seen}"
 
 
 def test_cli_sync_and_status(tmp_path):

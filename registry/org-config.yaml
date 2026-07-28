@@ -9,6 +9,12 @@ phases:
   triage:    { max_turns: 12, allowed_tools: "Read,Bash(git diff:*)" }   # 5 was too tight for real tool use (parity finding P1)
   analyze:   { max_turns: 12, allowed_tools: "Read" }
   testplan:  { max_turns: 10, allowed_tools: "Read,Write" }
+  # Plan adversary/arbiter: an independent challenge to the authored plan before a
+  # human ever sees it. The adversary is READ-ONLY on purpose — an opponent that can
+  # edit the plan is just a second author, and the whole value is that it argues from
+  # outside. Only the arbiter writes, and only to testplans/.
+  planadversary: { max_turns: 8,  allowed_tools: "Read" }
+  planarbiter:   { max_turns: 10, allowed_tools: "Read,Write" }
   testdata:  { max_turns: 10, allowed_tools: "Read,Write" }
   generate:  { max_turns: 25, allowed_tools: "Read,Write,Edit,Bash(npx playwright test:*),Bash(npm run lint:*)" }
   validate:  { max_turns: 15, allowed_tools: "Read,Edit,Bash(npx playwright test:*)" , repair_loops: 3 }
@@ -30,6 +36,19 @@ critic:
   enabled: true
   accept_threshold: 0.8
   review_threshold: 0.5
+# Adversarial test-plan review: after the plan is authored, a second agent hunts for
+# what it missed (negative/boundary/authz/state/cross-repo gaps) and an arbiter folds
+# the accepted findings in. Costs two extra cheap phases on Workflow B and only ever
+# ADDS scenarios. Degrades safely: if either phase fails the authored plan stands.
+# AIQE_PLAN_ADVERSARY=0 skips it for a single run.
+plan_adversary:
+  enabled: true
+# Per-repo generation fan-out: one agent per resolved test repo, each seeing only its
+# own repo's conventions, so a contract change fanning out to three repos can't
+# cross-wire their approaches. Falls back to a single call when one repo resolved.
+# AIQE_GENERATE_FANOUT=0 forces the single-agent path.
+generate_fanout:
+  enabled: true
 resolution:
   confidence_threshold: 0.8
   clarify_channels: [tracker, notify]   # post question to Jira + Slack when below threshold

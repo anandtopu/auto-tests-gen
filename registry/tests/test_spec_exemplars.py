@@ -99,9 +99,19 @@ def test_markdown_carries_the_follow_this_framing():
 def test_pipeline_generates_and_passes_the_context_to_every_author_phase():
     src = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
     assert "spec_exemplars.py out/repo-conventions.md" in src
-    gen_lines = [l for l in src.splitlines() if l.strip().startswith("PHASE generate")]
+    # Generation goes through the GENERATE wrapper (it fans out per test repo), so the
+    # context is declared at its three call sites — pr / tests / jira.
+    gen_lines = [l for l in src.splitlines() if l.strip().startswith("GENERATE ")]
     assert len(gen_lines) == 3 and all("out/repo-conventions.md" in l for l in gen_lines), \
         "every generate call (pr / tests / jira) must receive the exemplar context"
+    # ...and the fan-out must SWAP it for the per-repo file, not drop it: an agent with
+    # no conventions is exactly the "invent a new approach" failure this guards against.
+    fanout = src[src.index("GENERATE() {"):]
+    assert 'conv="out/repo-conventions-${repo}.md"' in fanout
+    assert 'spec_exemplars.py "$conv" "$repo"' in fanout, \
+        "each fan-out agent must get ITS OWN repo's exemplars, not the merged file"
+    assert '[ "$f" = "out/repo-conventions.md" ]' in fanout, \
+        "the fan-out must substitute the per-repo conventions into the context list"
     val = next(l for l in src.splitlines() if l.strip().startswith("PHASE validate"))
     assert "out/repo-conventions.md" in val, \
         "repairs must also see the approach, or a repair can rewrite onto a new one"

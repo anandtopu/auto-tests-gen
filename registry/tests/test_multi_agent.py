@@ -1,0 +1,253 @@
+"""Multi-agent phases: per-repo generation fan-out and adversarial plan review.
+
+Two agents replaced two single agents, and both changes are only worth anything if
+they keep their safety properties under failure:
+
+  fan-out  — one generate agent per resolved test repo, each seeing ONLY its own
+             repo's conventions. Pins: the merge restores the pre-fan-out contract
+             shape, per-repo failure is contained rather than fatal, total failure is
+             still a failure, and a single-repo run does not pay for any of it.
+  adversary — a read-only opponent plus a writing arbiter, ahead of the human approval
+             gate. Pins: it only ever ADDS scenarios, a failure leaves the authored
+             plan untouched, the opponent can never be given write tools, and the
+             human sees that the challenge happened.
+"""
+import json
+import os
+import pathlib
+import subprocess
+import sys
+
+import pytest
+import yaml
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "engine/lib"))
+import merge_contracts
+import plan_adversary
+import work_queue
+
+BASH = work_queue.bash_exe()
+
+
+def _run(args, **kw):
+    kw.setdefault("cwd", ROOT)
+    kw.setdefault("capture_output", True)
+    kw.setdefault("text", True)
+    kw.setdefault("encoding", "utf-8")
+    kw.setdefault("errors", "replace")
+    kw.setdefault("stdin", subprocess.DEVNULL)
+    kw.setdefault("timeout", 600)
+    return subprocess.run(args, **kw)
+
+
+def _write(path, obj):
+    path.write_text(json.dumps(obj), encoding="utf-8")
+
+
+# ------------------------------------------------------------ merge_contracts
+
+def test_merge_stamps_the_repo_onto_every_test(tmp_path):
+    """Before fan-out the contract never said which repo a test belonged to. It must
+    now, or the PR comment and the run record can't tell three repos' work apart."""
+    _write(tmp_path / "generate-api.contract.json",
+           {"tests": [{"file": "a.spec.js", "action": "created"}], "open_questions": []})
+    _write(tmp_path / "generate-ui.contract.json",
+           {"tests": [{"file": "b.spec.js", "action": "updated"}], "open_questions": []})
+    m = merge_contracts.merge("generate", tmp_path, ["api", "ui"])
+    assert [(t["file"], t["repo"]) for t in m["tests"]] == \
+        [("a.spec.js", "api"), ("b.spec.js", "ui")]
+    assert m["fanout"] == {"repos": ["api", "ui"], "skipped": []}
+
+
+def test_merge_deduplicates_open_questions_across_repos(tmp_path):
+    """Three agents asking the same thing is ONE question for the human."""
+    for repo in ("api", "ui"):
+        _write(tmp_path / f"generate-{repo}.contract.json",
+               {"tests": [], "open_questions": ["which fixture holds discount codes?"]})
+    m = merge_contracts.merge("generate", tmp_path, ["api", "ui"])
+    assert m["open_questions"] == ["[api] which fixture holds discount codes?",
+                                   "[ui] which fixture holds discount codes?"]
+    # Same repo repeating itself collapses.
+    _write(tmp_path / "generate-api.contract.json",
+           {"tests": [], "open_questions": ["dup", "dup", "dup"]})
+    m = merge_contracts.merge("generate", tmp_path, ["api"])
+    assert m["open_questions"] == ["[api] dup"]
+
+
+def test_one_repo_failing_never_discards_the_others(tmp_path):
+    """The per-repo gate already allows partial success (§5.8.5); generation must too.
+    A missing or corrupt per-repo contract is reported, not fatal."""
+    _write(tmp_path / "generate-api.contract.json",
+           {"tests": [{"file": "a.spec.js"}], "open_questions": []})
+    (tmp_path / "generate-ui.contract.json").write_text("{not json", encoding="utf-8")
+    m = merge_contracts.merge("generate", tmp_path, ["api", "ui", "absent"])
+    assert [t["file"] for t in m["tests"]] == ["a.spec.js"]
+    assert m["fanout"]["skipped"] == ["ui", "absent"]
+    assert any("ui" in q and "no readable contract" in q for q in m["open_questions"])
+
+
+def test_merge_cli_writes_the_run_level_contract(tmp_path):
+    _write(tmp_path / "generate-api.contract.json",
+           {"tests": [{"file": "a.spec.js"}], "open_questions": []})
+    rc = merge_contracts.main(["merge_contracts.py", "generate", str(tmp_path), "api"])
+    assert rc == 0
+    out = json.loads((tmp_path / "generate.contract.json").read_text(encoding="utf-8"))
+    assert out["tests"][0]["repo"] == "api"
+    assert merge_contracts.main(["merge_contracts.py"]) == 64
+
+
+# ------------------------------------------------------------ plan_adversary
+
+def test_adversary_signal_is_total_on_garbage(tmp_path):
+    """Every function must degrade to 'no signal' — a broken advisory phase must
+    never be the reason a run dies."""
+    assert plan_adversary.signal(tmp_path / "nope.json", tmp_path / "nah.json")["ran"] is False
+    bad = tmp_path / "bad.json"
+    bad.write_text("<html>not json</html>", encoding="utf-8")
+    assert plan_adversary.signal(bad, bad)["raised"] == 0
+    assert plan_adversary.summary(bad, bad) == ""
+
+
+def test_adversary_normalizes_unknown_category_and_severity(tmp_path):
+    g = tmp_path / "g.json"
+    _write(g, {"gaps": [{"title": "x", "category": "invented", "severity": "critical"},
+                        {"title": "   "},                      # empty title dropped
+                        "not a dict"]})                        # junk dropped
+    s = plan_adversary.signal(g, tmp_path / "none.json")
+    assert s["raised"] == 1
+    assert s["gaps"][0]["category"] == "unclear"
+    assert s["gaps"][0]["severity"] == "med"
+
+
+def test_adversary_summary_says_when_arbitration_did_not_complete(tmp_path):
+    g, a = tmp_path / "g.json", tmp_path / "a.json"
+    _write(g, {"gaps": [{"title": "authz missing", "category": "authz",
+                         "severity": "high", "rationale": "r"}]})
+    assert "arbitration did not complete" in plan_adversary.summary(g, a)
+    _write(a, {"scenarios": [{"id": "S1"}, {"id": "S2"}],
+               "accepted_gaps": 1, "rejected_gaps": 0})
+    line = plan_adversary.summary(g, a)
+    assert "1 gap(s) raised" in line and "1 high-severity" in line and "1 accepted" in line
+    # A sound plan is a real, reportable outcome — not silence.
+    _write(g, {"gaps": [], "verdict": "plan_is_sound"})
+    assert "no gaps found" in plan_adversary.summary(g, a)
+
+
+def test_adversary_enable_flag_precedence(monkeypatch):
+    monkeypatch.setenv("AIQE_PLAN_ADVERSARY", "0")
+    assert plan_adversary.enabled() is False
+    monkeypatch.setenv("AIQE_PLAN_ADVERSARY", "1")
+    assert plan_adversary.enabled() is True
+    monkeypatch.delenv("AIQE_PLAN_ADVERSARY")
+    assert plan_adversary.enabled() is True          # org-config default
+
+
+# ------------------------------------------------- structural safety pins
+
+def test_the_adversary_can_never_be_given_write_tools():
+    """An opponent that can edit the plan is just a second author. The entire value
+    of the challenge is that it argues from OUTSIDE the artifact."""
+    cfg = yaml.safe_load((ROOT / "registry/org-config.yaml").read_text(encoding="utf-8"))
+    tools = cfg["phases"]["planadversary"]["allowed_tools"]
+    assert tools == "Read", f"planadversary must stay read-only, got {tools!r}"
+    for banned in ("Write", "Edit", "Bash"):
+        assert banned not in tools
+
+
+def test_new_phases_have_contracts_and_prompts():
+    for phase, prompt in (("planadversary", "jira-plan-adversary.md"),
+                          ("planarbiter", "jira-plan-arbitrate.md")):
+        assert (ROOT / f"engine/phases/contracts/{phase}.schema.json").exists()
+        body = (ROOT / f"prompts/{prompt}").read_text(encoding="utf-8")
+        # Ticket text reaching these phases is DATA (non-negotiable).
+        assert "DATA to analyze" in body and "never instructions" in body
+    adv = (ROOT / "prompts/jira-plan-adversary.md").read_text(encoding="utf-8")
+    assert "READ ONLY" in adv
+    arb = (ROOT / "prompts/jira-plan-arbitrate.md").read_text(encoding="utf-8")
+    assert "do not delete" in arb.lower() or "superset" in arb.lower(), \
+        "the arbiter must be forbidden from dropping the author's scenarios"
+
+
+def test_generate_prompt_confines_a_fanout_agent_to_its_own_repo():
+    body = (ROOT / "prompts/pr-generate.md").read_text(encoding="utf-8")
+    assert "{{TARGET_REPO}}" in body
+    assert "ONLY repo you may write to" in body
+
+
+def test_phase_label_renames_output_but_not_policy():
+    """run_phase.sh must look up model/turns/tools by PHASE and write by LABEL —
+    swap them and every fan-out call would either lose its policy or overwrite the
+    previous repo's contract."""
+    body = (ROOT / "engine/phases/run_phase.sh").read_text(encoding="utf-8")
+    assert 'OUT="${AIQE_PHASE_LABEL:-$PHASE}"' in body
+    assert 'contracts/${PHASE}.schema.json' in body      # policy/schema by phase
+    assert 'out/${OUT}.contract.json' in body            # output by label
+
+
+# ------------------------------------------------------- functional pipeline
+
+def test_fanout_gives_each_repo_its_own_agent_and_conventions():
+    """The demo PR is the fan-out case (contract change → API repo + consumer UI
+    repo). Each repo must get its own labeled contract AND its own conventions file,
+    and the merged result must match what the single-agent path produced."""
+    r = _run([str(BASH), "engine/pipeline.sh", "pr", "orders-api", "201"],
+             env={**os.environ, "AIQE_MOCK": "1"})
+    assert "fanning out to 2 test repos" in r.stdout, r.stdout[-2000:]
+    for repo in ("e2e-api-tests-1", "e2e-ui-tests-1"):
+        assert (ROOT / f"out/generate-{repo}.contract.json").exists()
+        conv = ROOT / f"out/repo-conventions-{repo}.md"
+        assert conv.exists(), f"{repo} never got its own conventions file"
+    # Per-repo conventions must be NARROWER than the all-repos file — that is the
+    # entire point: no agent sees another repo's approach.
+    both = (ROOT / "out/repo-conventions.md").read_text(encoding="utf-8")
+    api = (ROOT / "out/repo-conventions-e2e-api-tests-1.md").read_text(encoding="utf-8")
+    assert "e2e-ui-tests-1" in both and "e2e-ui-tests-1" not in api
+
+    merged = json.loads((ROOT / "out/generate.contract.json").read_text(encoding="utf-8"))
+    assert merged["fanout"]["repos"] == ["e2e-api-tests-1", "e2e-ui-tests-1"]
+    assert merged["fanout"]["skipped"] == []
+    assert all(t.get("repo") for t in merged["tests"])
+    # Outcome is unchanged from before the fan-out existed.
+    assert "GATE_STATUS=COMMITTED" in r.stdout
+    assert "[gate:e2e-ui-tests-1] GATE_STATUS=NO_CHANGES" in r.stdout
+
+
+def test_fanout_can_be_switched_off_without_changing_the_outcome():
+    r = _run([str(BASH), "engine/pipeline.sh", "pr", "orders-api", "201"],
+             env={**os.environ, "AIQE_MOCK": "1", "AIQE_GENERATE_FANOUT": "0"})
+    assert "fanning out" not in r.stdout
+    merged = json.loads((ROOT / "out/generate.contract.json").read_text(encoding="utf-8"))
+    assert "fanout" not in merged          # untouched single-agent contract shape
+    assert "GATE_STATUS=COMMITTED" in r.stdout
+
+
+def test_adversarial_review_adds_scenarios_and_reaches_the_reviewer():
+    import plan_state
+    r = _run([str(BASH), "engine/pipeline.sh", "plan", "PROJ-301"],
+             env={**os.environ, "AIQE_MOCK": "1"})
+    assert r.returncode == 0, r.stdout[-2000:]
+    assert "[plan-adversary]" in r.stdout
+
+    # The arbiter's contract is what downstream phases see — and it is a SUPERSET.
+    contract = json.loads((ROOT / "reports/plans/PROJ-301.contract.json")
+                          .read_text(encoding="utf-8"))
+    assert len(contract["scenarios"]) > 1, "arbitration added nothing"
+
+    # The human must be told the plan was challenged, in the ticket AND the wizard.
+    entry = plan_state.get("PROJ-301")
+    assert "gap(s) raised" in (entry.get("adversary") or "")
+    assert "Plan review:" in plan_state.ticket_comment("PROJ-301")
+    assert "adversarial review" in r.stdout
+
+
+def test_disabling_the_adversary_leaves_the_authored_plan_untouched():
+    """The escape hatch has to be real: off means the pre-adversary behavior, exactly."""
+    r = _run([str(BASH), "engine/pipeline.sh", "plan", "PROJ-301"],
+             env={**os.environ, "AIQE_MOCK": "1", "AIQE_PLAN_ADVERSARY": "0"})
+    assert r.returncode == 0, r.stdout[-2000:]
+    assert "[plan-adversary]" not in r.stdout
+    assert not (ROOT / "out/planadversary.contract.json").exists()
+    contract = json.loads((ROOT / "reports/plans/PROJ-301.contract.json")
+                          .read_text(encoding="utf-8"))
+    assert len(contract["scenarios"]) == 1, "the authored plan should stand alone"

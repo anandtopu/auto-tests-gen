@@ -75,14 +75,20 @@ def set_status(key, status, by="", note=""):
     return e
 
 
-def record_plan(key, contract=None, by="pipeline"):
+def record_plan(key, contract=None, by="pipeline", adversary=""):
     """Called by the pipeline after the testplan phase: snapshot the contract and put
-    the plan in `draft` awaiting human review. Preserves prior history."""
+    the plan in `draft` awaiting human review. Preserves prior history.
+
+    `adversary` is the one-line summary of the adversarial review (plan_adversary.py).
+    It is stored on the entry because out/ is per-run scratch — without this the
+    reviewer opening the plan tomorrow would have no idea it was ever challenged.
+    """
     with fs_lock.lock(FILE):
         state = load()
         e = state.get(key, {"history": []})
         e.update({"status": "draft", "by": by, "note": "test plan authored",
-                  "updated": time.time(), "generated_run": None})
+                  "updated": time.time(), "generated_run": None,
+                  "adversary": (adversary or "").strip()})
         e.setdefault("history", []).append(
             {"status": "draft", "by": by, "note": "test plan authored", "ts": time.time()})
         state[key] = e
@@ -185,7 +191,9 @@ if __name__ == "__main__":
                 contract = json.load(open(a[2], encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 contract = None
-        print(json.dumps(record_plan(a[1], contract), indent=2))
+        # Optional 4th arg: the adversarial-review summary line for this plan.
+        print(json.dumps(record_plan(a[1], contract, adversary=a[3] if len(a) > 3 else ""),
+                         indent=2))
     elif a[0] == "generated":
         print(json.dumps(mark_generated(a[1], a[2]), indent=2))
     elif a[0] == "list":
@@ -213,6 +221,9 @@ def ticket_comment(key):
         by = (e.get("by") or "").strip()
         lines.append(f"- Test plan: testplans/{key}.md — {st}"
                      + (f" (approved by {by})" if st == "approved" and by else ""))
+        adv = (e.get("adversary") or "").strip()
+        if adv:
+            lines.append(f"- Plan review: {adv}")
     if e.get("linked"):
         lines.append(f"- Plan attachment: {e['linked'].get('ref', '')}")
     # Latest run for this key (defensive parse — records are written via tee)

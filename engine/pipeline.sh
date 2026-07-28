@@ -106,12 +106,74 @@ _budget_guard() {
 # `|| handler`, set -e is suppressed inside this body, so without the capture a
 # failing _PHASE_IMPL would fall through and PHASE would return the metering
 # line's 0 — making the caller's failure handler dead code.
+# AIQE_PHASE_LABEL renames the phase's OUTPUT artifacts (and therefore its cost-ledger
+# row) without changing which org-config policy it runs under — that is what lets
+# generation fan out to one labeled call per test repo.
 PHASE() {
-  _budget_guard "$1"
+  local label="${AIQE_PHASE_LABEL:-$1}"
+  _budget_guard "$label"
   local rc=0
   _PHASE_IMPL "$@" || rc=$?
-  python3 engine/lib/budget.py record "$1" "out/$1.json" || true
+  python3 engine/lib/budget.py record "$label" "out/$label.json" || true
   return $rc
+}
+
+# Per-repo generation fan-out (openhands-review §3.3, reopened by the existing-approach
+# feature). Generation used to be ONE call no matter how many test repos resolved, with
+# every repo's conventions concatenated into a single out/repo-conventions.md — so on
+# the case this platform exists for, a contract change fanning out to an API repo plus
+# two consumer UI repos, one agent had to hold three repos' approaches at once and not
+# cross-wire them. That is precisely the failure the existing-approach work set out to
+# prevent, and this was the last place still inviting it.
+#
+# Now each resolved repo gets its own agent, its own conventions file, and its own
+# labeled contract; merge_contracts.py restores the single pre-fan-out shape for
+# validate and everything downstream. One repo resolved => the old single call, so the
+# common case pays nothing. A per-repo failure is contained: the merge records the
+# skipped repo and the other repos' tests still reach the gate, matching the partial
+# success the per-repo gate already allows (§5.8.5).
+GENERATE() {
+  local repos n
+  repos=$(python3 -c "import json;print(' '.join(json.load(open('out/resolve.contract.json'))['test_repos']))" 2>/dev/null || echo "")
+  n=$(echo "$repos" | wc -w | tr -d ' ')
+  if [ "${AIQE_GENERATE_FANOUT:-1}" = "0" ] || [ "$n" -lt 2 ]; then
+    PHASE generate pr-generate.md "$@"
+    return $?
+  fi
+  echo "[generate] fanning out to $n test repos: $repos"
+  local repo conv rc any=0 ctx f
+  for repo in $repos; do
+    conv="out/repo-conventions-${repo}.md"
+    # Only THIS repo's helpers and exemplars — the whole point of the fan-out.
+    python3 engine/lib/spec_exemplars.py "$conv" "$repo" > /dev/null 2>&1 || : > "$conv"
+    [ -f "$conv" ] || : > "$conv"
+    # Swap the all-repos conventions file for this repo's. Done by rebuilding the
+    # array rather than with ${@/../..}: the pattern contains slashes, which that
+    # expansion treats as delimiters.
+    ctx=()
+    for f in "$@"; do
+      if [ "$f" = "out/repo-conventions.md" ]; then ctx+=("$conv"); else ctx+=("$f"); fi
+    done
+    rc=0
+    # Set + unset explicitly rather than as an `VAR=x func` prefix: for a FUNCTION,
+    # POSIX (and bash in posix mode) keeps such assignments after the call, which
+    # would leak this repo's label onto validate and every later phase.
+    export AIQE_PHASE_LABEL="generate-${repo}" AIQE_TARGET_REPO="$repo"
+    PHASE generate pr-generate.md "${ctx[@]}" || rc=$?
+    unset AIQE_PHASE_LABEL AIQE_TARGET_REPO
+    if [ "$rc" -ne 0 ]; then
+      echo "[generate] repo $repo failed (exit $rc) — other repos continue"
+      rm -f "out/generate-${repo}.contract.json"
+    else
+      any=1
+    fi
+  done
+  # shellcheck disable=SC2086  # word splitting is the intent — one arg per repo
+  python3 engine/lib/merge_contracts.py generate out $repos
+  # Every repo failing is a real generate failure — don't hand validate an empty
+  # contract and call the run a success.
+  [ "$any" = "1" ] || return 1
+  return 0
 }
 
 RUN_ID=$(date +%s)-$RANDOM
@@ -222,7 +284,7 @@ relocate_artifacts() {
 # Phase chain (Workflow A: triage->generate->validate; B: analyze->plan->data->generate->validate)
 if [ "$MODE" = "pr" ]; then
   PHASE triage   pr-triage.md    AGENTS.md out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md
-  PHASE generate pr-generate.md  AGENTS.md out/triage.contract.json out/pr.diff out/coverage-gaps.md out/repo-conventions.md
+  GENERATE AGENTS.md out/triage.contract.json out/pr.diff out/coverage-gaps.md out/repo-conventions.md
 elif [ "$MODE" = "tests" ]; then
   # Resume from the APPROVED plan. The reviewed markdown is authoritative (it may have
   # been edited), so it is passed to both phases alongside the snapshotted contract.
@@ -233,15 +295,53 @@ elif [ "$MODE" = "tests" ]; then
     exit 64
   fi
   PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json "testplans/${KEY}.md"
-  PHASE generate pr-generate.md  AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md" out/repo-conventions.md
+  GENERATE AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md" out/repo-conventions.md
 else
   PHASE analyze  jira-analyze.md AGENTS.md out/issue-guidance.md out/ticket.json out/confluence.md
   PHASE testplan jira-testplan.md AGENTS.md out/issue-guidance.md out/analyze.contract.json out/coverage-gaps.md
+  # Adversarial plan review: the plan is the artifact a human approves, and until now
+  # one agent wrote it with nothing arguing back. A read-only ADVERSARY hunts for what
+  # the author missed (negative/boundary/authz/state/cross-repo gaps) and an ARBITER
+  # judges each finding and folds the accepted ones in — only ever ADDING scenarios.
+  # It runs before the human gate, so it changes what the reviewer is asked to approve,
+  # never whether they are asked. Failure of either phase is non-fatal by design: the
+  # authored plan simply stands, exactly as it did before this existed.
+  ADVERSARY_LINE=""
+  rm -f out/planadversary.contract.json out/planarbiter.contract.json
+  if python3 engine/lib/plan_adversary.py enabled; then
+    ADV_RC=0
+    PHASE planadversary jira-plan-adversary.md AGENTS.md out/analyze.contract.json \
+      out/testplan.contract.json "testplans/${KEY}.md" out/coverage-gaps.md || ADV_RC=$?
+    if [ "$ADV_RC" -ne 0 ]; then
+      echo "[plan-adversary] phase failed — the authored plan stands"
+      rm -f out/planadversary.contract.json
+    elif [ -f out/planadversary.contract.json ]; then
+      ARB_RC=0
+      PHASE planarbiter jira-plan-arbitrate.md AGENTS.md out/analyze.contract.json \
+        out/testplan.contract.json out/planadversary.contract.json \
+        "testplans/${KEY}.md" out/resolve.contract.json || ARB_RC=$?
+      # The arbiter's contract REPLACES the plan contract only on success — a failed
+      # arbitration must not hand testdata/generate a half-written scenario set.
+      if [ "$ARB_RC" -eq 0 ] && [ -s out/planarbiter.contract.json ]; then
+        cp out/planarbiter.contract.json out/testplan.contract.json
+      else
+        echo "[plan-adversary] arbitration failed — the authored plan stands"
+        rm -f out/planarbiter.contract.json
+      fi
+    fi
+    ADVERSARY_LINE=$(python3 engine/lib/plan_adversary.py summary || echo "")
+    # `|| true`: an empty line is the normal "disabled/no signal" case, and a bare
+    # `[ -n .. ] && echo` returning 1 as the last statement here would trip set -e.
+    if [ -n "$ADVERSARY_LINE" ]; then echo "[plan-adversary] $ADVERSARY_LINE"; fi
+  fi
   if [ "$MODE" = "plan" ]; then
     # STOP: the plan awaits human review/edit/approval. No test code, no commit.
     relocate_artifacts
-    python3 engine/lib/plan_state.py record "$KEY" out/testplan.contract.json > /dev/null
+    python3 engine/lib/plan_state.py record "$KEY" out/testplan.contract.json "$ADVERSARY_LINE" > /dev/null
     MSG="AI-QE authored a test plan for ${KEY} (testplans/${KEY}.md) — awaiting review/approval. Approve with: make plan-approve KEY=${KEY}"
+    # Tell the reviewer the plan was challenged and how it was resolved — an
+    # invisible arbitration is worth nothing to the human doing the approving.
+    if [ -n "$ADVERSARY_LINE" ]; then MSG="${MSG} (${ADVERSARY_LINE})"; fi
     { TRACKER comment "$KEY" "$MSG"; } || true
     NOTIFY post "$MSG" || true
     echo "PLAN_STATUS=DRAFT testplans/${KEY}.md"
@@ -249,7 +349,7 @@ else
     exit 0
   fi
   PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json
-  PHASE generate pr-generate.md  AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json out/repo-conventions.md
+  GENERATE AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json out/repo-conventions.md
 fi
 PHASE validate validate-repair.md out/generate.contract.json out/repo-conventions.md
 

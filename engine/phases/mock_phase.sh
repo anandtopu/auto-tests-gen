@@ -4,6 +4,9 @@
 # phase's real side effects (writes files) and emits the same JSON contract.
 set -euo pipefail
 PHASE=$1; KEY=$2; WORKDIR=$3
+# Fan-out calls label their output so per-repo contracts don't overwrite each other
+# (see run_phase.sh). The mock must use the same naming or the merge finds nothing.
+OUT="${AIQE_PHASE_LABEL:-$PHASE}"
 mkdir -p out
 case "$PHASE" in
   triage)
@@ -14,6 +17,18 @@ case "$PHASE" in
 EOF
     ;;
   generate)
+    # The mock knows exactly ONE spec, and it is an orders API spec. Under fan-out it
+    # is asked once per resolved test repo, so for any other target it must report
+    # honestly that it produced nothing rather than plant an API spec in a UI repo —
+    # which is what a real LLM phase would decline to do too. This reproduces the
+    # pre-fan-out demo outcome (the UI repo gates as NO_CHANGES) exactly.
+    TARGET="${AIQE_TARGET_REPO:-e2e-api-tests-1}"
+    if [ "$TARGET" != "e2e-api-tests-1" ]; then
+      echo '{"tests":[],"open_questions":["mock phase has no exemplar spec for '"$TARGET"'"]}' \
+        > "out/${OUT}.contract.json"
+      echo "[mock] phase $PHASE ($TARGET) produced no tests"
+      exit 0
+    fi
     T="$WORKDIR/tests/e2e-api-tests-1"
     mkdir -p "$T/suites/orders" "$T/catalog"
     cat > "$T/suites/orders/${KEY}-discount-boundary.spec.js" << EOF
@@ -38,7 +53,7 @@ EOF
     cat >> "$T/catalog/generated.jsonl" << EOF
 {"test_id":"e2e-api-tests-1::suites/orders/${KEY}-discount-boundary.spec.js::${KEY}","file":"suites/orders/${KEY}-discount-boundary.spec.js","title":"${KEY}: discount boundary","layer":"api","mapping":{"app_repos":["orders-api"],"feature":"${KEY}","confidence":1.0,"method":["born_mapped"],"status":"confirmed"}}
 EOF
-    cat > out/generate.contract.json << EOF
+    cat > "out/${OUT}.contract.json" << EOF
 {"tests":[{"file":"suites/orders/${KEY}-discount-boundary.spec.js","name":"${KEY}: boundary","scenario_id":"${KEY}-S1","action":"created"}],"open_questions":[]}
 EOF
     ;;
@@ -62,6 +77,42 @@ EOF
 - AC-3 stacking behavior undefined.
 EOF
     echo '{"scenarios":[{"id":"'"${KEY}"'-S1","title":"boundary rejection","layer":"api","target_repo":"e2e-api-tests-1","behavior_ref":"B2","data_needs":"d1"}],"open_questions":["stacking undefined"]}' > out/testplan.contract.json
+    ;;
+  planadversary)
+    # The opponent: finds what the author MISSED. It never edits the plan.
+    cat > out/planadversary.contract.json << EOF
+{"gaps":[{"title":"discount applied to an already-discounted order (stacking)",
+          "category":"boundary","severity":"high",
+          "rationale":"AC-3 leaves stacking undefined and no scenario probes it"},
+         {"title":"discount POST by a user without the orders:write scope",
+          "category":"authz","severity":"high",
+          "rationale":"the endpoint mutates an order but no scenario exercises authz"}],
+ "verdict":"gaps_found","scenarios_reviewed":1}
+EOF
+    ;;
+  planarbiter)
+    # The arbiter: folds ACCEPTED gaps into the plan and re-emits the plan contract.
+    mkdir -p testplans
+    cat > "testplans/${KEY}.md" << EOF
+# Test Plan — ${KEY}
+## Existing Coverage (from catalog)
+- PROJ-88 discount happy path already covered in e2e-api-tests-1.
+## Scenarios
+| ID | Title | Layer | Target repo | Behavior | Data |
+| ${KEY}-S1 | boundary rejection >90% | api | e2e-api-tests-1 | B2 | d1 |
+| ${KEY}-S2 | stacking on an already-discounted order | api | e2e-api-tests-1 | B1 | d2 |
+| ${KEY}-S3 | discount POST without orders:write scope | api | e2e-api-tests-1 | B2 | d3 |
+## Adversarial review
+Two gaps raised by the plan adversary were accepted (stacking, authz); see §Open Questions.
+## Open Questions
+- AC-3 stacking behavior undefined.
+EOF
+    cat > out/planarbiter.contract.json << EOF
+{"scenarios":[{"id":"${KEY}-S1","title":"boundary rejection","layer":"api","target_repo":"e2e-api-tests-1","behavior_ref":"B2","data_needs":"d1"},
+              {"id":"${KEY}-S2","title":"stacking on an already-discounted order","layer":"api","target_repo":"e2e-api-tests-1","behavior_ref":"B1","data_needs":"d2"},
+              {"id":"${KEY}-S3","title":"discount POST without orders:write scope","layer":"api","target_repo":"e2e-api-tests-1","behavior_ref":"B2","data_needs":"d3"}],
+ "open_questions":["stacking undefined"],"accepted_gaps":2,"rejected_gaps":0}
+EOF
     ;;
   testdata)
     mkdir -p "testdata/${KEY}"

@@ -84,8 +84,12 @@ def build(key, mode="pr"):
         # Labels are STABLE across states — a step ladder whose rows rename
         # themselves mid-run is unreadable; the state carries the progress.
         if status:
+            # The adversarial review is part of what the reviewer is approving, so it
+            # belongs on the step they read — not buried in a run log they never open.
+            adv = (plan.get("adversary") or "").strip()
             steps.append(_step("done", "Author the test plan",
-                               f"testplans/{key}.md ({status})"))
+                               f"testplans/{key}.md ({status})"
+                               + (f" — {adv}" if adv else "")))
         elif plan_pending:
             steps.append(_step("running", "Author the test plan",
                                "queued run in progress"))

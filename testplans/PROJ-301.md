@@ -4,5 +4,9 @@
 ## Scenarios
 | ID | Title | Layer | Target repo | Behavior | Data |
 | PROJ-301-S1 | boundary rejection >90% | api | e2e-api-tests-1 | B2 | d1 |
+| PROJ-301-S2 | stacking on an already-discounted order | api | e2e-api-tests-1 | B1 | d2 |
+| PROJ-301-S3 | discount POST without orders:write scope | api | e2e-api-tests-1 | B2 | d3 |
+## Adversarial review
+Two gaps raised by the plan adversary were accepted (stacking, authz); see §Open Questions.
 ## Open Questions
 - AC-3 stacking behavior undefined.

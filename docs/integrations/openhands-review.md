@@ -181,14 +181,67 @@ run summary posted to the PR/ticket, on the key's review entry, in the Runs view
 beside the gate outcome, via `bin/qa.py critic --findings`, and in the scorecard.
 `AIQE_CRITIC=0` skips it for one run; `critic.enabled: false` disables it estate-wide.
 
-### 3.3 Sub-agents for parallel per-repo generation
+### 3.3 Sub-agents for parallel per-repo generation — **implemented (natively)**
 File-based sub-agents (`.agents/agents/*.md`) with their own `tools`, `model`, `skills`,
 `mcp_config` and budget, plus `TaskToolSet`/`DelegateTool`. Note `enable_sub_agents` is
 **False by default**, and `DelegateTool` has no official docs page (**⚠ unverified**).
 
-Potential fit: fan out generation across the test repos a run resolves to. Our gates
-already run in parallel; generation does not. Only worth it if cross-repo runs become a
-bottleneck.
+Originally filed "only worth it if cross-repo runs become a bottleneck". **The
+existing-approach feature changed the argument, and this is now implemented** — but as
+our own phase fan-out, not via their sub-agents.
+
+The case was never really throughput. `generate` was ONE call regardless of how many
+test repos resolved, and `out/repo-conventions.md` concatenated every resolved repo's
+helpers and exemplars into it. On the case this platform exists for — a contract change
+fanning out to an API repo plus two consumer UI repos — a single agent had to hold three
+repos' approaches at once and not cross-wire them. That is exactly the failure the
+existing-approach work exists to prevent, and generation was the last place still
+inviting it. Correctness, not latency.
+
+`GENERATE` in `engine/pipeline.sh` now runs one agent per resolved test repo, each given
+only its own `out/repo-conventions-<repo>.md` and a `{{TARGET_REPO}}` instruction
+confining its writes to that repo; `engine/lib/merge_contracts.py` merges the labeled
+per-repo contracts back into the single `out/generate.contract.json` shape everything
+downstream expects, stamping `repo` onto each test. A single resolved repo takes the old
+path unchanged, so the common case pays nothing. A per-repo failure is contained — the
+merge records the skipped repo and the others still reach the gate, matching the partial
+success the per-repo gate already allows (§5.8.5); all repos failing is still a failure.
+`AIQE_GENERATE_FANOUT=0` forces the single-agent path.
+
+We did **not** adopt their sub-agent machinery to do it: `enable_sub_agents` is off by
+default, `DelegateTool` is undocumented, and the whole thing would have moved per-phase
+`--allowedTools`/`--max-turns` policy out of `org-config.yaml`. Fan-out at the phase
+layer keeps the budget guard, the cost ledger row per repo, and the contract schemas
+exactly as they were.
+
+### 3.5 Adversarial test-plan review — **implemented**
+Not from an OpenHands feature, but from the same "second opinion" reasoning as the
+critic (§3.2), applied one artifact earlier.
+
+The test plan is what a human actually reads and approves (journey J5), and it was
+written by one agent with nothing arguing back. A single author optimizes for covering
+the stated acceptance criteria; the defects that reach production live in what the
+criteria never said — the absent token, the value one past the cap, the second
+submission of the same request.
+
+Workflow B now runs author → **adversary** → **arbiter** before the human gate:
+`prompts/jira-plan-adversary.md` (read-only, hunts negative/boundary/authz/state/
+cross-repo/data gaps and raises findings) and `prompts/jira-plan-arbitrate.md` (judges
+each finding, folds accepted ones in as new scenarios, and writes an "Adversarial
+review" section so the reviewer can see the challenge happened).
+
+Safety mirrors the critic, structurally rather than by intention: the adversary gets
+**read-only tools** — an opponent that can edit the plan is just a second author — the
+arbiter may only ADD (a misfiring adversary costs a redundant scenario, never a lost
+one), both phases are non-fatal so a failure leaves the authored plan standing, and it
+all happens *before* the approval gate, so it changes what the human is asked to approve
+and never whether they are asked. `engine/lib/plan_adversary.py` normalizes the signal
+and stores its one-line summary on the plan state, so the ticket comment, the Test plans
+view and the Guided run wizard all show it. `AIQE_PLAN_ADVERSARY=0` skips it.
+
+This is the cheapest quality buy in the pipeline: plans cost a fraction of specs, and
+every scenario rescued here is a coverage gap that would otherwise be found in
+production.
 
 ### 3.4 Managed MCP / LLM gateway (Enterprise)
 Enterprise adds a LiteLLM gateway with budgeting, plus "managed MCP hosting"
@@ -240,8 +293,10 @@ Verification Stack blog argues for exactly the layered gating we implement.
 `qa-guide.md` in `GUIDANCE_FILES`, 2.4 path-triggered skills, 3.2 advisory critic).
 3.1 (ACP) stays deferred on a real upstream blocker — `tools`, `mcp_config`,
 `condenser` and `critic` raise `NotImplementedError` on `ACPAgent`, so adopting it
-would cost us per-phase `--allowedTools` and `--max-turns`. 3.3 (sub-agents) and 3.4
-(enterprise gateway) remain unjustified at current scale.
+would cost us per-phase `--allowedTools` and `--max-turns`. 3.3 is now implemented as a
+native phase fan-out (the existing-approach feature turned it from a throughput question
+into a correctness one), joined by 3.5 adversarial plan review. Only 3.4 (enterprise
+gateway) remains unjustified at current scale.
 
 Licence reality check: everything under `enterprise/` is **PolyForm Free Trial** (30
 days/year without a commercial licence). The SDK, agent server, `extensions` skills and

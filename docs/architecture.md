@@ -573,6 +573,43 @@ Its verdict labels (`accept`/`review`/`weak`) are recomputed from org-config thr
 
 The deliberate omission is `IterativeRefinementConfig`: auto-retrying below a threshold would put a model in the approval path, which is exactly what §5.8's gate design rules out.
 
+#### 5.8.8 Per-repo generation fan-out — one agent per test repo
+
+Generation used to be a single LLM call no matter how many test repos a run resolved to, with every repo's shared helpers and exemplar specs concatenated into one `out/repo-conventions.md`. On the case this architecture exists for — the contract change of §5.8.2 fanning out to an API repo plus its consumer UI repos — that asked one agent to hold three repos' approaches simultaneously and not cross-wire them. It is exactly the failure mode the existing-approach exemplars were introduced to prevent, and generation was the last phase still structured to invite it. The argument is correctness, not throughput; the gates were already parallel.
+
+`GENERATE` in `engine/pipeline.sh` now fans out when ≥2 test repos resolve:
+
+| Concern | How the fan-out handles it |
+|---|---|
+| Convention isolation | each agent gets only `out/repo-conventions-<repo>.md`, built by `spec_exemplars.build([repo])` for that repo alone |
+| Write confinement | the prompt's `{{TARGET_REPO}}` names the one repo the agent may write to; scenarios routed elsewhere are explicitly another agent's work |
+| Contract shape | `engine/lib/merge_contracts.py` merges the labeled per-repo contracts back into one `out/generate.contract.json`, stamping `repo` on each test — validate, the run record, the PR comment and the scorecard are unchanged |
+| Cost accounting | `AIQE_PHASE_LABEL` renames a phase's *output artifacts* (and its `out/cost.tsv` row) without changing which `org-config.yaml` policy it runs under, so per-phase `--allowedTools`/`--max-turns` and the budget guard apply per repo |
+| Partial failure | a failed repo is recorded in `fanout.skipped` with an open question and the other repos still reach the gate — the same partial success §5.8.5 already allows. *All* repos failing is still a run failure |
+| Cost of the common case | a single resolved repo takes the original single-call path; `AIQE_GENERATE_FANOUT=0` forces it always |
+
+Notably this is our own phase-layer fan-out, not OpenHands sub-agents: `enable_sub_agents` is off by default, `DelegateTool` is undocumented, and delegating would have moved per-phase tool policy out of `org-config.yaml`.
+
+#### 5.8.9 Adversarial test-plan review — challenging the plan before a human approves it
+
+The §5.8.4 test plan is the artifact a human actually reads and signs off, and it was authored by a single agent with nothing arguing back. A lone author optimizes for covering the *stated* acceptance criteria; the defects that reach production live in what the criteria never said — the absent token, the value one past the cap, the second submission of the same request. Reviewing that plan is the one place where a second opinion is cheap: plans cost a fraction of specs, and a scenario rescued here is a coverage gap that would otherwise surface in production.
+
+Workflow B therefore runs **author → adversary → arbiter** between `testplan` and the human approval gate:
+
+- the **adversary** (`prompts/jira-plan-adversary.md`) reads the plan, the analyze contract and the coverage gaps, and raises only what the plan misses — categorized `negative` / `boundary` / `authz` / `state` / `cross-repo` / `data`, each with a severity and a rationale. It is instructed not to re-raise the plan's own open questions and not to pad; an empty list is a legitimate answer.
+- the **arbiter** (`prompts/jira-plan-arbitrate.md`) judges each finding, adds accepted gaps as new scenarios continuing the existing ID sequence (never renumbering the author's), routes them by layer from the resolution contract, and rewrites the plan with an **Adversarial review** section recording how many gaps were raised, accepted and rejected. A real gap whose correct behavior the ticket leaves undefined becomes an Open Question, not an invented expectation.
+
+The safety properties mirror the advisory critic and are structural:
+
+| Property | Enforced by |
+|---|---|
+| The opponent cannot edit what it criticizes | `phases.planadversary.allowed_tools` is `Read` (pinned by test) — an adversary that can write is just a second author |
+| It can only ever add coverage | the arbiter's prompt makes the output a superset of the author's scenarios; a misfiring adversary costs a redundant scenario, never a lost one |
+| It cannot fail a run | both phases run non-fatally; a failed adversary or a failed/empty arbitration leaves the authored plan and its contract untouched |
+| It cannot bypass human review | it runs *before* the approval gate, so it changes **what** the reviewer is asked to approve and never **whether** they are asked |
+
+`engine/lib/plan_adversary.py` normalizes the signal (unknown categories and severities are coerced, not trusted) and is total against missing or malformed contracts. Its one-line summary is stored on the plan state entry — `out/` is per-run scratch, so without that the reviewer opening the plan tomorrow would have no idea it was ever challenged — and surfaces in the ticket comment, the Test plans view and the Guided run wizard. `AIQE_PLAN_ADVERSARY=0` skips it for a run; `plan_adversary.enabled: false` disables it estate-wide.
+
 ### 5.9 Test Catalog & Mapping Subsystem (new in v2.0)
 
 **The problem this solves:** six existing E2E test repos (3 API, 3 UI) contain tests with no recorded relationship to application repositories or features. Without that mapping, the platform cannot (a) route triggers to the right test repo, (b) decide update-vs-create (leading to duplicate tests), or (c) report requirement coverage. The registry's `covers:` map in §5.8.1 is therefore **derived from the catalog**, not hand-authored.

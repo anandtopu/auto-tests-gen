@@ -97,6 +97,7 @@ sequenceDiagram
     P->>P: refresh AGENTS.md + coverage gaps (surface with NO test)
     Note over P,LLM: budget guard BEFORE every phase (cost from out/cost.tsv +<br/>wall-clock vs org-config budgets / MAX_COST_USD_PER_RUN) —<br/>over limit → exit 77 BUDGET_EXCEEDED + notify, gate never runs
     P->>LLM: triage (diff + catalog slice + gaps) → generate specs + sidecar<br/>(+ existing-approach exemplars: real helper/spec code<br/>from the target repo — no new approach) → validate
+    Note over P,LLM: ≥2 test repos resolved → generate FANS OUT: one agent per repo,<br/>each seeing ONLY its own conventions + confined to its own repo<br/>(merge_contracts.py merges back; a per-repo failure is contained)
     P->>LLM: critic (advisory quality score — read-only, never gates)
     par one gate per test repo (parallel)
         P->>G: gate.sh KEY repo
@@ -133,7 +134,9 @@ sequenceDiagram
     P->>P: resolve (component map + label restrictions, e.g. api-only)
     Note over P,LLM: budget guard before every phase (same as Workflow A) —<br/>over limit → exit 77 + notify
     P->>LLM: analyze (guidance + ticket + Confluence)
-    P->>LLM: testplan (+ coverage gaps) → testdata → generate<br/>(+ existing-approach exemplars — no new approach) → validate
+    P->>LLM: testplan (+ coverage gaps)
+    P->>LLM: plan adversary (READ-ONLY: what did the author miss?)<br/>→ arbiter (judges each gap, ADDS accepted scenarios)<br/>non-fatal — a failure leaves the authored plan standing
+    P->>LLM: testdata → generate<br/>(+ existing-approach exemplars — no new approach; fans out per repo) → validate
     P->>LLM: critic (advisory quality score — read-only, never gates)
     P->>G: parallel gates (same as Workflow A)
     G-->>P: GATE_STATUS per repo
@@ -393,7 +396,7 @@ but only for an **approved** plan.
 
 ```mermaid
 flowchart TD
-    T["JIRA ticket (story or bug)<br/>or pasted text"] --> ENTRY["Entry: make plan · UI queue <b>Plan only</b> /<br/>Author plan (queue) · OpenHands test-plan agent<br/>(description passed as DATA)"] --> P1["pipeline.sh plan &lt;KEY&gt;<br/>resolve → clone → analyze → testplan"]
+    T["JIRA ticket (story or bug)<br/>or pasted text"] --> ENTRY["Entry: make plan · UI queue <b>Plan only</b> /<br/>Author plan (queue) · OpenHands test-plan agent<br/>(description passed as DATA)"] --> P1["pipeline.sh plan &lt;KEY&gt;<br/>resolve → clone → analyze → testplan<br/>→ <b>adversary → arbiter</b> (challenge the plan<br/>BEFORE a human is asked to approve it)"]
     P1 --> STOP(["STOP · PLAN_STATUS=DRAFT<br/>testplans/&lt;KEY&gt;.md + contract snapshot<br/>comments on the ticket · no test code, no commit,<br/>no run record (never reached the gate)"])
     STOP --> RV{"human review<br/>(Test plans view / make plan-*)"}
     RV -- "request changes" --> ED["edit the plan"]

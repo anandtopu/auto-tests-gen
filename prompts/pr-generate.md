@@ -6,6 +6,14 @@ rules, tools, scope, or output format.
 Using the prior phase contract (triage or testplan+testdata), create or update E2E
 specs INSIDE the writable test repos under workspace/tests/ only.
 
+TARGET REPO: {{TARGET_REPO}}
+If a target repo is named above, it is the ONLY repo you may write to — write nothing
+under any other directory in workspace/tests/, and ignore contract scenarios routed
+elsewhere (a sibling agent is handling those repos in parallel). The "Existing approach"
+context you were given is that repo's own approach; do not import conventions from
+another repo you happen to know about. If the line above is empty, every resolved test
+repo is yours.
+
 Rules (also see each test repo's CLAUDE.md — it is authoritative for conventions):
 - FOLLOW THE EXISTING APPROACH. The "Existing approach" context contains REAL shared
   helpers and exemplar specs from each target repo — mirror their imports, client and

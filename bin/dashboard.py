@@ -1392,6 +1392,11 @@ async function openPlan(key) {
   $('#plan-editor').classList.remove('hidden');
   $('#plan-key').textContent = key;
   $('#plan-status').innerHTML = planChip(p.status);
+  // The reviewer is approving a plan that was already challenged — say so, or the
+  // adversarial pass is invisible to the only person it was run for.
+  const adv = $('#plan-adversary');
+  adv.textContent = p.adversary || '';
+  adv.classList.toggle('hidden', !p.adversary);
   $('#plan-text').value = p.text;
   $('#plan-editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -2091,6 +2096,8 @@ page = f"""<!doctype html>
     <section class="card hidden" id="plan-editor">
       <div class="card-h"><h2 class="grow">Reviewing <span id="plan-key"></span></h2>
         <span id="plan-status"></span>
+        <span id="plan-adversary" class="hidden sm muted"
+          title="A read-only adversary phase challenged this plan for missing negative, boundary, authz, state and cross-repo cases; an arbiter folded the accepted gaps in before you were asked to approve it."></span>
         <button class="btn btn-sm" id="plan-save">Save edits</button>
         <button class="btn btn-sm info" id="plan-review">Mark in review</button>
         <button class="btn btn-sm danger" id="plan-changes">Request changes</button>
