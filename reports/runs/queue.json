@@ -271,5 +271,31 @@
     "finished": 1785248716.8342507,
     "exit_code": 0,
     "inline_file": null
+  },
+  {
+    "id": "q1785251466-22",
+    "mode": "plan",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "sweep54",
+    "status": "done",
+    "ts": 1785251466.746699,
+    "finished": 1785251482.7421985,
+    "exit_code": 0,
+    "inline_file": null
+  },
+  {
+    "id": "q1785251584-23",
+    "mode": "jira",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "taskevent",
+    "status": "done",
+    "ts": 1785251584.3674164,
+    "finished": 1785251618.7210236,
+    "exit_code": 0,
+    "inline_file": null
   }
 ]

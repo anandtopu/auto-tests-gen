@@ -222,7 +222,11 @@ def test_dashboard_page_carries_every_new_feature_surface():
     html = (ROOT / "reports/dashboard.html").read_text(encoding="utf-8")
     for marker in ("Curated guidance file", "cur-save", "cur-export",
                    "Plan only", "plan-author-oh", "inl-plan-oh",
-                   "fetch-rel-known", "PR coverage report"):
+                   "fetch-rel-known", "PR coverage report",
+                   # view persistence: mutation reloads (repo remove, settings
+                   # save/clear) must return to the view they started from,
+                   # not dump the user on Overview
+                   "history.replaceState", "location.hash.replace"):
         assert marker in html, f"UI surface lost from the page: {marker}"
     import re as _re
     script = max(_re.findall(r"<script>(.*?)</script>", html, _re.S), key=len)

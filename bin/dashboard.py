@@ -934,7 +934,16 @@ function go(view) {
   $$('[data-view]').forEach(v => v.classList.toggle('on', v.dataset.view === view));
   $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.go === view));
   $('#view-title').textContent = TITLES[view] || view;
+  // Persist the active view in the URL hash: repo add/edit/remove, settings
+  // saves and clears finish with location.reload(), and without this every
+  // reload dumped the user back on Overview instead of the view they were in.
+  try { history.replaceState(null, '', '#' + view); } catch (e) { /* file:// */ }
 }
+// Restore the view a mutation-reload came from (deep links work too).
+(function () {
+  const wanted = location.hash.replace('#', '');
+  if (wanted && TITLES[wanted]) go(wanted);
+})();
 document.addEventListener('click', e => {
   const nav = e.target.closest('[data-go]');
   if (nav) go(nav.dataset.go);
