@@ -191,8 +191,28 @@ capped at 20KB. Suite: 451 passing.
 2. Mock stubs still bypass `extract_contract.py` (real path now proven; stub passthrough remains cosmetic).
 3. Playwright execution unproven in this sandbox (browser CDN blocked) — framework abstraction verified via node-test; validate Playwright path in week 1 of real rollout.
 4. OpenHands Path-1 live wiring (weeks 3–4 of the delivery plan); Path-2 mechanics fully proven.
-5. **Parity re-run against the existing-approach exemplars** (July 2026): `make parity-pr` is currently blocked by an expired Claude CLI OAuth session (`claude login`, or set `ANTHROPIC_API_KEY` in `.env` — the CLI path exports it since the config-layering fix). Once re-authed, run it to watch real generation mirror `out/repo-conventions.md` (helpers/exemplars) and confirm the critic raises no `new-approach` findings.
+5. **BACKLOG — real-LLM parity run for the three quality claims mock cannot test.**
 
-6. **Multi-agent phases want a real-LLM run too** (July 2026): per-repo generation fan-out (architecture §5.8.8) and adversarial plan review (§5.8.9) are proven mechanically under `AIQE_MOCK=1` — labeled contracts, merge, containment of a per-repo failure, arbitration replacing the plan contract, and every off-switch. What mock cannot show is the *quality* claim behind each: that a confined agent mirrors its own repo's approach more faithfully than one holding three repos at once, and that the adversary raises gaps a real author actually missed. Both ride on the same blocked `make parity-pr` / `parity-jira` as item 5; run them together once the CLI is re-authed.
+   *Status (re-checked 2026-07-28): still blocked.* A single-call probe returns
+   `Failed to authenticate: OAuth session expired and could not be refreshed`.
+   **Unblock with** `claude login` in an interactive terminal, **or** put
+   `ANTHROPIC_API_KEY=...` in `.env` (the pipeline exports it since the
+   config-layering fix). Then `make parity-pr` (~$0.3) and `make parity-jira` (~$1.6).
+
+   Deliberately *not* launched while blocked: `parity-pr` runs
+   `AIQE_MOCK=1 AIQE_REAL_LLM=1`, so the first phase would fail on auth, abort the
+   run, and write a **quarantined run record** — trading the estate's 100% commit
+   rate for a reproduction of a known error.
+
+   Three claims ride on this run. Each is proven *mechanically* under `AIQE_MOCK=1`
+   and unproven *qualitatively*, because the mock phases return fixed output:
+
+   | Claim | Mock proves | Only a real run can show |
+   |---|---|---|
+   | Existing-approach exemplars | `out/repo-conventions.md` is built and passed to every generate AND validate call | that a generated spec actually imports the repo's own helpers and matches its assertion style — and that the critic raises no `new-approach` findings |
+   | Per-repo generation fan-out (§5.8.8) | labeled contracts, the merge, containment of a per-repo failure, the off-switch | that an agent confined to one repo mirrors that repo more faithfully than one holding three repos' conventions at once — the correctness argument the fan-out was built on |
+   | Adversarial plan review (§5.8.9) | adversary → arbiter → plan contract replacement, and that a failure leaves the authored plan standing | that the adversary raises gaps a real author genuinely missed. The mock returns the same two gaps every time: that is plumbing, not judgment |
+
+   Run all three together — they share the same two commands.
 
 **Verdict: build phases B1–B5 complete; five review passes green including real-LLM parity; PoC is integration-ready by demonstration, not assertion.**

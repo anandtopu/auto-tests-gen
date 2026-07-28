@@ -14,7 +14,7 @@ Requires bash (Git Bash on Windows), GNU make, python3 + `pyyaml`/`pytest` (`mak
 make test-routing        # resolver golden tests (pytest registry/tests)
 make demo-pr             # Workflow A end-to-end: mock LLM, real gate/env/git
 make demo-jira           # Workflow B end-to-end (fixture ticket PROJ-301)
-make parity-pr           # Workflow A with REAL claude -p phases + mock adapters (costs ~$0.3)
+make parity-pr           # Workflow A with REAL claude -p phases + mock adapters (costs ~$0.3). BACKLOGGED as of 2026-07-28 — blocked on `Failed to authenticate: OAuth session expired` (fix: `claude login`, or `ANTHROPIC_API_KEY` in .env). Don't launch it while blocked: the first phase fails, the run aborts, and a quarantined run record lands in the estate. See REVIEW.md open item 5 for the three quality claims that depend on it
 make parity-jira         # Workflow B with real phases (costs ~$1.6; needs claude CLI auth)
 make demo-bootstrap      # live catalog bootstrap on both demo test repos
 make test-gate           # adversarial gate regression (4 attacks, tests/gate-adversarial.sh)
