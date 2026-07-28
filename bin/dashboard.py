@@ -1102,7 +1102,9 @@ $('#fetch-btn').addEventListener('click', async () => {
       '<td class="mono sm muted">' + escHtml(i.release || '—') + '</td>' +
       '<td class="right">' +
       (i.mode === 'jira'
-        ? '<button class="btn btn-sm fq" data-n="' + n + '" data-mode="plan">Plan only</button> '
+        ? '<button class="btn btn-sm fq" data-n="' + n + '" data-mode="plan" ' +
+          (i.plan_queued ? 'disabled' : '') + '>' +
+          (i.plan_queued ? 'Plan queued' : 'Plan only') + '</button> '
         : '') +
       '<button class="btn btn-sm fq" data-n="' + n + '" ' +
       (i.queued ? 'disabled' : '') + '>' + (i.queued ? 'Queued' : 'Queue') + '</button></td></tr>'
@@ -1144,11 +1146,19 @@ $('#inl-plan-oh').addEventListener('click', async () => {
   if (needsServer()) return;
   const text = $('#inl-text').value.trim();
   if (!text) { toast('Paste the ticket description first'); return; }
+  const key = $('#inl-key').value.trim();
+  if (!key) {
+    // The OpenHands test-plan agent runs `pipeline.sh plan <KEY>` against the
+    // tracker — without a real ticket key that command cannot succeed. The
+    // pasted-only path is "Queue inline ticket" (synthesizes the ticket).
+    toast('Enter the real ticket key for the OpenHands path — or use ' +
+      '"Queue inline ticket" for pasted-only text');
+    return;
+  }
   try {
     const r = await api('/api/openhands/agent', { method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agent: 'test-plan',
-        target: $('#inl-key').value.trim() || 'ADHOC-inline',
+      body: JSON.stringify({ agent: 'test-plan', target: key,
         description: text }) });
     toast('OpenHands conversation started: ' + (r.conversation_id || 'ok') +
       ' — the plan will stop for human approval');
@@ -1410,7 +1420,13 @@ async function loadCurated() {
       (have.length ? 'Curated on disk: ' + have.join(', ') : 'No curated file yet') +
       '  ·  effective sources for the phases: ' +
       (curatedCache.effective.join(', ') || 'none');
-  } catch (err) { $('#cur-status').textContent = err.message; }
+  } catch (err) {
+    // Reset — keeping the PREVIOUS repo's content in the editor after a failed
+    // load would let a Save write repo A's guidance under repo B.
+    curatedCache = { files: {}, generated: '', effective: [] };
+    $('#cur-text').value = '';
+    $('#cur-status').textContent = err.message;
+  }
 }
 if ($('#cur-text')) {
   $('#cur-file').addEventListener('change', () => {

@@ -16,16 +16,23 @@ what the platform would otherwise have generated.
 Plain "Clear demo data" KEEPS curated files (they are user content, part of
 what the estate *is*); factory reset deletes them along with the registry.
 """
-import pathlib, sys
+import os, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import fs_lock
 
 CURATED_DIR = ROOT / "knowledge/curated"
 FILENAMES = ("AGENTS.md", "CLAUDE.md")
+# Same charset repo_admin enforces at add time — re-checked here as defense in
+# depth, because the name becomes a path segment (incl. drop()'s rmtree) and a
+# hand-edited registry could otherwise smuggle separators or dot-segments.
+_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,63}$")
 
 
 def _known(name):
+    if not _NAME_RE.fullmatch(name or "") or ".." in name:
+        raise SystemExit(f"invalid repo name {name!r}")
     from registry import load_registry
     reg = load_registry()
     names = {r["name"] for s in ("source_repositories", "test_repositories")
@@ -55,19 +62,26 @@ def get(name):
 
 
 def save(name, filename, content):
-    """Persist (or overwrite) a curated guidance file. Empty content deletes."""
+    """Persist (or overwrite) a curated guidance file. Empty content deletes.
+
+    Locked + atomic (fs_lock + tmp/os.replace): the dashboard is a threaded
+    server, and a torn write here would get merged into the estate AGENTS.md
+    every LLM phase reads."""
     _known(name)
     _check_filename(filename)
     p = path_for(name, filename)
-    if not (content or "").strip():
-        p.unlink(missing_ok=True)
-        try:
-            p.parent.rmdir()                       # only if now empty
-        except OSError:
-            pass
-        return {"repo": name, "file": filename, "deleted": True}
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8", newline="\n")
+    with fs_lock.lock(p):
+        if not (content or "").strip():
+            p.unlink(missing_ok=True)
+            try:
+                p.parent.rmdir()                   # only if now empty
+            except OSError:
+                pass
+            return {"repo": name, "file": filename, "deleted": True}
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        tmp.write_text(content, encoding="utf-8", newline="\n")
+        os.replace(tmp, p)
     return {"repo": name, "file": filename,
             "path": p.relative_to(ROOT).as_posix(), "bytes": len(content)}
 

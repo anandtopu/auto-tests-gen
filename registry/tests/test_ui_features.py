@@ -88,21 +88,23 @@ def test_queue_accepts_plan_mode():
         work_queue.remove(item["id"])
 
 
-def test_plan_mode_drains_to_a_draft_plan_end_to_end():
+def test_plan_mode_drains_to_a_draft_plan_end_to_end(tmp_path, monkeypatch):
     """The UI 'Plan only' path: queue plan mode -> drain -> the real pipeline
-    authors the plan and STOPS — plan state is draft, no gate ran."""
+    authors the plan and STOPS — plan state is draft, no gate ran.
 
-    def drain():
-        return subprocess.run([sys.executable,
-                               str(ROOT / "engine/lib/work_queue.py"), "run"],
-                              cwd=ROOT, capture_output=True, text=True,
-                              encoding="utf-8", errors="replace",
-                              stdin=subprocess.DEVNULL, timeout=600,
-                              env={**os.environ, "AIQE_MOCK": "1"})
-
-    drain()          # flush any items left pending by earlier suite tests
+    The queue is ISOLATED to a tmp file (AIQE_QUEUE_FILE): draining the shared
+    reports/runs/queue.json here would execute any real pending work in forced
+    mock mode and mark it done behind the user's back."""
+    qfile = tmp_path / "queue.json"
+    monkeypatch.setattr(work_queue, "FILE", qfile)
     item, _ = work_queue.add("plan", "PROJ-301", requested_by="e2e-test")
-    r = drain()
+    r = subprocess.run([sys.executable,
+                        str(ROOT / "engine/lib/work_queue.py"), "run"],
+                       cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace",
+                       stdin=subprocess.DEVNULL, timeout=600,
+                       env={**os.environ, "AIQE_MOCK": "1",
+                            "AIQE_QUEUE_FILE": str(qfile)})
     assert r.returncode == 0, r.stdout + r.stderr
     # Read the state FILE, not the plan_state module: an earlier suite test may
     # have imported plan_state under a tmp-path env and module caching would
@@ -334,6 +336,10 @@ def test_curated_endpoints_roundtrip_and_export(server):
         assert code == 404
     finally:
         curated_guidance.drop("e2e-api-tests-2")
+        # The save above regenerated AGENTS.md with the test content — restore
+        # the estate file so committed state never carries "# via api".
+        subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")],
+                       cwd=ROOT, capture_output=True, stdin=subprocess.DEVNULL)
 
 
 def test_pr_coverage_endpoint(server):

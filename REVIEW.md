@@ -165,6 +165,27 @@ the LLM check, the dashboard /hooks auth truth table against a real server
 process, bootstrap clone-failure catalog preservation, with-env teardown.
 Suite: 429 passing.
 
+## Pass 8 — UI-feature-set review + data-quality audit (July 2026)
+Data-quality audit of every live store came back CLEAN (records/diffs/reviews/
+queue/plans/catalog/registry/AGENTS.md all coherent); the one gap — unbounded
+queue history — closed with `work_queue.prune_done` wired into `qa.py prune`.
+Review of the post-Pass-7 modules: 9 findings, all fixed. Medium: /api/
+pr-coverage crashed on one malformed run record (records are written
+non-atomically — defensive parse now); curated_guidance.save lacked fs_lock +
+atomic write (a torn file would be merged into the estate AGENTS.md); the E2E
+drain test executed the USER'S real queue in forced mock mode (now isolated to
+a tmp queue file); the server curated-roundtrip test left test content in the
+committed AGENTS.md (finally-regen added). Low: plan-only queue items conflated
+with full runs in the fetched-items marking (mode-aware now, + Plan-queued
+button state); the OpenHands inline path launched an agent against a
+nonexistent ADHOC ticket (a real key is required; pasted-only text keeps the
+inline-queue path); curated repo names re-validated against the charset before
+becoming path segments (defense in depth incl. drop()'s rmtree); a failed
+curated load kept the previous repo's content in the editor (cross-repo save
+hazard — cache reset on error); non-string JSON fields crashed the
+/api/openhands/agent handler thread (typed 400 now) and the description is
+capped at 20KB. Suite: 451 passing.
+
 ## Open items (ticketed, not blocking)
 1. ~~Real-LLM parity run~~ — **done, Pass 5 above.** Full `AIQE_MOCK=0` (real adapters) still needs estate credentials.
 2. Mock stubs still bypass `extract_contract.py` (real path now proven; stub passthrough remains cosmetic).

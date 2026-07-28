@@ -194,11 +194,15 @@ class Handler(BaseHTTPRequestHandler):
                        "text/html; charset=utf-8")
         elif url.path == "/api/items":
             rel = urllib.parse.parse_qs(url.query).get("release", [""])[0]
-            queued = {work_queue.key_of(i) for i in work_queue.load()
-                      if i["status"] in ("queued", "running")}
+            # Mode-aware: a pending PLAN-ONLY item must not mark the ticket's
+            # full-run Queue button as already queued (and vice versa).
+            pending = [i for i in work_queue.load()
+                       if i["status"] in ("queued", "running")]
+            queued = {(i["mode"], work_queue.key_of(i)) for i in pending}
             items = jira_items(rel) + pr_items(rel)
             for i in items:
-                i["queued"] = i["key"] in queued
+                i["queued"] = (i["mode"], i["key"]) in queued
+                i["plan_queued"] = ("plan", i["key"]) in queued
             self._send(200, items)
         elif url.path == "/api/queue":
             self._send(200, work_queue.load())
@@ -285,12 +289,21 @@ class Handler(BaseHTTPRequestHandler):
             import pr_comment
             q = urllib.parse.parse_qs(url.query)
             key = q.get("key", [""])[0]
-            recs = sorted((json.loads(pathlib.Path(f).read_text(encoding="utf-8"))
-                           for f in glob.glob(str(ROOT / "reports/runs/*.json"))
-                           if pathlib.Path(f).name not in
-                           ("reviews.json", "queue.json", "hooks-seen.json")),
-                          key=lambda r: r.get("ts", 0))
-            recs = [r for r in recs if r.get("trigger", {}).get("key") == key]
+            recs = []
+            for f in glob.glob(str(ROOT / "reports/runs/*.json")):
+                if pathlib.Path(f).name in ("reviews.json", "queue.json",
+                                            "hooks-seen.json"):
+                    continue
+                # Defensive parse: records are written non-atomically (tee), so
+                # a request racing a live run — or one corrupt file — must skip
+                # that record, not take the endpoint down for every key.
+                try:
+                    r = json.loads(pathlib.Path(f).read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, OSError):
+                    continue
+                if isinstance(r, dict) and r.get("trigger", {}).get("key") == key:
+                    recs.append(r)
+            recs.sort(key=lambda r: r.get("ts", 0))
             if not recs:
                 self._send(404, {"error": f"no run recorded for {key}"})
                 return
@@ -611,6 +624,14 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 p = json.loads(body or b"{}")
                 import openhands_agents
+                # Type-check up front: a JSON number/object in any field would
+                # otherwise raise Type/AttributeError inside build() and reset
+                # the connection instead of answering 400.
+                fields = {k: p.get(k, "") for k in ("agent", "target", "description")}
+                fields["pr"] = str(p.get("pr") or "")
+                if not all(isinstance(v, str) for v in fields.values()):
+                    self._send(400, {"error": "agent/target/description must be strings"})
+                    return
                 settings_store.load_env_into()
                 if not openhands_mode.enabled():
                     self._send(409, {"error": "OpenHands is disabled (AIQE_OPENHANDS=off).",
@@ -619,8 +640,8 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 try:
                     message = openhands_agents.build(
-                        p.get("agent", ""), p.get("target", ""),
-                        str(p.get("pr") or ""), p.get("description", ""))
+                        fields["agent"], fields["target"],
+                        fields["pr"], fields["description"])
                 except SystemExit as e:
                     self._send(400, {"error": str(e)})
                     return

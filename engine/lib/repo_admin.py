@@ -382,7 +382,7 @@ def repo_local_files(name):
     winner: during a run the clone is newly made so it wins, while after a manual
     sync the cache is newer so it wins. A fixed clone-wins rule let a leftover
     clone from an earlier run silently shadow guidance the user had just synced."""
-    out, seen = [], set()
+    out = []
     synced = {pathlib.Path(f["path"]).name: f for f in _synced_files(name)}
     for fname in GUIDANCE_FILES:
         clone = next((b / fname for b in (ROOT / "workspace/src" / name,
@@ -420,7 +420,6 @@ def repo_local_files(name):
                 pick = ("cache", gen[0])
         if pick is None:
             continue
-        seen.add(fname)
         if pick[0] == "cache":
             out.append(pick[1])
         else:
