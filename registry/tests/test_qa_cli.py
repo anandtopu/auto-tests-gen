@@ -59,6 +59,18 @@ def test_qa_status_and_coverage_run_clean():
         assert r.returncode == 0, f"qa.py {sub} failed: {r.stderr}"
 
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import _demo_state
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _demo_artifacts():
+    """See test_export_plan: assert on seeded state, not on ambient demo state."""
+    cleanup = _demo_state.ensure_generated_run("PROJ-301")
+    yield
+    cleanup()
+
+
 def test_qa_artifacts_view():
     """artifacts <KEY> shows plan/scenarios/tests for a recorded run (JIRA + PR keys)."""
     r = subprocess.run([sys.executable, str(ROOT / "bin/qa.py"), "artifacts", "PROJ-301"],

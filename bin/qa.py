@@ -351,10 +351,15 @@ def cmd_openhands_run(args):
     if not openhands_mode.enabled():
         raise SystemExit("AIQE_OPENHANDS=off — agent launch disabled; the same jobs "
                          "run standalone (pipeline.sh / qa.py; see the skill files)")
-    import openhands_client
-    r = openhands_client.start(msg, repo=args.repo or None,
-                               title=f"AI-QE agent: {args.agent} "
-                                     f"{args.target or ''}".strip())
+    import openhands_client, openhands_events
+    title = f"AI-QE agent: {args.agent} {args.target or ''}".strip()
+    r = openhands_client.start(msg, repo=args.repo or None, title=title)
+    # Same reason as the dashboard paths: a conversation nobody recorded is a
+    # conversation nobody can get back to. `qa.py openhands` lists these.
+    openhands_events.record_launch(r.get("conversation_id", ""),
+                                   url=r.get("url", ""), key=args.target or "",
+                                   repo=args.repo or "", title=title,
+                                   source=f"agent:{args.agent}")
     print(json.dumps(r, indent=2))
 
 

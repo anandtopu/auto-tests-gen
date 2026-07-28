@@ -201,7 +201,17 @@ def check_scm():
         except Exception:
             candidate = []
         if not candidate:
-            return _r(name, "skipped", "no source repositories registered")
+            # Credentials ARE configured — we only got here by passing the token
+            # and URL checks above. There is simply nothing to probe against yet.
+            # Reporting `skipped` renders as "not configured" in the UI, which
+            # reads as "your SCM setup was deleted" — exactly how a factory reset
+            # looks, since it empties the registry while leaving .env untouched.
+            # Mirrors the wrong-adapter case below: configured, unprobed, say so.
+            return _r(name, "ok",
+                      f"{kind} credentials configured; no source repositories "
+                      f"registered to probe against",
+                      "add a repository in the Repositories view (or set "
+                      "AIQE_SMOKE_REPO) to verify the connection end to end")
         if not typed and not untyped:
             # All registered repos are declared for a different SCM adapter.
             return _r(name, "ok",

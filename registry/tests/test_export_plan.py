@@ -1,9 +1,24 @@
 """Regression tests for the test-plan exporter (engine/lib/export_plan.py)."""
 import pathlib, subprocess, sys
 
+import pytest
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import export_plan
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import _demo_state
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _demo_artifacts():
+    """These assertions read the live estate. Seed what is missing so the result
+    depends on the code, not on whatever state the demo happens to be parked in
+    (a plan at `draft` with nothing generated is a legitimate estate state)."""
+    cleanup = _demo_state.ensure_generated_run("PROJ-301")
+    yield
+    cleanup()
 
 
 def run_cli(args):

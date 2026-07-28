@@ -95,7 +95,44 @@ def _entry(state, cid):
     return state.setdefault(cid, {"conversation_id": cid, "status": "",
                                   "events": [], "event_count": 0,
                                   "first_seen": time.time(), "updated": 0,
-                                  "repo": "", "key": "", "error": ""})
+                                  "repo": "", "key": "", "error": "",
+                                  "url": "", "title": "", "source": ""})
+
+
+def record_launch(conversation_id, url="", key="", repo="", title="", source=""):
+    """Record a conversation WE started, at the moment we start it.
+
+    Webhook ingestion alone is not enough to track a conversation. The webhook only
+    arrives if OpenHands can reach a receiver we own, which requires `WebhookSpec`
+    base_url to be configured and routable — frequently it is not, and in a
+    standalone/hybrid posture it may never be. Without this, launching an agent from
+    the UI created a real conversation in OpenHands, showed its id in a toast, and
+    then lost it forever: nothing in the platform could show it, so the user had no
+    way back to work they had started (and paid for).
+
+    So the launch itself is the first, authoritative record. Webhook events later
+    enrich the SAME entry — `record_events`/`record_conversation` call `_entry` with
+    the same conversation id, so status, event counts and errors flow in on top
+    without creating a duplicate. If the webhook never arrives, the row still stands
+    with its URL, and `url` is what actually lets the user go look at it.
+    """
+    cid = str(conversation_id or "").strip()
+    if not cid:
+        return {}
+    with fs_lock.lock(FILE):
+        state = load()
+        e = _entry(state, cid)
+        # Never regress a status the webhooks already established: a launch record
+        # arriving late (retry, re-launch of the same id) must not un-finish a run.
+        if not e.get("status"):
+            e["status"] = "launched"
+        for field, value in (("url", url), ("key", key),
+                             ("repo", repo), ("title", title), ("source", source)):
+            if value and not e.get(field):
+                e[field] = str(value)[:300]
+        e["updated"] = time.time()
+        _save(state)
+    return e
 
 
 def record_events(payload):
@@ -177,6 +214,10 @@ def summary(limit=25):
                     "event_count": e.get("event_count", 0),
                     "error": e.get("error", ""),
                     "updated": e.get("updated", 0),
+                    # `url` is the whole point of tracking a launch: without a way
+                    # back to the conversation, knowing its id helps nobody.
+                    "url": e.get("url", ""), "title": e.get("title", ""),
+                    "source": e.get("source", ""),
                     "last_event": (e["events"][-1]["kind"] if e.get("events") else "")})
     return out
 

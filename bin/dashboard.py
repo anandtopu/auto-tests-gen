@@ -1303,8 +1303,9 @@ $('#inl-plan-oh').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ agent: 'test-plan', target: key,
         description: text }) });
+    refreshOpenHands();
     toast('OpenHands conversation started: ' + (r.conversation_id || 'ok') +
-      ' — the plan will stop for human approval');
+      ' — the plan will stop for human approval; track it under Test plans');
   } catch (err) { toast(err.message); }
 });
 refreshQueue();
@@ -1331,33 +1332,52 @@ if ($('#plan-author')) {
       const r = await api('/api/openhands/agent', { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agent: 'test-plan', target: key }) });
-      toast('OpenHands conversation started: ' + (r.conversation_id || 'ok'));
+      // Show it immediately in the card on THIS page — the whole point of
+      // recording the launch is that the user can follow it from where they were.
+      refreshOpenHands();
+      toast('OpenHands conversation started: ' + (r.conversation_id || 'ok') +
+        ' — tracked in "OpenHands agent runs" below');
     } catch (err) { toast(err.message); }
   });
 }
 
 // ---- OpenHands agent runs (fed by the receiver's webhook routes)
-const OH_CHIP = { running: ['● running','warning'], finished: ['✓ finished','success'],
+const OH_CHIP = { launched: ['◇ launched','info'],
+  running: ['● running','warning'], finished: ['✓ finished','success'],
   complete: ['✓ complete','success'], completed: ['✓ complete','success'],
   error: ['✗ error','danger'], stopped: ['stopped','muted'], cancelled: ['cancelled','muted'] };
+// Rendered into EVERY .oh-card on the page, not just the Runs view: an agent
+// launched from Test plans used to leave the user on a page that could not show
+// it. The launcher and the tracker belong next to each other.
 async function refreshOpenHands() {
-  if (!served || !$('#oh-table')) return;
+  const cards = document.querySelectorAll('.oh-card');
+  if (!served || !cards.length) return;
   try {
     const rows = await api('/api/openhands');
-    if (!rows.length) { $('#oh-card').classList.add('hidden'); return; }
-    $('#oh-card').classList.remove('hidden');
-    $('#oh-table tbody').innerHTML = rows.map(r => {
-      const [lb, cls] = OH_CHIP[r.status] || [r.status || 'running', 'info'];
-      return '<tr><td class="mono sm">' + escHtml(r.conversation_id.slice(0, 28)) + '</td>' +
-        '<td><span class="chip chip-' + cls + '">' + escHtml(lb) + '</span>' +
-        (r.error ? '<div class="sm danger-fg">' + escHtml(r.error.slice(0, 70)) + '</div>' : '') +
-        '</td><td class="sm">' + escHtml(r.repo || r.key || '—') + '</td>' +
-        '<td class="num">' + r.event_count + '</td>' +
-        '<td class="sm muted">' + escHtml(r.last_event || '—') + '</td></tr>';
-    }).join('');
-    $('#oh-count').textContent = rows.length + ' conversation(s) · ' +
-      rows.filter(r => !r.terminal).length + ' in flight';
-  } catch (err) { /* advisory panel — never block the Runs view */ }
+    cards.forEach(card => {
+      const tb = card.querySelector('tbody'), count = card.querySelector('.oh-count');
+      if (!rows.length) { card.classList.add('hidden'); return; }
+      card.classList.remove('hidden');
+      tb.innerHTML = rows.map(r => {
+        const [lb, cls] = OH_CHIP[r.status] || [r.status || 'running', 'info'];
+        const id = escHtml(r.conversation_id.slice(0, 28));
+        // Link out when we know the URL — recording the id is only useful if the
+        // user can actually reach the conversation.
+        const idCell = r.url
+          ? '<a href="' + escAttr(r.url) + '" target="_blank" rel="noopener">' + id + '</a>'
+          : id;
+        return '<tr><td class="mono sm">' + idCell +
+          (r.title ? '<div class="sm muted">' + escHtml(r.title.slice(0, 48)) + '</div>' : '') +
+          '</td><td><span class="chip chip-' + cls + '">' + escHtml(lb) + '</span>' +
+          (r.error ? '<div class="sm danger-fg">' + escHtml(r.error.slice(0, 70)) + '</div>' : '') +
+          '</td><td class="sm">' + escHtml(r.repo || r.key || '—') + '</td>' +
+          '<td class="num">' + r.event_count + '</td>' +
+          '<td class="sm muted">' + escHtml(r.last_event || '—') + '</td></tr>';
+      }).join('');
+      count.textContent = rows.length + ' conversation(s) · ' +
+        rows.filter(r => !r.terminal).length + ' in flight';
+    });
+  } catch (err) { /* advisory panel — never block the view it sits in */ }
 }
 refreshOpenHands();
 
@@ -2012,10 +2032,10 @@ page = f"""<!doctype html>
   </div>
 
   <div data-view="runs">
-    <section class="card hidden" id="oh-card">
+    <section class="card hidden oh-card">
       <div class="card-h"><h2 class="grow">OpenHands agent runs</h2>
-        <span class="sub" id="oh-count"></span></div>
-      <div class="scroll"><table id="oh-table">
+        <span class="sub oh-count"></span></div>
+      <div class="scroll"><table class="oh-table">
         <thead><tr><th>conversation</th><th>status</th><th>repo / ticket</th>
           <th class="num">events</th><th>last event</th></tr></thead>
         <tbody></tbody></table></div>
@@ -2076,6 +2096,14 @@ page = f"""<!doctype html>
   </div>
 
   <div data-view="plans">
+    <section class="card hidden oh-card">
+      <div class="card-h"><h2 class="grow">OpenHands agent runs</h2>
+        <span class="sub oh-count"></span></div>
+      <div class="scroll"><table class="oh-table">
+        <thead><tr><th>conversation</th><th>status</th><th>repo / ticket</th>
+          <th class="num">events</th><th>last event</th></tr></thead>
+        <tbody></tbody></table></div>
+    </section>
     <section class="card">
       <div class="card-h"><div><h2>Test plans from JIRA</h2>
         <div class="sub">Author a plan from a ticket (<code>make plan KEY=…</code>), then

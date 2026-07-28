@@ -671,9 +671,17 @@ class Handler(BaseHTTPRequestHandler):
                 except SystemExit as e:
                     self._send(400, {"error": str(e)})
                     return
+                title = f"AI-QE agent: {fields['agent']} {fields['target']}".strip()
                 result = openhands_client.start(
                     message, repo=os.environ.get("AIQE_CONTROL_REPO", "") or None,
-                    title=f"AI-QE agent: {p.get('agent')} {p.get('target', '')}".strip())
+                    title=title)
+                # Record it NOW. Webhook ingestion only fires if OpenHands can reach
+                # a receiver we own; without this the conversation is real but
+                # invisible, and the user cannot get back to it.
+                openhands_events.record_launch(
+                    result.get("conversation_id", ""), url=result.get("url", ""),
+                    key=fields["target"], repo=os.environ.get("AIQE_CONTROL_REPO", ""),
+                    title=title, source=f"agent:{fields['agent']}")
                 self._send(200, {"ok": True, **result})
             except (KeyError, json.JSONDecodeError) as e:
                 self._send(400, {"error": str(e)})
@@ -721,10 +729,16 @@ class Handler(BaseHTTPRequestHandler):
                     message = (f"Run the AI-QE pipeline: "
                                f"bash engine/pipeline.sh jira {target}")
 
+                title = (f"AI-QE: {mode} {target}"
+                         + (f" #{p['pr']}" if mode == "pr" else ""))
                 result = openhands_client.start(
-                    message, repo=ctrl_repo or None, branch=branch,
-                    title=f"AI-QE: {mode} {target}" + (f" #{p['pr']}" if mode == "pr" else ""),
-                )
+                    message, repo=ctrl_repo or None, branch=branch, title=title)
+                # See the /agent path: the launch is the first authoritative record,
+                # webhooks only enrich it.
+                openhands_events.record_launch(
+                    result.get("conversation_id", ""), url=result.get("url", ""),
+                    key=str(target), repo=ctrl_repo, title=title,
+                    source=f"trigger:{mode}")
                 self._send(200, {"ok": True, **result})
             except (KeyError, json.JSONDecodeError) as e:
                 self._send(400, {"error": str(e)})

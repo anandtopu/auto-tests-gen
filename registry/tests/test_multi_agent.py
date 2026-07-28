@@ -314,3 +314,109 @@ def test_no_caller_double_records_the_link():
         src = (ROOT / f).read_text(encoding="utf-8")
         assert "mark_linked" not in src, \
             f"{f} must let attach_to_jira record the reference, not do it itself"
+
+
+# ------------------------------- OpenHands conversation tracking (user bug)
+
+def test_a_launched_conversation_is_visible_without_any_webhook(tmp_path, monkeypatch):
+    """Launching an agent created a real conversation in OpenHands and then lost it:
+    /api/openhands is webhook-fed, and the webhook only arrives if OpenHands can
+    reach a receiver we own. Users saw "conversation created" and had no way back
+    to work they had started. The launch itself must be the first record."""
+    import openhands_events as ev
+    monkeypatch.setattr(ev, "FILE", tmp_path / "state.json")
+
+    assert ev.summary() == []
+    ev.record_launch("conv-abc", url="https://oh.example/c/conv-abc",
+                     key="PROJ-301", title="AI-QE agent: test-plan PROJ-301",
+                     source="agent:test-plan")
+    rows = ev.summary()
+    assert len(rows) == 1
+    assert rows[0]["conversation_id"] == "conv-abc"
+    assert rows[0]["status"] == "launched"
+    # The URL is the point — an id the user cannot click through to is not tracking.
+    assert rows[0]["url"] == "https://oh.example/c/conv-abc"
+    assert rows[0]["key"] == "PROJ-301"
+
+
+def test_webhook_events_enrich_the_launch_record_instead_of_duplicating(tmp_path, monkeypatch):
+    import openhands_events as ev
+    monkeypatch.setattr(ev, "FILE", tmp_path / "state.json")
+
+    ev.record_launch("conv-1", url="https://oh.example/c/conv-1", key="PROJ-301")
+    ev.record_conversation({"conversation_id": "conv-1", "status": "finished"})
+    rows = ev.summary()
+    assert len(rows) == 1, "the webhook must update the launch row, not add a second"
+    assert rows[0]["status"] == "finished" and rows[0]["terminal"] is True
+    assert rows[0]["url"] == "https://oh.example/c/conv-1", "URL survives enrichment"
+
+
+def test_launch_never_regresses_a_status_the_webhooks_established(tmp_path, monkeypatch):
+    """A retried or duplicate launch record must not un-finish a completed run."""
+    import openhands_events as ev
+    monkeypatch.setattr(ev, "FILE", tmp_path / "state.json")
+    ev.record_conversation({"conversation_id": "c9", "status": "finished"})
+    ev.record_launch("c9", url="https://oh.example/c/c9")
+    assert ev.summary()[0]["status"] == "finished"
+    assert ev.record_launch("") == {}, "a blank conversation id records nothing"
+
+
+def test_every_launch_path_records_the_conversation():
+    """Three entry points start conversations. All must record, or the bug returns
+    on whichever one was missed."""
+    for f in ("bin/dashboard_server.py", "bin/qa.py"):
+        src = (ROOT / f).read_text(encoding="utf-8")
+        starts = src.count("openhands_client.start(")
+        records = src.count("openhands_events.record_launch(")
+        assert records >= starts, (
+            f"{f}: {starts} conversation launch(es) but only {records} recorded")
+
+
+def test_the_tracker_card_is_not_confined_to_one_view():
+    """The card was only in the Runs view, so an agent launched from Test plans left
+    the user on a page that could not show it."""
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert src.count('class="card hidden oh-card"') >= 2, \
+        "the OpenHands card must appear where agents are launched, not only in Runs"
+    assert "document.querySelectorAll('.oh-card')" in src, \
+        "refreshOpenHands must populate every card, not a single id"
+
+
+# ------------------------- integration check after a factory reset (user bug)
+
+def test_configured_scm_with_an_empty_registry_is_not_reported_unconfigured(monkeypatch):
+    """A factory reset empties the registry and leaves .env untouched. The SCM check
+    needed a repo to probe, found none, and returned `skipped` — which the UI renders
+    as "not configured". Intact Stash credentials read as deleted, while JIRA and
+    OpenHands (which never consult the registry) still reported connected."""
+    import integration_check, registry as reg_mod
+    for k, v in (("SCM_KIND", "stash"), ("STASH_TOKEN", "t"),
+                 ("STASH_URL", "https://stash.example.com"), ("STASH_PROJECT", "QE")):
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(reg_mod, "load_registry",
+                        lambda *a, **k: {"source_repositories": [],
+                                         "test_repositories": []})
+    r = integration_check.check_scm()
+    assert r["status"] == "ok", "configured credentials must not read as 'not configured'"
+    assert "credentials configured" in r["detail"]
+    assert "no source repositories" in r["detail"]
+    assert r["hint"], "tell the user how to get a full end-to-end verification"
+
+
+def test_an_actually_unconfigured_scm_still_reports_not_configured(monkeypatch):
+    """The fix must not turn a genuinely unconfigured SCM green."""
+    import integration_check, registry as reg_mod
+    monkeypatch.setenv("SCM_KIND", "stash")
+    for k in ("STASH_TOKEN", "STASH_URL", "STASH_PROJECT"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(reg_mod, "load_registry",
+                        lambda *a, **k: {"source_repositories": []})
+    r = integration_check.check_scm()
+    assert r["status"] == "skipped" and "not set" in r["detail"]
+
+
+def test_factory_reset_does_not_touch_env_credentials():
+    """Pins the fact behind the bug report: the credentials were never deleted."""
+    src = (ROOT / "engine/lib/demo_data.py").read_text(encoding="utf-8")
+    assert '".env"' not in src and "'.env'" not in src, \
+        "demo_data must never delete .env — credentials survive every reset"

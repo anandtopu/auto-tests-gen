@@ -669,6 +669,14 @@ under `knowledge/repos/` are cleared, and `AGENTS.md` + path skills are regenera
 against the now-empty estate. Use it to hand the platform over with no residue;
 re-add repos via the Repositories view or `bin/onboard.sh` afterwards.
 
+**Your credentials survive a factory reset.** It never reads or writes `.env`, so
+Stash/JIRA/OpenHands tokens are untouched. What it does remove is the *repositories*,
+and the SCM connection check needs one to probe against — so immediately after a reset
+**Validate connections** reports the SCM as `credentials configured; no source
+repositories registered to probe against` rather than a full green. That is the honest
+state: the setup is intact, it just cannot be end-to-end verified until a repo exists.
+Add one (or set `AIQE_SMOKE_REPO`) and re-run the check for a real probe.
+
 On the lock: a run that was killed or crashed leaves `out/.pipeline.lock` behind, so
 refusing on its mere presence made the button fail forever with a message that wasn't
 true. It now matches `pipeline.sh` — a lock older than 90 minutes is treated as dead

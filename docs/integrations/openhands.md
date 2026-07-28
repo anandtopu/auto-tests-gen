@@ -151,10 +151,20 @@ using the OpenHands-native trigger path.
 
 ## Step 4b — Stream agent events back (recommended)
 
-Without this, a long OpenHands conversation is opaque: the platform learns nothing
-until the pipeline writes its own run record, and a conversation that dies never
-reports at all. The Agent Server can POST its event stream to our TaskEvent receiver
-instead — buffered, retried, and authenticated with a header you choose.
+**Conversations are tracked with or without this.** Every path that starts one —
+the dashboard's *Author via OpenHands* and agent launcher, and `bin/qa.py
+openhands-run` — records the conversation id, its URL and the ticket key the moment
+the conversation is created, so it appears immediately in the **OpenHands agent
+runs** card (Runs *and* Test plans views), in `GET /api/openhands`, and in
+`bin/qa.py openhands`. Click the conversation id to open it in OpenHands.
+
+This step adds *live progress* on top of that. Without it a long conversation is
+opaque: you see that it started and where to find it, but the platform learns
+nothing more until the pipeline writes its own run record, and a conversation that
+dies never reports its failure. The Agent Server can POST its event stream to our
+TaskEvent receiver — buffered, retried, and authenticated with a header you choose.
+Those events enrich the existing row (matched on conversation id); they never create
+a duplicate, and they never overwrite the URL captured at launch.
 
 Add a `webhooks` entry to the Agent Server config (default
 `workspace/openhands_agent_server_config.json`, or point
