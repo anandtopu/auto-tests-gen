@@ -428,6 +428,30 @@
         "note": "test plan authored",
         "status": "draft",
         "ts": 1785263392.8067372
+      },
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1785265767.8928635
+      },
+      {
+        "by": "sweep59",
+        "note": "",
+        "status": "approved",
+        "ts": 1785265773.1001651
+      },
+      {
+        "by": "pipeline",
+        "note": "tests generated (run 1785265775-10841)",
+        "status": "approved",
+        "ts": 1785265805.1917102
+      },
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1785266365.8329027
       }
     ],
     "linked": {
@@ -437,6 +461,6 @@
     },
     "note": "test plan authored",
     "status": "draft",
-    "updated": 1785263392.806734
+    "updated": 1785266365.8329008
   }
 }

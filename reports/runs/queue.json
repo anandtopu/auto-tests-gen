@@ -1,31 +1,5 @@
 [
   {
-    "id": "q1785206187-10",
-    "mode": "plan",
-    "target": "PROJ-301",
-    "pr": null,
-    "release": "",
-    "requested_by": "e2e-test",
-    "status": "done",
-    "ts": 1785206187.6841218,
-    "finished": 1785206197.1363513,
-    "exit_code": 0,
-    "inline_file": null
-  },
-  {
-    "id": "q1785206221-11",
-    "mode": "plan",
-    "target": "PROJ-301",
-    "pr": null,
-    "release": "",
-    "requested_by": "e2e-test",
-    "status": "done",
-    "ts": 1785206221.354814,
-    "finished": 1785206230.6563182,
-    "exit_code": 0,
-    "inline_file": null
-  },
-  {
     "id": "q1785206245-12",
     "mode": "plan",
     "target": "PROJ-301",
@@ -321,6 +295,32 @@
     "status": "done",
     "ts": 1785262797.3831506,
     "finished": 1785262828.1677756,
+    "exit_code": 0,
+    "inline_file": null
+  },
+  {
+    "id": "q1785265752-26",
+    "mode": "plan",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "sweep59",
+    "status": "done",
+    "ts": 1785265752.5078063,
+    "finished": 1785265768.8755484,
+    "exit_code": 0,
+    "inline_file": null
+  },
+  {
+    "id": "q1785265873-27",
+    "mode": "jira",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "taskevent",
+    "status": "done",
+    "ts": 1785265873.4428775,
+    "finished": 1785265906.879961,
     "exit_code": 0,
     "inline_file": null
   }
