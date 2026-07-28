@@ -226,7 +226,7 @@ flowchart TD
         REG["registry/repo-registry.yaml<br/>(repo config · scope · routing hints)"]
         CAT["catalog/*.jsonl<br/>(test knowledge + mappings)"]
         ART["contracts & route tables<br/>(workspace/src/ fresh, demo/ fallback)"]
-        GUI["Per-repo guidance:<br/>knowledge/repos/&lt;name&gt;.md (team notes)<br/>+ repo-local AGENTS.md / CLAUDE.md"]
+        GUI["Per-repo guidance:<br/>knowledge/repos/&lt;name&gt;.md (team notes)<br/>+ repo-local AGENTS.md / CLAUDE.md<br/>+ <b>curated</b> knowledge/curated/&lt;repo&gt;/ (durable,<br/>UI-edited/exported; repo-owned &gt; curated &gt; generated)"]
     end
 
     subgraph SYNC["Guidance sync (on demand, no clone)"]
@@ -290,7 +290,7 @@ flowchart LR
         ST["make status / reviews<br/>(review + release columns)"]
         DB["make serve — authed dashboard (9 views):<br/>Overview · Intake &amp; queue · <b>Test plans</b> ·<br/>Runs &amp; reviews · <b>Trace</b> (story→plan→tests→<br/>gate→review→release timeline) · Artifacts<br/>(code + before/after diff) · Test catalog ·<br/>Repositories · Settings"]
         TRC["qa.py trace &lt;KEY&gt; · GET /api/trace<br/>(trace.py joins plans + runs + reviews)"]
-        AR["qa.py artifacts &lt;KEY&gt;<br/>plan · data · tests · diffs"]
+        AR["qa.py artifacts &lt;KEY&gt;<br/>plan · data · tests · diffs ·<br/>PR coverage report (/api/pr-coverage,<br/>rebuilt from the run record)"]
         REP["make report / qa.py report<br/>(md·html·docx·pdf): completed work ·<br/>queue · throughput · estate health"]
         SC["eval/scorecard.py: commit rate ·<br/>repair loops · update-vs-create ·<br/>acceptance · flakiness"]
     end
@@ -393,7 +393,7 @@ but only for an **approved** plan.
 
 ```mermaid
 flowchart TD
-    T["JIRA ticket (story or bug)<br/>or pasted text"] --> P1["pipeline.sh plan &lt;KEY&gt;<br/>resolve → clone → analyze → testplan"]
+    T["JIRA ticket (story or bug)<br/>or pasted text"] --> ENTRY["Entry: make plan · UI queue <b>Plan only</b> /<br/>Author plan (queue) · OpenHands test-plan agent<br/>(description passed as DATA)"] --> P1["pipeline.sh plan &lt;KEY&gt;<br/>resolve → clone → analyze → testplan"]
     P1 --> STOP(["STOP · PLAN_STATUS=DRAFT<br/>testplans/&lt;KEY&gt;.md + contract snapshot<br/>comments on the ticket · no test code, no commit,<br/>no run record (never reached the gate)"])
     STOP --> RV{"human review<br/>(Test plans view / make plan-*)"}
     RV -- "request changes" --> ED["edit the plan"]

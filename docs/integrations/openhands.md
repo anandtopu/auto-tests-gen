@@ -74,6 +74,14 @@ engine never talks to OpenHands; the launch happens in `bin/qa.py`, honoring
 the copy-paste starter for a manually opened conversation — so every "agent" also
 works with no OpenHands at all: each skill names its standalone CLI path.
 
+The dashboard launches the same presets via `POST /api/openhands/agent`
+(`{agent, target, pr?, description?}`): the Test plans view's **Author via
+OpenHands** button, and the inline pasted-ticket card's **Plan via OpenHands** —
+which hands the pasted JIRA description to the conversation **explicitly framed
+as DATA, never instructions** (the framing is repeated at the injection point so
+a pasted ticket cannot smuggle directives). With `AIQE_OPENHANDS=off` the
+endpoint refuses with a 409 pointing at the standalone plan-only queue mode.
+
 The two `e2e-{api,ui}-conventions` skills remain **generated** (`make skills`) —
 `bin/gen_path_skills.py` writes only those two directories, so the hand-authored
 task skills are never clobbered by a regeneration.

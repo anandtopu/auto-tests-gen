@@ -88,6 +88,49 @@ def test_queue_accepts_plan_mode():
         work_queue.remove(item["id"])
 
 
+def test_plan_mode_drains_to_a_draft_plan_end_to_end():
+    """The UI 'Plan only' path: queue plan mode -> drain -> the real pipeline
+    authors the plan and STOPS — plan state is draft, no gate ran."""
+
+    def drain():
+        return subprocess.run([sys.executable,
+                               str(ROOT / "engine/lib/work_queue.py"), "run"],
+                              cwd=ROOT, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
+                              stdin=subprocess.DEVNULL, timeout=600,
+                              env={**os.environ, "AIQE_MOCK": "1"})
+
+    drain()          # flush any items left pending by earlier suite tests
+    item, _ = work_queue.add("plan", "PROJ-301", requested_by="e2e-test")
+    r = drain()
+    assert r.returncode == 0, r.stdout + r.stderr
+    # Read the state FILE, not the plan_state module: an earlier suite test may
+    # have imported plan_state under a tmp-path env and module caching would
+    # leave the in-process view pointing at that test's store.
+    state = json.loads((ROOT / "reports/plans/state.json")
+                       .read_text(encoding="utf-8"))
+    st = state.get("PROJ-301", {})
+    assert st.get("status") == "draft", f"plan must stop at draft: {st}"
+    assert "GATE_STATUS" not in r.stdout, "plan mode must never reach a gate"
+
+
+def test_curated_content_reaches_the_estate_agents_md():
+    """Curated guidance is a phase-context source: saving it and regenerating
+    must land the content in the estate AGENTS.md every LLM phase reads."""
+    marker = "zz-curated-e2e-marker-4711"
+    try:
+        curated_guidance.save("e2e-api-tests-2", "AGENTS.md", f"# {marker}\n")
+        r = subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")],
+                           cwd=ROOT, capture_output=True, text=True,
+                           encoding="utf-8", stdin=subprocess.DEVNULL, timeout=120)
+        assert r.returncode == 0, r.stderr
+        assert marker in (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    finally:
+        curated_guidance.drop("e2e-api-tests-2")
+        subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")],
+                       cwd=ROOT, capture_output=True, stdin=subprocess.DEVNULL)
+
+
 def test_queue_still_rejects_unknown_modes():
     with pytest.raises(SystemExit):
         work_queue.add("bogus", "X")
@@ -120,6 +163,51 @@ def test_from_record_rebuilds_the_full_delta():
     assert "critic (advisory): 0.9 accept" in md
     assert "run cost: $0.25" in md
     assert "test/PR-x-9-ai-qe" in md
+
+
+def test_from_record_matches_the_live_composer(tmp_path):
+    """build() (live, from out/ scratch) and from_record() (after the fact, from
+    the run record) must produce the SAME report for the same run."""
+    rec = _record([{"file": "suites/a.spec.js", "action": "created"}],
+                  [{"test_repo": "e2e-api-tests-1", "status": "committed",
+                    "commit": "abc1234def"}])
+    out = tmp_path / "out"
+    out.mkdir()
+    for name in ("triage", "generate", "validate", "critic"):
+        c = next(p["contract"] for p in rec["phases"] if p["name"] == name)
+        (out / f"{name}.contract.json").write_text(json.dumps(c), encoding="utf-8")
+    (out / "gate_results.tsv").write_text(
+        "e2e-api-tests-1\tcommitted\t0\tabc1234def\n", encoding="utf-8")
+    (out / "cost.tsv").write_text("generate\t0.250000\t1\t1\n", encoding="utf-8")
+    live = pr_comment.build(tmp_path, "r1", "PR-x-9")
+    replay = pr_comment.from_record(rec)
+    assert live == replay, "the two composition paths must not drift"
+
+
+def test_dashboard_page_carries_every_new_feature_surface():
+    """The static page generator must keep rendering all the new UI surfaces
+    (regression pin — a lost script block or section is invisible to pytest
+    otherwise) and its JS must stay parseable."""
+    r = subprocess.run([sys.executable, str(ROOT / "bin/dashboard.py")],
+                       cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", stdin=subprocess.DEVNULL, timeout=300)
+    assert r.returncode == 0, r.stderr
+    html = (ROOT / "reports/dashboard.html").read_text(encoding="utf-8")
+    for marker in ("Curated guidance file", "cur-save", "cur-export",
+                   "Plan only", "plan-author-oh", "inl-plan-oh",
+                   "fetch-rel-known", "PR coverage report"):
+        assert marker in html, f"UI surface lost from the page: {marker}"
+    import re as _re
+    script = max(_re.findall(r"<script>(.*?)</script>", html, _re.S), key=len)
+    js = ROOT / "out/_uifeat.js"
+    js.write_text(script, encoding="utf-8")
+    try:
+        chk = subprocess.run(["node", "--check", str(js)], capture_output=True,
+                             text=True, encoding="utf-8",
+                             stdin=subprocess.DEVNULL, timeout=60)
+        assert chk.returncode == 0, f"page JS broken: {chk.stderr}"
+    finally:
+        js.unlink(missing_ok=True)
 
 
 def test_from_record_stays_silent_on_no_change_runs():

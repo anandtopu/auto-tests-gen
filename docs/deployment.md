@@ -24,6 +24,7 @@ State layout:
 | Path | Persistence | Contents |
 |---|---|---|
 | `reports/` | **persistent volume** | run records + archived diffs, review board, work queue, exports |
+| `knowledge/curated/` | **committed with the control repo** | user-curated per-repo AGENTS.md/CLAUDE.md (Repositories view) — durable across redeployments because the control repo *is* the deployment; commit it like any config change |
 | `workspace/`, `out/` | ephemeral scratch | per-run clones and phase artifacts (safe to lose) |
 
 The container image (`Dockerfile`) bundles the app, Python 3 + PyYAML, Node 20 (the
