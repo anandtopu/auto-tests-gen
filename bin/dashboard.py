@@ -598,13 +598,15 @@ nav_badges = {
 }
 gen_ts = time.strftime("%Y-%m-%d %H:%M")
 
-NAV = [("overview", "◧", "Overview"), ("queue", "⇥", "Intake & queue"),
+NAV = [("overview", "◧", "Overview"), ("wizard", "✦", "Guided run"),
+       ("queue", "⇥", "Intake & queue"),
        ("plans", "✎", "Test plans"),
        ("runs", "▶", "Runs & reviews"), ("trace", "⇢", "Trace"),
        ("artifacts", "❏", "Artifacts"),
        ("catalog", "☰", "Test catalog"), ("repos", "⛁", "Repositories"),
        ("settings", "⚙", "Settings")]
-TITLES = {"overview": "Overview", "queue": "Intake & work queue",
+TITLES = {"overview": "Overview", "wizard": "Guided run — PR or JIRA, step by step",
+          "queue": "Intake & work queue",
           "plans": "Test plans — review & approval",
           "runs": "Runs & team reviews", "artifacts": "Generated artifacts",
           "catalog": "Test knowledge catalog", "repos": "Repositories & mapping",
@@ -805,6 +807,23 @@ label.stack { display:flex; flex-direction:column; gap:4px; font-size:12px; colo
 .art-head h2 { margin:0; font-size:16px; font-weight:600; }
 .art-sec { padding:16px 24px; border-bottom:1px solid var(--sr-border); }
 .art-sec:last-child { border-bottom:none; }
+/* Guided run (wizard): a numbered step ladder whose state is the engine's, not
+   the page's — every step reflects real queue/run/plan/review state. */
+.wz-row { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+.wz-steps { list-style:none; margin:0; padding:0; display:flex;
+            flex-direction:column; gap:8px; counter-reset:wz; }
+.wz-steps li { display:flex; align-items:flex-start; gap:10px; padding:10px 12px;
+               border:1px solid var(--sr-border); border-radius:8px;
+               background:var(--sr-bg); }
+.wz-steps li::before { counter-increment:wz; content:counter(wz);
+  flex:0 0 22px; height:22px; border-radius:50%; display:grid; place-items:center;
+  font-size:11px; font-weight:700; background:var(--sr-bg-muted); color:var(--sr-fg-muted); }
+.wz-steps li.done::before { content:"✓"; background:#16a34a22; color:#16a34a; }
+.wz-steps li.running::before { content:"◐"; background:#2563eb22; color:#2563eb; }
+.wz-steps li.blocked::before { content:"!"; background:#d9770622; color:#d97706; }
+.wz-steps li.failed::before { content:"✗"; background:#dc262622; color:#dc2626; }
+.wz-steps .wz-lb { font-weight:600; font-size:13px; }
+.wz-steps .wz-dt { font-size:12px; color:var(--sr-fg-muted); }
 .art-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
 .art-row h3 { margin:0; font-size:13px; font-weight:600; }
 .art-grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
@@ -924,7 +943,8 @@ async function api(path, opts) {
   }
   return r.json();
 }
-const TITLES = { overview: 'Overview', queue: 'Intake & work queue',
+const TITLES = { overview: 'Overview', wizard: 'Guided run — PR or JIRA, step by step',
+  queue: 'Intake & work queue',
   plans: 'Test plans — review & approval',
   runs: 'Runs & team reviews', trace: 'Trace — story/PR to release',
   artifacts: 'Generated artifacts',
@@ -1096,6 +1116,120 @@ $('#run-queue').addEventListener('click', async () => {
     }, 3000);
   } catch (err) { toast(err.message); }
 });
+
+// ---- guided run (wizard): sequences the EXISTING endpoints, polls one status
+let wzTimer = null, wzKey = '', wzMode = 'pr';
+function wzRender(d) {
+  const steps = (d.steps || []).map(s =>
+    '<li class="' + escHtml(s.state) + '"><div><div class="wz-lb">' +
+    escHtml(s.label) + '</div>' +
+    (s.detail ? '<div class="wz-dt">' + escHtml(s.detail) + '</div>' : '') +
+    '</div></li>').join('');
+  $('#wz-steps').innerHTML = steps || '<li>Nothing started yet.</li>';
+  const files = (d.tests || []).map(t =>
+    '<div class="sm"><code>' + escHtml(t.file || '?') + '</code> ' +
+    '<span class="chip chip-success sm">' + escHtml(t.action || '?') + '</span></div>'
+  ).join('');
+  $('#wz-result').innerHTML = files
+    ? '<h3 style="margin:6px 0 4px">Generated tests</h3>' + files +
+      (d.run_id ? '<div class="sm muted" style="margin-top:6px">run ' +
+        escHtml(d.run_id) + ' · <a href="/api/pr-coverage?key=' +
+        encodeURIComponent(d.key) + '&download=1">download coverage report</a>' +
+        ' · open <b>Artifacts</b> for the code and diff</div>' : '')
+    : '';
+  $('#wz-hint').textContent = d.busy
+    ? 'Working… this runs asynchronously; you can leave this page and come back.'
+    : (d.overall ? 'Last run: ' + d.overall : 'Idle.');
+}
+async function wzPoll() {
+  if (!wzKey) return;
+  try {
+    const d = await api('/api/wizard/status?key=' + encodeURIComponent(wzKey) +
+                        '&mode=' + wzMode);
+    wzRender(d);
+    clearTimeout(wzTimer);
+    // Poll only while work is in flight — an idle wizard costs nothing.
+    if (d.busy) wzTimer = setTimeout(wzPoll, 3000);
+  } catch (err) { $('#wz-hint').textContent = err.message; }
+}
+if ($('#wz-mode')) {
+  const syncFlow = () => {
+    wzMode = $('#wz-mode').value;
+    $('#wz-pr-inputs').classList.toggle('hidden', wzMode !== 'pr');
+    $('#wz-jira-inputs').classList.toggle('hidden', wzMode !== 'jira');
+    $('#wz-steps').innerHTML = ''; $('#wz-result').innerHTML = ''; wzKey = '';
+  };
+  $('#wz-mode').addEventListener('change', syncFlow);
+  syncFlow();
+
+  $('#wz-start-pr').addEventListener('click', async () => {
+    if (needsServer()) return;
+    const repo = $('#wz-repo').value.trim(), pr = $('#wz-pr').value.trim();
+    if (!repo || !pr) { toast('Enter the app repo and PR number'); return; }
+    wzKey = 'PR-' + repo + '-' + pr; wzMode = 'pr';
+    try {
+      await api('/api/queue', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'pr', target: repo, pr: pr }) });
+      await api('/api/queue/run', { method: 'POST' });
+      toast('Analyzing ' + wzKey + ' — generation runs in the background');
+      wzPoll();
+    } catch (err) { toast(err.message); }
+  });
+
+  const wzJiraKey = () => {
+    const k = $('#wz-key').value.trim();
+    if (!k) { toast('Enter a ticket key'); return null; }
+    wzKey = k; wzMode = 'jira';
+    return k;
+  };
+  $('#wz-start-plan').addEventListener('click', async () => {
+    if (needsServer()) return;
+    const k = wzJiraKey(); if (!k) return;
+    try {
+      await api('/api/queue', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'plan', target: k }) });
+      await api('/api/queue/run', { method: 'POST' });
+      toast('Authoring the plan for ' + k + ' — it stops for your approval');
+      wzPoll();
+    } catch (err) { toast(err.message); }
+  });
+  $('#wz-approve').addEventListener('click', async () => {
+    if (needsServer()) return;
+    const k = wzJiraKey(); if (!k) return;
+    try {
+      await api('/api/plans/status', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: k, status: 'approved' }) });
+      toast('Plan approved — you can generate tests now');
+      wzPoll();
+    } catch (err) { toast(err.message); }
+  });
+  $('#wz-generate').addEventListener('click', async () => {
+    if (needsServer()) return;
+    const k = wzJiraKey(); if (!k) return;
+    try {
+      await api('/api/plans/generate', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: k }) });
+      await api('/api/queue/run', { method: 'POST' });
+      toast('Generating tests from the approved plan — running in the background');
+      wzPoll();
+    } catch (err) { toast(err.message); }
+  });
+  $('#wz-link').addEventListener('click', async () => {
+    if (needsServer()) return;
+    const k = wzJiraKey(); if (!k) return;
+    try {
+      await api('/api/plans/comment', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: k }) });
+      toast('Commented on ' + k + ': plan + tests linked');
+      wzPoll();
+    } catch (err) { toast(err.message); }
+  });
+}
 
 // ---- fetch work
 $('#fetch-btn').addEventListener('click', async () => {
@@ -1779,6 +1913,44 @@ page = f"""<!doctype html>
       <div class="scroll"><table>
         <thead><tr><th>app repo</th>{matrix_head}<th>status</th></tr></thead>
         <tbody>{matrix_rows}</tbody></table></div>
+    </section>
+  </div>
+
+  <div data-view="wizard">
+    <section class="card">
+      <div class="card-h"><div><h2>Guided run</h2>
+        <div class="sub">Two long journeys, step by step. Everything here drives the
+        SAME engine as the other views — the wizard only sequences it and shows
+        live progress. Generation is <b>asynchronous</b> (a run takes minutes; an
+        OpenHands conversation longer), so start it, leave, and come back: the
+        steps below reflect the current state whenever you return.</div></div>
+        <span class="grow"></span>
+        <label class="f">Flow <select id="wz-mode" class="h32">
+          <option value="pr">Pull request → E2E tests</option>
+          <option value="jira">JIRA ticket → plan → E2E tests</option>
+        </select></label>
+      </div>
+      <div class="card-b" style="display:flex; flex-direction:column; gap:12px">
+        <div class="wz-row" id="wz-pr-inputs">
+          <label class="f">App repo <input id="wz-repo" class="h32"
+            placeholder="orders-api" style="width:150px"></label>
+          <label class="f">PR # <input id="wz-pr" class="h32"
+            placeholder="201" style="width:80px"></label>
+          <button class="btn btn-primary" id="wz-start-pr">Analyze PR &amp; generate tests</button>
+        </div>
+        <div class="wz-row hidden" id="wz-jira-inputs">
+          <label class="f">Ticket <input id="wz-key" class="h32"
+            placeholder="PROJ-301" style="width:130px"></label>
+          <button class="btn btn-primary" id="wz-start-plan">Author test plan</button>
+          <button class="btn" id="wz-approve">Approve plan</button>
+          <button class="btn" id="wz-generate">Generate tests</button>
+          <button class="btn info" id="wz-link">Comment plan + tests on the ticket</button>
+        </div>
+        <div class="sm muted" id="wz-hint">Pick a flow, fill in the target, and start.
+          Progress refreshes automatically while work is running.</div>
+        <ol class="wz-steps" id="wz-steps"></ol>
+        <div id="wz-result"></div>
+      </div>
     </section>
   </div>
 

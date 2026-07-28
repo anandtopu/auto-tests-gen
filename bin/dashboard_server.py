@@ -322,6 +322,18 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, {"key": key, "run_id": recs[-1].get("run_id", ""),
                              "markdown": md})
+        elif url.path == "/api/wizard/status":
+            # ONE aggregated progress answer for the guided flows (async by
+            # nature: queued runs take minutes). Read-only — the wizard's
+            # buttons drive the existing endpoints.
+            import wizard_status
+            q = urllib.parse.parse_qs(url.query)
+            key = q.get("key", [""])[0]
+            mode = q.get("mode", ["pr"])[0]
+            if not re.fullmatch(r"[\w.-]+", key or "") or mode not in ("pr", "jira"):
+                self._send(400, {"error": "key (word chars) and mode=pr|jira required"})
+                return
+            self._send(200, wizard_status.build(key, mode))
         elif url.path == "/api/trace":
             import trace as trace_lib          # ours; engine/lib precedes stdlib
             key = urllib.parse.parse_qs(url.query).get("key", [""])[0]

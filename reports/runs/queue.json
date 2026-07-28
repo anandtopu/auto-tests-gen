@@ -1,44 +1,5 @@
 [
   {
-    "id": "q1785206042-7",
-    "mode": "plan",
-    "target": "PROJ-301",
-    "pr": null,
-    "release": "",
-    "requested_by": "e2e-test",
-    "status": "done",
-    "ts": 1785206042.1551716,
-    "finished": 1785206052.10087,
-    "exit_code": 0,
-    "inline_file": null
-  },
-  {
-    "id": "q1785206058-8",
-    "mode": "plan",
-    "target": "PROJ-301",
-    "pr": null,
-    "release": "",
-    "requested_by": "e2e-test",
-    "status": "done",
-    "ts": 1785206058.8992496,
-    "finished": 1785206068.2830942,
-    "exit_code": 0,
-    "inline_file": null
-  },
-  {
-    "id": "q1785206162-9",
-    "mode": "plan",
-    "target": "PROJ-301",
-    "pr": null,
-    "release": "",
-    "requested_by": "e2e-test",
-    "status": "done",
-    "ts": 1785206162.8147235,
-    "finished": 1785206171.968331,
-    "exit_code": 0,
-    "inline_file": null
-  },
-  {
     "id": "q1785206187-10",
     "mode": "plan",
     "target": "PROJ-301",
@@ -321,6 +282,45 @@
     "status": "done",
     "ts": 1785257791.4089136,
     "finished": 1785257825.7352576,
+    "exit_code": 0,
+    "inline_file": null
+  },
+  {
+    "id": "q1785262715-26",
+    "mode": "pr",
+    "target": "orders-api",
+    "pr": "201",
+    "release": "",
+    "requested_by": "dashboard",
+    "status": "done",
+    "ts": 1785262715.3819911,
+    "finished": 1785262750.0758214,
+    "exit_code": 0,
+    "inline_file": null
+  },
+  {
+    "id": "q1785262762-27",
+    "mode": "plan",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "dashboard",
+    "status": "done",
+    "ts": 1785262762.4317477,
+    "finished": 1785262779.9997818,
+    "exit_code": 0,
+    "inline_file": null
+  },
+  {
+    "id": "q1785262797-28",
+    "mode": "tests",
+    "target": "PROJ-301",
+    "pr": null,
+    "release": "",
+    "requested_by": "dashboard-plan",
+    "status": "done",
+    "ts": 1785262797.3831506,
+    "finished": 1785262828.1677756,
     "exit_code": 0,
     "inline_file": null
   }

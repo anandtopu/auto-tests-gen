@@ -364,6 +364,32 @@ assignments). The served dashboard has the same thing as the **Trace** view (pic
 key, `GET /api/trace?key=...`) — with the SSO identity on approval events when
 `AIQE_SSO_HEADER` is configured.
 
+### Guided run (wizard): the two long journeys, step by step
+
+The **Guided run** view sequences the two multi-step journeys for someone who
+does not yet know which view does what:
+
+- **Pull request → E2E tests** — enter the app repo + PR number, press *Analyze
+  PR & generate tests*. The wizard queues the run, drains the queue, and shows a
+  live step ladder: generate → quality gate → team review, with the generated
+  spec list and a coverage-report download when it lands.
+- **JIRA ticket → plan → E2E tests** — enter the ticket key, then *Author test
+  plan* → *Approve plan* → *Generate tests* → *Comment plan + tests on the
+  ticket*, with the human-approval step rendered **blocked** until a person acts
+  (the plan-first invariant, visible rather than implied).
+
+Generation is **asynchronous** — a run takes minutes, an OpenHands conversation
+longer — so the wizard polls `GET /api/wizard/status?key=…&mode=pr|jira` while
+work is in flight and stops when it isn't. Leave the page and come back: the
+ladder always reflects current engine state, because it is *derived* from the
+same stores everything else uses (work queue, run records, plan state, review
+board) rather than any wizard-private progress record.
+
+Every button drives an **existing** endpoint (`/api/queue`, `/api/plans/status`,
+`/api/plans/generate`, `/api/plans/comment`) — the wizard adds sequencing and
+visibility, never a second code path. `python3 engine/lib/wizard_status.py <KEY>
+[pr|jira]` prints the same status on the CLI.
+
 ### Interactive dashboard: fetch by release & manual work queue
 
 ```bash
