@@ -685,9 +685,22 @@ class Handler(BaseHTTPRequestHandler):
                                              "the same job runs standalone."})
                     return
                 try:
+                    # Deterministic context: protocol, the E2E estate, what already
+                    # exists for this key, the ticket (fetched when the caller did not
+                    # paste one) and any extra note — ordered stable-first so launches
+                    # share a cacheable prefix. See engine/lib/agent_context.py.
+                    import agent_context
+                    desc, comments, itype = fields["description"], "", ""
+                    if fields["target"] and not desc:
+                        t = agent_context.fetch_ticket(fields["target"])
+                        desc = t.get("description", "")
+                        comments, itype = t.get("comments", ""), t.get("issue_type", "")
+                    ctx = agent_context.build(
+                        key=fields["target"], description=desc, comments=comments,
+                        issue_type=itype, extra=str(p.get("extra") or ""))
                     message = openhands_agents.build(
                         fields["agent"], fields["target"],
-                        fields["pr"], fields["description"])
+                        fields["pr"], fields["description"], context=ctx)
                 except SystemExit as e:
                     self._send(400, {"error": str(e)})
                     return

@@ -363,6 +363,51 @@ both launch buttons say so instead of reporting success. Pinned by
 `registry/tests/test_openhands_agents.py` against a fake Cloud server that returns a
 start-task first and the conversation id only on the follow-up call.
 
+### 7.1b Agent context — deterministic, reusable, cache-ordered
+
+The preset messages were one terse line each ("run `pipeline.sh plan KEY` and report
+where the draft is"). That is enough to *start* the right command — the skills carry
+the instructions — but it leaves the agent blind: which E2E repos exist, whether a plan
+for this key already exists, what the ticket actually says. A blind agent improvises,
+and improvising is what this platform exists to avoid.
+
+`engine/lib/agent_context.py` assembles that context deterministically (registry, plan
+state, Tracker port — **no LLM call**), so the same launch produces the same message.
+
+**Block order is load-bearing.** Prompt caches match on a *prefix*, so blocks are
+emitted most-stable-first:
+
+| # | Block | Changes when | Shared across |
+|---|---|---|---|
+| 1 | Protocol (data-not-instructions, gate monopoly, never self-approve) | never | every launch, forever |
+| 2 | E2E estate (repos, layer, framework, covers, where conventions live) | estate edits | every key |
+| 3 | Key state (existing plan, its status, adversarial summary, generated run) | that key's lifecycle | repeat launches for one key |
+| 4 | Ticket (summary, description, acceptance criteria, comments, components) | per ticket | — |
+| 5 | Requester's extra note | per launch | — |
+
+Never insert a timestamp, run id or counter above block 4 — it would bust the cache on
+every launch and turn a shared prefix into a unique one. A test pins both the ordering
+and the absence of volatile values in the head.
+
+**Block 3 is the reuse guard, not decoration.** Re-running `pipeline.sh plan` on a key
+whose plan a human already APPROVED silently resets it to `draft` — the sign-off is
+destroyed by a button press. So when a plan exists the context names its status and,
+when approved, tells the agent explicitly not to re-author: read it with
+`make plan-show`, propose changes, let a human decide.
+
+`fetch_ticket` uses the Tracker port's `get_item` verb and keeps the **summary and
+acceptance criteria**, not just `description` — a plan is built from the requirements,
+and keeping only the description throws them away. It is best-effort throughout: an
+unreachable tracker yields empty strings, because a launch must never fail on optional
+enrichment.
+
+Worth stating plainly: for the *normal* path this context is enrichment, not a
+dependency. `pipeline.sh plan` fetches the ticket, comments and Confluence itself and
+feeds the phases `AGENTS.md`, coverage gaps and `out/repo-conventions.md`. The context
+block helps the agent *reason and report*; when the tracker is genuinely unreachable
+the right tool is still the inline-ticket path (`qa.py run-inline`), not a bigger
+conversation message.
+
 ### 7.2 Agent Server authentication — a real interoperability bug, fixed
 
 `sdk/arch/agent-server` documents that the self-hosted Agent Server authenticates session

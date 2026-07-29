@@ -348,7 +348,16 @@ def cmd_openhands_run(args):
         subprocess.run([sys.executable, str(ROOT / "engine/lib/openhands_agents.py"),
                         "list"], cwd=ROOT, stdin=subprocess.DEVNULL)
         return
-    msg = openhands_agents.build(args.agent, args.target or "", args.pr or "")
+    # Same deterministic context the dashboard sends, so a CLI launch and a UI launch
+    # are the same conversation (and share the cacheable prefix).
+    import agent_context
+    _t = agent_context.fetch_ticket(args.target) if args.target else {}
+    _ctx = agent_context.build(key=args.target or "",
+                               description=_t.get("description", ""),
+                               comments=_t.get("comments", ""),
+                               issue_type=_t.get("issue_type", ""))
+    msg = openhands_agents.build(args.agent, args.target or "", args.pr or "",
+                                 context=_ctx)
     if args.dry:
         print(msg)
         return
