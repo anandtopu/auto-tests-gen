@@ -27,12 +27,16 @@ This module normalises both shapes so callers only see:
   status(conversation_id)      -> {"conversation_id": ..., "status": ..., ...}
   health()                     -> {"reachable": bool, "http_code": int, "error": str}
 """
-import json, os, pathlib, socket, ssl, sys, urllib.error, urllib.request
+import json, os, pathlib, socket, ssl, sys, time, urllib.error, urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 TIMEOUT = 15
+# Resolving a Cloud start-task into its conversation id happens inside a UI request,
+# so the wait is short and bounded. Unresolved is reported, never guessed.
+POLL_ATTEMPTS = 3
+POLL_INTERVAL_S = 1.0
 # Health check path — most self-hosted Agent Servers expose /health or /server_info;
 # Cloud responds at /api/v1/users/me (auth-gated, 401 still proves reachability).
 _HEALTH_CANDIDATES = ("/health", "/ready", "/server_info", "/api/v1/users/me")
@@ -236,20 +240,44 @@ def start(message, repo=None, branch="main", title=None, extra=None):
 
     resp = resp or {}
 
-    # Cloud returns a start-task object; the conversation_id arrives after polling.
-    conv_id = (resp.get("conversation_id") or resp.get("id") or
-               resp.get("app_conversation_id") or "")
-    start_task_id = resp.get("id") if not conv_id else None
-    # If the response IS a start-task (no conversation_id yet), store its id too
-    if not conv_id and resp.get("id"):
-        start_task_id = resp["id"]
+    # Cloud POST returns a START-TASK, whose `id` is the task's — NOT the
+    # conversation's. Treating it as a conversation id handed callers an id and a
+    # /conversations/<id> URL that OpenHands rejects, while the real conversation
+    # existed under a different id: exactly the "link is invalid but a conversation
+    # was created" report. `id` is only a conversation id on the self-hosted server.
+    if is_cloud:
+        conv_id = (resp.get("conversation_id")
+                   or resp.get("app_conversation_id") or "")
+        start_task_id = resp.get("start_task_id") or resp.get("id") or None
+        # Resolve the real conversation id rather than returning a task id the user
+        # cannot use. Bounded: this runs inside a UI request, and a start-task that
+        # is still pending is reported honestly instead of guessed at.
+        if not conv_id and start_task_id:
+            for _ in range(POLL_ATTEMPTS):
+                try:
+                    resolved = poll_start_task(start_task_id)
+                except RuntimeError:
+                    break
+                if resolved.get("conversation_id"):
+                    conv_id = resolved["conversation_id"]
+                    resp = {**resp, "resolved_start_task": resolved.get("raw") or {}}
+                    break
+                time.sleep(POLL_INTERVAL_S)
+    else:
+        conv_id = resp.get("conversation_id") or resp.get("id") or ""
+        start_task_id = None
 
+    # Never synthesise a URL from an id we do not have. A link built from a
+    # start-task id looks authoritative and 404s.
     url = resp.get("url") or (f"{base}/conversations/{conv_id}" if conv_id else "")
 
     return {
         "conversation_id": conv_id,
         "start_task_id": start_task_id,
         "url": url,
+        # The caller must be able to tell "started, here it is" from "accepted, still
+        # spinning up" — otherwise the UI reports an id and a link it does not have.
+        "pending": bool(start_task_id and not conv_id),
         "status": resp.get("status") or resp.get("execution_status") or "started",
         "raw": resp,
     }

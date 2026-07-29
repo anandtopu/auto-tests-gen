@@ -2,6 +2,10 @@
   "PROJ-301": {
     "adversary": "adversarial review: 2 gap(s) raised, 2 high-severity, 2 accepted, 3 scenario(s) in the final plan",
     "by": "pipeline",
+    "commented": {
+      "result": "[mock-jira] PROJ-301 <- AI-QE summary for PROJ-301:\n- Test plan: testplans/PROJ-301.md \u2014 draft\n- Plan review: adversarial review: 2 gap(s) raised, 2 high-severity, 2 accepted, 3 scenario(s) in the final plan\n- Plan attachment: [mock-jira] attached to PROJ-301: out/mock-jira-attachments/PROJ-301-PROJ",
+      "ts": 1785300835.1916847
+    },
     "generated_run": null,
     "history": [
       {
@@ -9,10 +13,69 @@
         "note": "test plan authored",
         "status": "draft",
         "ts": 1785298753.7233713
+      },
+      {
+        "by": "cli",
+        "note": "linked to tracker: [mock-jira] attached to PROJ-301: out/mock-jira-attachments/PROJ-301-PROJ-301-testplan.pdf",
+        "status": "draft",
+        "ts": 1785299915.7577503
+      },
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1785300030.7121003
+      },
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1785300040.982116
+      },
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1785300266.1338425
+      },
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1785300372.4055781
+      },
+      {
+        "by": "cli",
+        "note": "linked to tracker: [mock-jira] attached to PROJ-301: out/mock-jira-attachments/PROJ-301-PROJ-301-testplan.pdf",
+        "status": "draft",
+        "ts": 1785300474.2776668
+      },
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1785300574.8815103
+      },
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1785300585.0396044
+      },
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1785300808.5750499
       }
     ],
+    "linked": {
+      "by": "cli",
+      "ref": "[mock-jira] attached to PROJ-301: out/mock-jira-attachments/PROJ-301-PROJ-301-testplan.pdf",
+      "ts": 1785300474.277664
+    },
     "note": "test plan authored",
     "status": "draft",
-    "updated": 1785298753.7233686
+    "updated": 1785300808.5750477
   }
 }

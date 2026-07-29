@@ -475,9 +475,7 @@ def fake_openhands(monkeypatch):
 
     def start(responder):
         class H(http.server.BaseHTTPRequestHandler):
-            def do_POST(self):
-                n = int(self.headers.get("Content-Length", 0) or 0)
-                self.rfile.read(n)
+            def _respond(self):
                 code, payload = responder(self.path)
                 body = json.dumps(payload).encode() if payload is not None else b""
                 self.send_response(code)
@@ -487,6 +485,17 @@ def fake_openhands(monkeypatch):
                 self.end_headers()
                 if body:
                     self.wfile.write(body)
+
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length", 0) or 0)
+                self.rfile.read(n)
+                self._respond()
+
+            # GET too: Cloud V1 starting a conversation is a TWO-step exchange —
+            # POST returns a start-task, and the conversation id only comes back from
+            # GET .../start-tasks. A POST-only fake cannot model the real flow.
+            def do_GET(self):
+                self._respond()
 
             def log_message(self, *a):
                 pass
@@ -509,13 +518,31 @@ def test_405_on_the_default_path_falls_back_to_the_other_shape(fake_openhands):
     conversations endpoint. Negotiate instead of failing."""
     import importlib, openhands_client as oc
     importlib.reload(oc)
-    srv = fake_openhands(lambda p: (200, {"id": "conv-42", "status": "running"})
-                         if p == "/api/v1/app-conversations" else (405, None))
+    monkeypatch_interval = getattr(oc, "POLL_INTERVAL_S", None)
+    oc.POLL_INTERVAL_S = 0
+
+    def responder(path):
+        if path.startswith("/api/v1/app-conversations/start-tasks"):
+            # Cloud only reveals the conversation id here — see start-task handling.
+            return 200, {"items": [{"id": "task-42",
+                                    "app_conversation_id": "conv-42",
+                                    "status": "running"}]}
+        if path == "/api/v1/app-conversations":
+            return 200, {"id": "task-42", "status": "pending"}   # a START-TASK
+        return 405, None
+
+    srv = fake_openhands(responder)
     try:
         r = oc.start("hello", title="t")
+        # Negotiation reached the other endpoint AND the id was resolved properly:
+        # `id` from a Cloud POST is the task's, never the conversation's.
         assert r["conversation_id"] == "conv-42"
+        assert r["start_task_id"] == "task-42"
+        assert "task-42" not in r["url"]
     finally:
         srv.shutdown()
+        if monkeypatch_interval is not None:
+            oc.POLL_INTERVAL_S = monkeypatch_interval
 
 
 def test_both_endpoints_failing_gives_an_actionable_message(fake_openhands):

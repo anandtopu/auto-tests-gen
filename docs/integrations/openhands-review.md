@@ -340,6 +340,29 @@ This directly serves the PR→E2E journey: the agent now gets *one* deterministi
 "what does this PR touch, what already covers it, and what approach does the target E2E
 repo use" instead of improvising the query set.
 
+### 7.1a Cloud start-task ≠ conversation — the invalid-link bug
+
+Reported from the UI: *"Author via OpenHands"* returned a conversation id and link
+that errored in OpenHands, while a conversation **had** been created — under a
+different id.
+
+Cloud V1's `POST /api/v1/app-conversations` does not return a conversation. It returns
+a **start-task**, and the conversation id only appears later via
+`GET /api/v1/app-conversations/start-tasks?ids=…`. Our extraction read
+`conversation_id or id or app_conversation_id`, so the start-task's `id` was taken as
+the conversation id. Two things followed: `start_task_id` was set to `None` (it is only
+populated "if not conv_id"), so the resolver we already had was never called; and the
+URL was synthesised as `<base>/conversations/<task-id>`, which 404s.
+
+Now the branch is explicit. On Cloud, `id` is *only* a start-task id and the client
+polls (bounded — 3 attempts, this runs inside a UI request) to resolve the real
+conversation id. On the self-hosted Agent Server `id` **is** the conversation id and
+that path is unchanged. If the task has not produced a conversation yet the result is
+`pending: true` with an empty id and **no URL** — no link beats a link that 404s — and
+both launch buttons say so instead of reporting success. Pinned by
+`registry/tests/test_openhands_agents.py` against a fake Cloud server that returns a
+start-task first and the conversation id only on the follow-up call.
+
 ### 7.2 Agent Server authentication — a real interoperability bug, fixed
 
 `sdk/arch/agent-server` documents that the self-hosted Agent Server authenticates session

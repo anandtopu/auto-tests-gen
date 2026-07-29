@@ -160,3 +160,115 @@ def test_bundled_scripts_are_read_only_by_construction():
                           "pipeline.sh", "rm -rf"):
             assert forbidden not in body, \
                 f"{script} must stay read-only — found {forbidden!r}"
+
+
+# ------------------------- Cloud start-task vs conversation id (user bug)
+
+def _fake_cloud(handler_map):
+    """A stand-in OpenHands Cloud that returns a START-TASK from the POST and only
+    reveals the conversation id via the start-tasks endpoint — the real V1 shape."""
+    import http.server, json as _json, threading
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
+
+        def _reply(self, obj, code=200):
+            body = _json.dumps(obj).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            self._reply(handler_map["post"])
+
+        def do_GET(self):
+            handler_map.setdefault("gets", []).append(self.path)
+            self._reply(handler_map["get"])
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv, f"http://127.0.0.1:{srv.server_port}"
+
+
+def test_cloud_start_task_id_is_never_reported_as_the_conversation_id(monkeypatch):
+    """Reported: 'Author via OpenHands' returned a conversation link that errored,
+    while OpenHands had really created a conversation under a DIFFERENT id.
+
+    Cause: the Cloud POST returns a start-task whose `id` is the TASK's. The old
+    extraction took `id` as the conversation id, which also nulled start_task_id,
+    so the resolver never ran and the URL was built from a task id.
+    """
+    import openhands_client as oc
+    handlers = {"post": {"id": "task-AAA", "status": "pending"},
+                "get": {"items": [{"id": "task-AAA",
+                                   "app_conversation_id": "conv-REAL-123",
+                                   "status": "running"}]}}
+    srv, base = _fake_cloud(handlers)
+    try:
+        monkeypatch.setenv("OPENHANDS_URL", base)
+        monkeypatch.setenv("OPENHANDS_API_KEY", "k")
+        monkeypatch.setenv("OPENHANDS_CONVERSATIONS_PATH", "/api/v1/app-conversations")
+        monkeypatch.setattr(oc, "POLL_INTERVAL_S", 0)
+        r = oc.start("do the thing")
+    finally:
+        srv.shutdown()
+
+    assert r["conversation_id"] == "conv-REAL-123", \
+        "the resolver must return the REAL conversation id, not the start-task id"
+    assert r["start_task_id"] == "task-AAA"
+    assert "task-AAA" not in r["url"], "a URL must never be built from a task id"
+    assert r["url"].endswith("conv-REAL-123")
+    assert r["pending"] is False
+
+
+def test_unresolved_cloud_start_reports_pending_with_no_fabricated_link(monkeypatch):
+    """When the task has not produced a conversation yet, say so — do not invent an
+    id or a link that will 404."""
+    import openhands_client as oc
+    handlers = {"post": {"id": "task-BBB", "status": "pending"},
+                "get": {"items": [{"id": "task-BBB", "status": "pending"}]}}
+    srv, base = _fake_cloud(handlers)
+    try:
+        monkeypatch.setenv("OPENHANDS_URL", base)
+        monkeypatch.setenv("OPENHANDS_API_KEY", "k")
+        monkeypatch.setenv("OPENHANDS_CONVERSATIONS_PATH", "/api/v1/app-conversations")
+        monkeypatch.setattr(oc, "POLL_INTERVAL_S", 0)
+        monkeypatch.setattr(oc, "POLL_ATTEMPTS", 2)
+        r = oc.start("do the thing")
+    finally:
+        srv.shutdown()
+
+    assert r["conversation_id"] == ""
+    assert r["start_task_id"] == "task-BBB"
+    assert r["url"] == "", "no link is better than a link that 404s"
+    assert r["pending"] is True
+
+
+def test_self_hosted_id_is_still_the_conversation_id(monkeypatch):
+    """The self-hosted Agent Server returns the conversation directly — `id` there
+    IS the conversation id, and the cloud fix must not regress it."""
+    import openhands_client as oc
+    handlers = {"post": {"id": "conv-selfhosted-1", "status": "running"}, "get": {}}
+    srv, base = _fake_cloud(handlers)
+    try:
+        monkeypatch.setenv("OPENHANDS_URL", base)
+        monkeypatch.setenv("OPENHANDS_API_KEY", "k")
+        monkeypatch.setenv("OPENHANDS_CONVERSATIONS_PATH", "/api/conversations")
+        r = oc.start("do the thing")
+    finally:
+        srv.shutdown()
+
+    assert r["conversation_id"] == "conv-selfhosted-1"
+    assert r["start_task_id"] is None and r["pending"] is False
+    assert r["url"].endswith("conv-selfhosted-1")
+
+
+def test_launch_toasts_never_claim_an_id_they_do_not_have():
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert "function ohLaunchMsg(" in src
+    assert "r.conversation_id || 'ok'" not in src, \
+        "'ok' hid an unresolved launch behind a success message"
+    # Both launch buttons call it (the third match is the definition itself).
+    assert src.count("toast(ohLaunchMsg(r,") == 2, "both launch buttons must use it"

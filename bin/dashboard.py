@@ -927,6 +927,16 @@ function needsServer() {
   if (!served) toast('Static snapshot — start the server with: make serve');
   return !served;
 }
+// A launch is either resolved (real conversation id + link) or still starting.
+// Reporting a start-task id as the conversation id is what produced links that
+// 404ed while the conversation existed in OpenHands under a different id.
+function ohLaunchMsg(r, suffix) {
+  if (r.conversation_id) return 'OpenHands conversation started: ' + r.conversation_id + suffix;
+  if (r.pending) return 'OpenHands accepted the request (start task '
+    + (r.start_task_id || '?') + ') — the conversation id appears in "OpenHands agent '
+    + 'runs" once it registers; no link yet';
+  return 'OpenHands accepted the request' + suffix;
+}
 async function api(path, opts) {
   const r = await fetch(path, opts);
   if (!r.ok) {
@@ -1334,8 +1344,7 @@ $('#inl-plan-oh').addEventListener('click', async () => {
       body: JSON.stringify({ agent: 'test-plan', target: key,
         description: text }) });
     refreshOpenHands();
-    toast('OpenHands conversation started: ' + (r.conversation_id || 'ok') +
-      ' — the plan will stop for human approval; track it under Test plans');
+    toast(ohLaunchMsg(r, ' — the plan will stop for human approval; track it under Test plans'));
   } catch (err) { toast(err.message); }
 });
 refreshQueue();
@@ -1365,8 +1374,7 @@ if ($('#plan-author')) {
       // Show it immediately in the card on THIS page — the whole point of
       // recording the launch is that the user can follow it from where they were.
       refreshOpenHands();
-      toast('OpenHands conversation started: ' + (r.conversation_id || 'ok') +
-        ' — tracked in "OpenHands agent runs" below');
+      toast(ohLaunchMsg(r, ' — tracked in "OpenHands agent runs" below'));
     } catch (err) { toast(err.message); }
   });
 }
