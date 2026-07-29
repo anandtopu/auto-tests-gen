@@ -322,9 +322,14 @@ def cmd_openhands(args):
     import openhands_events, time as _t
     rows = openhands_events.summary()
     if not rows:
+        # Do NOT imply webhooks are the only way to see conversations — that mental
+        # model is exactly what made a launched conversation look untrackable.
         print("no OpenHands conversations recorded yet.\n"
-              "Point the Agent Server's WebhookSpec.base_url at "
-              "<receiver>/hooks/openhands — see docs/integrations/openhands.md")
+              "Conversations you start (dashboard 'Author via OpenHands', the agent "
+              "launcher, or qa.py openhands-run) appear here immediately.\n"
+              "For live progress on top of that, point the Agent Server's "
+              "WebhookSpec.base_url at <receiver>/hooks/openhands "
+              "— see docs/integrations/openhands.md")
         return
     print(f"{'conversation':<34} {'status':<12} {'events':>6} {'age':>7}  repo / key")
     for r in rows:

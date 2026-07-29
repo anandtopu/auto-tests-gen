@@ -267,6 +267,10 @@ def test_every_attach_path_records_the_reference(tmp_path, monkeypatch):
     import export_plan
     import plan_state
 
+    # BOTH: record_plan writes the state file (FILE) *and* a contract snapshot via
+    # DIR. Patching only FILE leaks reports/plans/ZZ-1.contract.json into the real
+    # estate — a test must not deposit a fake plan in the demo data.
+    monkeypatch.setattr(plan_state, "DIR", tmp_path)
     monkeypatch.setattr(plan_state, "FILE", tmp_path / "state.json")
     plan_state.record_plan("ZZ-1", {"scenarios": []}, adversary="")
     calls = []
@@ -295,6 +299,7 @@ def test_attach_survives_a_key_with_no_plan_state(tmp_path, monkeypatch):
     import export_plan
     import plan_state
 
+    monkeypatch.setattr(plan_state, "DIR", tmp_path)
     monkeypatch.setattr(plan_state, "FILE", tmp_path / "empty.json")
 
     class _R:

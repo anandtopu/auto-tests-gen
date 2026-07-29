@@ -244,8 +244,9 @@ if __name__ == "__main__":
     if not a or a[0] == "list":
         rows = summary()
         if not rows:
-            print("no OpenHands conversations recorded yet — point WebhookSpec.base_url "
-                  "at <receiver>/hooks/openhands (see docs/integrations/openhands.md)")
+            print("no OpenHands conversations recorded yet — conversations you START "
+                  "are recorded here immediately; webhooks (WebhookSpec.base_url -> "
+                  "<receiver>/hooks/openhands) add live progress on top")
         else:
             print(f"{'conversation':<38} {'status':<12} {'events':>6}  repo / key")
             for r in rows:

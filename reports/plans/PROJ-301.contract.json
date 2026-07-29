@@ -7,27 +7,9 @@
       "target_repo": "e2e-api-tests-1",
       "behavior_ref": "B2",
       "data_needs": "d1"
-    },
-    {
-      "id": "PROJ-301-S2",
-      "title": "stacking on an already-discounted order",
-      "layer": "api",
-      "target_repo": "e2e-api-tests-1",
-      "behavior_ref": "B1",
-      "data_needs": "d2"
-    },
-    {
-      "id": "PROJ-301-S3",
-      "title": "discount POST without orders:write scope",
-      "layer": "api",
-      "target_repo": "e2e-api-tests-1",
-      "behavior_ref": "B2",
-      "data_needs": "d3"
     }
   ],
   "open_questions": [
     "stacking undefined"
-  ],
-  "accepted_gaps": 2,
-  "rejected_gaps": 0
+  ]
 }
