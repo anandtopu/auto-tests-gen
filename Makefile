@@ -82,6 +82,11 @@ check-integrations:   # read-only connectivity check for every configured system
 smoke-openhands:
 	bash bin/smoke-openhands.sh
 
+cache-stats:          # phase-cache hit report (LLM calls avoided)
+	python3 engine/lib/phase_cache.py stats
+cache-clear:          # drop every cached phase result
+	python3 engine/lib/phase_cache.py clear
+
 prune:
 	python3 bin/qa.py prune --keep $(or $(KEEP),200)
 

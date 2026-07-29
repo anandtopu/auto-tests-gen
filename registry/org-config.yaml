@@ -1,9 +1,23 @@
 # Org-layer customization (architecture §5.10 rule 4)
+# Per-phase model tier. UNLISTED PHASES FALL BACK TO `generate` — which silently put
+# eight of ten phases on the authoring-grade model, including bounded, structured jobs
+# that never needed it. Every phase is now named deliberately: pick the cheapest tier
+# that can do the job, and say why when it is not the cheapest.
 models:
-  triage: claude-haiku-4-5-20251001
+  resolve: claude-haiku-4-5-20251001    # routing is deterministic; this is the fallback
   resolve_llm: claude-haiku-4-5-20251001
-  generate: claude-sonnet-4-6
-  escalate: claude-opus-4-8          # after 2 failed generate attempts
+  triage: claude-haiku-4-5-20251001     # classify a diff's impact — bounded
+  analyze: claude-haiku-4-5-20251001    # extract behaviors from a ticket — extraction
+  testdata: claude-haiku-4-5-20251001   # emit fixtures from a fixed schema
+  critic: claude-haiku-4-5-20251001     # advisory score, never gates a commit
+  validate: claude-haiku-4-5-20251001   # run specs, read failures, repair narrowly
+  # Judgement-grade. The plan is what a human signs off, and the adversary's whole
+  # value is catching what a competent author missed — cheap models agree too easily.
+  testplan: claude-sonnet-4-6
+  planadversary: claude-sonnet-4-6
+  planarbiter: claude-sonnet-4-6
+  generate: claude-sonnet-4-6           # writes the code that gets committed
+  escalate: claude-opus-4-8             # after 2 failed generate attempts
 phases:
   resolve:   { max_turns: 5,  allowed_tools: "Read" }
   triage:    { max_turns: 12, allowed_tools: "Read,Bash(git diff:*)" }   # 5 was too tight for real tool use (parity finding P1)

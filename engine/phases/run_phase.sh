@@ -15,12 +15,31 @@ MODEL=$(python3 -c "import yaml;c=yaml.safe_load(open('$CFG'));m=c['models'];pri
 TURNS=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['phases']['$PHASE']['max_turns'])")
 TOOLS=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['phases']['$PHASE']['allowed_tools'])")
 mkdir -p out
-# Substitute the run key and (for fan-out calls) the single target test repo into the
-# prompt template. TARGET_REPO is empty for whole-run phases; the prompts treat an
-# empty value as "every resolved repo".
-PROMPT_TEXT=$(sed -e "s/{{KEY}}/${KEY:-}/g" -e "s/{{TARGET_REPO}}/${AIQE_TARGET_REPO:-}/g" "$PROMPT")
+# Content-addressed reuse: if this exact phase, model, prompt and context set has been
+# run before, restore the result instead of paying for it again. The key is the whole
+# input, so a stale hit is impossible; `generate`/`validate` are excluded because their
+# product is files in the test repos, not the contract (see phase_cache.py).
+if python3 engine/lib/phase_cache.py lookup "$PHASE" "$OUT" "$MODEL" "$PROMPT" \
+     "${KEY:-}" "$@" 2>/dev/null; then
+  echo "[cache] $PHASE reused a previous result for identical inputs (no LLM call)"
+  exit 0
+fi
+
+# Prompt assembly is CACHE-ORDERED: stable bytes first, run-specific bytes last.
+# {{KEY}} used to be substituted throughout the prompt, which put a run-unique value
+# within the first few hundred tokens and made every invocation's prefix unique — no
+# provider-side prompt cache can hit that. The template is now sent verbatim and the
+# run's parameters are appended, so the prompt + shared context form a prefix that is
+# byte-identical across runs of the same phase.
+PROMPT_TEXT=$(cat "$PROMPT")
 CONTEXT=""
 for f in "$@"; do CONTEXT+=$'\n\n--- CONTEXT FILE: '"$f"$' ---\n'"$(cat "$f")"; done
+# Run parameters go LAST, and resolve the placeholders the template still references.
+CONTEXT+=$'\n\n--- RUN PARAMETERS ---\n'"KEY=${KEY:-}"
+if [ -n "${AIQE_TARGET_REPO:-}" ]; then
+  CONTEXT+=$'\n'"TARGET_REPO=${AIQE_TARGET_REPO}"
+fi
+CONTEXT+=$'\nWherever this prompt says {{KEY}} use the KEY above; wherever it says {{TARGET_REPO}} use TARGET_REPO (empty = every resolved test repo).\n--- END RUN PARAMETERS ---'
 
 # Run from the engine root: prompts reference workspace/tests/, catalog/, testplans/
 # relative to here (P3: cwd=workspace made every documented path miss).
@@ -34,3 +53,7 @@ claude -p "$PROMPT_TEXT$CONTEXT" \
 # Extract the trailing JSON contract the prompt requires the agent to print:
 python3 engine/lib/extract_contract.py "out/${OUT}.json" "engine/phases/contracts/${PHASE}.schema.json" \
   > "out/${OUT}.contract.json"
+# Record the result for identical future inputs. Never fatal: a cache write failure
+# must not fail a phase that already succeeded.
+python3 engine/lib/phase_cache.py store "$PHASE" "$OUT" "$MODEL" "$PROMPT" \
+  "${KEY:-}" "$@" >/dev/null 2>&1 || true

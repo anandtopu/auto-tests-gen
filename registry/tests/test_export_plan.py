@@ -11,7 +11,10 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import _demo_state
 
 
-@pytest.fixture(autouse=True, scope="module")
+# FUNCTION scope, not module: these assertions read the live estate, and any
+# earlier test in the session can regenerate or wipe it. Seeding once per module
+# leaves the later tests asserting against whatever happened in between.
+@pytest.fixture(autouse=True)
 def _demo_artifacts():
     """These assertions read the live estate. Seed what is missing so the result
     depends on the code, not on whatever state the demo happens to be parked in

@@ -36,3 +36,4 @@ config/aiqe.properties
 # VCP OpenShift secret manifest — contains real tokens, never commit.
 # secret.example.yaml (placeholder) is committed; secret.yaml is not.
 deploy/vcp/secret.yaml
+reports/phase-cache/
