@@ -13,7 +13,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785349927.5066712,
+      "ts": 1785352445.9791663,
       "verdict": "accept"
     },
     "history": [
@@ -21,48 +21,23 @@
         "note": "new AI-generated artifacts committed",
         "reviewer": "pipeline",
         "status": "pending_review",
-        "ts": 1785349929.1411517
+        "ts": 1785352447.6388469
       }
     ],
     "note": "new AI-generated artifacts committed",
     "reviewer": "pipeline",
     "status": "pending_review",
-    "updated": 1785349929.1411517
+    "updated": 1785352447.6388469
   },
   "PROJ-301": {
-    "critic": {
-      "findings": [
-        {
-          "file": "suites/orders/PROJ-301-discount-boundary.spec.js",
-          "kind": "missing",
-          "note": "no case for a discount above the cap",
-          "severity": "low"
-        }
-      ],
-      "noise_count": 0,
-      "rationale": "assertions check the discounted total, not just the status code",
-      "score": 0.86,
-      "specs_reviewed": 2,
-      "ts": 1785349977.3615267,
-      "verdict": "accept"
-    },
     "history": [
       {
         "release": "2026.08",
         "source": "jira",
-        "ts": 1785349944.2984326
-      },
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1785349978.324975
+        "ts": 1785352450.929115
       }
     ],
-    "note": "new AI-generated artifacts committed",
     "release": "2026.08",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1785349978.324975
+    "status": ""
   }
 }
