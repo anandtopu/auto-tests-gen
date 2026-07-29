@@ -1,5 +1,5 @@
 """Regression tests for the QA CLI (bin/qa.py) and catalog portability."""
-import glob, importlib.util, json, pathlib, subprocess, sys
+import glob, importlib.util, json, os, pathlib, subprocess, sys
 
 import pytest
 
@@ -94,3 +94,22 @@ def test_qa_artifacts_view():
     r3 = subprocess.run([sys.executable, str(ROOT / "bin/qa.py"), "artifacts", "NOPE-1"],
                         capture_output=True, text=True, cwd=ROOT, stdin=subprocess.DEVNULL)
     assert r3.returncode != 0 and "Known keys" in (r3.stdout + r3.stderr)
+
+
+def test_review_board_shows_a_dash_for_a_never_reviewed_entry(tmp_path, monkeypatch):
+    """`set_release` records a target version before any status transition, so the
+    entry has no `updated`. Defaulting it to 0 printed "1969-12-31", which reads as a
+    corrupt record rather than "nothing has happened yet"."""
+    import review_state
+    store = tmp_path / "reviews.json"
+    monkeypatch.setattr(review_state, "FILE", store)
+    review_state.set_release("NEVER-1", "2026.08")
+    entry = review_state.load()["NEVER-1"]
+    assert not entry.get("updated"), "precondition: the entry carries no timestamp"
+
+    r = subprocess.run([sys.executable, str(ROOT / "bin/qa.py"), "reviews"],
+                       capture_output=True, text=True, cwd=ROOT,
+                       encoding="utf-8", errors="replace",
+                       stdin=subprocess.DEVNULL,
+                       env={**os.environ, "AIQE_REVIEWS_FILE": str(store)})
+    assert "1969" not in r.stdout, "an unset timestamp must not render as the epoch"

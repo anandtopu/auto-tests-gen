@@ -277,7 +277,12 @@ def cmd_reviews(args):
     order = {"pending_review": 0, "in_review": 1, "changes_requested": 2, "approved": 3}
     print(f"{'key':<22} {'status':<18} {'release':<10} {'reviewer':<14} {'updated':<17} note")
     for key, e in sorted(data.items(), key=lambda kv: (order.get(kv[1].get("status"), 9), kv[0])):
-        ts = _t.strftime("%Y-%m-%d %H:%M", _t.localtime(e.get("updated", 0)))
+        # An entry can exist without ever having been reviewed — `set_release`
+        # records a target version before any status transition, so `updated` is
+        # absent. Defaulting it to 0 rendered "1969-12-31", which reads as a
+        # corrupt record rather than "nothing has happened yet".
+        stamp = e.get("updated") or 0
+        ts = _t.strftime("%Y-%m-%d %H:%M", _t.localtime(stamp)) if stamp else "-"
         print(f"{key:<22} {e.get('status') or '-':<18} {e.get('release') or '-':<10} "
               f"{e.get('reviewer') or '-':<14} {ts:<17} {e.get('note', '')[:50]}")
     pending = sum(1 for e in data.values() if e["status"] in ("pending_review", "in_review"))
