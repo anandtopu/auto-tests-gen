@@ -13,6 +13,12 @@ eval/results/
 reports/inline/
 reports/catalog.db
 
+# Work-queue state: items currently queued/running/failed. This is in-flight work,
+# not a record of anything decided — it churns on every run and is wiped by
+# `make clear-demo`. Contrast reports/runs/reviews.json, which IS tracked because
+# team-review decisions and release assignments are durable data the scorecard reads.
+reports/runs/queue.json
+
 # Generated per-repo AGENTS.md (engine/lib/repo_guidance_gen.py) — derived from the
 # registry, harvested surface and catalog, so it is rebuilt on demand rather than
 # committed. bin/gen_agents_md.py regenerates any that are missing before it runs.
