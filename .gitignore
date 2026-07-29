@@ -19,6 +19,10 @@ reports/catalog.db
 # team-review decisions and release assignments are durable data the scorecard reads.
 reports/runs/queue.json
 
+# Live OpenHands conversation view: bounded to the most recent conversations and
+# pruned on a timer. Same class as the queue — in-flight state, not decisions.
+reports/openhands/state.json
+
 # Generated per-repo AGENTS.md (engine/lib/repo_guidance_gen.py) — derived from the
 # registry, harvested surface and catalog, so it is rebuilt on demand rather than
 # committed. bin/gen_agents_md.py regenerates any that are missing before it runs.
