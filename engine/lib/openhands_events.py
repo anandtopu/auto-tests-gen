@@ -25,7 +25,7 @@ needs another exclusion). Override with AIQE_OPENHANDS_DIR.
 
 CLI: openhands_events.py list | show <conversation_id> | prune
 """
-import json, os, pathlib, sys, time
+import json, os, pathlib, sys, time, uuid
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -96,7 +96,74 @@ def _entry(state, cid):
                                   "events": [], "event_count": 0,
                                   "first_seen": time.time(), "updated": 0,
                                   "repo": "", "key": "", "error": "",
-                                  "url": "", "title": "", "source": ""})
+                                  "url": "", "title": "", "source": "",
+                                  "request_id": "", "agent": ""})
+
+
+def record_request(source, key="", title="", repo="", agent="", message_chars=0):
+    """Record that we ASKED OpenHands to do something, before we know the outcome.
+
+    `record_launch` can only record a request that succeeded and returned an id. A
+    request that fails — OpenHands unreachable, credentials rejected, both
+    conversation endpoints refused — answered the user with an error and left no trace
+    at all, so "every request is traceable" was false for exactly the cases someone
+    needs to investigate. A request that is merely ACCEPTED (Cloud start-task, no
+    conversation id yet) was equally invisible.
+
+    So the attempt is recorded first, keyed by a local request id. `resolve_request`
+    later re-keys it to the conversation id (so webhook events merge onto the same
+    entry) or marks it failed. Either way the row exists from the moment the user
+    clicked.
+    """
+    # uuid, not timestamp+pid: two requests in the same second from the same process
+    # would share an id, and the second would silently overwrite the first's record —
+    # losing exactly the failed attempt someone is trying to trace.
+    req_id = f"req-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+    with fs_lock.lock(FILE):
+        state = load()
+        e = _entry(state, req_id)
+        e.update({"status": "requested", "request_id": req_id, "source": source,
+                  "key": str(key or "")[:80], "repo": str(repo or "")[:200],
+                  "title": str(title or "")[:300], "agent": str(agent or "")[:60],
+                  "message_chars": int(message_chars or 0),
+                  "requested_at": time.time(), "updated": time.time()})
+        _save(state)
+    return req_id
+
+
+def resolve_request(req_id, conversation_id="", url="", status="", error=""):
+    """Close out a recorded request.
+
+    With a conversation id the entry is RE-KEYED to it, so the webhook stream (which
+    only knows conversation ids) enriches the same row instead of creating a second
+    one. Without an id the entry stays under its request id carrying the error — a
+    failed request must remain visible, not vanish.
+    """
+    if not req_id:
+        return {}
+    cid = str(conversation_id or "").strip()
+    with fs_lock.lock(FILE):
+        state = load()
+        e = state.pop(req_id, None)
+        if e is None:
+            e = {"conversation_id": cid or req_id, "events": [], "event_count": 0,
+                 "first_seen": time.time(), "repo": "", "key": "", "error": ""}
+        if cid:
+            e["conversation_id"] = cid
+            if url and not e.get("url"):
+                e["url"] = str(url)[:300]
+            if not e.get("status") or e["status"] == "requested":
+                e["status"] = status or "launched"
+            state[cid] = e
+        else:
+            e["conversation_id"] = req_id
+            e["status"] = status or "failed"
+            if error:
+                e["error"] = str(error)[:300]
+            state[req_id] = e
+        e["updated"] = time.time()
+        _save(state)
+    return e
 
 
 def record_launch(conversation_id, url="", key="", repo="", title="", source=""):
@@ -218,6 +285,8 @@ def summary(limit=25):
                     # back to the conversation, knowing its id helps nobody.
                     "url": e.get("url", ""), "title": e.get("title", ""),
                     "source": e.get("source", ""),
+                    "request_id": e.get("request_id", ""),
+                    "agent": e.get("agent", ""),
                     "last_event": (e["events"][-1]["kind"] if e.get("events") else "")})
     return out
 

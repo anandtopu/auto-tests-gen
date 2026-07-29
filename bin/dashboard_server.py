@@ -705,9 +705,23 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, {"error": str(e)})
                     return
                 title = f"AI-QE agent: {fields['agent']} {fields['target']}".strip()
-                result = openhands_client.start(
-                    message, repo=os.environ.get("AIQE_CONTROL_REPO", "") or None,
-                    title=title)
+                # Record the REQUEST before contacting OpenHands, so a failure below
+                # is still traceable — a 502 used to answer the user and leave nothing.
+                req_id = openhands_events.record_request(
+                    f"agent:{fields['agent']}", key=fields["target"], title=title,
+                    repo=os.environ.get("AIQE_CONTROL_REPO", ""),
+                    agent=fields["agent"], message_chars=len(message))
+                try:
+                    result = openhands_client.start(
+                        message, repo=os.environ.get("AIQE_CONTROL_REPO", "") or None,
+                        title=title)
+                except RuntimeError as e:
+                    openhands_events.resolve_request(req_id, error=str(e))
+                    raise
+                openhands_events.resolve_request(
+                    req_id, conversation_id=result.get("conversation_id", ""),
+                    url=result.get("url", ""),
+                    status="pending" if result.get("pending") else "")
                 # Record it NOW. Webhook ingestion only fires if OpenHands can reach
                 # a receiver we own; without this the conversation is real but
                 # invisible, and the user cannot get back to it.
@@ -764,8 +778,19 @@ class Handler(BaseHTTPRequestHandler):
 
                 title = (f"AI-QE: {mode} {target}"
                          + (f" #{p['pr']}" if mode == "pr" else ""))
-                result = openhands_client.start(
-                    message, repo=ctrl_repo or None, branch=branch, title=title)
+                req_id = openhands_events.record_request(
+                    f"trigger:{mode}", key=str(target), title=title, repo=ctrl_repo,
+                    message_chars=len(message))
+                try:
+                    result = openhands_client.start(
+                        message, repo=ctrl_repo or None, branch=branch, title=title)
+                except RuntimeError as e:
+                    openhands_events.resolve_request(req_id, error=str(e))
+                    raise
+                openhands_events.resolve_request(
+                    req_id, conversation_id=result.get("conversation_id", ""),
+                    url=result.get("url", ""),
+                    status="pending" if result.get("pending") else "")
                 # See the /agent path: the launch is the first authoritative record,
                 # webhooks only enrich it.
                 openhands_events.record_launch(

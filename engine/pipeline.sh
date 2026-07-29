@@ -284,7 +284,7 @@ relocate_artifacts() {
 # Phase chain (Workflow A: triage->generate->validate; B: analyze->plan->data->generate->validate)
 if [ "$MODE" = "pr" ]; then
   PHASE triage   pr-triage.md    AGENTS.md out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md
-  GENERATE AGENTS.md out/triage.contract.json out/pr.diff out/coverage-gaps.md out/repo-conventions.md
+  GENERATE AGENTS.md out/triage.contract.json out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md out/repo-conventions.md
 elif [ "$MODE" = "tests" ]; then
   # Resume from the APPROVED plan. The reviewed markdown is authoritative (it may have
   # been edited), so it is passed to both phases alongside the snapshotted contract.
@@ -295,7 +295,7 @@ elif [ "$MODE" = "tests" ]; then
     exit 64
   fi
   PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json "testplans/${KEY}.md"
-  GENERATE AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md" out/repo-conventions.md
+  GENERATE AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md" out/catalog-slice.jsonl out/repo-conventions.md
 else
   PHASE analyze  jira-analyze.md AGENTS.md out/issue-guidance.md out/ticket.json out/confluence.md
   PHASE testplan jira-testplan.md AGENTS.md out/issue-guidance.md out/analyze.contract.json out/coverage-gaps.md
@@ -349,7 +349,7 @@ else
     exit 0
   fi
   PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json
-  GENERATE AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json out/repo-conventions.md
+  GENERATE AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json out/catalog-slice.jsonl out/repo-conventions.md
 fi
 PHASE validate validate-repair.md out/generate.contract.json out/repo-conventions.md
 

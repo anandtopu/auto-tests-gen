@@ -82,6 +82,13 @@ check-integrations:   # read-only connectivity check for every configured system
 smoke-openhands:
 	bash bin/smoke-openhands.sh
 
+state-export:         # portable bundle of all durable state -> reports/exports/
+	python3 engine/lib/state_bundle.py export $(OUT)
+state-inspect:        # manifest + checksum verification, no writes (BUNDLE=path)
+	python3 engine/lib/state_bundle.py inspect $(BUNDLE)
+state-import:         # restore a bundle here (BUNDLE=path [REPLACE=1] [DRY=1])
+	python3 engine/lib/state_bundle.py import $(BUNDLE) $(if $(REPLACE),--replace,) $(if $(DRY),--dry-run,)
+
 cache-stats:          # phase-cache hit report (LLM calls avoided)
 	python3 engine/lib/phase_cache.py stats
 cache-clear:          # drop every cached phase result
