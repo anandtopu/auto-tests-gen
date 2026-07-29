@@ -66,9 +66,14 @@ import _demo_state
 @pytest.fixture(autouse=True, scope="module")
 def _demo_artifacts():
     """See test_export_plan: assert on seeded state, not on ambient demo state."""
-    cleanup = _demo_state.ensure_generated_run("PROJ-301")
+    # The artifacts view is exercised for BOTH key shapes (JIRA and PR), so seed
+    # both — a PR key has no test plan, only a run record.
+    cleanups = [_demo_state.ensure_generated_run("PROJ-301"),
+                _demo_state.ensure_generated_run("PR-orders-api-201", kind="pr",
+                                                 seed_plan=False)]
     yield
-    cleanup()
+    for c in cleanups:
+        c()
 
 
 def test_qa_artifacts_view():

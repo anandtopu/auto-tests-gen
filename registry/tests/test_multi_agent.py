@@ -425,3 +425,72 @@ def test_factory_reset_does_not_touch_env_credentials():
     src = (ROOT / "engine/lib/demo_data.py").read_text(encoding="utf-8")
     assert '".env"' not in src and "'.env'" not in src, \
         "demo_data must never delete .env — credentials survive every reset"
+
+
+# ------------------------ queue failure diagnosis + PR URLs (user bug)
+
+def test_a_failed_run_records_why_not_just_that_it_failed():
+    """The wizard said "run failed — re-queue it from Intake & queue": advice to
+    repeat the thing that just failed, with no way to know what to change. The
+    runner captured stdout/stderr and threw it away, keeping only an exit code."""
+    import work_queue as wq
+
+    # An adapter's actionable message beats any generic exit-code text.
+    r = wq.failure_reason(3, "", "NO_STASH_PROJECT for orders-api: set its url to "
+                                 "'PROJECT/slug', add a stash_project field")
+    assert "NO_STASH_PROJECT" in r and "stash_project" in r
+
+    # Documented exit codes explain themselves when there is no signal line.
+    assert "budget" in wq.failure_reason(77, "", "").lower()
+    assert "lock" in wq.failure_reason(75, "", "").lower()
+    assert "born-mapped" in wq.failure_reason(4, "", "")
+
+    # Never empty for a failure — "unknown" still beats silence.
+    assert wq.failure_reason(99, "", "").strip()
+    assert wq.failure_reason(1, "", "some tail line").endswith("some tail line")
+
+
+def test_the_wizard_shows_the_recorded_failure_reason(tmp_path, monkeypatch):
+    import wizard_status, work_queue
+    monkeypatch.setattr(work_queue, "FILE", tmp_path / "queue.json")
+    monkeypatch.setattr(wizard_status, "ROOT", tmp_path)     # no run records
+    work_queue.save([{"id": "1", "mode": "pr", "target": "orders-api", "pr": "9",
+                      "status": "failed", "ts": 1.0, "exit_code": 3,
+                      "error": "NO_STASH_PROJECT for orders-api: set its url"}])
+    step = next(s for s in wizard_status.build("PR-orders-api-9", "pr")["steps"]
+                if s["label"] == "Generate E2E tests")
+    assert step["state"] == "failed"
+    assert "NO_STASH_PROJECT" in step["detail"], \
+        "the reason must reach the step the user is looking at"
+
+
+def test_pr_urls_parse_for_every_scm_we_speak():
+    """The URL a user actually has carries repo, PR number and — on Stash — the
+    project key they otherwise have to know to configure by hand."""
+    import pr_url
+    s = pr_url.parse("https://stash.corp/projects/ENG/repos/orders-api/pull-requests/42/overview")
+    assert (s["kind"], s["project"], s["slug"], s["pr"]) == ("stash", "ENG", "orders-api", "42")
+    b = pr_url.parse("https://bitbucket.org/ws/orders-api/pull-requests/7")
+    assert (b["kind"], b["project"], b["slug"], b["pr"]) == ("bitbucket", "ws", "orders-api", "7")
+    g = pr_url.parse("https://github.com/org/orders-api/pull/123")
+    assert (g["kind"], g["project"], g["slug"], g["pr"]) == ("github", "org", "orders-api", "123")
+    # Scheme-less paste works; junk returns None rather than raising.
+    assert pr_url.parse("stash.corp/projects/QE/repos/e2e/pull-requests/9")["project"] == "QE"
+    for junk in ("", None, "not a url", "https://stash.corp/projects/ENG/repos/x", 42):
+        assert pr_url.parse(junk) is None
+
+
+def test_stash_url_project_is_not_mistaken_for_the_bitbucket_pattern():
+    """A Stash path also matches the looser two-segment Cloud pattern; matching in
+    the wrong order would report project 'projects'."""
+    import pr_url
+    p = pr_url.parse("https://stash.corp/projects/ENG/repos/orders-api/pull-requests/42")
+    assert p["project"] == "ENG" and p["kind"] == "stash"
+
+
+def test_unregistered_repo_from_a_pr_url_is_rejected_with_the_fields_to_add():
+    import repo_admin
+    assert repo_admin.is_registered("orders-api") is True
+    assert repo_admin.is_registered("e2e-api-tests-1") is True     # test repos count
+    assert repo_admin.is_registered("no-such-repo-xyz") is False
+    assert repo_admin.is_registered("") is False

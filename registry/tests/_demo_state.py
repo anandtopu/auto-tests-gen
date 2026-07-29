@@ -33,13 +33,13 @@ PLAN_MD = """# Test Plan — {key}
 """
 
 
-def _run_record(key, run_id):
+def _run_record(key, run_id, kind="jira"):
     return {
         # Field names track engine/lib/run_record.py exactly — `trigger.type` and
         # `gates[].exit_code`. A near-miss here fails inside the CLI with a
         # KeyError instead of failing the assertion under test.
         "run_id": run_id, "ts": time.time(), "overall": "committed",
-        "trigger": {"type": "jira", "key": key},
+        "trigger": {"type": kind, "key": key},
         "gates": [{"test_repo": "e2e-api-tests-1", "status": "committed",
                    "exit_code": 0, "commit": "0123456",
                    "log": f"reports/{key}-e2e-api-tests-1.log", "diff": ""}],
@@ -55,7 +55,8 @@ def _run_record(key, run_id):
     }
 
 
-def ensure_generated_run(key="PROJ-301", release="2026.08"):
+def ensure_generated_run(key="PROJ-301", release="2026.08", kind="jira",
+                         seed_plan=True):
     """Make sure `key` has a plan and a committed run with generated tests.
 
     Returns a zero-arg cleanup callable that removes only what was created here.
@@ -67,7 +68,7 @@ def ensure_generated_run(key="PROJ-301", release="2026.08"):
     created = []
 
     plan = ROOT / f"testplans/{key}.md"
-    if not plan.exists():
+    if seed_plan and not plan.exists():
         plan.parent.mkdir(parents=True, exist_ok=True)
         plan.write_text(PLAN_MD.format(key=key), encoding="utf-8", newline="\n")
         created.append(plan)
@@ -87,18 +88,27 @@ def ensure_generated_run(key="PROJ-301", release="2026.08"):
             break
 
     if not has_run:
-        run_id = f"test-seed-{int(time.time())}"
+        # Include the key: two seeds in the same second would otherwise share a
+        # run_id and the second would silently overwrite the first's record.
+        safe = "".join(c if c.isalnum() else "-" for c in key)
+        run_id = f"test-seed-{safe}-{int(time.time())}"
         rec = ROOT / f"reports/runs/{run_id}.json"
         rec.parent.mkdir(parents=True, exist_ok=True)
-        rec.write_text(json.dumps(_run_record(key, run_id), indent=1),
+        rec.write_text(json.dumps(_run_record(key, run_id, kind), indent=1),
                        encoding="utf-8", newline="\n")
         created.append(rec)
 
-    # The export bundle prints the target release; seed it only if unset.
-    restore_release = None
-    if not (review_state.load().get(key) or {}).get("release"):
+    # The export bundle prints BOTH the target release and the team-review status,
+    # and each is emitted only when set. Seed whichever is missing — `clear-demo`
+    # wipes reviews.json, so a freshly re-seeded estate has neither.
+    entry = review_state.load().get(key) or {}
+    restore_release = restore_status = None
+    if not entry.get("release"):
         review_state.set_release(key, release)
         restore_release = key
+    if not entry.get("status"):
+        review_state.set_status(key, "pending_review", "test-seed")
+        restore_status = key
 
     def cleanup():
         for p in created:
@@ -109,6 +119,14 @@ def ensure_generated_run(key="PROJ-301", release="2026.08"):
         if restore_release:
             try:
                 review_state.set_release(restore_release, "")
+            except Exception:
+                pass
+        if restore_status:
+            try:
+                data = review_state.load()
+                if key in data:
+                    data[key].pop("status", None)
+                    review_state.save(data)
             except Exception:
                 pass
 

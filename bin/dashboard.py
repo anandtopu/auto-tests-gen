@@ -1165,16 +1165,25 @@ if ($('#wz-mode')) {
   $('#wz-start-pr').addEventListener('click', async () => {
     if (needsServer()) return;
     const repo = $('#wz-repo').value.trim(), pr = $('#wz-pr').value.trim();
-    if (!repo || !pr) { toast('Enter the app repo and PR number'); return; }
-    wzKey = 'PR-' + repo + '-' + pr; wzMode = 'pr';
+    // A pasted PR URL carries the repo and number (and the Stash project), so the
+    // PR # box is optional when the first field is a URL — the server parses it.
+    const isUrl = repo.includes('pull-requests') || repo.includes('/pull/');
+    if (!repo || (!pr && !isUrl)) {
+      toast('Enter the app repo and PR number — or paste the pull-request URL'); return; }
     try {
-      await api('/api/queue', { method: 'POST',
+      const r = await api('/api/queue', { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: 'pr', target: repo, pr: pr }) });
+      // Derive the key from what the SERVER resolved, so a URL-driven run polls
+      // the right key instead of one built from the raw URL text.
+      wzKey = (r.item && r.item.pr)
+        ? 'PR-' + r.item.target + '-' + r.item.pr
+        : 'PR-' + repo + '-' + pr;
+      wzMode = 'pr';
       await api('/api/queue/run', { method: 'POST' });
       toast('Analyzing ' + wzKey + ' — generation runs in the background');
       wzPoll();
-    } catch (err) { toast(err.message); }
+    } catch (err) { toast(err.message + (err.hint ? ' — ' + err.hint : '')); }
   });
 
   const wzJiraKey = () => {
@@ -1957,8 +1966,10 @@ page = f"""<!doctype html>
       </div>
       <div class="card-b" style="display:flex; flex-direction:column; gap:12px">
         <div class="wz-row" id="wz-pr-inputs">
-          <label class="f">App repo <input id="wz-repo" class="h32"
-            placeholder="orders-api" style="width:150px"></label>
+          <label class="f">App repo or PR URL <input id="wz-repo" class="h32"
+            placeholder="orders-api  —  or paste the full pull-request URL"
+            title="Paste a Stash, Bitbucket or GitHub pull-request URL and the repo, PR number and project are read from it"
+            style="width:330px"></label>
           <label class="f">PR # <input id="wz-pr" class="h32"
             placeholder="201" style="width:80px"></label>
           <button class="btn btn-primary" id="wz-start-pr">Analyze PR &amp; generate tests</button>

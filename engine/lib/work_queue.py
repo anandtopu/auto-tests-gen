@@ -92,6 +92,52 @@ def _mark(items, item, **kw):
     save(items)
 
 
+# The pipeline's exit codes are a documented contract (architecture §5.8) — turn each
+# into something a human can act on rather than a bare number.
+EXIT_MEANING = {
+    64: "bad key or mode — the target was rejected before any work started",
+    75: "another run holds the pipeline lock — retry when it finishes",
+    77: "budget exceeded (cost or wall-clock) — the run aborted before the gate",
+    2: "gate: a change fell outside the test repo's allowed scope, or a filename "
+       "used unsafe characters",
+    3: "gate: the secret/PII scan rejected the generated content",
+    4: "gate: a generated spec had no catalog sidecar (not born-mapped)",
+    5: "gate: the generated tests did not pass when executed",
+    6: "gate: the target directory is not a standalone git repository",
+    7: "gate: the push failed against the remote",
+}
+
+# Lines worth surfacing verbatim: the platform's own machine-readable failures and the
+# adapters' actionable errors. Matched case-sensitively — they are emitted, not typed.
+_SIGNALS = ("NO_STASH_PROJECT", "PIPELINE_BUSY", "BUDGET_EXCEEDED", "INVALID_KEY",
+            "INVALID_MODE", "PLAN_SNAPSHOT_MISSING", "not approved",
+            "needs_clarification", "GATE_STATUS=", "clone failed", "fatal:",
+            "HTTP 4", "HTTP 5", "Failed to authenticate", "error:")
+
+
+def failure_reason(exit_code, stdout="", stderr="", limit=400):
+    """A short, human-actionable explanation of why a queued run failed.
+
+    Prefers a line the platform deliberately emitted (an adapter's NO_STASH_PROJECT
+    beats "exit 3" every time); falls back to the exit code's documented meaning, then
+    to the last non-empty output line. Always returns something non-empty for a
+    non-zero exit — "we don't know" is still better said than left blank.
+    """
+    text = f"{stdout or ''}\n{stderr or ''}"
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+    for line in reversed(lines):                    # most recent signal wins
+        if any(sig in line for sig in _SIGNALS):
+            return line[:limit]
+
+    meaning = EXIT_MEANING.get(exit_code)
+    if meaning:
+        return f"exit {exit_code} — {meaning}"
+    if lines:
+        return f"exit {exit_code} — {lines[-1][:limit]}"
+    return f"exit {exit_code} — no output captured"
+
+
 def requeue(item_id):
     """Put a failed item back in the queue (fresh attempt, previous result
     cleared). Also the recovery path for an item stranded in `running` by a
@@ -168,8 +214,16 @@ def run_all():
             items = load()
             cur = next((i for i in items if i["id"] == item["id"]), None)
             if cur:
+                # Persist WHY it failed. The runner is a background subprocess
+                # launched by the dashboard, so its stdout/stderr goes to a console
+                # no user ever reads — storing only the exit code left the UI able
+                # to say nothing but "run failed", with the actionable message
+                # (e.g. NO_STASH_PROJECT, PIPELINE_BUSY, a gate rejection) thrown
+                # away at exactly the moment someone needed it.
                 _mark(items, cur, status="done" if r.returncode == 0 else "failed",
-                      finished=time.time(), exit_code=r.returncode)
+                      finished=time.time(), exit_code=r.returncode,
+                      error=("" if r.returncode == 0
+                             else failure_reason(r.returncode, r.stdout, r.stderr)))
         # A release chosen at queue time is a fact about the work — persist it so
         # release-filtered views and reports include this key.
         if r.returncode == 0 and item.get("release"):

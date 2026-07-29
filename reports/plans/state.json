@@ -1,6 +1,6 @@
 {
   "PROJ-301": {
-    "adversary": "",
+    "adversary": "adversarial review: 2 gap(s) raised, 2 high-severity, 2 accepted, 3 scenario(s) in the final plan",
     "by": "pipeline",
     "generated_run": null,
     "history": [
@@ -8,35 +8,11 @@
         "by": "pipeline",
         "note": "test plan authored",
         "status": "draft",
-        "ts": 1785283568.4978125
-      },
-      {
-        "by": "pipeline",
-        "note": "test plan authored",
-        "status": "draft",
-        "ts": 1785283781.5750234
-      },
-      {
-        "by": "pipeline",
-        "note": "test plan authored",
-        "status": "draft",
-        "ts": 1785283798.2699347
-      },
-      {
-        "by": "pipeline",
-        "note": "test plan authored",
-        "status": "draft",
-        "ts": 1785283911.1606176
-      },
-      {
-        "by": "pipeline",
-        "note": "test plan authored",
-        "status": "draft",
-        "ts": 1785283920.874047
+        "ts": 1785286217.9446
       }
     ],
     "note": "test plan authored",
     "status": "draft",
-    "updated": 1785283920.8740432
+    "updated": 1785286217.9445972
   }
 }

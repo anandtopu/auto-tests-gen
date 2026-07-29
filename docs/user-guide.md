@@ -669,6 +669,28 @@ under `knowledge/repos/` are cleared, and `AGENTS.md` + path skills are regenera
 against the now-empty estate. Use it to hand the platform over with no residue;
 re-add repos via the Repositories view or `bin/onboard.sh` afterwards.
 
+### Starting a PR run from its URL
+
+The **Guided run** wizard's first field accepts either a registered repo name *or* the
+full pull-request URL — Stash (`.../projects/ENG/repos/orders-api/pull-requests/42`),
+Bitbucket Cloud (`.../workspace/repo/pull-requests/42`) or GitHub
+(`.../owner/repo/pull/42`). Paste the URL and the repo slug, PR number and (on Stash)
+the project key are read from it; the PR # box becomes optional.
+
+This matters most on **Stash**, where a repository is addressed by *project key +
+slug*. The project comes from the repo's registry entry — its `url` in `PROJECT/slug`
+form, or an explicit **Stash project** field in the Repositories view — with
+`STASH_PROJECT` as a fallback default only. A repo registered without either fails the
+run with `NO_STASH_PROJECT`. Pasting the PR URL sidesteps the guesswork: if the repo
+is not registered yet, the queue refuses up front and names the exact values to enter
+(`name`, `scm`, `url PROJECT/slug`, `Stash project`) instead of failing later.
+
+**When a queued run fails, the wizard now says why.** The queue records the reason —
+an adapter's message (`NO_STASH_PROJECT …`), a documented exit code (budget exceeded,
+pipeline lock held, a gate rejection and which check), or the last line of output — and
+the failing step shows it. Previously it only said "run failed — re-queue it", which
+told you to repeat the thing that had just failed without saying what to change.
+
 **Your credentials survive a factory reset.** It never reads or writes `.env`, so
 Stash/JIRA/OpenHands tokens are untouched. What it does remove is the *repositories*,
 and the SCM connection check needs one to probe against — so immediately after a reset

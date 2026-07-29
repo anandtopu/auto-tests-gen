@@ -67,8 +67,8 @@ SSO_HEADER = os.environ.get("AIQE_SSO_HEADER", "").strip()
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import demo_data, email_notify, export_plan, guidance_sync, inline_ticket, \
     integration_check, openhands_client, openhands_events, openhands_mode, \
-    plan_state, repo_admin, repo_guidance_gen, review_state, settings_store, \
-    team_report, work_queue
+    plan_state, pr_url, repo_admin, repo_guidance_gen, review_state, \
+    settings_store, team_report, work_queue
 
 # The Settings view writes .env; honor it here too (explicit env still wins) so
 # adapter mode and credentials configured in the UI actually reach this server.
@@ -420,9 +420,29 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/queue":
             try:
                 p = json.loads(body or b"{}")
-                item, fresh = work_queue.add(p["mode"], p["target"], p.get("pr"),
+                target, pr = p["target"], p.get("pr")
+                # Accept a pasted PULL-REQUEST URL in the target field. It carries the
+                # repo slug and PR number (and, on Stash, the project key) — which is
+                # what the user actually has in hand. Asking for a registry name plus
+                # a PR number instead is what makes a Stash run fail on a project the
+                # user never knew they had to configure.
+                parsed = pr_url.parse(target) if p.get("mode") == "pr" else None
+                if parsed:
+                    target, pr = parsed["slug"], parsed["pr"]
+                    if not repo_admin.is_registered(target):
+                        self._send(400, {
+                            "error": f"repo '{target}' from that PR URL is not "
+                                     f"registered ({pr_url.describe(p['target'])})",
+                            "hint": f"add it in Repositories — name {target}, "
+                                    f"scm {parsed['kind']}, url "
+                                    f"{parsed['project']}/{target}"
+                                    + (f", Stash project {parsed['project']}"
+                                       if parsed["kind"] == "stash" else "")})
+                        return
+                item, fresh = work_queue.add(p["mode"], target, pr,
                                              p.get("release", ""), "dashboard")
-                self._send(200, {"queued": fresh, "item": item})
+                self._send(200, {"queued": fresh, "item": item,
+                                 "resolved_from_url": bool(parsed)})
             except (KeyError, json.JSONDecodeError, SystemExit) as e:
                 self._send(400, {"error": str(e)})
         elif self.path == "/api/queue/inline":

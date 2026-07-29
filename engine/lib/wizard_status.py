@@ -115,8 +115,12 @@ def build(key, mode="pr"):
         steps.append(_step("running", "Generate E2E tests",
                            "the agent is analyzing and writing tests"))
     elif failed:
+        # Say WHY. "run failed — re-queue it" tells the user to repeat the thing
+        # that just failed, with no way to know what to change first; the queue now
+        # records the actionable reason (work_queue.failure_reason).
+        why = (failed[-1].get("error") or "").strip()
         steps.append(_step("failed", "Generate E2E tests",
-                           "run failed — re-queue it from Intake & queue"))
+                           why or "run failed — re-queue it from Intake & queue"))
     else:
         steps.append(_step("pending", "Generate E2E tests", ""))
 

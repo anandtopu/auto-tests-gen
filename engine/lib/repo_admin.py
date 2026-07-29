@@ -63,6 +63,20 @@ def _entry(reg, name, sect):
     return next((r for r in reg[sect] if r["name"] == name), None)
 
 
+def is_registered(name):
+    """True when `name` is a known app OR test repository.
+
+    Used to reject a PR URL for an unregistered repo up front, with a hint naming
+    the exact fields to add — far better than queueing work that will fail deep in
+    the pipeline with an error about a project key the user never configured.
+    """
+    if not name:
+        return False
+    reg = load_registry()
+    return any(_entry(reg, name, s)
+               for s in ("source_repositories", "test_repositories"))
+
+
 def _pytest_available():
     """True when pytest can be run. The runtime container installs no test deps, so
     a registry mutation there must skip the golden re-run rather than report the
