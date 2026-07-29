@@ -934,8 +934,13 @@ async function api(path, opts) {
     // code (it renders the page fresh from disk but keeps its own old handlers).
     // Say so explicitly — "501" alone sent users hunting for a bug that a restart
     // fixes. json() also fails on those responses (HTML error body), hence the catch.
-    let msg;
-    try { msg = (await r.json()).error; } catch (e) { msg = null; }
+    let msg, hint;
+    // Keep the `hint` an endpoint sends alongside `error`. Several handlers answer a
+    // rejection with the exact fields to fix (an unregistered PR URL names the repo
+    // entry to add) — dropping it here left the user with the complaint and none of
+    // the remedy, which is the half that matters.
+    try { const b = await r.json(); msg = b.error; hint = b.hint; } catch (e) { msg = null; }
+    if (msg && hint) msg = msg + ' — ' + hint;
     if (!msg && (r.status === 501 || r.status === 404))
       msg = 'The dashboard server is running older code than this page (HTTP '
         + r.status + '). Restart it — stop and re-run make serve — then retry.';
@@ -989,7 +994,12 @@ applyRunFilters();
 
 // ---- approve (team review)
 document.addEventListener('click', async e => {
-  const b = e.target.closest('button.approve');
+  // `[data-key]` is load-bearing, not decoration: `approve` is also a STYLE class
+  // (the Test plans view's Approve button wears it), and without this the delegated
+  // handler fired there too and POSTed /api/review with no key — the server answered
+  // KeyError and the user saw a toast reading literally `'key'` while their actual
+  // action succeeded. Match on the attribute this handler reads.
+  const b = e.target.closest('button.approve[data-key]');
   if (!b) return;
   if (needsServer()) return;
   b.disabled = true;
@@ -1183,7 +1193,7 @@ if ($('#wz-mode')) {
       await api('/api/queue/run', { method: 'POST' });
       toast('Analyzing ' + wzKey + ' — generation runs in the background');
       wzPoll();
-    } catch (err) { toast(err.message + (err.hint ? ' — ' + err.hint : '')); }
+    } catch (err) { toast(err.message); }   // api() already folds in any hint
   });
 
   const wzJiraKey = () => {
@@ -1231,10 +1241,21 @@ if ($('#wz-mode')) {
     if (needsServer()) return;
     const k = wzJiraKey(); if (!k) return;
     try {
+      // Attach FIRST so the comment can cite the attachment, then post the comment
+      // (the J6 deliverable). Attaching needs an approved plan; when it is not
+      // approved yet we still post the comment rather than failing the whole step.
+      let attached = false;
+      try {
+        await api('/api/plans/link', { method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: k, format: 'pdf' }) });
+        attached = true;
+      } catch (e) { /* not approved, or attach unavailable — comment still stands */ }
       await api('/api/plans/comment', { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: k }) });
-      toast('Commented on ' + k + ': plan + tests linked');
+      toast('Commented on ' + k + ': plan + tests linked'
+            + (attached ? ' (plan attached)' : ''));
       wzPoll();
     } catch (err) { toast(err.message); }
   });

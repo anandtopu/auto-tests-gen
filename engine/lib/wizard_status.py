@@ -142,10 +142,20 @@ def build(key, mode="pr"):
         steps.append(_step("pending", "Team review", ""))
 
     if mode == "jira":
-        linked = plan_state.get(key).get("linked")
-        steps.append(_step("done", "Link plan + tests to the ticket",
-                           linked.get("ref", "")[:80]) if linked
-                     else _step("pending", "Link plan + tests to the ticket", ""))
+        # J6 is satisfied by TELLING the ticket — a posted comment. An attachment is
+        # the richer form of the same step, so either completes it; requiring the
+        # attachment alone left the step pending after the user had posted the
+        # comment and been told it worked.
+        entry = plan_state.get(key)
+        linked, commented = entry.get("linked"), entry.get("commented")
+        if linked:
+            detail = linked.get("ref", "")[:80]
+        elif commented:
+            detail = (commented.get("result") or "comment posted on the ticket")[:80]
+        else:
+            detail = ""
+        steps.append(_step("done" if (linked or commented) else "pending",
+                           "Link plan + tests to the ticket", detail))
 
     return {"key": key, "mode": mode, "steps": steps,
             "busy": bool(pending),

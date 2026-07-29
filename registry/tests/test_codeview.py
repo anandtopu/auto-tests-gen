@@ -149,6 +149,12 @@ def test_api_wrapper_explains_a_stale_server_on_501_and_404():
     cause (stale server process) and the fix (restart make serve)."""
     src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
     i = src.index("async function api(")
-    wrapper = src[i:i + 900]
+    # Bound the slice by the NEXT function, not a magic byte count: a fixed window
+    # makes this fail whenever the wrapper gains a line, which is a test reporting on
+    # its own arithmetic rather than on the behaviour it names.
+    j = src.find("\nasync function ", i + 1)
+    k = src.find("\nfunction ", i + 1)
+    end = min(x for x in (j, k, len(src)) if x > 0)
+    wrapper = src[i:end]
     assert "501" in wrapper and "404" in wrapper
     assert "make serve" in wrapper, "the fix must be named in the error"

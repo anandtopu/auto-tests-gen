@@ -272,4 +272,14 @@ def post_ticket_comment(key):
                        stdin=subprocess.DEVNULL, timeout=60)
     if r.returncode != 0:
         raise SystemExit(f"comment failed: {(r.stdout + r.stderr).strip()[:200]}")
+    # Record that the ticket was told. Journey J6 is "link the plan and the E2E tests
+    # to the ticket VIA A COMMENT", so posting it is the deliverable — but nothing
+    # persisted that, which left the wizard's final step stuck on `pending` after the
+    # user had just clicked its button and been told it succeeded.
+    with fs_lock.lock(FILE):
+        state = load()
+        if key in state:
+            state[key]["commented"] = {"ts": time.time(),
+                                       "result": r.stdout.strip()[:300]}
+            _save(state)
     return {"comment": text, "result": r.stdout.strip()}

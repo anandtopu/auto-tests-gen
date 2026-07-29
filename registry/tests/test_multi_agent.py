@@ -494,3 +494,54 @@ def test_unregistered_repo_from_a_pr_url_is_rejected_with_the_fields_to_add():
     assert repo_admin.is_registered("e2e-api-tests-1") is True     # test repos count
     assert repo_admin.is_registered("no-such-repo-xyz") is False
     assert repo_admin.is_registered("") is False
+
+
+# --------------------------------- bugs found by manual acceptance testing
+
+def test_j6_step_completes_on_the_comment_not_only_the_attachment(tmp_path, monkeypatch):
+    """Journey J6 is "link the plan and tests to the ticket VIA A COMMENT", but the
+    wizard's final step was satisfied only by an ATTACHMENT. Clicking the button
+    under it posted the comment, reported success, and left the step `pending`."""
+    import plan_state, wizard_status
+    monkeypatch.setattr(plan_state, "DIR", tmp_path)
+    monkeypatch.setattr(plan_state, "FILE", tmp_path / "state.json")
+    monkeypatch.setattr(wizard_status, "ROOT", tmp_path)
+    plan_state.record_plan("ZZ-9", {"scenarios": []})
+    (tmp_path / "testplans").mkdir(exist_ok=True)
+
+    step = lambda: next(s for s in wizard_status.build("ZZ-9", "jira")["steps"]
+                        if s["label"].startswith("Link"))
+    assert step()["state"] == "pending"
+
+    # A posted comment alone completes it.
+    data = plan_state.load()
+    data["ZZ-9"]["commented"] = {"ts": 1.0, "result": "[mock-jira] commented on ZZ-9"}
+    plan_state._save(data)
+    assert step()["state"] == "done"
+    assert "commented" in step()["detail"]
+
+    # An attachment still wins the detail line — it is the richer reference.
+    data = plan_state.load()
+    data["ZZ-9"]["linked"] = {"ref": "attached: ZZ-9-testplan.pdf", "by": "x", "ts": 1.0}
+    plan_state._save(data)
+    assert step()["state"] == "done" and "testplan.pdf" in step()["detail"]
+
+
+def test_approve_handler_is_bound_to_the_attribute_it_reads():
+    """`approve` is a STYLE class the Test plans view also wears. The delegated
+    review-board handler matched on it and POSTed /api/review with no key, so the
+    server answered KeyError and the user saw a toast reading literally `'key'`
+    while their real action succeeded. The selector must require data-key."""
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert "closest('button.approve[data-key]')" in src, \
+        "the delegated approve handler must not fire on style-only .approve buttons"
+    # The real review-board buttons still carry the attribute it selects on.
+    assert 'class="btn btn-sm approve" data-key=' in src
+
+
+def test_api_helper_surfaces_the_hint_with_the_error():
+    """Several endpoints answer a rejection with `hint` naming the exact fields to
+    fix. Dropping it left the user with the complaint and none of the remedy."""
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert "hint = b.hint" in src or "hint = b.hint;" in src
+    assert "msg = msg + ' — ' + hint" in src
