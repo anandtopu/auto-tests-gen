@@ -22,6 +22,7 @@ reports/runs/queue.json
 # Live OpenHands conversation view: bounded to the most recent conversations and
 # pruned on a timer. Same class as the queue — in-flight state, not decisions.
 reports/openhands/state.json
+reports/coverage-drift.json
 
 # Generated per-repo AGENTS.md (engine/lib/repo_guidance_gen.py) — derived from the
 # registry, harvested surface and catalog, so it is rebuilt on demand rather than

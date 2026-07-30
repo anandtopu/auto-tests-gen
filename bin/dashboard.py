@@ -395,8 +395,20 @@ for key, r in latest_by_key.items():
             + f'<span class="mono sm muted">run {esc(r["run_id"])}</span>'
             + (f'<span class="mono sm muted">· release {esc(release)}</span>' if release else ""))
     head += "</div>"
+    # In-place review (roadmap 4.1): the decision lives on the same screen as the
+    # code. The reviewer reads the rendered diff above and acts here — no hop to
+    # the Runs view, no losing the context they just built.
+    review_bar = (
+        f'<div class="art-sec art-review" data-review-key="{esc(key)}" '
+        f'style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">'
+        f'<input class="h32 art-note" placeholder="review note (optional — '
+        f'required for changes requested)" style="flex:1; min-width:220px">'
+        f'<button class="btn btn-sm approve-here">Approve</button>'
+        f'<button class="btn btn-sm danger changes-here">Request changes</button>'
+        f'<span class="sm muted art-review-state"></span></div>')
     art_panels_html += (f'<article class="card art-panel{"" if first else " hidden"}" '
-                        f'data-art-panel="{esc(key)}">{head}{inner or chr(10)}</article>')
+                        f'data-art-panel="{esc(key)}">{head}{inner or chr(10)}'
+                        f'{review_bar}</article>')
     first = False
 
 # ---------------------------------------------------------------- trace view
@@ -1447,6 +1459,56 @@ async function refreshTraceMatrix() {
 }
 refreshTraceMatrix();
 
+// ---- batch review (roadmap 4.3): clear a filtered set in one confirmed pass
+const batchBtn = document.getElementById('approve-filtered');
+if (batchBtn) batchBtn.addEventListener('click', async () => {
+  if (needsServer()) return;
+  // Only VISIBLE pending rows: the release/review filters define the batch, so
+  // what you see is exactly what you approve.
+  const btns = [...document.querySelectorAll(
+    '[data-view="runs"] button.approve[data-key]')].filter(b => b.offsetParent !== null);
+  const keys = [...new Set(btns.map(b => b.dataset.key))];
+  if (!keys.length) { toast('Nothing visible is awaiting review'); return; }
+  if (!confirm('Approve ' + keys.length + ' key(s)?\\n\\n' + keys.join('\\n') +
+               '\\n\\nEach decision is recorded individually on the review board.')) return;
+  let ok = 0;
+  for (const key of keys) {
+    try {
+      await api('/api/review', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, status: 'approved', by: 'dashboard',
+                               note: 'batch approval' }) });
+      ok++;
+    } catch (err) { toast(key + ': ' + err.message); }
+  }
+  toast('Approved ' + ok + '/' + keys.length + ' — reloading');
+  location.reload();
+});
+
+// ---- in-place review on the Artifacts panels (roadmap 4.1)
+document.addEventListener('click', async e => {
+  const btn = e.target.closest('.approve-here, .changes-here');
+  if (!btn) return;
+  if (needsServer()) return;
+  const bar = btn.closest('.art-review');
+  const key = bar.dataset.reviewKey;
+  const note = bar.querySelector('.art-note').value.trim();
+  const changes = btn.classList.contains('changes-here');
+  if (changes && !note) {
+    toast('Requesting changes needs a note — say what to change'); return;
+  }
+  btn.disabled = true;
+  try {
+    await api('/api/review', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, status: changes ? 'changes_requested' : 'approved',
+                             by: 'dashboard', note }) });
+    bar.querySelector('.art-review-state').textContent =
+      (changes ? 'changes requested' : 'approved') + ' ✓ recorded on the board';
+    toast((changes ? 'Changes requested for ' : 'Approved ') + key);
+  } catch (err) { toast(err.message); btn.disabled = false; }
+});
+
 // ---- test plans: review -> edit -> approve -> link -> generate
 const PLAN_CHIP = { draft: ['draft', 'muted'], in_review: ['✎ in review', 'warning'],
   approved: ['✓ approved', 'success'], changes_requested: ['✗ changes requested', 'danger'] };
@@ -1503,6 +1565,20 @@ async function openPlan(key) {
     }
   }
   $('#plan-text').value = p.text;
+  // What changed since approval (roadmap 4.2) — shown only when a previously
+  // approved plan differs from its signed baseline, so a re-approval is a review
+  // of the DELTA rather than a leap of faith over the whole document.
+  const adiff = $('#plan-appdiff');
+  if (adiff) {
+    adiff.classList.add('hidden');
+    api('/api/plans/diff-since-approval?key=' + encodeURIComponent(key)).then(d => {
+      if (!d.diff) return;
+      adiff.innerHTML = '<b>Changed since last approval</b> — the previous sign-off '
+        + 'no longer covers this text:<pre style="white-space:pre-wrap; max-height:240px; '
+        + 'overflow:auto; margin:6px 0 0">' + escHtml(d.diff) + '</pre>';
+      adiff.classList.remove('hidden');
+    }).catch(() => {});
+  }
   // Similar prior plans (roadmap 6.1) — a SUGGESTION strip, never auto-applied.
   // Loaded after the editor so a slow lookup can't delay opening the plan.
   const sim = $('#plan-similar');
@@ -2158,6 +2234,9 @@ page = f"""<!doctype html>
         <label class="f">Review <select id="f-rev" class="h32"><option value="">all</option>
           <option value="pending">awaiting review</option><option value="approved">approved</option>
           <option value="changes_requested">changes requested</option></select></label>
+        <button class="btn btn-sm approve" id="approve-filtered"
+          title="Approve every key currently visible and awaiting review — one confirmation, each decision still recorded individually on the board">
+          Approve all shown</button>
         <span class="sub" style="margin-left:auto" id="run-count"></span></div>
       <div class="scroll"><table id="runs-table">
         <thead><tr><th>key / run</th><th>trigger</th><th>time</th><th>overall</th>
@@ -2267,6 +2346,9 @@ page = f"""<!doctype html>
                  border-radius:8px"></ul>
         <div id="plan-similar" class="hidden sm"
           style="border:1px solid var(--sr-border); border-radius:8px;
+                 padding:8px 12px"></div>
+        <div id="plan-appdiff" class="hidden sm"
+          style="border:1px solid var(--sr-warning-fg); border-radius:8px;
                  padding:8px 12px"></div>
         <textarea id="plan-text" rows="22" spellcheck="false"
           style="font-family:var(--sr-font-mono); font-size:12px"></textarea>

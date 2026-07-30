@@ -68,6 +68,10 @@ def set_status(key, status, by="", note=""):
             {"status": status, "by": by, "note": note, "ts": time.time()})
         state[key] = e
         _save(state)
+    # An approval freezes the text the approver signed: this snapshot is the
+    # baseline every later "what changed?" diff compares against (roadmap 4.2).
+    if status == "approved":
+        snapshot_plan(key, "approved")
     return e
 
 
@@ -118,14 +122,71 @@ def record_plan(key, contract=None, by="pipeline", adversary=""):
     return state[key]
 
 
+def versions_dir(key):
+    return DIR / "versions" / key
+
+
+def snapshot_plan(key, label):
+    """Keep the current plan text as a numbered version (roadmap 4.2).
+
+    History entries recorded WHO did WHAT but only the latest text survived — so
+    "what changed since I approved?" was unanswerable, and a re-approval was a leap
+    of faith. Snapshots are small (plan markdown), bounded (last 20), and named by
+    sequence + the event that caused them."""
+    src = plan_path(key)
+    if not src.exists():
+        return None
+    d = versions_dir(key)
+    d.mkdir(parents=True, exist_ok=True)
+    existing = sorted(d.glob("v*.md"))
+    n = 1 + max((int(p.stem.split("-")[0][1:]) for p in existing), default=0)
+    safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in label)[:40]
+    dest = d / f"v{n:03d}-{safe}.md"
+    dest.write_text(src.read_text(encoding="utf-8", errors="replace"),
+                    encoding="utf-8", newline="\n")
+    for old in sorted(d.glob("v*.md"))[:-20]:
+        old.unlink(missing_ok=True)
+    return dest
+
+
+def approved_baseline(key):
+    """The most recent snapshot taken AT approval, or None. This is the text the
+    approver actually signed off — the only honest baseline for a re-approval diff."""
+    d = versions_dir(key)
+    if not d.is_dir():
+        return None
+    approved = sorted(d.glob("v*-approved*.md"))
+    return approved[-1] if approved else None
+
+
+def diff_since_approval(key):
+    """Unified diff of the current plan vs what was approved, or "" when there is
+    no baseline / no change. The re-approver sees exactly the delta, not the whole
+    document again."""
+    import difflib
+    base = approved_baseline(key)
+    cur = plan_path(key)
+    if base is None or not cur.exists():
+        return ""
+    a = base.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+    b = cur.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+    if a == b:
+        return ""
+    return "".join(difflib.unified_diff(a, b, fromfile=f"{key} (as approved)",
+                                        tofile=f"{key} (current)"))
+
+
 def save_plan(key, text, by=""):
     """Replace the plan markdown. Editing an APPROVED plan resets it to draft so a
     changed artifact can never inherit a stale approval."""
     if not text.strip():
         raise SystemExit("test plan text is empty")
     PLAN_DIR.mkdir(parents=True, exist_ok=True)
-    plan_path(key).write_text(text.rstrip() + "\n", encoding="utf-8", newline="\n")
     cur = get(key).get("status")
+    # Snapshot BEFORE overwriting: the pre-edit text is the version worth keeping.
+    if plan_path(key).exists():
+        snapshot_plan(key, f"pre-edit-{cur or 'new'}")
+    plan_path(key).write_text(text.rstrip() + "\n", encoding="utf-8", newline="\n")
     if cur == "approved":
         return set_status(key, "draft", by, "edited after approval — re-approval required")
     if cur is None:

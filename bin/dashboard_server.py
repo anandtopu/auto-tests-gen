@@ -284,6 +284,15 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/version":
             self._send(200, {"ui_schema": UI_SCHEMA, "user": getattr(self, "user", ""),
                              "sso": bool(SSO_HEADER)})
+        elif url.path == "/api/plans/diff-since-approval":
+            # Roadmap 4.2: exactly what changed vs the text the approver signed —
+            # empty when nothing changed or nothing was ever approved.
+            dkey = urllib.parse.parse_qs(url.query).get("key", [""])[0]
+            if not re.fullmatch(r"[\w.-]+", dkey or ""):
+                self._send(400, {"error": "key required"})
+            else:
+                self._send(200, {"key": dkey,
+                                 "diff": plan_state.diff_since_approval(dkey)})
         elif url.path == "/api/plans/similar":
             # Similar-plan retrieval (roadmap 6.1): SUGGESTIONS only — the human
             # sees the prior plan and its similarity; nothing is ever auto-applied.

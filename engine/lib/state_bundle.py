@@ -79,6 +79,14 @@ INCLUDE_FILES = [
     "registry/repo-registry.yaml", "registry/org-config.yaml", "AGENTS.md",
 ]
 
+# Profile: knowledge (roadmap 6.4). A new team bootstrapping from an experienced
+# team's estate wants the compounding knowledge — guidance, catalog, conventions —
+# WITHOUT inheriting the donor's run history, review decisions or plan lifecycle,
+# which are that team's records, not transferable wisdom.
+KNOWLEDGE_DIRS = ["knowledge/repos", "knowledge/curated", "knowledge/synced",
+                  "catalog", "testplans"]
+KNOWLEDGE_FILES = ["registry/org-config.yaml", "AGENTS.md"]
+
 # Never bundled. Scratch is regenerable; the last two are CREDENTIALS and a bundle is
 # something people copy between machines and attach to tickets.
 EXCLUDE_PARTS = (
@@ -110,14 +118,17 @@ def _excluded(rel):
     return rel.suffix in EXCLUDE_SUFFIX
 
 
-def collect():
-    """Every bundled path, relative to the repo root. Deterministic order."""
+def collect(profile="full"):
+    """Every bundled path, relative to the repo root. Deterministic order.
+    profile="knowledge" carries guidance/catalog/conventions only (roadmap 6.4)."""
+    files = KNOWLEDGE_FILES if profile == "knowledge" else INCLUDE_FILES
+    dirs = KNOWLEDGE_DIRS if profile == "knowledge" else INCLUDE_DIRS
     out = []
-    for f in INCLUDE_FILES:
+    for f in files:
         p = ROOT / f
         if p.is_file() and not _excluded(pathlib.Path(f)):
             out.append(pathlib.Path(f))
-    for d in INCLUDE_DIRS:
+    for d in dirs:
         base = ROOT / d
         if not base.is_dir():
             continue
@@ -134,18 +145,20 @@ def _sha(path):
     return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
 
 
-def export(dest=None):
+def export(dest=None, profile="full"):
     """Write a bundle. Returns its path."""
-    files = collect()
+    files = collect(profile)
     stamp = time.strftime("%Y%m%d-%H%M%S")
+    suffix = "knowledge" if profile == "knowledge" else "state"
     if dest:
         out = pathlib.Path(dest)
     else:
-        out = ROOT / "reports/exports" / f"{stamp}-state.tar.gz"
+        out = ROOT / "reports/exports" / f"{stamp}-{suffix}.tar.gz"
     out.parent.mkdir(parents=True, exist_ok=True)
 
     manifest = {
-        "schema": SCHEMA, "created": time.time(), "created_h": stamp,
+        "schema": SCHEMA, "profile": profile,
+        "created": time.time(), "created_h": stamp,
         "source_host": os.environ.get("HOSTNAME") or os.environ.get("COMPUTERNAME", ""),
         "file_count": len(files),
         "files": {r.as_posix(): _sha(ROOT / r) for r in files},
@@ -232,8 +245,10 @@ def import_bundle(bundle, replace=False, dry_run=False, force=False):
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else "export"
     if cmd == "export":
-        out = export(argv[2] if len(argv) > 2 else None)
-        n = len(collect())
+        profile = "knowledge" if "--knowledge" in argv else "full"
+        dest = next((a for a in argv[2:] if not a.startswith("--")), None)
+        out = export(dest, profile=profile)
+        n = len(collect(profile))
         print(f"exported {n} file(s) -> {out}")
         print("Import elsewhere with: python3 engine/lib/state_bundle.py import "
               f"{out.name}   (add --replace to overwrite the target's copies)")
