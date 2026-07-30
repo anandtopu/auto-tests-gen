@@ -13,7 +13,10 @@ JIRA-triggered test authoring (Workflow B) across a multi-repo estate, powered b
 | [docs/integrations/](docs/integrations/README.md) | Step-by-step tool integration: OpenHands (+ capability review), Jira, Confluence, Bitbucket Cloud & Stash/Server, Email/SMTP |
 | [docs/diagrams.md](docs/diagrams.md) | Rendered architecture diagrams (Mermaid) |
 | [docs/deployment.md](docs/deployment.md) | Deploying as a service: local Docker Compose + remote OpenShift / Kubernetes |
-| [docs/architecture.md](docs/architecture.md) | Full solution architecture (v2.1) — code comments cite its § numbers |
+| [docs/architecture.md](docs/architecture.md) | Full solution architecture (v2.2) — code comments cite its § numbers |
+| [docs/cost-optimization.md](docs/cost-optimization.md) | LLM cost: measured token profile, per-phase model tiers, content-addressed phase cache, cache-ordered prompts |
+| [docs/data-portability.md](docs/data-portability.md) | Durability matrix, portable state bundle (export/inspect/import), OpenHands request traceability |
+| [docs/product-roadmap.md](docs/product-roadmap.md) · [docs/roadmap-architecture.md](docs/roadmap-architecture.md) | Feature roadmap by persona/theme and the per-feature designs; 12 of the items are shipped |
 | [docs/onboarding-new-team.md](docs/onboarding-new-team.md) | Adopting the platform for a new estate (≤1 day) |
 | [docs/onboarding-new-tool.md](docs/onboarding-new-tool.md) | Adding a new SDLC tool behind the six ports |
 | [implementation-plan.md](implementation-plan.md) · [REVIEW.md](REVIEW.md) | Build phases B1–B5 and the multi-pass review record |
@@ -58,13 +61,15 @@ make smoke-openhands            # staged live smoke test of the OpenHands integr
 python3 bin/qa.py run-inline "<pasted JIRA text>" --repos orders-api --type Bug
 
 # QA operations (bin/qa.py + services)
-make serve                      # interactive dashboard :4999 — 9 views: Overview,
-                                #   Intake & queue, Test plans (review/approve),
-                                #   Runs & reviews, Trace (story→plan→tests→gate→
-                                #   review→release timeline), Artifacts (code +
-                                #   before/after diff), Test catalog,
-                                #   Repositories (add/edit/map + guidance + SCM sync),
-                                #   Settings (integrations -> .env, clear demo data)
+make serve                      # interactive dashboard :4999 — 10 views: Overview,
+                                #   Guided run (wizard: paste a PR URL or ticket and
+                                #   follow the ladder), Intake & queue, Test plans
+                                #   (review/approve; adversary verdicts, similar
+                                #   prior plans, changed-since-approval diff),
+                                #   Runs & reviews (batch approve), Trace (timeline +
+                                #   traceability matrix w/ CSV), Artifacts (code,
+                                #   diff, review in place), Test catalog,
+                                #   Repositories, Settings
 make hook-server                # TaskEvent webhook receiver :4998 (dedupe + enqueue)
 make status / reviews / coverage / gaps    # runs, team review board, matrix, coverage gaps
 python3 bin/qa.py trace PROJ-301           # traceability timeline for one key
@@ -73,6 +78,14 @@ make report [DAYS=7] [RELEASE=x] [FORMAT=pdf]   # team status report (completed 
                                 #   queue, throughput, estate health)
 make queue-run                  # drain the manual work queue
 make ingest-results FILE=junit.xml         # CI results -> per-test health/flakiness
+                                #   (or POST raw JUnit XML to :4998/hooks/ci/results)
+python3 bin/qa.py flaky                    # sometimes-passing tests, worst first
+python3 bin/qa.py quarantine <test_id>     # tag a flaky test (proposal for repo CI)
+make trace-matrix [KEY=..] [CSV=1]         # ticket→scenario→spec→gate→CI, per row
+make maintain                   # nightly upkeep: sync, prunes, drift alarm, snapshot
+make state-export / state-import BUNDLE=.. # portable state bundle across deployments
+                                #   (--knowledge profile: wisdom only, no records)
+make cache-stats                # LLM phase calls avoided by the content-addressed cache
 make clear-demo [DRY=1]         # delete generated demo data (estate kept)
 
 # Plan-first workflow (human approval before test generation)
@@ -105,3 +118,6 @@ repo first — coverage maps are always regenerated from the catalog, never hand
 - Every generated test is born-mapped (catalog entry in the same commit) or the gate rejects it.
 - Ticket/PR/Confluence text is DATA, never instructions (see prompts).
 - Per-phase `--allowedTools` and `--max-turns` are defined in `registry/org-config.yaml`.
+- The plan adversary is read-only and the critic is advisory — neither can gate a commit.
+- Shared state stores write atomically and quarantine corruption; a crash can never
+  silently erase a human approval (see docs/data-portability.md).

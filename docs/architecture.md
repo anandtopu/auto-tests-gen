@@ -1,7 +1,7 @@
 # Solution Architecture Document
 ## AI-Driven Test Engineering Workflow PoC — OpenHands + Claude Code
 
-**Version:** 2.1 | **Date:** July 2026 | **Status:** Proposed
+**Version:** 2.2 | **Date:** July 2026 | **Status:** Proposed — v2.2 adds §5.11 (state integrity & portability) and §5.12 (cost architecture), and extends §8 with the measurement/traceability surfaces shipped from the roadmap
 **Author:** QA / AI Quality Engineering Team
 **Scope:** Proof of Concept — Agentic SDLC test generation workflow across a **multi-repository estate**: multiple UI repos, multiple backend/API repos, and **6 existing E2E test repositories (3 API, 3 UI) whose tests are currently unmapped to any application repository or feature**. v2.0 adds the **Test Catalog & Mapping subsystem** (bootstrap + continuous mapping of existing tests) and a **pluggable Integration & Extensibility layer** (Jira, Bitbucket, GitHub, Slack, Splunk, and future tools), and restructures the solution as a reusable, customizable platform. v2.1 extends the integration layer with **Confluence (knowledge source + publishing)**, **Jenkins (CI/CD trigger, execution, and results feedback)**, and a documented onboarding pattern for any additional SDLC tool.
 
@@ -738,6 +738,54 @@ v2.0 restructures the solution from "a pipeline wired to GitHub+Jira" into a **c
 
 ---
 
+### 5.11 State integrity & portability
+
+Everything the platform decides or records lives in small JSON stores under
+`reports/` (plan lifecycle, review board, work queue, OpenHands trace, CI health)
+plus committed estate files (registry, catalog, guidance). Two properties are
+architectural, not incidental:
+
+**Torn-write protection.** Every shared store writes through
+`fs_lock.write_json_atomic` (tmp file in the same directory + `os.replace`, atomic
+on POSIX and Windows) and reads through `fs_lock.read_json_guarded`, which
+QUARANTINES a corrupt file as `<name>.corrupt-<ts>` — loudly, preserving the bytes —
+instead of silently treating it as empty. The failure mode this closes is real: a
+crash mid-write left a truncated file, and a loader that swallowed the parse error
+returned `{}`, so the next save overwrote human plan approvals with nothing. A
+source-scan test forbids any store from reverting to a direct write.
+
+**Portability.** Restarts and redeploys were always safe (`reports/` is a PVC;
+`out/`/`workspace/` are deliberately `emptyDir`). A NEW deployment starts blank, so
+`engine/lib/state_bundle.py` exports one checksummed `.tar.gz` of everything that is
+somebody's work — and refuses to carry credentials, code (`.py`/`.sh`), regenerable
+scratch, or quarantine artifacts. Import verifies a sha256 per file, rejects path
+traversal, refuses to run under a live pipeline lock, and merges without destroying
+local state unless `--replace` is explicit. A `--knowledge` profile transfers an
+experienced team's wisdom (guidance, catalog, conventions, plan corpus) without its
+records (run history, review decisions, topology). Full matrix:
+[data-portability.md](data-portability.md).
+
+### 5.12 Cost architecture
+
+Three structural decisions keep LLM spend sane (measurements and the remaining
+levers: [cost-optimization.md](cost-optimization.md)):
+
+1. **Deliberate model tiers.** Every phase names its model in org-config `models:`;
+   a test fails if any phase falls back implicitly. Bounded, structured phases
+   (triage, analyze, testdata, critic, validate) run the cheap tier; judgement-grade
+   phases (testplan, adversary/arbiter, generate) run the capable tier; `escalate`
+   exists for repeated generate failures.
+2. **Cache-ordered prompts.** `run_phase.sh` sends the prompt template VERBATIM and
+   appends run parameters last, so prompt + shared context form a byte-identical,
+   provider-cacheable prefix across runs. The same most-stable-first ordering
+   governs OpenHands conversation context (`agent_context.py`).
+3. **Content-addressed phase reuse.** `phase_cache.py` keys on
+   sha256(phase · model · prompt template · every context file), making a stale hit
+   impossible with no TTL to tune. A hit restores the contract AND the phase's
+   artifacts. `generate`/`validate` are excluded by construction — their product is
+   files plus git state the gate inspects, and replaying a contract would hand the
+   gate a green report for work that never happened.
+
 ## 6. Scalability, Reliability, Efficiency, Maintainability — Deep Dive
 
 ### 6.1 Scalability
@@ -838,6 +886,29 @@ Beyond raw records, the platform ships operator tooling so a QA team can monitor
 - **CLI** — `bin/qa.py` (status, reviews, mark, release, artifacts, coverage, gaps, report, email, plan, exports, inline runs, catalog SQL) and `make status/reviews/coverage/gaps/report/email`.
 
 These surfaces are diagrammed in [diagrams.md](diagrams.md) §10 (monitoring), §12 (team report), and §13 (configuration & estate management).
+
+### 8.1a Measurement & traceability surfaces (roadmap, shipped)
+
+- **CI auto-ingest** — `POST /hooks/ci/results` (raw JUnit XML/Jenkins JSON,
+  token-gated) feeds `catalog/health.json`; `qa.py flaky` ranks sometimes-passing
+  tests and `qa.py quarantine` tags them in the catalog — the printed CI exclusion
+  is a proposal for the repo owner, never an edit the platform makes.
+- **Traceability matrix** — `trace_matrix.py` joins ticket → plan scenario →
+  generated spec (stamped `scenario_id`) → gate commit → CI health; an approved
+  scenario with no test is rendered as the loudest row. CSV export for audits.
+- **Risk-weighted gaps** — deterministic scoring (mutating, sensitive-path,
+  state-addressing) orders `out/coverage-gaps.md`, so generation and the plan
+  adversary see the ranked list.
+- **Coverage drift alarm** — `make maintain` snapshots per-repo uncovered counts
+  and notifies when a repo's gaps grew (counts, not sets: renames must not read as
+  drift).
+- **Extend-vs-create scout** — a deterministic join of the PR diff's surface
+  against catalog evidence emits named `EXTEND <file>` targets into the generate
+  context; the join is mechanics, so no LLM runs for it.
+- **Plan versioning** — approval snapshots the signed text; re-approval reviews a
+  unified diff against that baseline, never the whole document on faith.
+- **Reviewer assignment** — an optional rota assigns pending reviews by stable key
+  hash (assignment is a nudge; the decision records the actual actor).
 
 ### 8.2 Plan-first workflow — human approval before generation
 

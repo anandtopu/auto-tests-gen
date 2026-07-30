@@ -929,6 +929,68 @@ coverage regenerates → `make test-routing` still pins routing behavior.
   queue after each accepted event, `AIQE_HOOK_TOKEN` requires an `X-AIQE-Token`
   header from senders.
 
+## 5a. Measurement, review efficiency & knowledge reuse (shipped roadmap features)
+
+### CI health and flake quarantine
+Point CI at the receiver and the scorecard's "test health" becomes a live number:
+
+```bash
+curl --data-binary @results.xml -H "X-AIQE-Token: $TOKEN"      http://<receiver>:4998/hooks/ci/results        # raw JUnit XML, no wrapping
+```
+
+The response reports `matched`/`unmatched` so mapping rot shows up in the CI job's
+own log. Then:
+
+```bash
+python3 bin/qa.py flaky                       # sometimes-passing tests, worst first
+python3 bin/qa.py quarantine <test_id> --note "fails ~30% since build 812"
+python3 bin/qa.py unquarantine <test_id>
+```
+
+Quarantine is a **catalog tag** plus a printed exclusion line that is a *proposal*
+for the repo owner's CI — the platform never edits a test repo's config, and the
+gate still gates changed specs (changing a flaky spec is exactly when it must pass).
+
+### Traceability matrix
+`make trace-matrix [KEY=..] [CSV=1]`, `GET /api/trace-matrix?format=csv`, or the
+table atop the dashboard **Trace** view: one row per plan scenario — ticket →
+scenario → generated spec → gate commit → CI health. An **approved scenario with no
+test** is rendered outlined: a requirement someone signed off that nothing
+exercises. This is the audit artifact.
+
+### Risk-ranked gaps and drift alarms
+`make gaps` now orders uncovered surface by deterministic risk (mutating method,
+sensitive path token, state-addressing) with the reasons on each line — and the
+ranked file feeds generation and the plan adversary. `make maintain` (cron it
+nightly) additionally snapshots per-repo uncovered counts and notifies when a
+repo's gaps **grew**.
+
+### Reviewing faster
+- **In place:** every Artifacts panel carries Approve / Request-changes (note
+  required) next to the rendered diff — one screen from code to decision.
+- **In batch:** Runs & reviews' *Approve all shown* clears the filtered set after
+  one confirmation; each decision is still recorded individually.
+- **Assigned:** set `review.reviewers: [alice, bob]` in org-config and committing
+  runs assign each key by stable hash (a re-commit returns to the reviewer with
+  context). Assignment is a nudge — the decision records whoever actually acted.
+- **Re-approval reviews the delta:** approving a plan snapshots the signed text;
+  if it is edited later, the plan editor shows a unified diff against that
+  baseline ("Changed since last approval") and the status has already dropped to
+  draft.
+
+### Plan reuse, mediated by you
+When a plan resembles a prior one, the plan editor shows *"Similar prior plan:
+KEY (n% · status)"* with the shared terms named and the prior text viewable
+read-only. Nothing is ever auto-applied; an unrelated ticket shows nothing —
+no match beats a stretched match.
+
+### Moving knowledge between deployments
+`make state-export` carries everything that is somebody's work;
+`python3 engine/lib/state_bundle.py export --knowledge` carries only the
+transferable wisdom — guidance, catalog, conventions, the plan corpus (which seeds
+similar-plan retrieval for the receiving team) — and refuses run history, review
+decisions and your registry topology. See [data-portability.md](data-portability.md).
+
 ## 6. Integration guide
 
 Tool-specific step-by-step guides live in [integrations/](integrations/README.md):

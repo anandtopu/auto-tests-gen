@@ -291,7 +291,7 @@ flowchart LR
 
     subgraph SURFACES["QA surfaces"]
         ST["make status / reviews<br/>(review + release columns)"]
-        DB["make serve — authed dashboard (9 views):<br/>Overview · Intake &amp; queue · <b>Test plans</b> ·<br/>Runs &amp; reviews · <b>Trace</b> (story→plan→tests→<br/>gate→review→release timeline) · Artifacts<br/>(code + before/after diff) · Test catalog ·<br/>Repositories · Settings"]
+        DB["make serve — authed dashboard (10 views):<br/>Overview · <b>Guided run</b> (PR/JIRA wizard) ·<br/>Intake &amp; queue · <b>Test plans</b> (adversary verdicts,<br/>similar plans, changed-since-approval diff) ·<br/>Runs &amp; reviews (batch approve) · <b>Trace</b> (timeline +<br/>traceability matrix) · Artifacts (code + diff +<br/>review in place) · Test catalog ·<br/>Repositories · Settings"]
         TRC["qa.py trace &lt;KEY&gt; · GET /api/trace<br/>(trace.py joins plans + runs + reviews)"]
         AR["qa.py artifacts &lt;KEY&gt;<br/>plan · data · tests · diffs ·<br/>PR coverage report (/api/pr-coverage,<br/>rebuilt from the run record)"]
         REP["make report / qa.py report<br/>(md·html·docx·pdf): completed work ·<br/>queue · throughput · estate health"]

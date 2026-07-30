@@ -90,7 +90,7 @@ correctly restricts routing to the API test repo, and the summary is posted back
 ```bash
 python3 bin/qa.py artifacts PROJ-301 --full   # view the generated plan + test code
 make status          # runs with per-repo gate outcomes, team review + release columns
-make serve           # interactive dashboard :4999 — nine views: Overview, Intake &
+make serve           # interactive dashboard :4999 — ten views: Overview, Guided run, Intake &
                      #   queue, Test plans (review/edit/approve), Runs & reviews,
                      #   Trace (story→plan→tests→gate→review→release timeline),
                      #   Artifacts (rendered code + before/after diff), Test catalog,
