@@ -303,12 +303,14 @@ def cmd_reviews(args):
 
 
 def cmd_mark(args):
+    review_state.require_known(args.key)     # a typo must not invent a board row
     entry = review_state.set_status(args.key, args.status, args.by or "", args.note or "")
     print(f"{args.key} -> {entry['status']}"
           + (f" (by {args.by})" if args.by else ""))
 
 
 def cmd_release(args):
+    review_state.require_known(args.key)
     entry = review_state.set_release(args.key, args.version)
     print(f"{args.key} -> release {entry['release']}")
 
@@ -688,11 +690,15 @@ def cmd_quarantine(args):
     for f, entries in _catalog_by_file().items():
         for e in entries:
             if e["test_id"] == args.test_id:
-                e.setdefault("mapping", {})["quarantined"] = not lift
-                if not lift and getattr(args, "note", ""):
-                    e["mapping"]["quarantine_note"] = args.note
                 if lift:
+                    # Remove the tag entirely — `"quarantined": false` residue in a
+                    # TRACKED file makes every quarantine cycle permanent git noise.
+                    e.setdefault("mapping", {}).pop("quarantined", None)
                     e["mapping"].pop("quarantine_note", None)
+                else:
+                    e.setdefault("mapping", {})["quarantined"] = True
+                    if getattr(args, "note", ""):
+                        e["mapping"]["quarantine_note"] = args.note
                 save_catalog(f, entries)
                 state = "LIFTED" if lift else "QUARANTINED"
                 print(f"{state}: {args.test_id}")

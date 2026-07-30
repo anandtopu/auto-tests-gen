@@ -41,9 +41,46 @@ def save(data):
     fs_lock.write_json_atomic(FILE, data, sort_keys=True)
 
 
+def known_keys():
+    """Keys that legitimately exist somewhere: a run record, plan lifecycle state,
+    or an existing review entry (something already created it — pipeline, release
+    capture, or an earlier transition). The API/CLI boundaries check against this
+    so a typo'd or invented key can't put a phantom row on the team board."""
+    keys = set(load())
+    runs_dir = ROOT / "reports/runs"
+    if runs_dir.is_dir():
+        for f in runs_dir.glob("*.json"):
+            if f.name in ("reviews.json", "queue.json", "hooks-seen.json"):
+                continue
+            try:
+                k = (json.load(open(f, encoding="utf-8")).get("trigger") or {}).get("key")
+                if k:
+                    keys.add(k)
+            except Exception:
+                continue                       # a torn record never blocks the board
+    try:
+        import plan_state
+        keys.update(e.get("key") for e in plan_state.summary() or [] if e.get("key"))
+    except Exception:
+        pass
+    return keys
+
+
+def require_known(key):
+    """Boundary guard for user-initiated transitions (dashboard, qa.py). The
+    pipeline's own `auto` path always follows a real run and needs no check."""
+    if key not in known_keys():
+        sys.exit(f"no run, plan or review recorded for '{key}' — the board tracks "
+                 f"work that exists; check the key for typos (bin/qa.py status "
+                 f"lists recent runs)")
+
+
 def set_status(key, status, reviewer="", note="", ts=None):
     if status not in VALID:
         sys.exit(f"invalid status '{status}' (valid: {', '.join(VALID)})")
+    if status == "changes_requested" and not note:
+        sys.exit("changes_requested needs a note saying what to change — "
+                 "pass --note (the reviewer's ask is the whole point of the status)")
     with fs_lock.lock(FILE):
         data = load()
         entry = data.get(key, {"history": []})

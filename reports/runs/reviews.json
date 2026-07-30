@@ -13,7 +13,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785433822.7237337,
+      "ts": 1785447603.137138,
       "verdict": "accept"
     },
     "history": [
@@ -21,23 +21,293 @@
         "note": "new AI-generated artifacts committed",
         "reviewer": "pipeline",
         "status": "pending_review",
-        "ts": 1785433824.423164
+        "ts": 1785446150.9077218
+      },
+      {
+        "release": "2026.08",
+        "source": "manual",
+        "ts": 1785447412.8931515
+      },
+      {
+        "release": "",
+        "source": "manual",
+        "ts": 1785447412.9037287
+      },
+      {
+        "release": "2026.08",
+        "source": "manual",
+        "ts": 1785447412.9236002
+      },
+      {
+        "release": "",
+        "source": "manual",
+        "ts": 1785447412.934664
+      },
+      {
+        "release": "2026.08",
+        "source": "manual",
+        "ts": 1785447412.955268
+      },
+      {
+        "release": "",
+        "source": "manual",
+        "ts": 1785447412.9705884
+      },
+      {
+        "release": "2026.08",
+        "source": "manual",
+        "ts": 1785447412.9893484
+      },
+      {
+        "release": "",
+        "source": "manual",
+        "ts": 1785447413.0056336
+      },
+      {
+        "release": "2026.08",
+        "source": "manual",
+        "ts": 1785447413.0256379
+      },
+      {
+        "release": "",
+        "source": "manual",
+        "ts": 1785447414.3086338
+      },
+      {
+        "release": "2026.08",
+        "source": "manual",
+        "ts": 1785447414.3209786
+      },
+      {
+        "release": "",
+        "source": "manual",
+        "ts": 1785447415.3360486
+      },
+      {
+        "release": "2026.08",
+        "source": "manual",
+        "ts": 1785447415.3586283
+      },
+      {
+        "release": "",
+        "source": "manual",
+        "ts": 1785447415.6926239
+      },
+      {
+        "note": "",
+        "reviewer": "uat",
+        "status": "in_review",
+        "ts": 1785447743.0198822
+      },
+      {
+        "note": "new AI-generated artifacts committed",
+        "reviewer": "pipeline",
+        "status": "pending_review",
+        "ts": 1785447743.5551376
       }
     ],
     "note": "new AI-generated artifacts committed",
+    "release": "",
     "reviewer": "pipeline",
     "status": "pending_review",
-    "updated": 1785433824.423164
+    "updated": 1785447743.5551376
   },
   "PROJ-301": {
+    "critic": {
+      "findings": [
+        {
+          "file": "suites/orders/PROJ-301-discount-boundary.spec.js",
+          "kind": "missing",
+          "note": "no case for a discount above the cap",
+          "severity": "low"
+        }
+      ],
+      "noise_count": 0,
+      "rationale": "assertions check the discounted total, not just the status code",
+      "score": 0.86,
+      "specs_reviewed": 2,
+      "ts": 1785447540.679575,
+      "verdict": "accept"
+    },
     "history": [
       {
         "release": "2026.08",
         "source": "jira",
-        "ts": 1785433827.6147223
+        "ts": 1785446154.3123837
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447080.8124332
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447080.8218699
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447080.8317614
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447080.841918
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447080.856124
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447080.86651
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447080.878874
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447080.8900552
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447081.90977
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447083.1359165
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447180.751505
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447180.771726
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447180.7931144
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447180.810394
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447180.8363583
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447180.8560004
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447180.8771253
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447180.8999853
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447182.1814606
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447183.59205
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447412.8866622
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447412.917313
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447412.9474435
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447412.9827876
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447413.0194314
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447414.3165824
+      },
+      {
+        "note": "",
+        "reviewer": "test-seed",
+        "status": "pending_review",
+        "ts": 1785447415.352277
+      },
+      {
+        "note": "new AI-generated artifacts committed",
+        "reviewer": "pipeline",
+        "status": "pending_review",
+        "ts": 1785447541.7106657
       }
     ],
+    "note": "new AI-generated artifacts committed",
     "release": "2026.08",
-    "status": ""
+    "reviewer": "pipeline",
+    "status": "pending_review",
+    "updated": 1785447541.7106657
   }
 }

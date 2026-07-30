@@ -64,6 +64,26 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
         sys.exit("mode must be pr|jira|plan|tests")
     if mode == "pr" and not pr:
         sys.exit("pr mode needs a PR number")
+    # Validate at INTAKE, not minutes later in a background runner nobody watches.
+    # The pasted-URL path already refuses an unregistered repo with a hint; the
+    # plain name+number path (wizard form, API, TaskEvent webhook) must match it.
+    if mode == "pr":
+        try:
+            import repo_admin
+            registered = repo_admin.is_registered(target)
+        except Exception:
+            registered = True             # registry unreadable — let the run report it
+        if not registered:
+            sys.exit(f"'{target}' is not a registered repository — add it in "
+                     f"Repositories first, or paste the PR URL (it carries the "
+                     f"repo and, on Stash, the project key)")
+    else:
+        # Same charset the pipeline enforces (INVALID_KEY, exit 64) — fail here
+        # with a message instead of queueing work that dies on arrival.
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", str(target or "")):
+            sys.exit(f"'{target}' is not a valid ticket key — letters, digits, "
+                     f". _ - only (e.g. PROJ-123)")
     if mode == "plan" and not force:
         # Re-authoring an APPROVED plan resets it to draft — a human sign-off is
         # destroyed by one click of "Author test plan" on a key that already went

@@ -76,6 +76,9 @@ def test_release_tracking(tmp_path):
 
 def test_qa_release_cli_and_board(tmp_path):
     env = {"AIQE_REVIEWS_FILE": str(tmp_path / "reviews.json")}
+    # qa.py refuses to invent entries for unknown keys (UAT finding 2) — seed the
+    # entry at store level first, the way a pipeline run would have.
+    run([RS, "set", "PR-orders-api-9", "pending_review", "seed"], env)
     r = run([str(ROOT / "bin/qa.py"), "release", "PR-orders-api-9", "2026.09"], env)
     assert r.returncode == 0 and "2026.09" in r.stdout
     r = run([str(ROOT / "bin/qa.py"), "reviews"], env)
@@ -84,6 +87,7 @@ def test_qa_release_cli_and_board(tmp_path):
 
 def test_qa_cli_reviews_and_mark(tmp_path):
     env = {"AIQE_REVIEWS_FILE": str(tmp_path / "reviews.json")}
+    run([RS, "set", "PROJ-42", "pending_review", "seed"], env)   # see release test
     r = run([str(ROOT / "bin/qa.py"), "mark", "PROJ-42", "in_review",
              "--by", "carol", "--note", "checking data cases"], env)
     assert r.returncode == 0 and "in_review" in r.stdout

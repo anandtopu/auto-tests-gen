@@ -118,6 +118,14 @@ def pr_items(release):
     return out
 
 
+def _err(e):
+    """Human-readable message for a handler exception. A bare KeyError renders as
+    "'target'" — useless to whoever posted the payload; name the missing field."""
+    if isinstance(e, KeyError):
+        return f"missing field: {e.args[0] if e.args else '?'}"
+    return str(e)
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json"):
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
@@ -222,7 +230,7 @@ class Handler(BaseHTTPRequestHandler):
                 settings_store.load_env_into()
                 self._send(200, openhands_client.status(conv_id))
             except RuntimeError as e:
-                self._send(502, {"error": str(e)})
+                self._send(502, {"error": _err(e)})
         elif url.path == "/api/plans":
             self._send(200, plan_state.summary())
         elif url.path == "/api/plans/one":
@@ -236,13 +244,22 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/repos":
             self._send(200, repo_admin.summary())
         elif url.path == "/api/repos/sync":
-            self._send(200, guidance_sync.status())
+            # Optional ?repo= filter. An unknown name is an error, not a silently
+            # ignored parameter returning everything.
+            repo = urllib.parse.parse_qs(url.query).get("repo", [""])[0]
+            rows = guidance_sync.status()
+            if repo:
+                rows = [r for r in rows if r.get("name") == repo]
+                if not rows:
+                    self._send(404, {"error": f"not a registered repo: {repo}"})
+                    return
+            self._send(200, rows)
         elif url.path == "/api/repos/notes":
             repo = urllib.parse.parse_qs(url.query).get("repo", [""])[0]
             try:
                 self._send(200, repo_admin.get_notes(repo))
             except SystemExit as e:
-                self._send(404, {"error": str(e)})
+                self._send(404, {"error": _err(e)})
         elif url.path == "/api/repos/curated":
             # Durable, user-editable per-repo guidance + a generated draft to
             # start from (never auto-persisted — the user saves what they own).
@@ -252,7 +269,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 files = curated_guidance.get(repo)
             except SystemExit as e:
-                self._send(404, {"error": str(e)})
+                self._send(404, {"error": _err(e)})
                 return
             gen = rgg.generated_path(repo)
             self._send(200, {"repo": repo, "files": files,
@@ -268,7 +285,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 content = curated_guidance.get(repo).get(fn)
             except SystemExit as e:
-                self._send(404, {"error": str(e)})
+                self._send(404, {"error": _err(e)})
                 return
             if content is None:
                 self._send(404, {"error": f"no curated {fn} for {repo}"})
@@ -368,7 +385,11 @@ class Handler(BaseHTTPRequestHandler):
             import trace as trace_lib          # ours; engine/lib precedes stdlib
             key = urllib.parse.parse_qs(url.query).get("key", [""])[0]
             if key:
-                self._send(200, trace_lib.build(key))
+                t = trace_lib.build(key)
+                if not t["events"]:        # nothing anywhere for this key -> say so
+                    self._send(404, {"error": f"no trace recorded for '{key}'"})
+                    return
+                self._send(200, t)
             else:
                 self._send(200, {"keys": trace_lib.keys()[:50]})
         elif url.path == "/api/settings":
@@ -383,7 +404,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 content, ctype = export_plan.render(key, fmt)
             except SystemExit as e:                     # no plan for this key
-                self._send(404, {"error": str(e)})
+                self._send(404, {"error": _err(e)})
                 return
             self.send_response(200)
             self.send_header("Content-Type", ctype)
@@ -475,7 +496,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"queued": fresh, "item": item,
                                  "resolved_from_url": bool(parsed)})
             except (KeyError, json.JSONDecodeError, SystemExit) as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
         elif self.path == "/api/queue/inline":
             try:
                 p = json.loads(body or b"{}")
@@ -489,17 +510,22 @@ class Handler(BaseHTTPRequestHandler):
                                              inline_file=path)
                 self._send(200, {"queued": fresh, "key": ticket["key"], "item": item})
             except (KeyError, json.JSONDecodeError, ValueError, SystemExit) as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
         elif self.path == "/api/review":
             try:
                 p = json.loads(body or b"{}")
+                # User-initiated transition: the key must exist somewhere (run,
+                # plan, or prior entry) — else a typo invents a phantom board row.
+                review_state.require_known(p["key"])
                 entry = review_state.set_status(p["key"], p["status"],
                                                 p.get("by") or self.user or "dashboard", p.get("note", ""))
                 self._send(200, {"ok": True, "key": p["key"], "status": entry["status"]})
             except (KeyError, json.JSONDecodeError) as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
+            except SystemExit as e:        # unknown key / invalid status / missing note
+                self._send(409, {"error": str(e)})
             except SystemExit as e:                     # invalid status
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
         elif self.path in ("/api/export/confluence", "/api/export/attach"):
             try:
                 p = json.loads(body or b"{}")
@@ -512,18 +538,18 @@ class Handler(BaseHTTPRequestHandler):
                         by=self.user or "dashboard")
                 self._send(200, {"ok": True, "result": result})
             except (KeyError, json.JSONDecodeError) as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
             except SystemExit as e:                     # no plan / publish or attach failure
-                self._send(409, {"error": str(e)})
+                self._send(409, {"error": _err(e)})
         elif self.path in ("/api/queue/requeue", "/api/queue/remove"):
             try:
                 item_id = json.loads(body or b"{}")["id"]
                 fn = work_queue.requeue if self.path.endswith("requeue") else work_queue.remove
                 self._send(200, {"ok": True, "item": fn(item_id)})
             except (KeyError, json.JSONDecodeError) as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
             except SystemExit as e:          # library rejections (wrong status, unknown id)
-                self._send(409, {"error": str(e)})
+                self._send(409, {"error": _err(e)})
         elif self.path.startswith("/api/repos/"):
             try:
                 p = json.loads(body or b"{}")
@@ -542,7 +568,10 @@ class Handler(BaseHTTPRequestHandler):
                         fixtures=p.get("fixtures"), scope=p.get("scope"),
                         stash_project=p.get("stash_project"))
                 elif self.path == "/api/repos/scope":
-                    result = repo_admin.set_scope(p["test_repo"], p.get("apps", ""))
+                    # `apps` is REQUIRED, even when clearing (send ""). Defaulting a
+                    # missing field to empty silently erased a hand-managed scope and
+                    # answered ok — a typo'd payload must not destroy configuration.
+                    result = repo_admin.set_scope(p["test_repo"], p["apps"])
                 elif self.path == "/api/repos/remove":
                     fn = (repo_admin.remove_test if p.get("section") == "test"
                           else repo_admin.remove_app)
@@ -579,17 +608,17 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 self._send(200, {"ok": True, **result})
             except (KeyError, json.JSONDecodeError) as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
             except SystemExit as e:                     # validation failures
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
         elif self.path == "/api/settings":
             try:
                 p = json.loads(body or b"{}")
                 self._send(200, {"ok": True, **settings_store.save(p["updates"])})
             except (KeyError, json.JSONDecodeError) as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
             except SystemExit as e:                     # unknown key / bad value
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
         elif self.path.startswith("/api/plans/"):
             try:
                 p = json.loads(body or b"{}")
@@ -622,9 +651,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(404, {"error": "not found"}); return
                 self._send(200, {"ok": True, **result})
             except (KeyError, json.JSONDecodeError) as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
             except SystemExit as e:            # not approved / no plan / bad status
-                self._send(409, {"error": str(e)})
+                self._send(409, {"error": _err(e)})
         elif self.path.startswith("/api/email/"):
             try:
                 p = json.loads(body or b"{}")
@@ -641,9 +670,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(404, {"error": "not found"}); return
                 self._send(200, {"ok": True, "result": email_notify.send(subj, text, html, to)})
             except (KeyError, json.JSONDecodeError) as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
             except SystemExit as e:                     # no recipients / no run record
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
             except Exception as e:                      # SMTP failure — report, don't crash
                 self._send(502, {"error": f"email failed: {e}"})
         elif self.path == "/api/integrations/check":
@@ -651,7 +680,7 @@ class Handler(BaseHTTPRequestHandler):
                 p = json.loads(body or b"{}")
                 self._send(200, integration_check.run(p.get("which")))
             except json.JSONDecodeError as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
         elif self.path == "/api/demo/clear":
             # Run as a SUBPROCESS (like the page render) so a long-lived server always
             # executes the CURRENT clear targets. The old in-process call
@@ -660,7 +689,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 p = json.loads(body or b"{}")
             except json.JSONDecodeError as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
                 return
             cmd = [sys.executable, str(ROOT / "engine/lib/demo_data.py"), "--json"]
             # Honor dry-run intent: silently ignoring {"dry": true} would turn a
@@ -733,7 +762,7 @@ class Handler(BaseHTTPRequestHandler):
                         fields["agent"], fields["target"],
                         fields["pr"], fields["description"], context=ctx)
                 except SystemExit as e:
-                    self._send(400, {"error": str(e)})
+                    self._send(400, {"error": _err(e)})
                     return
                 title = f"AI-QE agent: {fields['agent']} {fields['target']}".strip()
                 # Record the REQUEST before contacting OpenHands, so a failure below
@@ -762,9 +791,9 @@ class Handler(BaseHTTPRequestHandler):
                     title=title, source=f"agent:{fields['agent']}")
                 self._send(200, {"ok": True, **result})
             except (KeyError, json.JSONDecodeError) as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
             except RuntimeError as e:
-                self._send(502, {"error": str(e)})
+                self._send(502, {"error": _err(e)})
         elif self.path == "/api/openhands/trigger":
             # Start an OpenHands conversation (Path 1) for a work item.
             # Body fields:
@@ -830,9 +859,9 @@ class Handler(BaseHTTPRequestHandler):
                     source=f"trigger:{mode}")
                 self._send(200, {"ok": True, **result})
             except (KeyError, json.JSONDecodeError) as e:
-                self._send(400, {"error": str(e)})
+                self._send(400, {"error": _err(e)})
             except RuntimeError as e:
-                self._send(502, {"error": str(e)})
+                self._send(502, {"error": _err(e)})
         elif self.path in ("/hooks/openhands/events",
                            "/hooks/openhands/conversations"):
             # OpenHands Agent Server event stream — observability only.

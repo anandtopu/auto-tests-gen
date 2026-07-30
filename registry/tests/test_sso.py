@@ -109,6 +109,10 @@ def test_without_sso_config_behavior_is_unchanged(server):
 
 def test_sso_identity_signs_review_marks(server):
     base, reviews = server(AIQE_SSO_HEADER="X-Test-User")
+    # /api/review refuses unknown keys (UAT finding 2) — seed the entry the way
+    # a committing pipeline run would have.
+    reviews.write_text(json.dumps({"SSO-1": {"status": "pending_review",
+                                             "history": []}}), encoding="utf-8")
     code, _ = _req(base + "/api/review", method="POST",
                    headers={"X-Test-User": "lead@corp"},
                    body={"key": "SSO-1", "status": "approved"})
@@ -120,6 +124,8 @@ def test_sso_identity_signs_review_marks(server):
 
 def test_explicit_by_still_beats_the_header(server):
     base, reviews = server(AIQE_SSO_HEADER="X-Test-User")
+    reviews.write_text(json.dumps({"SSO-2": {"status": "pending_review",
+                                             "history": []}}), encoding="utf-8")
     code, _ = _req(base + "/api/review", method="POST",
                    headers={"X-Test-User": "lead@corp"},
                    body={"key": "SSO-2", "status": "in_review", "by": "delegate"})

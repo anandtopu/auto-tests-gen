@@ -1628,6 +1628,7 @@ document.addEventListener('click', async e => {
   if (id === 'plan-changes') {
     const note = prompt('What needs changing?', '');
     if (note === null) return;
+    if (!note.trim()) return toast('a note is required — say what needs changing');
     return planPost('/api/plans/status', { status: 'changes_requested', note }, 'Changes requested');
   }
   if (id === 'plan-link')     return planPost('/api/plans/link', {}, r => 'Linked to JIRA: ' + r.ref);

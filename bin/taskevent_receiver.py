@@ -92,11 +92,14 @@ def handle_event(ev):
     if already_seen(digest):
         return 200, {"accepted": False, "reason": "duplicate delivery (idempotent no-op)",
                      "idempotency_key": digest[:16]}
-    if ev["mode"] == "pr":
-        item, fresh = work_queue.add("pr", ev["repo"], str(ev["pr"]),
-                                     requested_by="taskevent")
-    else:
-        item, fresh = work_queue.add("jira", ev["key"], requested_by="taskevent")
+    try:
+        if ev["mode"] == "pr":
+            item, fresh = work_queue.add("pr", ev["repo"], str(ev["pr"]),
+                                         requested_by="taskevent")
+        else:
+            item, fresh = work_queue.add("jira", ev["key"], requested_by="taskevent")
+    except SystemExit as e:      # intake validation (unregistered repo / bad key)
+        return 400, {"error": str(e)}
     record_seen(digest)                     # durable enqueue first, then dedupe mark
     return 200, {"accepted": True, "queued": fresh, "item_id": item["id"],
                  "idempotency_key": digest[:16]}

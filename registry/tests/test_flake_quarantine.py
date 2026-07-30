@@ -50,7 +50,9 @@ def test_quarantine_tags_and_lift_untags(catalog, capsys):
     A.lift = True
     qa.cmd_quarantine(A)
     e = json.loads(catalog.read_text(encoding="utf-8"))
-    assert e["mapping"]["quarantined"] is False
+    # Lift POPS the tag — `"quarantined": false` residue in a tracked JSONL
+    # made every quarantine cycle permanent git noise (UAT finding 4).
+    assert "quarantined" not in e["mapping"]
     assert "quarantine_note" not in e["mapping"]
 
 

@@ -57,6 +57,10 @@ def set_status(key, status, by="", note=""):
     """Transition a plan. Returns the updated entry."""
     if status not in VALID:
         raise SystemExit(f"status must be one of: {', '.join(VALID)}")
+    if status == "changes_requested" and not note:
+        raise SystemExit("changes_requested needs a note saying what to change "
+                         "(NOTE=\"...\" / --note) — the reviewer's ask is the "
+                         "whole point of the status")
     if not plan_path(key).exists():
         raise SystemExit(f"no test plan for {key} (create one: make plan KEY={key})")
     with fs_lock.lock(FILE):

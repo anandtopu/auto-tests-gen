@@ -216,3 +216,40 @@ capped at 20KB. Suite: 451 passing.
    Run all three together — they share the same two commands.
 
 **Verdict: build phases B1–B5 complete; five review passes green including real-LLM parity; PoC is integration-ready by demonstration, not assertion.**
+
+## Pass 7 — end-to-end UAT (2026-07-30, ~70 adversarial probes)
+
+Negative-input, lifecycle-abuse and discrepancy hunting across the API surface,
+queue intake, plan lifecycle, CI ingest, state bundles, settings, CLI and the
+live UI. Seven findings, all fixed the same day (pinned by
+`registry/tests/test_uat_fixes.py`):
+
+1. **`/api/repos/scope` destroyed scope on a missing field** — `apps` defaulted
+   to empty, so a typo'd payload silently cleared a hand-managed scope and
+   answered ok. The field is now required; clearing takes an explicit `""`.
+2. **Phantom review-board rows** — `/api/review` (and `qa.py mark|release`)
+   accepted any key. `review_state.require_known()` now refuses a key with no
+   run record, no plan state and no existing entry.
+3. **Intake validation gap** — the pasted-PR-URL path refused unregistered
+   repos, but the plain name+number path (wizard form, API, TaskEvent webhook)
+   accepted anything and failed minutes later in a background runner.
+   `work_queue.add` now validates repo registration (pr) and key charset
+   (jira/plan/tests) at intake, matching the pipeline's INVALID_KEY contract.
+4. **Quarantine residue** — `unquarantine` wrote `"quarantined": false` into
+   tracked catalog JSONL (permanent git noise); the lift now pops the tag,
+   restoring the original bytes.
+5. **Raw KeyErrors as API errors** — `{"error": "'target'"}` became
+   `missing field: target` (`_err()` in dashboard_server, all 28 sites).
+6. **Note enforcement was UI-only** — both `review_state.set_status` and
+   `plan_state.set_status` now refuse `changes_requested` without a note.
+7. **Silent-parameter inconsistencies** — `/api/trace?key=X` 404s when nothing
+   is recorded; `/api/repos/sync?repo=X` filters (404 on unknown) instead of
+   ignoring the parameter.
+
+Held up under abuse without changes: gate attack suite, CI-ingest security
+(token, 5 MB cap, parse errors, honest matched/unmatched), flake detection and
+quarantine proposal, state-bundle integrity (no credentials, per-file checksum
+rejection of tampered members, lock refusal, merge-never-destroys), settings
+write-only secrets, approved-plan queue guard + edit-revokes-approval +
+version snapshots + diff-since-approval, queue dedupe and actionable failure
+reasons, and the full UI (zero console/network errors).
