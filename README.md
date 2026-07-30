@@ -15,6 +15,7 @@ JIRA-triggered test authoring (Workflow B) across a multi-repo estate, powered b
 | [docs/deployment.md](docs/deployment.md) | Deploying as a service: local Docker Compose + remote OpenShift / Kubernetes |
 | [docs/architecture.md](docs/architecture.md) | Full solution architecture (v2.2) — code comments cite its § numbers |
 | [docs/cost-optimization.md](docs/cost-optimization.md) | LLM cost: measured token profile, per-phase model tiers, content-addressed phase cache, cache-ordered prompts |
+| [docs/cost-reduction-stories.md](docs/cost-reduction-stories.md) | Next-gen cost backlog: 8 epics / 27 stories — cost telemetry, retrieval-scoped context (RAG), vector-index semantic reuse, provider prompt caching, spend controls, test/deploy plan |
 | [docs/data-portability.md](docs/data-portability.md) | Durability matrix, portable state bundle (export/inspect/import), OpenHands request traceability |
 | [docs/product-roadmap.md](docs/product-roadmap.md) · [docs/roadmap-architecture.md](docs/roadmap-architecture.md) | Feature roadmap by persona/theme and the per-feature designs; 12 of the items are shipped |
 | [docs/onboarding-new-team.md](docs/onboarding-new-team.md) | Adopting the platform for a new estate (≤1 day) |
