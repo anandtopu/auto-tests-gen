@@ -156,6 +156,17 @@ tiles = [
     (len(uncovered), "uncovered app repos", "overview", len(uncovered) > 0),
     (len(pending_review_keys), "awaiting team review", "runs", len(pending_review_keys) > 0),
 ]
+# LLM spend tile (cost-reduction 1.2). `~` marks simulated figures — a mock
+# estate's number must never read as a measured dollar.
+try:
+    import cost_report as _cr
+    _rep = _cr.report(None)
+    if _rep["runs"] and _rep["simulated_share"] is not None:
+        _sim = "~" if _rep["simulated_share"] > 0 else ""
+        tiles.append((f"{_sim}${_rep['total_cost_usd']:.2f}", "LLM spend (all time)",
+                      "runs", False))
+except Exception:
+    pass
 tiles_html = "".join(
     f'<button class="tile" data-go="{view}">'
     f'<span class="tile-v{" alert" if alert else ""}">{value}</span>'

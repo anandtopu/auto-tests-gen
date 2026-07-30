@@ -111,6 +111,21 @@ Worth naming, because the cheapest call is the one never made:
   *before* every phase; an over-budget run aborts with exit 77 and never reaches the
   gate, so a runaway overshoots by at most one phase.
 
+### 2.5 Spend telemetry (cost-reduction story 1.1/1.2, shipped)
+
+Every phase's spend now lands in the run record: `phases[].spend = {model,
+input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+turns_used, max_turns, cost_usd, simulated}` — harvested from the `claude -p`
+result JSON the pipeline already saved (`usage`, `num_turns`, `total_cost_usd`),
+via the budget ledger. `make cost-report [DAYS=N]` (and `GET /api/cost-report`,
+the Overview "LLM spend" tile, a team-report line) rolls it up by workflow, key,
+phase, and model tier, with per-phase turn calibration (p50/p95 vs ceiling) and
+prompt-cache hit rates. Simulated figures are always labelled — `~` on CLI
+tables, "simulated" in reports — and savings estimates print `n/a` until at
+least one measured run exists. OpenHands launches record their payload size
+(`message_chars`) so the separately-billed conversation cost is at least
+attributable per launch.
+
 ## 3. Still on the table
 
 Ranked by expected saving ÷ effort. None are implemented; each is a real option.

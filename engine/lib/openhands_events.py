@@ -160,7 +160,8 @@ def resolve_request(req_id, conversation_id="", url="", status="", error=""):
     return e
 
 
-def record_launch(conversation_id, url="", key="", repo="", title="", source=""):
+def record_launch(conversation_id, url="", key="", repo="", title="", source="",
+                  payload_chars=0):
     """Record a conversation WE started, at the moment we start it.
 
     Webhook ingestion alone is not enough to track a conversation. The webhook only
@@ -191,6 +192,11 @@ def record_launch(conversation_id, url="", key="", repo="", title="", source="")
                              ("repo", repo), ("title", title), ("source", source)):
             if value and not e.get(field):
                 e[field] = str(value)[:300]
+        # Payload size (cost-reduction 1.5a): the OpenHands-side LLM bill is
+        # separate, but the launch's message size makes it attributable. Same
+        # field the request-tracing path stores, so both paths converge.
+        if payload_chars and not e.get("message_chars"):
+            e["message_chars"] = int(payload_chars)
         e["updated"] = time.time()
         _save(state)
     return e
@@ -275,6 +281,7 @@ def summary(limit=25):
                     "event_count": e.get("event_count", 0),
                     "error": e.get("error", ""),
                     "updated": e.get("updated", 0),
+                    "payload_est_tokens": int(e.get("message_chars") or 0) // 4,
                     # `url` is the whole point of tracking a launch: without a way
                     # back to the conversation, knowing its id helps nobody.
                     "url": e.get("url", ""), "title": e.get("title", ""),

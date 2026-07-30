@@ -319,6 +319,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "key required"})
             else:
                 self._send(200, {"similar": plan_similarity.suggest_for(skey)})
+        elif url.path == "/api/cost-report":
+            # Cost attribution (cost-reduction 1.2): spend rollups from the run
+            # records' spend blocks. Pure aggregation — safe to poll.
+            import cost_report
+            q = urllib.parse.parse_qs(url.query)
+            try:
+                days = int(q.get("days", [""])[0]) if q.get("days", [""])[0] else None
+            except ValueError:
+                self._send(400, {"error": "days must be a number"})
+                return
+            self._send(200, cost_report.report(days))
         elif url.path == "/api/trace-matrix":
             # Requirement traceability (roadmap 3.1): key -> scenario -> spec ->
             # gate commit -> CI health, one row per scenario. ?format=csv downloads.
@@ -788,7 +799,8 @@ class Handler(BaseHTTPRequestHandler):
                 openhands_events.record_launch(
                     result.get("conversation_id", ""), url=result.get("url", ""),
                     key=fields["target"], repo=os.environ.get("AIQE_CONTROL_REPO", ""),
-                    title=title, source=f"agent:{fields['agent']}")
+                    title=title, source=f"agent:{fields['agent']}",
+                    payload_chars=len(message))
                 self._send(200, {"ok": True, **result})
             except (KeyError, json.JSONDecodeError) as e:
                 self._send(400, {"error": _err(e)})
@@ -856,7 +868,7 @@ class Handler(BaseHTTPRequestHandler):
                 openhands_events.record_launch(
                     result.get("conversation_id", ""), url=result.get("url", ""),
                     key=str(target), repo=ctrl_repo, title=title,
-                    source=f"trigger:{mode}")
+                    source=f"trigger:{mode}", payload_chars=len(message))
                 self._send(200, {"ok": True, **result})
             except (KeyError, json.JSONDecodeError) as e:
                 self._send(400, {"error": _err(e)})

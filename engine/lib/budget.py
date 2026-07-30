@@ -52,9 +52,62 @@ def phase_cost(json_file):
     return 0.0, False
 
 
+def phase_usage(json_file):
+    """Token/turn usage from a claude -p result JSON. Total: anything unreadable
+    is zeros, never an exception. The CLI already reports all of this — telemetry
+    is harvesting, not instrumentation (cost-reduction story 1.1)."""
+    zeros = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0,
+             "cache_creation_tokens": 0, "turns": 0}
+    try:
+        raw = json.load(open(json_file, encoding="utf-8"))
+    except Exception:
+        return zeros
+    if not isinstance(raw, dict):
+        return zeros
+    u = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
+
+    def _i(*keys):
+        for k in keys:
+            v = u.get(k)
+            if isinstance(v, (int, float)):
+                return int(v)
+        return 0
+    return {"input_tokens": _i("input_tokens"),
+            "output_tokens": _i("output_tokens"),
+            "cache_read_tokens": _i("cache_read_input_tokens", "cache_read_tokens"),
+            "cache_creation_tokens": _i("cache_creation_input_tokens",
+                                        "cache_creation_tokens"),
+            "turns": int(raw.get("num_turns") or 0)}
+
+
+def _model_for(label):
+    """The configured model tier for a ledger label. Fan-out labels like
+    generate-e2e-api-tests-1 resolve their POLICY phase (generate), mirroring
+    run_phase.sh's AIQE_PHASE_LABEL split."""
+    try:
+        import yaml
+        models = (yaml.safe_load(open(ROOT / "registry/org-config.yaml",
+                                      encoding="utf-8")) or {}).get("models") or {}
+        if label in models:
+            return str(models[label])
+        base = label.split("-", 1)[0]
+        if base in models:
+            return str(models[base])
+    except Exception:
+        pass
+    return ""
+
+
 def record(phase, json_file=None):
-    """Append one phase's spend to the ledger. Never fails the caller."""
+    """Append one phase's spend to the ledger. Never fails the caller.
+
+    Row format (columns 5+ added by cost-reduction story 1.1; readers of the
+    original 4 columns — total(), check() — are unaffected):
+      phase  cost  metered  ts  model  in  out  cache_read  cache_create  turns
+    """
     cost, metered = (0.0, False)
+    usage = phase_usage(json_file) if json_file and \
+        pathlib.Path(json_file).exists() else phase_usage("/nonexistent")
     if json_file and pathlib.Path(json_file).exists():
         cost, metered = phase_cost(json_file)
     if not metered:
@@ -69,10 +122,44 @@ def record(phase, json_file=None):
     try:
         LEDGER.parent.mkdir(parents=True, exist_ok=True)
         with open(LEDGER, "a", encoding="utf-8", newline="\n") as fh:
-            fh.write(f"{phase}\t{cost:.6f}\t{int(metered)}\t{time.time():.0f}\n")
+            fh.write(f"{phase}\t{cost:.6f}\t{int(metered)}\t{time.time():.0f}"
+                     f"\t{_model_for(phase)}\t{usage['input_tokens']}"
+                     f"\t{usage['output_tokens']}\t{usage['cache_read_tokens']}"
+                     f"\t{usage['cache_creation_tokens']}\t{usage['turns']}\n")
     except OSError:
         pass
     return cost, metered
+
+
+def read_ledger(ledger=None):
+    """Parsed ledger rows as dicts. Old 4-column rows parse with zero usage —
+    a crashed run's leftover file must never break the next run's record."""
+    p = pathlib.Path(ledger) if ledger else LEDGER
+    rows = []
+    try:
+        for line in open(p, encoding="utf-8"):
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 3:
+                continue
+            try:
+                cost = float(parts[1])
+            except ValueError:
+                continue
+
+            def _i(idx):
+                try:
+                    return int(parts[idx])
+                except (IndexError, ValueError):
+                    return 0
+            rows.append({"phase": parts[0], "cost_usd": cost,
+                         "metered": parts[2] == "1", "ts": _i(3),
+                         "model": parts[4] if len(parts) > 4 else "",
+                         "input_tokens": _i(5), "output_tokens": _i(6),
+                         "cache_read_tokens": _i(7),
+                         "cache_creation_tokens": _i(8), "turns": _i(9)})
+    except OSError:
+        pass
+    return rows
 
 
 def total(ledger=None):

@@ -112,7 +112,9 @@ def cmd_status(args):
         return
     ICON = {"committed": "OK ", "no_changes": "-- ", "quarantined": "!! "}
     reviews = review_state.load()
-    print(f"{'run_id':<18} {'trigger':<22} {'overall':<12} {'team review':<18} {'release':<10} gates")
+    with_cost = getattr(args, "cost", False)
+    cost_col = f" {'cost':<9}" if with_cost else ""
+    print(f"{'run_id':<18} {'trigger':<22} {'overall':<12} {'team review':<18} {'release':<10}{cost_col} gates")
     for r in runs[: args.n]:
         gates = ", ".join(
             f"{g['test_repo']}={g['status']}"
@@ -124,8 +126,16 @@ def cmd_status(args):
         e = reviews.get(key, {})
         rev = e.get("status") or "-"
         rel = e.get("release") or "-"
+        cost_cell = ""
+        if with_cost:
+            spends = [p.get("spend") for p in r.get("phases", []) if p.get("spend")]
+            tot = sum(s.get("cost_usd") or 0 for s in spends)
+            sim = any(s.get("simulated") for s in spends)
+            # `~` marks a figure containing simulated components — a simulated
+            # number must never read as a measured dollar.
+            cost_cell = f" {('~' if sim else '') + f'${tot:.4f}' if spends else '-':<9}"
         print(f"{r['run_id']:<18} {trig:<22} {ICON.get(r['overall'], '') + r['overall']:<12} "
-              f"{rev:<18} {rel:<10} {gates}")
+              f"{rev:<18} {rel:<10}{cost_cell} {gates}")
     quarantined = [r for r in runs[: args.n] if r["overall"] == "quarantined"]
     if quarantined:
         print(f"\n{len(quarantined)} quarantined run(s) need attention - logs under reports/")
@@ -261,6 +271,20 @@ def cmd_artifacts(args):
             print(f"\nValidation: {v.get('passed', '?')} passed, {v.get('failed', '?')} failed, "
                   f"{v.get('repair_loops', '?')} repair loop(s)")
 
+        spends = [(p["name"], p["spend"]) for p in r.get("phases", [])
+                  if p.get("spend")]
+        if spends:
+            print("\nSpend (~ = simulated):")
+            print(f"  {'phase':<28} {'model':<26} {'cost':>9} {'in':>8} {'out':>7} "
+                  f"{'cache-rd':>8} {'turns':>5}")
+            for name, s in spends:
+                cost = ("~" if s.get("simulated") else "") + \
+                    f"${s.get('cost_usd', 0):.4f}"
+                print(f"  {name:<28} {s.get('model') or '-':<26} {cost:>9} "
+                      f"{s.get('input_tokens', 0):>8} {s.get('output_tokens', 0):>7} "
+                      f"{s.get('cache_read_tokens', 0):>8} "
+                      f"{s.get('turns_used', 0):>5}")
+
         print("\nCommits & diffs:")
         for g in r.get("gates", []):
             line = f"  {g['test_repo']}: {g['status']}"
@@ -350,11 +374,14 @@ def cmd_openhands(args):
               "WebhookSpec.base_url at <receiver>/hooks/openhands "
               "— see docs/integrations/openhands.md")
         return
-    print(f"{'conversation':<34} {'status':<12} {'events':>6} {'age':>7}  repo / key")
+    print(f"{'conversation':<34} {'status':<12} {'events':>6} {'~tokens':>8} "
+          f"{'age':>7}  repo / key")
     for r in rows:
         age = f"{(_t.time() - r['updated']) / 60:.0f}m" if r["updated"] else "-"
+        toks = r.get("payload_est_tokens") or 0
         print(f"{r['conversation_id'][:34]:<34} {r['status']:<12} "
-              f"{r['event_count']:>6} {age:>7}  {r['repo'] or r['key'] or '-'}"
+              f"{r['event_count']:>6} {toks if toks else '-':>8} {age:>7}  "
+              f"{r['repo'] or r['key'] or '-'}"
               + (f"   ERROR: {r['error'][:50]}" if r["error"] else ""))
 
 
@@ -392,7 +419,8 @@ def cmd_openhands_run(args):
     openhands_events.record_launch(r.get("conversation_id", ""),
                                    url=r.get("url", ""), key=args.target or "",
                                    repo=args.repo or "", title=title,
-                                   source=f"agent:{args.agent}")
+                                   source=f"agent:{args.agent}",
+                                   payload_chars=len(msg))
     print(json.dumps(r, indent=2))
 
 
@@ -738,7 +766,8 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("status"); s.add_argument("-n", type=int, default=10); s.set_defaults(fn=cmd_status)
+    s = sub.add_parser("status"); s.add_argument("-n", type=int, default=10)
+    s.add_argument("--cost", action="store_true"); s.set_defaults(fn=cmd_status)
     s = sub.add_parser("coverage"); s.set_defaults(fn=cmd_coverage)
     s = sub.add_parser("tests")
     s.add_argument("--app"); s.add_argument("--repo"); s.add_argument("--status"); s.add_argument("--layer")

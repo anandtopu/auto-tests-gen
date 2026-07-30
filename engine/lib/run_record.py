@@ -8,10 +8,46 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import critic as critic_lib
 
 run_id, mode, key = sys.argv[1:4]
+
+# Per-phase spend from the budget ledger (cost-reduction 1.1). Keyed by the ledger
+# label, which for fan-out calls is the AIQE_PHASE_LABEL (generate-<repo>) — the
+# same name the contract file carries, so the join below is exact.
+_simulated_run = (os.environ.get("AIQE_MOCK", "1") == "1"
+                  or bool(os.environ.get("AIQE_MOCK_PHASE_COST", "").strip()))
+spend_by_phase = {}
+try:
+    import budget
+
+    def _turns_ceiling(label):
+        try:
+            import yaml
+            cfg = yaml.safe_load(open(pathlib.Path(budget.ROOT) /
+                                      "registry/org-config.yaml",
+                                      encoding="utf-8")) or {}
+            ph = cfg.get("phases") or {}
+            base = label if label in ph else label.split("-", 1)[0]
+            return int(ph.get(base, {}).get("max_turns") or 0)
+        except Exception:
+            return 0
+    for row in budget.read_ledger():
+        spend_by_phase[row["phase"]] = {
+            "model": row["model"], "cost_usd": row["cost_usd"],
+            "input_tokens": row["input_tokens"],
+            "output_tokens": row["output_tokens"],
+            "cache_read_tokens": row["cache_read_tokens"],
+            "cache_creation_tokens": row["cache_creation_tokens"],
+            "turns_used": row["turns"], "max_turns": _turns_ceiling(row["phase"]),
+            "simulated": _simulated_run or not row["metered"]}
+except Exception:
+    pass
+
 phases = []
 for f in sorted(glob.glob("out/*.contract.json")):
     name = os.path.basename(f).replace(".contract.json", "")
-    phases.append({"name": name, "contract": json.load(open(f, encoding="utf-8"))})
+    entry = {"name": name, "contract": json.load(open(f, encoding="utf-8"))}
+    if name in spend_by_phase:
+        entry["spend"] = spend_by_phase[name]
+    phases.append(entry)
 
 gates = []
 if os.path.exists("out/gate_results.tsv"):

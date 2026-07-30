@@ -6,7 +6,8 @@ SHELL := /bin/bash
         test-gate demo-bootstrap demo-pr demo-jira review \
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
-        demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config
+        demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config \
+        cost-report
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -104,6 +105,9 @@ state-inspect:        # manifest + checksum verification, no writes (BUNDLE=path
 	python3 engine/lib/state_bundle.py inspect $(BUNDLE)
 state-import:         # restore a bundle here (BUNDLE=path [REPLACE=1] [DRY=1])
 	python3 engine/lib/state_bundle.py import $(BUNDLE) $(if $(REPLACE),--replace,) $(if $(DRY),--dry-run,)
+
+cost-report:          # LLM spend attribution: by workflow/key/phase/model + turn calibration (DAYS=N)
+	python3 engine/lib/cost_report.py report $(if $(DAYS),--days $(DAYS),)
 
 cache-stats:          # phase-cache hit report (LLM calls avoided)
 	python3 engine/lib/phase_cache.py stats

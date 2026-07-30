@@ -126,7 +126,24 @@ def build(days=None, release=None):
             "queue": work_queue.load(), "by_release": by_release,
             "per_day": dict(sorted(per_day.items(), reverse=True)),
             "catalog": {"total": len(catalog), "by_status": by_status,
-                        "coverage_gaps": gaps, "flaky": flaky}}
+                        "coverage_gaps": gaps, "flaky": flaky},
+            "cost": _cost_line(days)}
+
+
+def _cost_line(days):
+    """One honest cost summary line (cost-reduction 1.2). A simulated figure is
+    labelled so it can never be quoted as a measured dollar."""
+    try:
+        import cost_report
+        rep = cost_report.report(days)
+        if not rep["runs"] or rep["simulated_share"] is None:
+            return ""
+        label = ("simulated" if rep["simulated_share"] == 1.0
+                 else "measured" if rep["simulated_share"] == 0.0
+                 else f"{int(rep['simulated_share'] * 100)}% simulated")
+        return f"${rep['total_cost_usd']:.4f} across {rep['runs']} run(s) ({label})"
+    except Exception:
+        return ""
 
 
 def to_markdown(days=None, release=None):
@@ -148,6 +165,7 @@ def to_markdown(days=None, release=None):
          f"| No changes needed | {t['no_changes']} |",
          f"| Tests generated | {t['tests_generated']} "
          f"({t['tests_created']} new, {t['tests_updated']} extended existing) |",
+         *([f"| LLM spend | {d['cost']} |"] if d.get("cost") else []),
          f"| Avg repair loops per run | {t['avg_repair_loops']} |",
          f"| Awaiting team review | {len(d['pending_review'])} |",
          f"| Approved in period | {len(d['approved_in_period'])} |",
