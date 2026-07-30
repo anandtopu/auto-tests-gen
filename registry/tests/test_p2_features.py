@@ -24,7 +24,10 @@ def test_gaps_detects_uncovered_surface():
 
 def test_gaps_markdown_marks_gaps():
     md = coverage_gaps.to_markdown()
-    assert "[NO TEST] /v1/catalog/search" in md
+    # Gap lines now carry a risk score (roadmap 3.2): "[NO TEST] (risk N) <surface>".
+    # Pin the marker and the surface, not the exact score between them.
+    line = next(l for l in md.splitlines() if "/v1/catalog/search" in l)
+    assert line.strip().startswith("- [NO TEST] (risk ")
     assert "[covered] /v1/orders/{id}" in md
 
 

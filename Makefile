@@ -82,6 +82,17 @@ check-integrations:   # read-only connectivity check for every configured system
 smoke-openhands:
 	bash bin/smoke-openhands.sh
 
+maintain:             # nightly estate maintenance (call from cron / a K8s CronJob):
+	@echo "== guidance sync (best-effort) =="
+	-python3 engine/lib/guidance_sync.py sync-all
+	@echo "== prune run records (keep 200) =="
+	-python3 bin/qa.py prune --keep 200
+	@echo "== prune finished OpenHands conversations (24h window) =="
+	-python3 engine/lib/openhands_events.py prune
+	@echo "== state-bundle snapshot =="
+	-python3 engine/lib/state_bundle.py export
+	@echo "== maintenance complete =="
+
 state-export:         # portable bundle of all durable state -> reports/exports/
 	python3 engine/lib/state_bundle.py export $(OUT)
 state-inspect:        # manifest + checksum verification, no writes (BUNDLE=path)

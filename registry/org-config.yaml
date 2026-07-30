@@ -63,6 +63,11 @@ plan_adversary:
 # AIQE_GENERATE_FANOUT=0 forces the single-agent path.
 generate_fanout:
   enabled: true
+# Optional review rota: keys committed by a run are ASSIGNED round-robin-by-hash to
+# one of these names (shown on the board and in digests). Assignment is a nudge —
+# anyone may still review, and the decision records the actual actor. Empty = off.
+review:
+  reviewers: []
 resolution:
   confidence_threshold: 0.8
   clarify_channels: [tracker, notify]   # post question to Jira + Slack when below threshold

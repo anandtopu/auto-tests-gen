@@ -5,14 +5,16 @@ per-test health in catalog/health.json — {test_id: {runs, failures, pass_rate,
 last_status, flaky, updated}}. Health feeds the validate phase's "test wrong vs
 env flaky" call and surfaces deprecation candidates.
 """
-import json, pathlib, sys, time
+import json, os, pathlib, sys, time
 import xml.etree.ElementTree as ET
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import fs_lock
 
-FILE = ROOT / "catalog/health.json"
+# Env override so tests (and the CI-ingest endpoint's tests in particular) can
+# exercise a live server without touching the real estate's health data.
+FILE = pathlib.Path(os.environ.get("AIQE_HEALTH_FILE") or ROOT / "catalog/health.json")
 FLAKY_BAND = (0.05, 0.95)      # sometimes-passing => flaky
 
 

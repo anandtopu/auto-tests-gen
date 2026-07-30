@@ -71,6 +71,22 @@ def set_status(key, status, by="", note=""):
     return e
 
 
+def _adversary_detail():
+    """The normalized adversarial signal from this run's out/ scratch, or {}.
+    Total: a missing/failed adversary phase yields an empty dict, never an error —
+    the plan record must not depend on an advisory phase having run."""
+    try:
+        import plan_adversary
+        sig = plan_adversary.signal()
+        if not sig.get("ran"):
+            return {}
+        return {"gaps": sig.get("gaps") or [],
+                "accepted": sig.get("accepted"), "rejected": sig.get("rejected"),
+                "scenarios_final": sig.get("scenarios_final", 0)}
+    except Exception:
+        return {}
+
+
 def record_plan(key, contract=None, by="pipeline", adversary=""):
     """Called by the pipeline after the testplan phase: snapshot the contract and put
     the plan in `draft` awaiting human review. Preserves prior history.
@@ -84,7 +100,13 @@ def record_plan(key, contract=None, by="pipeline", adversary=""):
         e = state.get(key, {"history": []})
         e.update({"status": "draft", "by": by, "note": "test plan authored",
                   "updated": time.time(), "generated_run": None,
-                  "adversary": (adversary or "").strip()})
+                  "adversary": (adversary or "").strip(),
+                  # The per-gap verdicts (title/category/severity/rationale +
+                  # accepted/rejected counts). Snapshotted HERE because out/ is
+                  # per-run scratch and record time is the last moment it exists —
+                  # without this the reviewer sees one summary line and the actual
+                  # challenge dies with the run. Bounded: the gaps list only.
+                  "adversary_detail": _adversary_detail()})
         e.setdefault("history", []).append(
             {"status": "draft", "by": by, "note": "test plan authored", "ts": time.time()})
         state[key] = e

@@ -179,12 +179,14 @@ def review_digest():
     rows = ""
     for k, e, age in pending:
         rel = e.get("release", "") or "—"
-        lines.append(f"  - {k}  [{e['status']}]  release {rel}  waiting {age:.1f}d")
+        who = e.get("assigned_to", "") or "—"
+        lines.append(f"  - {k}  [{e['status']}]  release {rel}  assigned {who}  "
+                     f"waiting {age:.1f}d")
         rows += (f"<tr><td><b>{k}</b></td><td>{e['status']}</td><td>{rel}</td>"
-                 f"<td>{age:.1f} day(s)</td></tr>")
+                 f"<td>{who}</td><td>{age:.1f} day(s)</td></tr>")
     html = _html_doc(subject, f"<h1>{len(pending)} awaiting review</h1>"
                      "<table><tr><th>key</th><th>status</th><th>release</th>"
-                     f"<th>waiting</th></tr>{rows}</table>")
+                     f"<th>assigned</th><th>waiting</th></tr>{rows}</table>")
     return subject, "\n".join(lines), html
 
 

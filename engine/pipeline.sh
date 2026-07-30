@@ -284,7 +284,11 @@ relocate_artifacts() {
 # Phase chain (Workflow A: triage->generate->validate; B: analyze->plan->data->generate->validate)
 if [ "$MODE" = "pr" ]; then
   PHASE triage   pr-triage.md    AGENTS.md out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md
-  GENERATE AGENTS.md out/triage.contract.json out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md out/repo-conventions.md
+  # Extend-vs-create scout (roadmap 2.1): deterministic join of the diff's surface
+  # against catalog evidence, emitting NAMED extend targets. Tolerant — a scout
+  # failure yields an empty file, never a failed run.
+  python3 engine/lib/extend_scout.py > out/extend-candidates.md 2>/dev/null || : > out/extend-candidates.md
+  GENERATE AGENTS.md out/triage.contract.json out/pr.diff out/catalog-slice.jsonl out/extend-candidates.md out/coverage-gaps.md out/repo-conventions.md
 elif [ "$MODE" = "tests" ]; then
   # Resume from the APPROVED plan. The reviewed markdown is authoritative (it may have
   # been edited), so it is passed to both phases alongside the snapshotted contract.

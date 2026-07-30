@@ -55,6 +55,30 @@ def catalog_evidence():
     return per_repo
 
 
+# Risk weighting (roadmap 3.2). Deterministic ON PURPOSE: which gap matters most is
+# a judgement rules make better and reproducibly than a model — a payments POST
+# outranks a static GET every time, and the ranking must not wobble between runs.
+_MUTATING = ("post ", "put ", "patch ", "delete ")
+_SENSITIVE = ("auth", "login", "token", "password", "payment", "checkout",
+              "admin", "user", "account")
+
+
+def risk_score(surface):
+    """(score, reasons) for one uncovered surface string (endpoint or route)."""
+    s = surface.lower()
+    score, reasons = 1, []
+    if any(s.startswith(m) or f" {m}" in s for m in _MUTATING):
+        score += 2
+        reasons.append("mutating")
+    if any(tok in s for tok in _SENSITIVE):
+        score += 2
+        reasons.append("sensitive")
+    if "{" in s or ":" in s.split(" ")[-1]:
+        score += 1
+        reasons.append("addresses-state")
+    return score, reasons
+
+
 def compute(only_repo=None):
     reg = load_registry()
     evidence = catalog_evidence()
@@ -68,8 +92,14 @@ def compute(only_repo=None):
         exercised = evidence.get(r["name"], set())
         covered = [s for s in surface if norm(s) in exercised]
         uncovered = [s for s in surface if norm(s) not in exercised]
+        # Additive: existing consumers keep reading `uncovered` untouched; ranked
+        # view is a new field, highest risk first (ties keep surface order).
+        ranked = sorted(
+            ({"surface": s, "score": risk_score(s)[0], "reasons": risk_score(s)[1]}
+             for s in uncovered), key=lambda g: -g["score"])
         out[r["name"]] = {"kind": "endpoints" if r["type"] == "backend" else "routes",
-                          "surface": surface, "covered": covered, "uncovered": uncovered}
+                          "surface": surface, "covered": covered,
+                          "uncovered": uncovered, "uncovered_ranked": ranked}
     return out
 
 
@@ -82,8 +112,13 @@ def to_markdown(only_repo=None):
         lines.append(f"## {name} ({g['kind']})")
         for s in g["covered"]:
             lines.append(f"- [covered] {s}")
-        for s in g["uncovered"]:
-            lines.append(f"- [NO TEST] {s}  <- coverage gap: prioritize a scenario here")
+        # Highest risk first, with the reasons on the line — generation and the plan
+        # adversary read this file, so the ordering nudges what gets covered first.
+        for item in g.get("uncovered_ranked") or [
+                {"surface": s, "score": 1, "reasons": []} for s in g["uncovered"]]:
+            why = f" ({', '.join(item['reasons'])})" if item["reasons"] else ""
+            lines.append(f"- [NO TEST] (risk {item['score']}){why} {item['surface']}"
+                         f"  <- coverage gap: prioritize a scenario here")
         lines.append("")
     return "\n".join(lines)
 

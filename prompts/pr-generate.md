@@ -22,7 +22,11 @@ Rules (also see each test repo's CLAUDE.md — it is authoritative for conventio
   layouts. If a needed helper does not exist, follow the closest existing pattern and
   add an open question rather than inventing an abstraction. (Exemplars from paths
   like legacy/ are shown penalized — do not copy those either.)
-- Update existing tests listed in the contract before creating new ones.
+- Update existing tests listed in the contract before creating new ones. When an
+  "Extend-vs-create candidates" context is present it names the exact files whose
+  evidence overlaps this PR's surface: EXTEND those files; create a new spec only
+  for behavior none of them exercises (the context says explicitly when creating
+  new specs is the correct choice).
 - Every test title starts with the key: "{{KEY}}: ...". Tag specs with @{{KEY}}.
 - Reuse page objects / service clients; extend, never duplicate.
 - Use factories/fixtures for data; synthetic data only, no PII.

@@ -153,9 +153,42 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(401, {"error": "missing or wrong credentials: send "
                                              "X-AIQE-Token or Authorization: Bearer"})
         path = self.path.split("?")[0].rstrip("/")
+        raw = self.rfile.read(int(self.headers.get("Content-Length", 0) or 0))
+
+        # --- CI results ingest (roadmap 1.1) --------------------------------------
+        # Raw JUnit XML (or Jenkins JSON), NOT JSON-wrapped — so a CI job can post
+        # `curl --data-binary @results.xml` with no shaping step. Routed BEFORE the
+        # JSON parse below, which would otherwise 400 the XML at the front door.
+        # Feeds catalog/health.json, which the scorecard's "Test health", the
+        # critic's context and flake detection all read.
+        if path == "/hooks/ci/results":
+            if len(raw) > 5 * 1024 * 1024:
+                return self._send(413, {"error": "results payload over 5 MB"})
+            if not raw.strip():
+                return self._send(400, {"error": "empty body — post JUnit XML or "
+                                                 "Jenkins JSON as the request body"})
+            import tempfile
+            import test_health
+            try:
+                suffix = ".json" if raw.lstrip()[:1] in (b"{", b"[") else ".xml"
+                with tempfile.NamedTemporaryFile(mode="wb", suffix=suffix,
+                                                 delete=False) as tf:
+                    tf.write(raw)
+                    tmp_path = tf.name
+                try:
+                    matched, unmatched = test_health.ingest(tmp_path)
+                finally:
+                    os.unlink(tmp_path)
+            except Exception as e:                              # noqa: BLE001
+                return self._send(400, {"error": f"could not parse results: "
+                                                 f"{str(e)[:200]}"})
+            # matched/unmatched in the response so the CI job's own log shows
+            # whether catalog mapping worked — a silent 200 hides mapping rot.
+            return self._send(200, {"ok": True, "matched": matched,
+                                    "unmatched": unmatched})
+
         try:
-            body = json.loads(self.rfile.read(
-                int(self.headers.get("Content-Length", 0) or 0)) or b"{}")
+            body = json.loads(raw or b"{}")
         except json.JSONDecodeError as e:
             return self._send(400, {"error": f"invalid JSON: {e}"})
 

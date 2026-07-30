@@ -1455,6 +1455,25 @@ async function openPlan(key) {
   const adv = $('#plan-adversary');
   adv.textContent = p.adversary || '';
   adv.classList.toggle('hidden', !p.adversary);
+  // Per-gap verdicts (roadmap 4.5): the reviewer approves a plan that was already
+  // challenged — show WHAT was challenged, not just that a challenge happened.
+  const det = $('#plan-adversary-detail');
+  if (det) {
+    const gaps = (p.adversary_detail && p.adversary_detail.gaps) || [];
+    if (gaps.length) {
+      det.innerHTML = gaps.map(g =>
+        '<li><span class="chip chip-' +
+        (g.severity === 'high' ? 'danger' : g.severity === 'med' ? 'warning' : 'muted') +
+        '">' + escHtml(g.severity || '?') + '</span> <b>' + escHtml(g.title || '') +
+        '</b> <span class="muted sm">[' + escHtml(g.category || '') + ']</span>' +
+        (g.rationale ? '<div class="sm muted">' + escHtml(g.rationale) + '</div>' : '') +
+        '</li>').join('');
+      det.classList.remove('hidden');
+    } else {
+      det.innerHTML = '';
+      det.classList.add('hidden');
+    }
+  }
   $('#plan-text').value = p.text;
   $('#plan-editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -2177,6 +2196,10 @@ page = f"""<!doctype html>
         <button class="btn btn-primary" id="plan-generate">Generate tests</button>
       </div>
       <div class="card-b" style="display:flex; flex-direction:column; gap:10px">
+        <ul id="plan-adversary-detail" class="hidden"
+          style="list-style:none; margin:0; padding:8px 12px; display:flex;
+                 flex-direction:column; gap:6px; border:1px solid var(--sr-border);
+                 border-radius:8px"></ul>
         <textarea id="plan-text" rows="22" spellcheck="false"
           style="font-family:var(--sr-font-mono); font-size:12px"></textarea>
       </div>

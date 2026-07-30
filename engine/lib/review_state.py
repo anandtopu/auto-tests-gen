@@ -109,7 +109,52 @@ def auto(key):
         return None                                  # already awaiting the team
     note = "new AI-generated artifacts committed" + (
         f" (resets previous status: {current})" if current else "")
-    return set_status(key, "pending_review", reviewer="pipeline", note=note)
+    entry = set_status(key, "pending_review", reviewer="pipeline", note=note)
+    assignee = _assignee_for(key)
+    if assignee:
+        entry = assign(key, assignee)
+    return entry
+
+
+def reviewers():
+    """The optional review rota from org-config (`review.reviewers: [..]`)."""
+    try:
+        import yaml
+        cfg = yaml.safe_load(open(ROOT / "registry/org-config.yaml",
+                                  encoding="utf-8")) or {}
+        names = (cfg.get("review") or {}).get("reviewers") or []
+        return [str(n) for n in names if str(n).strip()]
+    except Exception:
+        return []
+
+
+def _assignee_for(key):
+    """Deterministic assignment by key hash — deliberately NOT a stored cursor.
+
+    A cursor persisted inside the store would be a non-dict value in a mapping every
+    consumer iterates as {key: entry-dict}; one forgotten `.items()` loop crashes.
+    Hashing the key gives a stable, evenly-spread pick with zero stored state, and
+    stability is a feature: a re-committed key goes back to the reviewer who already
+    has the context."""
+    rota = reviewers()
+    if not rota:
+        return ""
+    import zlib
+    return rota[zlib.crc32(key.encode("utf-8")) % len(rota)]
+
+
+def assign(key, assignee):
+    """Record who is ASKED to review. Deliberately distinct from `reviewer`, which
+    records who actually acted — assignment is a nudge, not a lock: anyone on the
+    team can still approve, and the decision records the real actor."""
+    with fs_lock.lock(FILE):
+        data = load()
+        entry = data.get(key, {"history": []})
+        entry["assigned_to"] = str(assignee)
+        entry["history"].append({"assigned_to": str(assignee), "ts": time.time()})
+        data[key] = entry
+        save(data)
+    return entry
 
 
 if __name__ == "__main__":
