@@ -95,6 +95,10 @@ EXCLUDE_NAMES = (".env", "aiqe.properties", "catalog.db", "dashboard.html",
 # image. Excluding paths one at a time missed catalog/review/export_review_queue.py,
 # and would miss the next script somebody drops next to a data file.
 EXCLUDE_SUFFIX = (".log", ".py", ".pyc", ".lock", ".sh")
+# Quarantined state files (fs_lock renames a corrupt store to <name>.corrupt-<ts>)
+# are local forensic artifacts — carrying them would plant one deployment's damage
+# in another.
+EXCLUDE_PARTS = EXCLUDE_PARTS + (".corrupt-",)
 
 
 def _excluded(rel):

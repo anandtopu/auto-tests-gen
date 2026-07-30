@@ -40,12 +40,8 @@ TERMINAL = ("finished", "error", "stopped", "cancelled", "complete", "completed"
 
 
 def load():
-    if FILE.exists():
-        try:
-            return json.load(open(FILE, encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
+    # Guarded: corrupt -> quarantined, not silently empty (see fs_lock).
+    return fs_lock.read_json_guarded(FILE, {})
 
 
 def _save(state):
@@ -54,9 +50,7 @@ def _save(state):
         keep = sorted(state.items(), key=lambda kv: kv[1].get("updated", 0),
                       reverse=True)[:MAX_CONVERSATIONS]
         state = dict(keep)
-    DIR.mkdir(parents=True, exist_ok=True)
-    FILE.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n",
-                    encoding="utf-8", newline="\n")
+    fs_lock.write_json_atomic(FILE, state, sort_keys=True)
     return state
 
 

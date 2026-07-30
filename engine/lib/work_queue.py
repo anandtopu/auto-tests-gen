@@ -44,16 +44,12 @@ def bash_exe():
 
 
 def load():
-    if FILE.exists():
-        return json.load(open(FILE, encoding="utf-8"))
-    return []
+    # Guarded: corrupt -> quarantined + empty queue, not a crash (see fs_lock).
+    return fs_lock.read_json_guarded(FILE, [])
 
 
 def save(items):
-    FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(FILE, "w", encoding="utf-8", newline="\n") as fh:
-        json.dump(items, fh, indent=2)
-        fh.write("\n")
+    fs_lock.write_json_atomic(FILE, items)
 
 
 def key_of(item):
@@ -61,12 +57,31 @@ def key_of(item):
             else item["target"])
 
 
-def add(mode, target, pr=None, release="", requested_by="", inline_file=None):
+def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
+        force=False):
     # "tests" resumes generation from an approved test plan (pipeline.sh tests <KEY>)
     if mode not in ("pr", "jira", "plan", "tests"):
         sys.exit("mode must be pr|jira|plan|tests")
     if mode == "pr" and not pr:
         sys.exit("pr mode needs a PR number")
+    if mode == "plan" and not force:
+        # Re-authoring an APPROVED plan resets it to draft — a human sign-off is
+        # destroyed by one click of "Author test plan" on a key that already went
+        # through review. Refuse with the alternatives; `force` is the deliberate
+        # override (and `make plan` via the CLI is unaffected — that path is the
+        # documented tool for an intentional re-author).
+        try:
+            import plan_state
+            if plan_state.get(target).get("status") == "approved":
+                sys.exit(f"the test plan for {target} is APPROVED — re-authoring "
+                         f"would reset it to draft and destroy the sign-off. Read "
+                         f"it (make plan-show KEY={target}), edit it (which "
+                         f"deliberately revokes approval), or pass force=true to "
+                         f"re-author anyway.")
+        except SystemExit:
+            raise
+        except Exception:
+            pass                     # no plan state readable — nothing to protect
     with fs_lock.lock(FILE):
         items = load()
         sig = (mode, target, str(pr or ""))

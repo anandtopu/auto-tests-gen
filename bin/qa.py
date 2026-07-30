@@ -208,8 +208,18 @@ def cmd_artifacts(args):
     """Everything a run generated for one PR key or JIRA story, newest run first."""
     runs = _runs_for_key(args.key)
     if not runs:
-        keys = sorted({json.load(open(f, encoding="utf-8"))["trigger"]["key"]
-                       for f in _run_record_files()})
+        # Guarded like every other run-record read: records are written via tee
+        # (non-atomic by design), and one torn record used to crash this error
+        # path with a traceback instead of listing the known keys.
+        keys = set()
+        for f in _run_record_files():
+            try:
+                k = json.load(open(f, encoding="utf-8")).get("trigger", {}).get("key")
+            except (json.JSONDecodeError, OSError):
+                continue
+            if k:
+                keys.add(k)
+        keys = sorted(keys)
         sys.exit(f"no runs recorded for '{args.key}'. Known keys: {', '.join(keys) or 'none'}")
     for r in runs if args.all else runs[:1]:
         key = r["trigger"]["key"]

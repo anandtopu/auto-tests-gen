@@ -39,18 +39,14 @@ def contract_path(key):
 
 
 def load():
-    if FILE.exists():
-        try:
-            return json.load(open(FILE, encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
+    # Guarded: a corrupt file is quarantined, never silently treated as empty —
+    # the old swallow-and-return-{} path let the next _save overwrite human
+    # approvals with empty state after a torn write.
+    return fs_lock.read_json_guarded(FILE, {})
 
 
 def _save(state):
-    DIR.mkdir(parents=True, exist_ok=True)
-    FILE.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n",
-                    encoding="utf-8", newline="\n")
+    fs_lock.write_json_atomic(FILE, state, sort_keys=True)
 
 
 def get(key):

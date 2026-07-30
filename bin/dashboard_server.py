@@ -440,7 +440,8 @@ class Handler(BaseHTTPRequestHandler):
                                        if parsed["kind"] == "stash" else "")})
                         return
                 item, fresh = work_queue.add(p["mode"], target, pr,
-                                             p.get("release", ""), "dashboard")
+                                             p.get("release", ""), "dashboard",
+                                             force=bool(p.get("force")))
                 self._send(200, {"queued": fresh, "item": item,
                                  "resolved_from_url": bool(parsed)})
             except (KeyError, json.JSONDecodeError, SystemExit) as e:

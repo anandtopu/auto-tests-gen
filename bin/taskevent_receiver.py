@@ -62,12 +62,9 @@ def idempotency_key(ev):
 
 
 def _load_seen():
-    if SEEN_FILE.exists():
-        try:
-            return json.load(open(SEEN_FILE, encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            pass
-    return []
+    # Guarded read: a torn write here silently emptied the dedupe window, so the
+    # sender's retries were re-enqueued as fresh work (duplicate runs).
+    return fs_lock.read_json_guarded(SEEN_FILE, [])
 
 
 def already_seen(digest):
@@ -83,9 +80,7 @@ def record_seen(digest):
         seen = _load_seen()
         if digest not in seen:
             seen = (seen + [digest])[-SEEN_MAX:]
-            SEEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-            with open(SEEN_FILE, "w", encoding="utf-8", newline="\n") as fh:
-                json.dump(seen, fh)
+            fs_lock.write_json_atomic(SEEN_FILE, seen, indent=None)
 
 
 def handle_event(ev):

@@ -111,3 +111,78 @@ def _release(lockdir):
         lockdir.rmdir()
     except OSError:
         pass
+
+
+# --------------------------------------------------------------------------
+# Torn-write protection for the shared JSON state files.
+#
+# Every state store (plan lifecycle, review board, work queue, OpenHands trace)
+# used to write DIRECTLY to its final path. A crash mid-write — OOM kill, pod
+# eviction, power loss — leaves a truncated file, and what happened next depended
+# on the loader:
+#
+#   * loaders that swallowed JSONDecodeError returned {} ... and the next save
+#     OVERWROTE the file with empty state. Human plan approvals silently vanished.
+#   * loaders that did not catch took the review board, queue and wizard down
+#     until someone hand-edited the file.
+#
+# Both are the same root cause, fixed the same way: write to a tmp file in the
+# SAME directory and os.replace() it over the target (atomic on POSIX and on
+# Windows for same-volume renames) — a crash at any instant leaves either the
+# old complete file or the new complete file, never a torn one. And if a corrupt
+# file is met anyway (pre-fix damage, disk fault), QUARANTINE it — rename it
+# aside with a timestamp so the bytes survive for recovery and the event is
+# visible — instead of silently treating it as empty.
+
+def write_json_atomic(path, obj, **dump_kw):
+    """Write JSON so a crash can never leave a truncated file."""
+    import json
+    path = pathlib.Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    dump_kw.setdefault("indent", 2)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(obj, fh, **dump_kw)
+            fh.write("\n")
+        os.replace(tmp, path)
+    finally:
+        # A failure between write and replace must not litter tmp files that a
+        # later glob or bundle export would sweep up.
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def read_json_guarded(path, default):
+    """Load a state file; quarantine a corrupt one instead of losing it.
+
+    Returning `default` for a corrupt file while LEAVING it in place is the silent
+    data-loss path (the next save overwrites real data); raising takes every caller
+    down. Quarantining threads the needle: callers keep working from `default`, the
+    damaged bytes are preserved as <name>.corrupt-<ts> for manual recovery, and the
+    event is loudly visible on stderr instead of nowhere.
+    """
+    import json, sys
+    path = pathlib.Path(path)
+    if not path.exists():
+        return default
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except json.JSONDecodeError:
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        quarantine = path.with_name(f"{path.name}.corrupt-{stamp}")
+        try:
+            os.replace(path, quarantine)
+            print(f"[fs_lock] {path.name} was corrupt (torn write?) — moved to "
+                  f"{quarantine.name}; continuing from empty state. Recover by "
+                  f"inspecting that file.", file=sys.stderr)
+        except OSError:
+            print(f"[fs_lock] {path.name} is corrupt and could not be quarantined — "
+                  f"continuing from empty state WITHOUT overwriting it.",
+                  file=sys.stderr)
+        return default
+    except OSError:
+        return default

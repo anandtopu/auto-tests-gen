@@ -97,7 +97,10 @@ def test_plan_mode_drains_to_a_draft_plan_end_to_end(tmp_path, monkeypatch):
     mock mode and mark it done behind the user's back."""
     qfile = tmp_path / "queue.json"
     monkeypatch.setattr(work_queue, "FILE", qfile)
-    item, _ = work_queue.add("plan", "PROJ-301", requested_by="e2e-test")
+    # force: this test's subject is queue DRAINING. Whether PROJ-301 is approved
+    # depends on which tests ran before this one, and the approved-plan guard
+    # (test_data_integrity) would otherwise make the enqueue order-dependent.
+    item, _ = work_queue.add("plan", "PROJ-301", requested_by="e2e-test", force=True)
     r = subprocess.run([sys.executable,
                         str(ROOT / "engine/lib/work_queue.py"), "run"],
                        cwd=ROOT, capture_output=True, text=True,

@@ -54,9 +54,8 @@ def catalog_titles():
 
 
 def load():
-    if FILE.exists():
-        return json.load(open(FILE, encoding="utf-8"))
-    return {}
+    # Guarded: corrupt -> quarantined + empty health map, not a crash (see fs_lock).
+    return fs_lock.read_json_guarded(FILE, {})
 
 
 def ingest(path):
@@ -83,10 +82,7 @@ def ingest(path):
             h["updated"] = time.time()
             health[test_id] = h
             matched += 1
-        FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(FILE, "w", encoding="utf-8", newline="\n") as fh:
-            json.dump(health, fh, indent=2, sort_keys=True)
-            fh.write("\n")
+        fs_lock.write_json_atomic(FILE, health, sort_keys=True)
     return matched, unmatched
 
 

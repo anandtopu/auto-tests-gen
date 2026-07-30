@@ -31,16 +31,14 @@ FILE = pathlib.Path(os.environ.get("AIQE_REVIEWS_FILE", ROOT / "reports/runs/rev
 
 
 def load():
-    if FILE.exists():
-        return json.load(open(FILE, encoding="utf-8"))
-    return {}
+    # Guarded: a torn write used to make every caller RAISE — review board, wizard
+    # and run records all went down until the file was hand-edited. Corrupt files
+    # are quarantined by fs_lock, preserving the bytes for recovery.
+    return fs_lock.read_json_guarded(FILE, {})
 
 
 def save(data):
-    FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(FILE, "w", encoding="utf-8", newline="\n") as fh:
-        json.dump(data, fh, indent=2, sort_keys=True)
-        fh.write("\n")
+    fs_lock.write_json_atomic(FILE, data, sort_keys=True)
 
 
 def set_status(key, status, reviewer="", note="", ts=None):
