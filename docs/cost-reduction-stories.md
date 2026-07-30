@@ -55,9 +55,11 @@ tokens, model, turns used and reported cost **per phase**, **so that** I can see
 where the money goes without instrumenting anything myself.
 **AC:**
 - `run_record.py` gains a `spend` block per phase: `{model, input_tokens,
-  output_tokens, cache_read_tokens, turns_used, max_turns, cost_usd}` sourced from
-  `out/cost.tsv` (extend `budget.py` metering to capture the token triplet, not just
-  cost).
+  output_tokens, cache_read_tokens, cache_creation_tokens, turns_used, max_turns,
+  cost_usd}` sourced from `out/cost.tsv` (extend `budget.py` metering to capture the
+  token fields, not just cost). **Zero new instrumentation surface**: every field
+  already exists in the `out/<phase>.json` result the CLI writes (`usage`,
+  `num_turns`, `total_cost_usd`) — this story harvests it.
 - Mock runs record zeros (or `AIQE_MOCK_PHASE_COST` simulation) with `simulated: true`
   — a simulated number can never masquerade as a measured one.
 - `bin/qa.py status --cost` prints a per-run cost column; `artifacts <KEY>` shows the
@@ -74,7 +76,9 @@ cost us?" and "which repo is expensive?".
   (skipping reviews/queue/hooks-seen, as everywhere).
 - `make cost-report [DAYS=30]` + `GET /api/cost-report` + a Cost card on the
   dashboard Overview: total, per-workflow, per-key top-10, per-phase histogram,
-  cache-hit savings (phase-cache hits × the phase's median real cost).
+  cache-hit savings (phase-cache hits × the phase's median real cost), and a
+  **per-model usage breakdown** (calls + tokens + cost per tier: haiku/sonnet/opus)
+  so tier drift is visible at a glance.
 - Team report (`team_report.py`) gains a one-line cost summary with the honest
   `simulated`/`measured` label.
 
@@ -98,6 +102,17 @@ once) is caught in days, not on the invoice.
 - New maintain step calling `cost_report.check_regression(threshold)` → Notify port.
 - Threshold in `org-config.yaml` under `budgets:`; mock-only estates skip silently.
 - Pinned: a synthetic run record 2× over baseline triggers the notification path.
+
+### 1.5a OpenHands launch payload metering — **S**
+**As an** EM, **I want** every OpenHands agent launch to record the size (chars ≈
+tokens) of the message + context it sends, attached to the conversation trace,
+**so that** the cost paid on the OpenHands side (whose LLM bill is separate) is at
+least attributable per launch, and `agent_context`'s cache-ordering discipline has a
+number showing what it protects.
+**AC:** `openhands_events.record_launch()` gains `payload_chars` /
+`payload_est_tokens`; visible in `bin/qa.py openhands` and the conversations card;
+`cost-report` shows a separate "OpenHands payloads (est.)" line, clearly labelled as
+estimated and not billed here.
 
 ### 1.5 Turn-usage calibration report — **S**
 **As an** Op, **I want** observed `turns_used` vs `max_turns` per phase surfaced,
@@ -211,7 +226,9 @@ embedded into a queryable index with provenance, **so that** similarity is seman
   kind_filter)` returns `[{chunk_id, score, provenance}]`.
 - Incremental: `make maintain` refreshes; `make index-rebuild` forces.
 - Embedding spend is metered through the same `budget.py`/`spend` pipeline as phases
-  (Epic 1 sees it).
+  (Epic 1 sees it), **and capped**: `budgets.max_embed_usd_per_day` in org-config —
+  over the cap, indexing stops (TF-IDF fallback covers queries) and notifies. The
+  cost-saving layer must never become its own runaway bill.
 - Excluded from the state bundle (derived data, like `catalog.db`) — rebuilt on
   import; documented in `data-portability.md`.
 
