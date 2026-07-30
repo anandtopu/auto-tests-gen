@@ -1419,6 +1419,34 @@ async function refreshOpenHands() {
 }
 refreshOpenHands();
 
+// ---- traceability matrix (roadmap 3.1)
+async function refreshTraceMatrix() {
+  const tb = document.querySelector('#tmx-table tbody');
+  if (!served || !tb) return;
+  try {
+    const d = await api('/api/trace-matrix');
+    if (!d.rows.length) { $('#tmx-card').classList.add('hidden'); return; }
+    $('#tmx-card').classList.remove('hidden');
+    tb.innerHTML = d.rows.map(r => {
+      const noTest = !r.file;
+      const ci = (r.ci_runs !== '' && r.ci_runs !== undefined && r.ci_runs !== null)
+        ? escHtml(String(r.ci_last || '?')) + ' (' + r.ci_failures + '/' + r.ci_runs + ' failed)'
+        : '—';
+      return '<tr' + (noTest ? ' style="outline:1px solid var(--sr-warning-fg)"' : '') + '>' +
+        '<td class="mono sm">' + escHtml(r.key) + '</td>' +
+        '<td class="sm">' + escHtml(r.scenario_id || '—') +
+          (r.scenario_title ? '<div class="muted sm">' + escHtml(r.scenario_title) + '</div>' : '') + '</td>' +
+        '<td class="mono sm">' + (noTest
+          ? '<span class="chip chip-warning">no test yet</span>' : escHtml(r.file)) + '</td>' +
+        '<td class="sm">' + escHtml(r.test_repo || '—') + '</td>' +
+        '<td class="sm">' + escHtml(r.gate_status || '—') + '</td>' +
+        '<td class="mono sm">' + escHtml(r.commit || '—') + '</td>' +
+        '<td class="sm">' + ci + '</td></tr>';
+    }).join('');
+  } catch (err) { /* advisory table — never block the Trace view */ }
+}
+refreshTraceMatrix();
+
 // ---- test plans: review -> edit -> approve -> link -> generate
 const PLAN_CHIP = { draft: ['draft', 'muted'], in_review: ['✎ in review', 'warning'],
   approved: ['✓ approved', 'success'], changes_requested: ['✗ changes requested', 'danger'] };
@@ -1475,6 +1503,30 @@ async function openPlan(key) {
     }
   }
   $('#plan-text').value = p.text;
+  // Similar prior plans (roadmap 6.1) — a SUGGESTION strip, never auto-applied.
+  // Loaded after the editor so a slow lookup can't delay opening the plan.
+  const sim = $('#plan-similar');
+  if (sim) {
+    sim.classList.add('hidden');
+    api('/api/plans/similar?key=' + encodeURIComponent(key)).then(d => {
+      if (!d.similar || !d.similar.length) return;
+      sim.innerHTML = d.similar.map((m, i) =>
+        '<div><b>Similar prior plan:</b> ' + escHtml(m.key) +
+        ' (' + Math.round(m.score * 100) + '%' +
+        (m.status ? ' · ' + escHtml(m.status) : '') + ')' +
+        ' <span class="muted">shared: ' + escHtml((m.shared_terms || []).join(', ')) +
+        '</span> <a href="#" data-simidx="' + i + '" class="sim-view">view</a>' +
+        '<pre class="hidden" data-simpre="' + i + '" style="white-space:pre-wrap; ' +
+        'max-height:260px; overflow:auto; margin:6px 0 0">' + escHtml(m.text || '') +
+        '</pre></div>').join('');
+      sim.classList.remove('hidden');
+      sim.querySelectorAll('.sim-view').forEach(a => a.addEventListener('click', ev => {
+        ev.preventDefault();
+        const pre = sim.querySelector('[data-simpre="' + a.dataset.simidx + '"]');
+        pre.classList.toggle('hidden');
+      }));
+    }).catch(() => { /* suggestions are optional */ });
+  }
   $('#plan-editor').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 async function planPost(path, payload, okMsg) {
@@ -2117,6 +2169,19 @@ page = f"""<!doctype html>
   </div>
 
   <div data-view="trace">
+    <section class="card" id="tmx-card">
+      <div class="card-h"><div><h2>Traceability matrix</h2>
+        <div class="sub">One row per plan scenario: ticket → scenario → generated
+        spec → gate commit → CI health. A scenario with no spec is a requirement
+        someone approved that nothing exercises yet.</div></div>
+        <span class="grow"></span>
+        <a class="btn btn-sm" href="/api/trace-matrix?format=csv" download>Download CSV</a>
+      </div>
+      <div class="scroll"><table id="tmx-table">
+        <thead><tr><th>key</th><th>scenario</th><th>spec</th><th>repo</th>
+          <th>gate</th><th>commit</th><th>CI</th></tr></thead>
+        <tbody></tbody></table></div>
+    </section>
     <div class="art-layout">
       <nav class="card art-list">
         <div class="art-list-h">Keys with a trace</div>
@@ -2200,6 +2265,9 @@ page = f"""<!doctype html>
           style="list-style:none; margin:0; padding:8px 12px; display:flex;
                  flex-direction:column; gap:6px; border:1px solid var(--sr-border);
                  border-radius:8px"></ul>
+        <div id="plan-similar" class="hidden sm"
+          style="border:1px solid var(--sr-border); border-radius:8px;
+                 padding:8px 12px"></div>
         <textarea id="plan-text" rows="22" spellcheck="false"
           style="font-family:var(--sr-font-mono); font-size:12px"></textarea>
       </div>

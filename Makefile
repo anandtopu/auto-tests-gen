@@ -82,6 +82,9 @@ check-integrations:   # read-only connectivity check for every configured system
 smoke-openhands:
 	bash bin/smoke-openhands.sh
 
+trace-matrix:         # requirement traceability: key -> scenario -> spec -> gate -> CI ([KEY=..] [CSV=1])
+	python3 engine/lib/trace_matrix.py $(KEY) $(if $(CSV),--csv,)
+
 maintain:             # nightly estate maintenance (call from cron / a K8s CronJob):
 	@echo "== guidance sync (best-effort) =="
 	-python3 engine/lib/guidance_sync.py sync-all

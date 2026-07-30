@@ -659,6 +659,59 @@ def cmd_apply_review(args):
     print(f"applied {applied} decision(s); coverage map regenerated")
 
 
+def cmd_flaky(args):
+    """Flaky tests from CI health (roadmap 1.2): sometimes-passing entries, worst
+    first. Feeds the quarantine decision — which stays a HUMAN call."""
+    import test_health
+    health = test_health.load()
+    rows = [(tid, h) for tid, h in health.items() if h.get("flaky")]
+    if not rows:
+        print("no flaky tests detected (needs CI history — POST JUnit results to "
+              "/hooks/ci/results or run: bin/qa.py ingest-results <junit.xml>)")
+        return
+    quarantined = {e["test_id"] for _, e in load_catalog()
+                   if e.get("mapping", {}).get("quarantined")}
+    rows.sort(key=lambda kv: -(kv[1].get("failures", 0) / max(kv[1].get("runs", 1), 1)))
+    print(f"{'fail rate':<10} {'runs':<6} {'q?':<3} test")
+    for tid, h in rows:
+        rate = h.get("failures", 0) / max(h.get("runs", 1), 1)
+        print(f"{rate:<10.0%} {h.get('runs', 0):<6} "
+              f"{'Q' if tid in quarantined else '-':<3} {tid}")
+    print("\nQuarantine one: bin/qa.py quarantine <test_id> [--note WHY]")
+
+
+def cmd_quarantine(args):
+    """Tag a cataloged test quarantined (or lift it). The tag is a shared FLAG for
+    humans and reports — the platform never edits the test repo's CI config; the
+    printed exclusion line is a PROPOSAL for the repo owner to apply."""
+    lift = getattr(args, "lift", False)
+    for f, entries in _catalog_by_file().items():
+        for e in entries:
+            if e["test_id"] == args.test_id:
+                e.setdefault("mapping", {})["quarantined"] = not lift
+                if not lift and getattr(args, "note", ""):
+                    e["mapping"]["quarantine_note"] = args.note
+                if lift:
+                    e["mapping"].pop("quarantine_note", None)
+                save_catalog(f, entries)
+                state = "LIFTED" if lift else "QUARANTINED"
+                print(f"{state}: {args.test_id}")
+                if not lift:
+                    spec = e.get("file", "")
+                    print("Propose to the repo owner (their CI config, not ours):")
+                    print(f"  exclude-from-required: {spec}")
+                return
+    sys.exit(f"no cataloged test with id '{args.test_id}' — bin/qa.py sql "
+             "\"SELECT test_id FROM tests\" lists them")
+
+
+def _catalog_by_file():
+    by_file = {}
+    for f, e in load_catalog():
+        by_file.setdefault(f, []).append(e)
+    return by_file
+
+
 def cmd_map(args):
     by_file = {}
     for f, e in load_catalog():
@@ -756,6 +809,15 @@ if __name__ == "__main__":
     s.set_defaults(fn=cmd_run_inline)
     s = sub.add_parser("review"); s.set_defaults(fn=cmd_review)
     s = sub.add_parser("apply-review"); s.add_argument("csv"); s.set_defaults(fn=cmd_apply_review)
+    s = sub.add_parser("flaky")
+    s.set_defaults(fn=cmd_flaky)
+    s = sub.add_parser("quarantine")
+    s.add_argument("test_id")
+    s.add_argument("--note", default="")
+    s.set_defaults(fn=cmd_quarantine, lift=False)
+    s = sub.add_parser("unquarantine")
+    s.add_argument("test_id")
+    s.set_defaults(fn=cmd_quarantine, lift=True)
     s = sub.add_parser("map"); s.add_argument("test_id"); s.add_argument("--repos", required=True)
     s.set_defaults(fn=cmd_map)
     a = p.parse_args()

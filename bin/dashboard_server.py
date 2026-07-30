@@ -284,6 +284,27 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/version":
             self._send(200, {"ui_schema": UI_SCHEMA, "user": getattr(self, "user", ""),
                              "sso": bool(SSO_HEADER)})
+        elif url.path == "/api/plans/similar":
+            # Similar-plan retrieval (roadmap 6.1): SUGGESTIONS only — the human
+            # sees the prior plan and its similarity; nothing is ever auto-applied.
+            import plan_similarity
+            skey = urllib.parse.parse_qs(url.query).get("key", [""])[0]
+            if not re.fullmatch(r"[\w.-]+", skey or ""):
+                self._send(400, {"error": "key required"})
+            else:
+                self._send(200, {"similar": plan_similarity.suggest_for(skey)})
+        elif url.path == "/api/trace-matrix":
+            # Requirement traceability (roadmap 3.1): key -> scenario -> spec ->
+            # gate commit -> CI health, one row per scenario. ?format=csv downloads.
+            import trace_matrix
+            q = urllib.parse.parse_qs(url.query)
+            tkey = q.get("key", [""])[0]
+            rows = trace_matrix.build(tkey or None)
+            if q.get("format", [""])[0] == "csv":
+                self._send(200, trace_matrix.to_csv(rows).encode("utf-8"),
+                           ctype="text/csv")
+            else:
+                self._send(200, {"rows": rows, "fields": trace_matrix.FIELDS})
         elif url.path == "/api/pr-coverage":
             # Coverage-delta report for a key's latest run, rebuilt from the
             # persisted run record (the same report Workflow A posts on the PR).
