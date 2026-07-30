@@ -12,6 +12,7 @@ eval/results/
 .pytest_cache/
 reports/inline/
 reports/catalog.db
+reports/knowledge-index/
 
 # Work-queue state: items currently queued/running/failed. This is in-flight work,
 # not a record of anything decided — it churns on every run and is wiped by

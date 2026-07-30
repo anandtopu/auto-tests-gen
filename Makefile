@@ -93,6 +93,8 @@ maintain:             # nightly estate maintenance (call from cron / a K8s CronJ
 	-python3 bin/qa.py prune --keep 200
 	@echo "== prune finished OpenHands conversations (24h window) =="
 	-python3 engine/lib/openhands_events.py prune
+	@echo "== knowledge chunk rebuild =="
+	-python3 engine/lib/knowledge_chunks.py rebuild
 	@echo "== coverage drift check =="
 	-python3 engine/lib/coverage_drift.py --notify
 	@echo "== state-bundle snapshot =="

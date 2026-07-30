@@ -52,6 +52,7 @@ CLEAR_DIRS = ["reports/runs", "reports/exports", "reports/inline",
               "reports/openhands",        # agent conversation/event ingest
               "knowledge/generated",      # generated per-repo AGENTS.md
               "knowledge/synced",         # SCM guidance cache (re-pull: make sync-guidance)
+              "reports/knowledge-index",  # retrieval chunks (derived; make agents rebuilds)
               "out", "workspace", "testplans", "testdata"]
 CLEAR_FILES = ["reports/dashboard.html", "reports/catalog.db", "catalog/health.json"]
 

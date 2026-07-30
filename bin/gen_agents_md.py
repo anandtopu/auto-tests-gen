@@ -199,3 +199,13 @@ out = ROOT / "AGENTS.md"
 out.write_text("\n".join(L) + "\n", encoding="utf-8", newline="\n")
 print(f"AGENTS.md written: {len(reg['source_repositories'])} app repos, "
       f"{len(reg['test_repositories'])} test repos, {len(catalog)} cataloged tests")
+
+# The retrieval substrate (cost-reduction 2.1) chunks the SAME sources this file
+# is built from — one rebuild hook here covers every AGENTS.md regeneration path
+# (pipeline, onboarding, repo_admin mutations, bootstrap). Best-effort: chunking
+# must never stop AGENTS.md being written.
+try:
+    import knowledge_chunks
+    knowledge_chunks.rebuild()
+except Exception:
+    pass
