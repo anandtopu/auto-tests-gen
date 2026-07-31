@@ -13,7 +13,7 @@ JIRA-triggered test authoring (Workflow B) across a multi-repo estate, powered b
 | [docs/integrations/](docs/integrations/README.md) | Step-by-step tool integration: OpenHands (+ capability review), Jira, Confluence, Bitbucket Cloud & Stash/Server, Email/SMTP |
 | [docs/diagrams.md](docs/diagrams.md) | Rendered architecture diagrams (Mermaid) |
 | [docs/deployment.md](docs/deployment.md) | Deploying as a service: local Docker Compose + remote OpenShift / Kubernetes |
-| [docs/architecture.md](docs/architecture.md) | Full solution architecture (v2.2) — code comments cite its § numbers |
+| [docs/architecture.md](docs/architecture.md) | Full solution architecture (v2.3) — code comments cite its § numbers |
 | [docs/cost-optimization.md](docs/cost-optimization.md) | LLM cost: token profile, model tiers, phase cache, cache-ordered prompts, and §5 — the shipped retrieval/reuse stack (RAG context scoping, vector index, plan reuse, spend controls) |
 | [docs/cost-reduction-stories.md](docs/cost-reduction-stories.md) · [docs/cost-reduction-architecture.md](docs/cost-reduction-architecture.md) | The cost backlog (8 epics / 28 stories) and per-story designs — **all 8 build slices shipped**; quality-gated levers stay off until the parity eval |
 | [docs/data-portability.md](docs/data-portability.md) | Durability matrix, portable state bundle (export/inspect/import), OpenHands request traceability |

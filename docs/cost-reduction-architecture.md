@@ -383,7 +383,7 @@ notify-and-continue failure rule. 8.4: docs listed in the story.
 
 ---
 
-## Build order (maps to the stories' sprint plan)
+## Build order (maps to the stories' sprint plan) — ALL SLICES SHIPPED
 
 | # | Slice | Stories | New/changed files |
 |---|---|---|---|

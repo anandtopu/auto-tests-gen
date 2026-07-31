@@ -1,5 +1,13 @@
 # LLM cost reduction — user-story backlog
 
+> **STATUS: ALL 8 BUILD SLICES SHIPPED** (2026-07-30, commits `602811f`…`39ed2a3`).
+> Architecture: `docs/architecture.md` §5.13; measured results:
+> `docs/cost-optimization.md` §5; adversarial UAT: `REVIEW.md` Pass 8.
+> Quality-gated levers (judgement-phase context scoping, `AIQE_PLAN_REUSE`)
+> ship default-OFF until the parity runs measure their quality delta —
+> that measurement shares the CLI-auth blocker with `make parity-*`
+> (REVIEW.md item 5), alongside `make cache-probe` and `make cost-baseline`.
+
 A comprehensive, buildable backlog to design, architect, build, test and deploy the
 next generation of LLM cost controls: **reusable artifacts, retrieval-scoped context
 (RAG), semantic reuse over a vector index, provider-side prompt caching, and the cost

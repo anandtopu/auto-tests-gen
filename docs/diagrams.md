@@ -443,3 +443,40 @@ flowchart TB
     ROUTE --> C2
     LOCAL["Local: deploy/local/docker-compose.yml<br/>same image, named volumes"] -.-> POD
 ```
+
+## 16. Cost & retrieval stack (§5.13)
+
+How a phase's context gets assembled and how spend is metered, capped and
+reported. Every layer has a kill switch (Settings → Cost levers); judgement
+phases and plan reuse stay on the conservative path until the parity-run
+quality eval clears them.
+
+```mermaid
+flowchart TB
+    subgraph SRC["Estate sources (same inputs as AGENTS.md)"]
+        REG["registry + catalog"] --- GUID["guidance (4 ranked sources)"]
+        GUID --- EX["exemplar + spec files"] --- PLANS["plans · testdata"]
+    end
+    SRC --> KC["knowledge_chunks.py<br/>chunks.jsonl — stable ids, sha256,<br/>byte-deterministic, DERIVED (gitignored)"]
+    KC --> VI["vector_index.py (SQLite + cosine)<br/>refresh = changed chunks only (sha-skip)<br/>daily embed cap · corrupt ⇒ quarantine+rebuild"]
+    EMB["Embedding PORT (ADR-9)<br/>adapters/embed/http.sh (any /v1/embeddings)<br/>adapters/mock/embed.sh (deterministic)"] --> VI
+    VI -. "unconfigured ⇒ TF-IDF, silently" .-> TFIDF["plan_similarity (lexical)"]
+
+    subgraph ASM["context_scope.py — per-run assembly ($(CTX phase))"]
+        T1["1 MUST-KEEP: resolved repos'<br/>surface/guidance/exemplar<br/>(survives ANY budget)"]
+        T2["2 deterministic overlap<br/>with diff/ticket/plan signals"]
+        T3["3 semantic fill + PRIOR ART<br/>(data-framing heading)"]
+        T1 --> T2 --> T3
+    end
+    KC --> ASM
+    VI --> T3
+    ASM --> CTX["out/context-&lt;phase&gt;.md<br/>audit manifest: kept + dropped<br/>fallback = full AGENTS.md, always"]
+    CTX --> PH["LLM phase (run_phase.sh)<br/>phase cache · model tiers ·<br/>degradation ladder 60/80/100%"]
+    PH -- "missing_context ⇒ ONE full-estate retry" --> PH
+
+    REUSE["plan_reuse.py (AIQE_PLAN_REUSE, default off)<br/>≥0.80 vs a HUMAN-APPROVED plan ⇒ skip testplan LLM,<br/>deterministic adaptation + VERIFY checklist ⇒ DRAFT"] -.-> PH
+
+    PH --> SPEND["budget.py ledger: cost + tokens + turns<br/>envelopes per workflow · exit 77 over 100%"]
+    SPEND --> REC["run record spend blocks<br/>simulated flag — never reads as measured"]
+    REC --> RPT["cost_report.py: make cost-report ·<br/>Cost view · baseline + nightly<br/>regression alarm (make maintain)"]
+```

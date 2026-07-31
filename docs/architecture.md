@@ -1,7 +1,7 @@
 # Solution Architecture Document
 ## AI-Driven Test Engineering Workflow PoC — OpenHands + Claude Code
 
-**Version:** 2.2 | **Date:** July 2026 | **Status:** Proposed — v2.2 adds §5.11 (state integrity & portability) and §5.12 (cost architecture), and extends §8 with the measurement/traceability surfaces shipped from the roadmap
+**Version:** 2.3 | **Date:** July 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 adds §5.13 (retrieval & reuse subsystem — the shipped cost-reduction stack: telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9 (embeddings)
 **Author:** QA / AI Quality Engineering Team
 **Scope:** Proof of Concept — Agentic SDLC test generation workflow across a **multi-repository estate**: multiple UI repos, multiple backend/API repos, and **6 existing E2E test repositories (3 API, 3 UI) whose tests are currently unmapped to any application repository or feature**. v2.0 adds the **Test Catalog & Mapping subsystem** (bootstrap + continuous mapping of existing tests) and a **pluggable Integration & Extensibility layer** (Jira, Bitbucket, GitHub, Slack, Splunk, and future tools), and restructures the solution as a reusable, customizable platform. v2.1 extends the integration layer with **Confluence (knowledge source + publishing)**, **Jenkins (CI/CD trigger, execution, and results feedback)**, and a documented onboarding pattern for any additional SDLC tool.
 
@@ -786,6 +786,62 @@ levers: [cost-optimization.md](cost-optimization.md)):
    files plus git state the gate inspects, and replaying a contract would hand the
    gate a green report for work that never happened.
 
+### 5.13 Retrieval & reuse subsystem (cost-reduction stack, v2.3)
+
+Built as 8 slices against [cost-reduction-stories.md](cost-reduction-stories.md)
+(designs: [cost-reduction-architecture.md](cost-reduction-architecture.md);
+measured results and per-layer summary: [cost-optimization.md](cost-optimization.md)
+§5). Six layers, each independently killable (Settings → "Cost levers"):
+
+1. **Spend telemetry** (`cost_report.py`, story 1.x). Every run record carries
+   per-phase `spend` blocks harvested from the CLI's own usage JSON — model,
+   tokens in/out/cache-read, turns, cost, and a `simulated` flag that can never
+   masquerade as a measured dollar. Rollups by workflow/key/phase/model tier
+   feed `make cost-report`, the dashboard Cost view, and the team report; turn
+   calibration (p50/p95 vs ceiling) makes §5.12's "cap max_turns" lever
+   evidence-based. `make cost-baseline` freezes measured medians (refusing
+   simulated estates) and `make maintain` alarms on >25% regressions, naming
+   the phase and the likely causes.
+2. **Knowledge chunks** (`knowledge_chunks.py`, story 2.1). The same sources
+   `gen_agents_md.py` reads, chunked into addressed units (repo-surface,
+   guidance, exemplar, spec, catalog, scenario, testdata) with content-
+   independent ids and sha256 change markers. Derived data: byte-deterministic,
+   gitignored, rebuilt with every AGENTS.md regeneration.
+3. **Vector index** (`vector_index.py` + the **Embedding port**, ADR-9).
+   SQLite float32 BLOBs + pure-python cosine; refresh embeds only changed
+   chunks (an unchanged corpus costs zero calls), stops at a daily spend cap,
+   and quarantines-then-rebuilds on corruption. Unconfigured embeddings degrade
+   every consumer to TF-IDF, silently.
+4. **Retrieval-scoped context** (`context_scope.py`, stories 2.2/2.3). Phases
+   can receive a per-run three-tier assembly instead of the full estate:
+   must-keep (every resolved repo's surface/guidance/exemplar survives ANY
+   budget), deterministic token overlap with the run's signals, semantic fill.
+   Each scoped file opens with an audit manifest of kept AND dropped chunks;
+   assembly is byte-deterministic so §5.12's cache layers keep working. A phase
+   may report `missing_context` for one full-estate retry. Judgement phases
+   (testplan, adversary pair, generate) stay on the full estate until the
+   quality eval clears them — policy in org-config `context_scope:`, pinned.
+   **Measured: 58% average context-size reduction, retention-checked every
+   `make eval`.**
+5. **Semantic reuse** (`plan_reuse.py`, stories 3.3–3.5). A ticket similar
+   (≥0.80) to a HUMAN-APPROVED prior plan skips the testplan LLM phase — the
+   prior plan is adapted by deterministic text surgery and lands as a draft
+   with visible provenance (editor banner, ticket comment, trace-matrix
+   column); the adversary still challenges it and reuse can never
+   auto-approve. Exemplars rank semantically (legacy penalty first); testdata/
+   testplan contexts pull PRIOR ART under an explicit data-framing heading.
+6. **Spend controls** (stories 5.x). No-op phases are skipped deterministically
+   (recorded, rendered distinct from failure); per-workflow budget envelopes
+   with a queue-intake warning; a degradation ladder (60% of envelope → cheap
+   tier for non-judgement phases, 80% → halved context budgets, 100% → the
+   §5.8 exit-77 abort) — judgement phases never downgrade.
+
+Non-negotiables preserved by construction: retrieved/reused text is DATA
+(framing preamble pinned in every assembly), the gate remains the only writer,
+and every human approval gate is unchanged. The quality-gated levers
+(judgement-phase scoping, plan reuse) ship default-OFF until the parity eval
+measures their quality delta — the same honesty rule as §5.12's cost figures.
+
 ## 6. Scalability, Reliability, Efficiency, Maintainability — Deep Dive
 
 ### 6.1 Scalability
@@ -870,6 +926,9 @@ levers: [cost-optimization.md](cost-optimization.md)):
 | **Duplicate prevention** | new agent tests duplicating existing catalog coverage | ≤ 5% |
 | Escaped noise | duplicate/trivial/asserting-nothing specs flagged by the advisory critic (§5.8.7) — the only automated source for this metric, since the gate proves specs *pass*, not that they assert anything worth asserting | ≤ 10% |
 | Critic score | mean advisory quality score per run (`make critic`) — reported alongside, never instead of, gate outcomes | trend |
+| **Context retention** | scoped contexts (§5.13) retaining every fixture's `expected_context` facts, checked mechanically each `make eval` | 100% |
+| **Context size reduction** | scoped assembly vs the full estate file, token-counted (§5.13) | measured (58% avg on the benchmark) |
+| **Cache hit rate** | `cache_read_tokens / (input + cache_read)` per phase, from the spend telemetry (§5.13) — a falling rate flags a prefix-breaking prompt edit | trend; optional floor in `budgets:` |
 
 Human reviewers tag every agent commit with a 3-level rubric (accept / minor edits / rework) in the PR — this is the ground truth feed for the scorecard.
 
@@ -972,6 +1031,13 @@ The platform ships as a single OpenShift-compatible image running two co-located
 - *Direct wiring (v1.1):* fastest for one estate, but every new tool (Bitbucket, Slack, Splunk, future ADO/Teams/Datadog) touches core scripts and prompts — reuse dies.
 - *Hexagonal + MCP:* engine stays vendor-free; one Atlassian MCP connection serves Jira **and** Bitbucket; new MCP-capable tools are config, not code. Non-MCP tools (Splunk HEC) get thin CLI adapters behind the same ports.
 **Consequence:** small upfront abstraction cost (six port interfaces, TaskEvent schema); pays back at the second team/tool. Validated in-PoC by exercising three Atlassian products through one MCP adapter (Jira/Confluence/Bitbucket) and one non-MCP CLI adapter (Jenkins).
+
+### ADR-9: SQLite + pure-python cosine behind an Embedding port vs. vector database / native libraries
+**Decision:** SQLite float32 BLOBs + brute-force cosine, embeddings via any OpenAI-compatible `/v1/embeddings` endpoint over stdlib HTTP, behind a seventh port with a deterministic mock (full text: [adr/embeddings.md](adr/embeddings.md)).
+- *sqlite-vec / FAISS / numpy:* native wheels break the no-native-deps rule on Windows/CI for a corpus where brute force is ~10 ms.
+- *Chroma / Qdrant:* a server to deploy, monitor and back up — pure operational weight at PoC scale, and a hard dependency the mock posture forbids.
+- *Provider SDKs:* the engine never imports a vendor; stdlib HTTP through a port keeps conformance, mocks and credential handling uniform.
+**Consequence:** query cost is O(corpus) — fine to ~50k chunks; the documented revisit trigger (corpus >50k or p95 >200 ms) upgrades the adapter, not the consumers. Unconfigured estates degrade to TF-IDF silently; the index is derived data (quarantine-and-rebuild, bundle-excluded).
 
 ---
 
