@@ -70,7 +70,8 @@ CONFLUENCE_SPACE=QA
 
 # --- LLM provider ---
 # Which model runs the pipeline's phases. Agentic phases (generate, validate)
-# need claude/codex/openhands; completion providers serve every other phase.
+# need claude or codex - they edit files in our workspace; completion providers
+# (Ollama, delegated OpenHands) serve every other phase.
 # Provider  ·  claude | ollama | codex | openhands (empty = org-config llm.provider)
 AIQE_LLM_PROVIDER=
 # Ollama base URL  ·  OpenAI-compatible /v1 (default http://localhost:11434/v1)
@@ -79,6 +80,10 @@ OLLAMA_URL=
 OLLAMA_API_KEY=
 # Codex CLI binary  ·  default `codex` on PATH; absolute path if elsewhere
 CODEX_BIN=
+# OpenHands as an LLM provider (experimental)  ·  1 = delegate phases
+AIQE_OPENHANDS_PROVIDER=
+# OpenHands phase timeout (seconds)  ·  default 900
+OPENHANDS_PHASE_TIMEOUT=
 
 # --- Cost levers ---
 # Each cost-reduction mechanism has its own kill switch.

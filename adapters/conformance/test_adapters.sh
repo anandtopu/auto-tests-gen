@@ -15,6 +15,7 @@ declare -A verbs=( [scm/github.sh]="clone_ro clone_rw changed_files diff comment
                    [llm/claude.sh]="run_phase capabilities check"
                    [llm/ollama.sh]="run_phase capabilities check"
                    [llm/codex.sh]="run_phase capabilities check"
+                   [llm/openhands.sh]="run_phase capabilities check"
                    [mock/llm.sh]="run_phase capabilities check"
                    [embed/http.sh]="embed_texts dims"
                    [mock/embed.sh]="embed_texts dims" )

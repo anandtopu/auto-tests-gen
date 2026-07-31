@@ -346,6 +346,66 @@ def status(conversation_id):
     }
 
 
+def events(conversation_id, limit=200):
+    """Every event recorded for a conversation, oldest first.
+
+    The webhook receiver (bin/taskevent_receiver.py) gets these PUSHED when
+    OpenHands can reach a receiver we own. This is the PULL path, for callers
+    that need the answer synchronously and cannot wait on a webhook that may
+    never arrive — the LLM Runner's openhands adapter (multi-LLM 2.4).
+
+    Endpoint differs by deployment, like every other call here:
+      self-hosted : GET /api/conversations/<id>/events
+      Cloud V1    : GET /api/v1/app-conversations/<id>/events
+    Returns a list (empty when the deployment exposes no such endpoint —
+    absence is not an error, the caller decides what to do about it)."""
+    base, api_key = _configured()
+    conv_path = _env("OPENHANDS_CONVERSATIONS_PATH") or "/api/conversations"
+    if _is_cloud_path(conv_path):
+        url = f"{base}/api/v1/app-conversations/{conversation_id}/events"
+    else:
+        url = f"{base}/api/conversations/{conversation_id}/events"
+    code, resp, err = _request("GET", f"{url}?limit={int(limit)}", _headers(api_key))
+    if err and code is None:
+        raise RuntimeError(f"could not reach {url}: {err}")
+    if code is not None and code >= 400:
+        return []
+    if isinstance(resp, list):
+        return resp
+    resp = resp or {}
+    for key in ("events", "items", "results", "data"):
+        if isinstance(resp.get(key), list):
+            return resp[key]
+    return []
+
+
+def final_message(conversation_id):
+    """The agent's LAST message in a conversation, or "" when there is none.
+
+    Deliberately tolerant about event shape: OpenHands has more than one
+    (self-hosted vs Cloud, and it moves between versions), and a provider that
+    returns "" is handled — one that raises on an unfamiliar key is not."""
+    texts = []
+    for ev in events(conversation_id):
+        if not isinstance(ev, dict):
+            continue
+        source = str(ev.get("source") or ev.get("role") or "")
+        kind = str(ev.get("kind") or ev.get("type") or ev.get("action") or "")
+        if source not in ("agent", "assistant") and "message" not in kind.lower():
+            continue
+        if source in ("user", "human"):
+            continue
+        content = (ev.get("message") or ev.get("content") or ev.get("text")
+                   or (ev.get("args") or {}).get("content")
+                   or (ev.get("extras") or {}).get("message"))
+        if isinstance(content, list):        # [{"type":"text","text":...}]
+            content = "".join(c.get("text", "") for c in content
+                              if isinstance(c, dict))
+        if isinstance(content, str) and content.strip():
+            texts.append(content)
+    return texts[-1] if texts else ""
+
+
 if __name__ == "__main__":
     import sys as _sys
     _sys.stdout.reconfigure(encoding="utf-8")

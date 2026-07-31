@@ -552,3 +552,186 @@ def test_model_mapping_gates_configuration_not_capability():
     assert all(not (lr.check_assignment(p, "codex")
                     or lr.check_model_mapping(p, "codex"))
                for p in lr.ALL_PHASES)
+
+
+# ---------------------------------------------------------------- slice 5
+def test_openhands_is_completion_class_not_agentic(monkeypatch):
+    """2.4 correction: a delegated conversation runs the agent in ITS OWN
+    sandbox, so files it writes never reach workspace/tests where the gate
+    looks. Letting it serve `generate` would mean either losing the work or
+    having the agent push its own branch — which the constitution forbids."""
+    import work_queue
+    r = subprocess.run([work_queue.bash_exe(),
+                        str(ROOT / "adapters/llm/openhands.sh"), "capabilities"],
+                       cwd=ROOT, capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL)
+    assert r.stdout.strip() == "completion"
+    assert "openhands" not in lr.AGENTIC_PROVIDERS
+    monkeypatch.setenv("AIQE_OPENHANDS_PROVIDER", "1")
+    err = lr.check_assignment("generate", "openhands")
+    assert err and "own sandbox" in err, \
+        "the refusal must say WHY, not just that it is refused"
+
+
+def test_openhands_provider_is_opt_in(monkeypatch):
+    """Delegation is experimental: a phase becomes a conversation and the
+    spend lands on an account we cannot meter. Nobody gets that by picking an
+    option in a dropdown."""
+    monkeypatch.delenv("AIQE_OPENHANDS_PROVIDER", raising=False)
+    for phase in ("triage", "analyze", "critic"):
+        err = lr.check_assignment(phase, "openhands")
+        assert err and "EXPERIMENTAL" in err
+        assert "AIQE_OPENHANDS_PROVIDER=1" in err, "name the opt-in"
+    monkeypatch.setenv("AIQE_OPENHANDS_PROVIDER", "1")
+    assert lr.check_assignment("triage", "openhands") is None
+    # ...and the capability answer still outranks the opt-in one.
+    assert "cannot run agentic phase" in lr.check_assignment("generate", "openhands")
+
+
+def test_openhands_adapter_refuses_without_the_flag(tmp_path):
+    import work_queue
+    out = tmp_path / "o.json"
+    env = {k: v for k, v in os.environ.items() if k != "AIQE_OPENHANDS_PROVIDER"}
+    r = subprocess.run([work_queue.bash_exe(),
+                        str(ROOT / "adapters/llm/openhands.sh"), "run_phase",
+                        "m", "5", "Read", str(out)],
+                       input="p", capture_output=True, text=True, env=env,
+                       cwd=ROOT)
+    assert r.returncode == 1 and "PROVIDER_REFUSED" in r.stderr
+    assert "No silent fallback" in r.stderr
+    assert not out.exists()
+
+
+def test_openhands_model_is_not_ours_to_map(monkeypatch):
+    """The model comes from that deployment's own config — demanding a
+    models_by_provider entry would be a refusal with no fix."""
+    monkeypatch.setenv("AIQE_OPENHANDS_PROVIDER", "1")
+    assert lr.check_model_mapping("triage", "openhands") is None
+
+
+def test_delegated_phase_cost_is_unknown_never_zero():
+    """The conversation's spend lands on the OpenHands account and is not
+    reported to us. `unknown` is the truth; a 0 would understate a real bill."""
+    import budget
+    assert budget.priced("openhands", "whatever", {}) == (None, "unknown")
+    src = (ROOT / "adapters/llm/openhands.sh").read_text(encoding="utf-8")
+    assert "total_cost_usd" not in src.split("out = {")[1].split("}")[0]
+
+
+def test_openhands_adapter_records_its_launch():
+    """A conversation the user is paying for must be reachable from the UI
+    even if we die mid-poll — the webhook only arrives if OpenHands can reach
+    a receiver we own."""
+    src = (ROOT / "adapters/llm/openhands.sh").read_text(encoding="utf-8")
+    assert "record_launch" in src
+    assert src.index("record_launch") < src.index("while time.time() < deadline"), \
+        "record the launch BEFORE waiting on it"
+    assert "conversation_url" in src
+
+
+def test_engine_still_does_not_import_the_openhands_client():
+    """Constitution C7 survives this slice: the ADAPTER may import the client
+    (that is what the port boundary is for); engine/ may not."""
+    offenders = [f.relative_to(ROOT).as_posix()
+                 for f in (ROOT / "engine").rglob("*.py")
+                 if f.name not in ("openhands_client.py", "openhands_events.py",
+                                   "integration_check.py")
+                 and "openhands_client" in f.read_text(encoding="utf-8",
+                                                       errors="replace")]
+    assert not offenders, offenders
+    assert "openhands_client" in (
+        ROOT / "adapters/llm/openhands.sh").read_text(encoding="utf-8")
+
+
+FAKE_OH = '''
+import json, sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+S = {"polls": 0}
+class H(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def _s(self, o):
+        b = json.dumps(o).encode()
+        self.send_response(200); self.send_header("Content-Type","application/json")
+        self.send_header("Content-Length", str(len(b))); self.end_headers()
+        self.wfile.write(b)
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        self._s({"conversation_id":"c1","status":"running",
+                 "url":"http://fake/conversations/c1"})
+    def do_GET(self):
+        if self.path.startswith("/api/conversations/c1/events"):
+            self._s({"events":[
+                {"source":"user","message":"the prompt"},
+                {"source":"agent","message":"thinking out loud"},
+                {"source":"agent","kind":"message",
+                 "content":[{"type":"text","text":"FINAL-ANSWER"}]}]})
+        elif self.path.startswith("/api/conversations/c1"):
+            S["polls"] += 1
+            self._s({"conversation_id":"c1",
+                     "execution_status":"running" if S["polls"] < 2 else "finished"})
+        else:
+            self._s({"ok":True})
+HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+'''
+
+
+def test_openhands_delegated_round_trip(tmp_path):
+    """Start a conversation, WAIT for it to finish, and harvest the last agent
+    message — not the user's prompt, not an intermediate thought."""
+    import socket, time, work_queue
+    s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
+    srv_py = tmp_path / "fake_oh.py"
+    srv_py.write_text(FAKE_OH, encoding="utf-8")
+    srv = subprocess.Popen([sys.executable, str(srv_py), str(port)],
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+    try:
+        for _ in range(50):                      # wait for the socket to listen
+            try:
+                socket.create_connection(("127.0.0.1", port), 0.2).close()
+                break
+            except OSError:
+                time.sleep(0.1)
+        out = tmp_path / "oh.json"
+        env = dict(os.environ, AIQE_OPENHANDS_PROVIDER="1",
+                   OPENHANDS_URL=f"http://127.0.0.1:{port}",
+                   OPENHANDS_API_KEY="x", OPENHANDS_POLL_SECONDS="2",
+                   AIQE_OPENHANDS_DIR=str(tmp_path / "oh-state"))
+        r = subprocess.run([work_queue.bash_exe(),
+                            str(ROOT / "adapters/llm/openhands.sh"), "run_phase",
+                            "gpt-x", "5", "Read", str(out)],
+                           input="assembled prompt", capture_output=True,
+                           text=True, env=env, cwd=ROOT, timeout=120)
+        assert r.returncode == 0, r.stderr
+        d = json.loads(out.read_text(encoding="utf-8"))
+        assert d["result"] == "FINAL-ANSWER"
+        assert d["provider"] == "openhands"
+        assert d["conversation_id"] == "c1" and d["conversation_url"]
+        assert "usage" not in d and "total_cost_usd" not in d
+    finally:
+        srv.terminate()
+
+
+def test_openhands_off_and_selected_as_provider_is_a_refusal(tmp_path):
+    """AIQE_OPENHANDS=off says never contact it; selecting it as the LLM
+    provider says the opposite. Refuse rather than silently pick a winner.
+
+    (This also pins the Windows trap that hid the check: ROOT must reach the
+    python snippet through the ENVIRONMENT. Interpolated into the source it
+    becomes a backslash path, whose "C:" + backslash + "U..." is a broken
+    unicode escape — and the `|| echo auto` fallback then turned the crash
+    into "mode is auto", silently contacting a server marked off.)"""
+    import work_queue
+    out = tmp_path / "o.json"
+    env = dict(os.environ, AIQE_OPENHANDS_PROVIDER="1", AIQE_OPENHANDS="off")
+    r = subprocess.run([work_queue.bash_exe(),
+                        str(ROOT / "adapters/llm/openhands.sh"), "run_phase",
+                        "m", "5", "Read", str(out)],
+                       input="p", capture_output=True, text=True, env=env,
+                       cwd=ROOT)
+    assert r.returncode == 1
+    assert "AIQE_OPENHANDS=off" in r.stderr and "PROVIDER_REFUSED" in r.stderr
+    assert not out.exists()
+    src = (ROOT / "adapters/llm/openhands.sh").read_text(encoding="utf-8")
+    assert "AIQE_OH_ROOT" in src, "ROOT must travel via the environment"
+    assert "'$ROOT/engine/lib'" not in src

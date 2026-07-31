@@ -37,11 +37,22 @@ Three facts about the current code decide the whole design:
 |---|---|---|---|---|---|---|
 | completion | resolve_llm, triage, analyze, planadversary, critic | one chat completion over pre-injected context | ✅ | ✅ | ✅ | ✅ |
 | completion + derived writes | testplan, planarbiter, testdata | completion + harness materializes files from the contract | ✅ | ✅ | ✅ | ✅ |
-| agentic | generate, validate | tool loop: Read/Write/Edit/Bash in the workspace, bounded turns | ❌ | ✅ | ✅ | ✅ (delegated conversation) |
+| agentic | generate, validate | tool loop: Read/Write/Edit/Bash **in our workspace**, bounded turns | ❌ | ✅ | ✅ | ❌ (see below) |
+
+> **Correction (slice 5).** OpenHands was originally marked ✅ for agentic
+> "(delegated conversation)". It is not. The agent runs in **its own sandbox**,
+> so files it writes never land in `workspace/tests/<repo>` where the gate
+> looks. Closing that gap needs either the agent pushing its own branch —
+> which the constitution forbids, the gate is the only push path — or a
+> fetch-back channel. So OpenHands serves the **completion** class: we harvest
+> its final message as the contract and the harness materializes artifacts,
+> exactly as for a local model. Having OpenHands *author tests* remains fully
+> supported the way it always was — as a **trigger** that runs the pipeline,
+> where the gate still commits.
 
 A **capability check at config time** refuses an impossible assignment
-("ollama cannot run `generate` — agentic phases need claude, codex, or
-openhands") instead of failing mid-run.
+("ollama cannot run `generate` — agentic phases need claude or codex")
+instead of failing mid-run.
 
 **Agentic is not uniform** (slice 4 finding). Codex runs a real tool loop, but
 two guarantees the claude adapter provides do not survive the port, and the
@@ -73,13 +84,15 @@ adapters/llm/ollama.sh     OpenAI-compatible /v1/chat/completions (stdlib HTTP,
                            no SDK — same rule as the Embed adapter); local =
                            no credentials, OLLAMA_URL + per-tier model names
 adapters/llm/codex.sh      `codex exec` headless (agentic, JSON output);
-                           CODEX_API_KEY; usage harvested from its result
-adapters/llm/openhands.sh  delegates the phase as a conversation message via
-                           the existing openhands_client rails (launch record,
-                           request tracing, payload metering ALL reused);
-                           polls for the contract in the conversation output.
-                           Marked experimental: highest latency, weakest
-                           output-contract guarantees
+                           CODEX_BIN (auth is the CLI's own, as with claude);
+                           tokens harvested from its JSONL event stream
+adapters/llm/openhands.sh  delegates the phase as a conversation via the
+                           existing openhands_client rails (launch record
+                           reused; `events`/`final_message` added as the PULL
+                           path); polls to a timeout, harvests the final agent
+                           message. COMPLETION class (its sandbox is not our
+                           workspace) and opt-in via AIQE_OPENHANDS_PROVIDER=1:
+                           highest latency, unmeterable spend
 adapters/mock/llm.sh       thin shim over mock_phase.sh (existing behavior)
 ```
 
@@ -201,6 +214,22 @@ model/tokens/turns/cost and renders the Cost view. Provider support adds:
   conversation via the existing client (launch/request/payload records
   reused); poll-with-timeout for the contract; failure = the phase fails
   actionably. Flagged experimental in Settings.
+  *As built:* **completion class only** (see the correction above), opt-in via
+  `AIQE_OPENHANDS_PROVIDER=1` rather than a dropdown — a phase becomes a
+  conversation (minutes, not seconds) and its spend lands on an account this
+  platform cannot meter. The client gained a PULL path (`events`,
+  `final_message`) because the webhook only arrives if OpenHands can reach a
+  receiver we own, and a phase cannot wait on a callback that may never come.
+  The launch is recorded **before** the poll loop, so a conversation the user
+  is paying for stays reachable even if we die waiting. Cost basis is
+  `unknown` — not 0.
+  **Optionality:** `AIQE_OPENHANDS=off|auto|required` governs the optional
+  *trigger* path, where an outage is `degraded`. Selecting OpenHands as the
+  LLM provider makes it load-bearing for that run **by construction**, so
+  there an outage is a failed phase. That does not weaken the standalone
+  guarantee: no trigger path depends on it, and `engine/` still never imports
+  the client — the adapter does, which is exactly what the port boundary is
+  for.
 - **2.5 (S)** Per-provider parity harness: `make parity-pr
   LLM_PROVIDER=ollama` etc. — the same three quality claims measured per
   provider before anyone trusts a cheap model with judgement phases.
@@ -245,8 +274,8 @@ model/tokens/turns/cost and renders the Cost view. Provider support adds:
 | 2 | 2.1, 2.2, 3.2 | completion phases green on a local Ollama | shipped |
 | 3 | 3.1, 4.1, 4.2 | UI switch + provider-labelled Cost view | shipped |
 | 4 | 2.3 | codex parity on the demo estate | shipped |
-| 5 | 2.4 | openhands-delegated phase, experimental flag |
-| 6 | 2.5, 5.1–5.3 | per-provider parity + UAT before any default change |
+| 5 | 2.4 | openhands-delegated phase, experimental flag | shipped |
+| 6 | 2.5, 5.1–5.3 | per-provider parity + UAT before any default change | |
 
 Default provider stays **claude** throughout; judgement phases
 (testplan/adversary/generate) stay on an agentic, proven provider until 2.5's

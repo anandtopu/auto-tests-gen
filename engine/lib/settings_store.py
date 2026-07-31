@@ -88,9 +88,10 @@ SPEC = [
      ]},
     {"section": "LLM provider",
      "hint": "Which model runs the pipeline's phases. Agentic phases "
-             "(generate, validate) need claude/codex/openhands; completion "
-             "providers like Ollama serve every other phase. Per-phase "
-             "routing lives in org-config llm.phase_providers.",
+             "(generate, validate) need claude or codex — they edit files in "
+             "our workspace; completion providers (Ollama, delegated "
+             "OpenHands) serve every other phase. Per-phase routing lives in "
+             "org-config llm.phase_providers.",
      "fields": [
         {"env": "AIQE_LLM_PROVIDER", "label": "Provider",
          "options": [["", "org-config default (claude)"],
@@ -107,6 +108,16 @@ SPEC = [
         {"env": "CODEX_BIN", "label": "Codex CLI binary",
          "help": "default `codex` on PATH; set an absolute path if it is "
                  "installed elsewhere"},
+        {"env": "AIQE_OPENHANDS_PROVIDER",
+         "label": "OpenHands as an LLM provider (experimental)",
+         "options": [["", "off (default)"], ["1", "on — delegate phases"]],
+         "help": "a phase becomes a conversation (minutes, not seconds) and "
+                 "its spend lands on the OpenHands account, so it is tracked "
+                 "as `unknown` cost. Completion phases only"},
+        {"env": "OPENHANDS_PHASE_TIMEOUT",
+         "label": "OpenHands phase timeout (seconds)",
+         "help": "default 900; on timeout the phase fails and names the "
+                 "conversation URL — nothing is written"},
      ]},
     {"section": "Cost levers",
      "hint": "Each cost-reduction mechanism has its own kill switch — any "

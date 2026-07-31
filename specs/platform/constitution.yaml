@@ -55,15 +55,22 @@ clauses:
         test: test_generated_never_outranks_a_real_repo_owned_file
   - id: C7
     statement: >-
-      OpenHands is optional - the engine never imports the client, no trigger
-      path depends on it, and an outage is degraded, never fatal (unless
-      AIQE_OPENHANDS=required).
+      OpenHands is optional - the engine never imports the client (only
+      adapters may), no trigger path depends on it, and an outage is degraded,
+      never fatal. Two opt-ins deliberately make it load-bearing for a given
+      run: AIQE_OPENHANDS=required, and selecting openhands as the LLM provider
+      (AIQE_OPENHANDS_PROVIDER=1) - which is load-bearing by construction,
+      since there is no silent fallback to another provider.
     category: resilience
     pins:
       - file: registry/tests/test_standalone.py
         test: test_no_engine_module_imports_the_openhands_client_at_run_time
       - file: registry/tests/test_standalone.py
         test: test_unreachable_openhands_is_degraded_and_not_fatal
+      - file: registry/tests/test_llm_runner.py
+        test: test_engine_still_does_not_import_the_openhands_client
+      - file: registry/tests/test_llm_runner.py
+        test: test_openhands_provider_is_opt_in
   - id: C8
     statement: >-
       The plan adversary is read-only (an opponent with write tools is just a

@@ -28,11 +28,27 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 PROVIDERS = ("claude", "ollama", "codex", "openhands", "mock")
-# Providers that can run an agentic tool loop. Completion-only providers may
-# serve every other phase (context is pre-injected; SDD artifacts derive from
-# contracts — see docs/multi-llm-providers.md capability matrix).
-AGENTIC_PROVIDERS = ("claude", "codex", "openhands", "mock")
+# Providers that can run an agentic tool loop IN OUR WORKSPACE. Completion-only
+# providers may serve every other phase (context is pre-injected; SDD artifacts
+# derive from contracts — see docs/multi-llm-providers.md capability matrix).
+#
+# openhands is NOT here, and that is a correction to the original design (2.4):
+# a delegated conversation runs the agent in ITS OWN sandbox, so files it
+# writes never reach workspace/tests/<repo> where the gate looks. The only ways
+# to close that gap are for the agent to push its own branch — which the
+# constitution forbids, the gate is the sole push path — or to invent a
+# fetch-back channel. So openhands serves the COMPLETION class: we harvest its
+# final message as the contract and the harness materializes artifacts, exactly
+# as for a local model. (OpenHands running the pipeline as a TRIGGER is
+# unaffected and still the supported way to have it author tests: there the
+# gate still commits.)
+AGENTIC_PROVIDERS = ("claude", "codex", "mock")
 AGENTIC_PHASES = ("generate", "validate")
+
+# Delegating a phase to another agent platform is experimental: latency is a
+# conversation, not a call, and the spend lands on an account we cannot meter.
+# Opt in per run/deployment rather than by picking it in a dropdown.
+EXPERIMENTAL_PROVIDERS = ("openhands",)
 
 ALL_PHASES = ("resolve_llm", "triage", "analyze", "testplan", "planadversary",
               "planarbiter", "testdata", "generate", "validate", "critic")
@@ -84,9 +100,19 @@ def check_assignment(phase, provider):
     # Reporting "not built yet" first would send an operator to build an
     # adapter that still could not serve the phase.
     if base in AGENTIC_PHASES and provider not in AGENTIC_PROVIDERS:
+        extra = ""
+        if provider == "openhands":
+            extra = (" (a delegated conversation writes in its own sandbox, "
+                     "not in workspace/tests where the gate looks)")
         return (f"'{provider}' cannot run agentic phase '{base}' (multi-file "
-                f"edits + test execution) — assign claude, codex or openhands "
+                f"edits + test execution){extra} — assign claude or codex "
                 f"for it in llm.phase_providers")
+    if provider in EXPERIMENTAL_PROVIDERS and \
+            os.environ.get("AIQE_OPENHANDS_PROVIDER", "").strip() != "1":
+        return (f"'{provider}' as an LLM provider is EXPERIMENTAL: a phase "
+                f"becomes a conversation (minutes, not seconds) and its spend "
+                f"lands on an account this platform cannot meter — set "
+                f"AIQE_OPENHANDS_PROVIDER=1 to opt in")
     if not adapter_path(provider).exists():
         return (f"provider '{provider}' has no adapter at "
                 f"{adapter_path(provider).relative_to(ROOT).as_posix()} — "
@@ -112,7 +138,10 @@ def check_model_mapping(phase, provider, cfg=None):
     `claude-sonnet-4-6` to codex or a local daemon fails deep inside the CLI
     with a message about an unknown model, long after the operator could
     connect it to a provider switch. Caught here, at config time, instead."""
-    if provider in ("claude", "mock"):
+    # claude/mock: the tier ids ARE claude ids, so this is the identity case.
+    # openhands: the model is chosen by that deployment, not by us — demanding
+    # a mapping for an id we never send would be a refusal with no fix.
+    if provider in ("claude", "mock", "openhands"):
         return None
     tier = _phase_model(phase)
     if not tier:
