@@ -17,5 +17,13 @@ resolution contract; scenario IDs are {{KEY}}-S1..Sn; behaviors already covered 
 existing tests get "extend <test_id>" not a new scenario.
 
 Finally print exactly one JSON object:
-{"scenarios":[{"id","title","layer","target_repo","behavior_ref","data_needs"}],
+{"scenarios":[{"id","title","layer","target_repo","behavior_ref","data_needs",
+               "requirement_refs":["R1"],
+               "steps":{"given":"...","when":"...","then":"..."},
+               "verification":["what a satisfying test MUST assert", "..."]}],
  "open_questions":["..."]}
+The steps and verification fields make the plan a SPEC (spec-driven
+development): steps are one concrete Given/When/Then per scenario;
+verification lists the assertions a test must make to count as covering the
+scenario — be specific (status codes, state that must not change, exact
+boundaries), because a machine will check generated tests against them.

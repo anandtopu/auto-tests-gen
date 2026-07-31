@@ -76,7 +76,9 @@ EOF
 ## Open Questions
 - AC-3 stacking behavior undefined.
 EOF
-    echo '{"scenarios":[{"id":"'"${KEY}"'-S1","title":"boundary rejection","layer":"api","target_repo":"e2e-api-tests-1","behavior_ref":"B2","data_needs":"d1"}],"open_questions":["stacking undefined"]}' > out/testplan.contract.json
+    # Structured per SDD story 1.1: steps + verification make this a SPEC the
+    # human signs and the gate can one day verify satisfaction against.
+    echo '{"scenarios":[{"id":"'"${KEY}"'-S1","title":"boundary rejection >90%","layer":"api","target_repo":"e2e-api-tests-1","behavior_ref":"B2","requirement_refs":["R1"],"steps":{"given":"an order of $100 exists","when":"a 91% discount is POSTed","then":"the API responds 422 and the order total is unchanged"},"verification":["response status is 422","order total unchanged after rejection"],"data_needs":"d1"}],"open_questions":["stacking undefined"]}' > out/testplan.contract.json
     ;;
   planadversary)
     # The opponent: finds what the author MISSED. It never edits the plan.

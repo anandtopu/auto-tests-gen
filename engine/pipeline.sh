@@ -396,7 +396,11 @@ else
       # The arbiter's contract REPLACES the plan contract only on success — a failed
       # arbitration must not hand testdata/generate a half-written scenario set.
       if [ "$ARB_RC" -eq 0 ] && [ -s out/planarbiter.contract.json ]; then
-        cp out/planarbiter.contract.json out/testplan.contract.json
+        # SDD (story 1.1): merge, don't copy — a re-emitting arbiter must not
+        # silently strip the author's steps/verification from matching
+        # scenarios. Fallback to the plain copy on any merge failure.
+        python3 engine/lib/spec_store.py merge-fold out/testplan.contract.json out/planarbiter.contract.json 2>/dev/null \
+          || cp out/planarbiter.contract.json out/testplan.contract.json
       else
         echo "[plan-adversary] arbitration failed — the authored plan stands"
         rm -f out/planarbiter.contract.json

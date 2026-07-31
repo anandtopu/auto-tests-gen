@@ -1,0 +1,35 @@
+{
+  "description": "Structured test-plan specification (SDD story 1.1). Unlike the required-only phase contracts, this schema declares full properties: the spec is the artifact a human SIGNS and a machine verifies satisfaction against, so its shape is the contract. `steps`/`verification`/`requirement_refs` are optional per scenario (an arbiter-added scenario may lack them); their presence anywhere is what makes a plan 'structured'.",
+  "type": "object",
+  "required": ["key", "scenarios"],
+  "properties": {
+    "key": {"type": "string"},
+    "scenarios": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "layer", "target_repo"],
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "layer": {"type": "string"},
+          "target_repo": {"type": "string"},
+          "requirement_refs": {"type": "array", "items": {"type": "string"}},
+          "steps": {
+            "type": "object",
+            "properties": {
+              "given": {"type": "string"},
+              "when": {"type": "string"},
+              "then": {"type": "string"}
+            }
+          },
+          "verification": {"type": "array", "items": {"type": "string"}},
+          "data": {"type": "object"},
+          "behavior_ref": {"type": "string"},
+          "data_needs": {"type": "string"}
+        }
+      }
+    },
+    "open_questions": {"type": "array", "items": {"type": "string"}}
+  }
+}

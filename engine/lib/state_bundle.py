@@ -73,7 +73,7 @@ SCHEMA = 1
 INCLUDE_DIRS = [
     "knowledge/repos", "knowledge/curated", "knowledge/synced",
     "catalog", "reports/runs", "reports/plans", "reports/openhands",
-    "testplans", "testdata",
+    "testplans", "testdata", "specs",
 ]
 INCLUDE_FILES = [
     "registry/repo-registry.yaml", "registry/org-config.yaml", "AGENTS.md",
@@ -84,7 +84,7 @@ INCLUDE_FILES = [
 # WITHOUT inheriting the donor's run history, review decisions or plan lifecycle,
 # which are that team's records, not transferable wisdom.
 KNOWLEDGE_DIRS = ["knowledge/repos", "knowledge/curated", "knowledge/synced",
-                  "catalog", "testplans"]
+                  "catalog", "testplans", "specs"]
 KNOWLEDGE_FILES = ["registry/org-config.yaml", "AGENTS.md"]
 
 # Never bundled. Scratch is regenerable; the last two are CREDENTIALS and a bundle is
@@ -110,7 +110,7 @@ EXCLUDE_SUFFIX = (".log", ".py", ".pyc", ".lock", ".sh")
 # Quarantined state files (fs_lock renames a corrupt store to <name>.corrupt-<ts>)
 # are local forensic artifacts — carrying them would plant one deployment's damage
 # in another.
-EXCLUDE_PARTS = EXCLUDE_PARTS + (".corrupt-",)
+EXCLUDE_PARTS = EXCLUDE_PARTS + (".corrupt-", ".superseded-")
 
 
 def _excluded(rel):

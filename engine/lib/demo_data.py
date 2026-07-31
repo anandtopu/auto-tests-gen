@@ -53,7 +53,12 @@ CLEAR_DIRS = ["reports/runs", "reports/exports", "reports/inline",
               "knowledge/generated",      # generated per-repo AGENTS.md
               "knowledge/synced",         # SCM guidance cache (re-pull: make sync-guidance)
               "reports/knowledge-index",  # retrieval chunks (derived; make agents rebuilds)
-              "out", "workspace", "testplans", "testdata"]
+              "out", "workspace", "testplans", "testdata",
+              "specs"]                  # SDD spec store (specs/platform/ is
+                                        # future constitution space — recreated
+                                        # from git, so wholesale clear is safe:
+                                        # only generated per-key specs are
+                                        # untracked-at-clear time in demos)
 CLEAR_FILES = ["reports/dashboard.html", "reports/catalog.db", "catalog/health.json"]
 
 # Generated files that live BESIDE committed code/fixtures, so we clear by glob and

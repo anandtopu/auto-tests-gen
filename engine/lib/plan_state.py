@@ -68,8 +68,20 @@ def set_status(key, status, by="", note=""):
         e = state.get(key, {"history": []})
         e.update({"status": status, "by": by or e.get("by", ""), "note": note,
                   "updated": time.time()})
-        e.setdefault("history", []).append(
-            {"status": status, "by": by, "note": note, "ts": time.time()})
+        entry = {"status": status, "by": by, "note": note, "ts": time.time()}
+        # SDD (story 1.3): an approval SIGNS the structured spec, not just the
+        # rendered prose — the hash on the history entry is the signature a
+        # later audit verifies. Free-form plans record no hash, as before.
+        if status == "approved":
+            try:
+                import spec_store
+                h = spec_store.sha(key)
+                if h:
+                    e["spec_sha"] = h
+                    entry["spec_sha"] = h
+            except Exception:
+                pass
+        e.setdefault("history", []).append(entry)
         state[key] = e
         _save(state)
     # An approval freezes the text the approver signed: this snapshot is the
@@ -144,6 +156,16 @@ def record_plan(key, contract=None, by="pipeline", adversary=""):
         DIR.mkdir(parents=True, exist_ok=True)
         contract_path(key).write_text(
             json.dumps(contract, indent=2), encoding="utf-8", newline="\n")
+        # SDD (story 1.1/1.2): a STRUCTURED contract (scenarios carrying
+        # steps/verification) becomes the spec of record, and the reviewer's
+        # markdown is re-rendered FROM it — one source of truth. Best-effort:
+        # a legacy contract writes no spec and the phase's markdown stands.
+        try:
+            import spec_store
+            if spec_store.write_from_contract(key, contract):
+                spec_store.render_to_plan(key)
+        except Exception:
+            pass
     return state[key]
 
 
@@ -169,8 +191,22 @@ def snapshot_plan(key, label):
     dest = d / f"v{n:03d}-{safe}.md"
     dest.write_text(src.read_text(encoding="utf-8", errors="replace"),
                     encoding="utf-8", newline="\n")
+    # SDD (story 1.3): the structured spec snapshots BESIDE the markdown under
+    # the same version stem — the yaml is what the signature covers, and the
+    # scenario-level re-approval diff needs the signed structure, not prose.
+    try:
+        import spec_store
+        sp = spec_store.spec_path(key)
+        if sp.exists():
+            (d / f"v{n:03d}-{safe}.yaml").write_text(
+                sp.read_text(encoding="utf-8", errors="replace"),
+                encoding="utf-8", newline="\n")
+    except Exception:
+        pass
     for old in sorted(d.glob("v*.md"))[:-20]:
         old.unlink(missing_ok=True)
+        base = old.with_suffix(".yaml")
+        base.unlink(missing_ok=True)
     return dest
 
 
@@ -197,8 +233,26 @@ def diff_since_approval(key):
     b = cur.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
     if a == b:
         return ""
-    return "".join(difflib.unified_diff(a, b, fromfile=f"{key} (as approved)",
-                                        tofile=f"{key} (current)"))
+    # SDD (story 1.3): when the signed baseline has a structured spec beside
+    # it, lead with the SCENARIO-LEVEL delta — the semantic change a
+    # re-approver reviews — and keep the line diff below as the detail.
+    header = ""
+    try:
+        import spec_store
+        import yaml
+        base_yaml = base.with_suffix(".yaml")
+        cur_spec = spec_store.load(key)
+        if base_yaml.exists() and cur_spec:
+            old_spec = yaml.safe_load(base_yaml.read_text(encoding="utf-8"))
+            lines = spec_store.diff_scenarios(old_spec, cur_spec)
+            if lines:
+                header = ("## Scenario-level changes (as approved -> current)\n"
+                          + "\n".join(lines) + "\n\n")
+    except Exception:
+        header = ""
+    return header + "".join(
+        difflib.unified_diff(a, b, fromfile=f"{key} (as approved)",
+                             tofile=f"{key} (current)"))
 
 
 def save_plan(key, text, by=""):
@@ -212,6 +266,22 @@ def save_plan(key, text, by=""):
     if plan_path(key).exists():
         snapshot_plan(key, f"pre-edit-{cur or 'new'}")
     plan_path(key).write_text(text.rstrip() + "\n", encoding="utf-8", newline="\n")
+    # SDD (story 1.2): one source of truth, enforced. A FREE-FORM edit that
+    # diverges from the spec's rendering SUPERSEDES the structured spec — the
+    # yaml is set aside (kept for forensics, timestamped) and the plan reverts
+    # to free-form, visibly, rather than letting two files silently disagree
+    # about what the human signed. Structured editing arrives with the spec
+    # editor (SDD 6.1); until then prose wins because a human wrote it.
+    try:
+        import spec_store
+        sp = spec_store.spec_path(key)
+        if sp.exists():
+            rendered = spec_store.render(key)
+            if rendered is not None and text.rstrip() != rendered.rstrip():
+                sp.rename(sp.with_name(
+                    f"testplan.yaml.superseded-{int(time.time())}"))
+    except Exception:
+        pass
     if cur == "approved":
         return set_status(key, "draft", by, "edited after approval — re-approval required")
     if cur is None:

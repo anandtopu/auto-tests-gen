@@ -1,0 +1,31 @@
+key: PROJ-301
+open_questions:
+- stacking undefined
+scenarios:
+- behavior_ref: B2
+  data_needs: d1
+  id: PROJ-301-S1
+  layer: api
+  requirement_refs:
+  - R1
+  steps:
+    given: an order of $100 exists
+    then: the API responds 422 and the order total is unchanged
+    when: a 91% discount is POSTed
+  target_repo: e2e-api-tests-1
+  title: boundary rejection
+  verification:
+  - response status is 422
+  - order total unchanged after rejection
+- behavior_ref: B1
+  data_needs: d2
+  id: PROJ-301-S2
+  layer: api
+  target_repo: e2e-api-tests-1
+  title: stacking on an already-discounted order
+- behavior_ref: B2
+  data_needs: d3
+  id: PROJ-301-S3
+  layer: api
+  target_repo: e2e-api-tests-1
+  title: discount POST without orders:write scope

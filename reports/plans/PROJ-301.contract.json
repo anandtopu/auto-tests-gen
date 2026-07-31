@@ -6,7 +6,19 @@
       "layer": "api",
       "target_repo": "e2e-api-tests-1",
       "behavior_ref": "B2",
-      "data_needs": "d1"
+      "data_needs": "d1",
+      "steps": {
+        "given": "an order of $100 exists",
+        "when": "a 91% discount is POSTed",
+        "then": "the API responds 422 and the order total is unchanged"
+      },
+      "verification": [
+        "response status is 422",
+        "order total unchanged after rejection"
+      ],
+      "requirement_refs": [
+        "R1"
+      ]
     },
     {
       "id": "PROJ-301-S2",
