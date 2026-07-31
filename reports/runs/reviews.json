@@ -13,7 +13,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785479435.2796137,
+      "ts": 1785479528.9895408,
       "verdict": "accept"
     },
     "history": [
@@ -21,221 +21,23 @@
         "note": "new AI-generated artifacts committed",
         "reviewer": "pipeline",
         "status": "pending_review",
-        "ts": 1785478559.30742
-      },
-      {
-        "release": "2026.08",
-        "source": "manual",
-        "ts": 1785478951.976694
-      },
-      {
-        "release": "",
-        "source": "manual",
-        "ts": 1785478951.994624
-      },
-      {
-        "release": "2026.08",
-        "source": "manual",
-        "ts": 1785478952.0181634
-      },
-      {
-        "release": "",
-        "source": "manual",
-        "ts": 1785478952.0302436
-      },
-      {
-        "release": "2026.08",
-        "source": "manual",
-        "ts": 1785478952.0515237
-      },
-      {
-        "release": "",
-        "source": "manual",
-        "ts": 1785478952.0710256
-      },
-      {
-        "release": "2026.08",
-        "source": "manual",
-        "ts": 1785478952.0935924
-      },
-      {
-        "release": "",
-        "source": "manual",
-        "ts": 1785478952.1128094
-      },
-      {
-        "release": "2026.08",
-        "source": "manual",
-        "ts": 1785478952.135062
-      },
-      {
-        "release": "",
-        "source": "manual",
-        "ts": 1785478953.4060173
-      },
-      {
-        "release": "2026.08",
-        "source": "manual",
-        "ts": 1785478953.435224
-      },
-      {
-        "release": "",
-        "source": "manual",
-        "ts": 1785478954.8839302
-      },
-      {
-        "release": "2026.08",
-        "source": "manual",
-        "ts": 1785478954.9239926
-      },
-      {
-        "release": "",
-        "source": "manual",
-        "ts": 1785478955.3051462
+        "ts": 1785479530.9581602
       }
     ],
     "note": "new AI-generated artifacts committed",
-    "release": "",
     "reviewer": "pipeline",
     "status": "pending_review",
-    "updated": 1785478559.30742
+    "updated": 1785479530.9581602
   },
   "PROJ-301": {
-    "critic": {
-      "findings": [
-        {
-          "file": "suites/orders/PROJ-301-discount-boundary.spec.js",
-          "kind": "missing",
-          "note": "no case for a discount above the cap",
-          "severity": "low"
-        }
-      ],
-      "noise_count": 0,
-      "rationale": "assertions check the discounted total, not just the status code",
-      "score": 0.86,
-      "specs_reviewed": 2,
-      "ts": 1785479139.156059,
-      "verdict": "accept"
-    },
     "history": [
       {
         "release": "2026.08",
         "source": "jira",
-        "ts": 1785478496.8909523
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478666.7302458
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478666.7786353
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478666.8240533
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478666.8602383
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478666.9170566
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478666.956815
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478667.0172374
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478667.0598018
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478668.9133563
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478670.1612678
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478951.966548
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478952.0097437
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478952.0433679
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478952.0858035
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478952.126611
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478953.426977
-      },
-      {
-        "note": "",
-        "reviewer": "test-seed",
-        "status": "pending_review",
-        "ts": 1785478954.9083467
-      },
-      {
-        "note": "new AI-generated artifacts committed",
-        "reviewer": "pipeline",
-        "status": "pending_review",
-        "ts": 1785479140.2699218
+        "ts": 1785479534.5895631
       }
     ],
-    "note": "new AI-generated artifacts committed",
     "release": "2026.08",
-    "reviewer": "pipeline",
-    "status": "pending_review",
-    "updated": 1785479140.2699218
+    "status": ""
   }
 }
