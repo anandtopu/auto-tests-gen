@@ -991,6 +991,24 @@ transferable wisdom — guidance, catalog, conventions, the plan corpus (which s
 similar-plan retrieval for the receiving team) — and refuses run history, review
 decisions and your registry topology. See [data-portability.md](data-portability.md).
 
+### 5b. LLM cost: the Cost view and the cost levers
+
+The **Cost** view shows spend by workflow, key, phase and model tier, per-phase
+turn calibration (observed p50/p95 vs the configured ceiling) and prompt-cache
+hit rates — every number badged **measured** or **simulated** (`~`), and savings
+print `n/a` until at least one measured run exists. The same data serves
+`make cost-report [DAYS=N]`, `qa.py status --cost` and `artifacts <KEY>`.
+
+Settings → **Cost levers** holds one kill switch per mechanism: the phase cache
+(`AIQE_PHASE_CACHE`), retrieval-scoped context (`AIQE_CONTEXT_SCOPE`; per-phase
+policy in org-config `context_scope:`), the missing-context retry
+(`AIQE_CONTEXT_RETRY`), and semantic plan reuse (`AIQE_PLAN_REUSE`, default off
+— a reused draft always lands for human review with a "Reused from" banner and
+a VERIFY checklist). Budget envelopes per workflow and the degradation ladder
+live in org-config `budgets:`; a run that degraded says so on the wizard's
+generate step. After real runs exist, `make cost-baseline` freezes per-phase
+medians and `make maintain` alarms on >25% regressions.
+
 ## 6. Integration guide
 
 Tool-specific step-by-step guides live in [integrations/](integrations/README.md):

@@ -128,15 +128,61 @@ attributable per launch.
 
 ## 3. Still on the table
 
-Ranked by expected saving ÷ effort. None are implemented; each is a real option.
+Ranked by expected saving ÷ effort. Items 1, 3 and 5 SHIPPED with the
+cost-reduction backlog (see §5); what remains:
 
 | # | Idea | Expected saving | Cost / risk |
 |---|---|---|---|
-| 1 | **Scope `AGENTS.md` per run.** Phases receive the whole estate (15 KB) when they need the resolved repos' slice. A generated per-run digest would cut the dominant static payload by ~70% | Large — it is the biggest single input | Medium. Must not hide surface a phase legitimately needs; pin with a test that the resolved repos always survive the trim |
-| 2 | **Cap `max_turns` by observed usage.** `generate` allows 25 turns; if real runs finish in 6, the ceiling is buying nothing but risk | Medium | Low, but needs real-run telemetry first — see §4 |
-| 3 | **Skip phases that cannot change anything.** `critic` on a run with zero generated tests; `planadversary` on a plan with zero scenarios | Small but free | Low |
+| 1 | ~~Scope `AGENTS.md` per run~~ — **shipped** (§5, retrieval-scoped context; measured 58% avg size reduction on the benchmark) | — | resolved-repo survival pinned |
+| 2 | **Cap `max_turns` by observed usage.** The telemetry now exists (`cost-report` prints p50/p95 + a suggested ceiling); applying it to org-config stays a human act | Medium | Low — needs measured runs first (§4) |
+| 3 | ~~Skip phases that cannot change anything~~ — **shipped** (§5, no-op skips) | — | — |
 | 4 | **Batch the fan-out for small diffs.** Below a diff-size threshold, one call for N repos may beat N calls | Situational | Medium — reintroduces the cross-wiring risk the fan-out removed. Needs a guard |
-| 5 | **Semantic plan reuse.** Reuse a plan from a *similar* ticket, not just an identical one | Potentially large | High. Similarity is a judgement call; a wrong reuse produces a confidently incorrect plan. Only worth it with a human diff step |
+| 5 | ~~Semantic plan reuse~~ — **shipped** (§5, behind `AIQE_PLAN_REUSE`, default off until the quality eval) | — | human diff step built in |
+
+## 5. The retrieval/reuse stack (cost-reduction backlog, shipped)
+
+Built as 8 slices against `docs/cost-reduction-stories.md` (designs in
+`docs/cost-reduction-architecture.md`). One paragraph per layer; every
+mechanism has a kill switch (Settings → "Cost levers") and its pins.
+
+- **Telemetry** (`cost_report.py`): per-phase spend blocks in every run record,
+  harvested from the CLI's own usage JSON. `make cost-report`, a dashboard
+  Cost view, an Overview tile, team-report line. Simulated figures always
+  labelled; savings print `n/a` until a measured run exists.
+- **Knowledge chunks** (`knowledge_chunks.py`): the estate chunked into
+  addressed units (repo-surface / guidance / exemplar / spec / catalog /
+  scenario / testdata) — derived data, byte-deterministic, rebuilt with
+  AGENTS.md.
+- **Vector index** (`vector_index.py` + the Embed port, `docs/adr/embeddings.md`):
+  SQLite + pure-python cosine; sha-skip refresh (unchanged corpus = zero
+  embedding calls); daily spend cap; corruption → quarantine + rebuild.
+  Unconfigured → TF-IDF everywhere, silently.
+- **Retrieval-scoped context** (`context_scope.py`): three-tier per-run
+  assembly (must-keep → deterministic overlap → semantic fill) with an audit
+  manifest of kept AND dropped chunks. Judgement phases stay on the full
+  estate until the quality eval clears them. `missing_context` in a contract
+  buys one full-estate retry. **Measured: 58% avg context-size reduction on
+  the benchmark, retention-checked every `make eval`.**
+- **Semantic reuse** (`plan_reuse.py`): a duplicate-shaped ticket adapts a
+  prior HUMAN-APPROVED plan by deterministic text surgery instead of an LLM
+  call; adversary still runs; lands as draft with visible provenance
+  everywhere. Exemplars rank semantically (legacy penalty first); testdata/
+  testplan contexts pull PRIOR ART under an explicit data-framing heading.
+- **Spend controls**: no-op phase skips; per-workflow budget envelopes with a
+  queue-intake warning; a degradation ladder (60% → cheap tier for
+  non-judgement phases, 80% → halved context budgets, 100% → the existing
+  exit-77 abort). Judgement phases never downgrade.
+- **Prompt caching**: `make cache-probe` measures whether provider caching
+  engages on our prefix shape before anyone builds a fallback; `cost-report`
+  tracks per-phase hit rates against an optional floor.
+- **Ops**: `make cost-baseline` freezes measured medians (refuses simulated);
+  `make maintain` runs the chunk rebuild, index refresh and the cost
+  regression alarm nightly; the vector index is bundle-excluded derived data
+  (`make index-rebuild` restores it after an import).
+
+The measured-vs-simulated rule from §4 governs all of it: the 58% context
+reduction and the sha-skip zero-call refresh are mechanical facts; every
+dollar figure remains `n/a`/`~`-labelled until the parity runs land.
 
 ## 4. The honest caveat
 

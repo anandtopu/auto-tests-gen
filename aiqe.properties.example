@@ -68,6 +68,17 @@ CONFLUENCE_URL=
 # Default space
 CONFLUENCE_SPACE=QA
 
+# --- Cost levers ---
+# Each cost-reduction mechanism has its own kill switch.
+# Content-addressed phase cache  ·  1 = on (default) · 0 = off
+AIQE_PHASE_CACHE=
+# Retrieval-scoped context  ·  1 = on for org-config phases (default) · 0 = full AGENTS.md everywhere
+AIQE_CONTEXT_SCOPE=
+# Missing-context retry  ·  1 = on (default) · 0 = off
+AIQE_CONTEXT_RETRY=
+# Semantic plan reuse  ·  0 = off (default until the quality eval) · 1 = on, plan mode only
+AIQE_PLAN_REUSE=
+
 # --- Embeddings ---
 # Optional semantic index (vector search over plans, specs, estate knowledge).
 # Unset = lexical TF-IDF fallback, silently.

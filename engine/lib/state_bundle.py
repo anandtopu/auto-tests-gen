@@ -92,6 +92,10 @@ KNOWLEDGE_FILES = ["registry/org-config.yaml", "AGENTS.md"]
 EXCLUDE_PARTS = (
     "out/", "workspace/", "reports/phase-cache/", "reports/exports/",
     "knowledge/generated/", "__pycache__/", ".git/",
+    # Retrieval substrate (cost-reduction 8.1): chunks + vectors are DERIVED
+    # data — a bundle carries work, not caches; `make index-rebuild` restores
+    # them on the receiving deployment.
+    "reports/knowledge-index/",
     # Bootstrap is CODE (extract/correlate/index), not state — it ships in the image
     # and the repo. Bundling it moved a copy of the source around for no reason and
     # would let an import overwrite live tooling with an older revision.
@@ -274,7 +278,8 @@ def main(argv):
             print(f"REJECTED {len(r['mismatched'])} file(s) whose checksum did not "
                   f"match the manifest: {', '.join(r['mismatched'][:5])}")
         if not r["dry_run"] and r["written"]:
-            print("Next: make agents && make catalog-db   (regenerate derived data)")
+            print("Next: make agents && make catalog-db && make index-rebuild"
+                  "   (regenerate derived data)")
         return 0
     print(f"unknown command {cmd} (export | inspect | import)", file=sys.stderr)
     return 64

@@ -25,7 +25,7 @@ run-jira:
 	bash engine/pipeline.sh jira $(KEY)
 
 eval:
-	bash eval/replay.sh && python3 eval/scorecard.py
+	bash eval/replay.sh && python3 eval/context_check.py && python3 eval/scorecard.py
 
 conformance:
 	bash adapters/conformance/test_adapters.sh
@@ -50,7 +50,7 @@ parity-jira:
 	AIQE_MOCK=1 AIQE_REAL_LLM=1 bash engine/pipeline.sh jira PROJ-301
 
 review:
-	python3 -m pytest registry/tests -q && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash eval/replay.sh && python3 eval/scorecard.py
+	python3 -m pytest registry/tests -q && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash eval/replay.sh && python3 eval/context_check.py && python3 eval/scorecard.py
 
 # --- QA monitoring & mapping management ---
 status:

@@ -253,3 +253,31 @@ rejection of tampered members, lock refusal, merge-never-destroys), settings
 write-only secrets, approved-plan queue guard + edit-revokes-approval +
 version snapshots + diff-since-approval, queue dedupe and actionable failure
 reasons, and the full UI (zero console/network errors).
+
+## Pass 8 — cost-stack adversarial UAT (2026-07-30, story 7.3)
+
+Probes against the retrieval/reuse/spend stack (cost-reduction slices 1–7).
+**All five held; one became a standing pin** (`test_context_scope.py::
+test_every_assembly_carries_the_data_framing`):
+
+1. **Poisoned chunk** — instruction-shaped text planted in synced guidance
+   rides into the scoped context as expected; the data-framing preamble and
+   the `missing_context` escape hatch are present in every assembly (pinned).
+2. **Vector store corruption** — a garbage `vectors.db` is quarantined
+   (`.corrupt-<ts>`) and rebuilt from chunks; queries fall back. (Pinned since
+   slice 3, including the Windows close-before-rename case.)
+3. **Reuse threshold abuse** — a non-numeric `reuse.plan_threshold` falls back
+   to the conservative 0.80; below-threshold candidates are refused ("no
+   candidate beats a stretched match").
+4. **Envelope bypass via queue force** — `force=true` overrides only the
+   approved-plan guard; the envelope warning still attaches, and the
+   in-pipeline budget guard is untouchable from intake.
+5. **Torn telemetry** — a torn run record is quarantined loudly by fs_lock and
+   skipped by cost-report; a torn baseline silences the regression alarm
+   rather than crashing the nightly.
+
+Remaining honest gaps (all share the parity-auth blocker, REVIEW.md item 5):
+the QUALITY delta for scoped/reused output (`make eval` checks retention +
+token delta — 58% avg reduction — but not generation quality), the cache-probe
+verdict, the measured cost baseline, and every dollar-denominated saving.
+Levers gated on quality stay default-OFF until those runs land.

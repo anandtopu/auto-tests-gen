@@ -14,8 +14,8 @@ JIRA-triggered test authoring (Workflow B) across a multi-repo estate, powered b
 | [docs/diagrams.md](docs/diagrams.md) | Rendered architecture diagrams (Mermaid) |
 | [docs/deployment.md](docs/deployment.md) | Deploying as a service: local Docker Compose + remote OpenShift / Kubernetes |
 | [docs/architecture.md](docs/architecture.md) | Full solution architecture (v2.2) — code comments cite its § numbers |
-| [docs/cost-optimization.md](docs/cost-optimization.md) | LLM cost: measured token profile, per-phase model tiers, content-addressed phase cache, cache-ordered prompts |
-| [docs/cost-reduction-stories.md](docs/cost-reduction-stories.md) · [docs/cost-reduction-architecture.md](docs/cost-reduction-architecture.md) | Next-gen cost backlog (8 epics / 28 stories — telemetry, RAG context scoping, vector-index semantic reuse, prompt caching, spend controls) and the per-story implementation designs |
+| [docs/cost-optimization.md](docs/cost-optimization.md) | LLM cost: token profile, model tiers, phase cache, cache-ordered prompts, and §5 — the shipped retrieval/reuse stack (RAG context scoping, vector index, plan reuse, spend controls) |
+| [docs/cost-reduction-stories.md](docs/cost-reduction-stories.md) · [docs/cost-reduction-architecture.md](docs/cost-reduction-architecture.md) | The cost backlog (8 epics / 28 stories) and per-story designs — **all 8 build slices shipped**; quality-gated levers stay off until the parity eval |
 | [docs/data-portability.md](docs/data-portability.md) | Durability matrix, portable state bundle (export/inspect/import), OpenHands request traceability |
 | [docs/product-roadmap.md](docs/product-roadmap.md) · [docs/roadmap-architecture.md](docs/roadmap-architecture.md) | Feature roadmap by persona/theme and the per-feature designs; 12 of the items are shipped |
 | [docs/onboarding-new-team.md](docs/onboarding-new-team.md) | Adopting the platform for a new estate (≤1 day) |
@@ -62,12 +62,14 @@ make smoke-openhands            # staged live smoke test of the OpenHands integr
 python3 bin/qa.py run-inline "<pasted JIRA text>" --repos orders-api --type Bug
 
 # QA operations (bin/qa.py + services)
-make serve                      # interactive dashboard :4999 — 10 views: Overview,
+make serve                      # interactive dashboard :4999 — 11 views: Overview,
                                 #   Guided run (wizard: paste a PR URL or ticket and
                                 #   follow the ladder), Intake & queue, Test plans
                                 #   (review/approve; adversary verdicts, similar
                                 #   prior plans, changed-since-approval diff),
-                                #   Runs & reviews (batch approve), Trace (timeline +
+                                #   Runs & reviews (batch approve), Cost (LLM spend,
+                                #   turn calibration, cache hit rates, honest savings),
+                                #   Trace (timeline +
                                 #   traceability matrix w/ CSV), Artifacts (code,
                                 #   diff, review in place), Test catalog,
                                 #   Repositories, Settings
@@ -86,6 +88,9 @@ make trace-matrix [KEY=..] [CSV=1]         # ticket→scenario→spec→gate→C
 make maintain                   # nightly upkeep: sync, prunes, drift alarm, snapshot
 make state-export / state-import BUNDLE=.. # portable state bundle across deployments
                                 #   (--knowledge profile: wisdom only, no records)
+make cost-report [DAYS=N]       # spend by workflow/key/phase/model + turn calibration
+make cost-baseline              # freeze measured medians; maintain alarms on regression
+make index-rebuild              # rebuild the semantic vector index (chunks + embeddings)
 make cache-stats                # LLM phase calls avoided by the content-addressed cache
 make clear-demo [DRY=1]         # delete generated demo data (estate kept)
 

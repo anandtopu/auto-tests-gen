@@ -109,3 +109,12 @@ Worth stating honestly: this closes a real context gap, and the scorecard's
 runs, where `mock_phase.sh` hardcodes `"action":"created"`. Whether real generation now
 extends more and duplicates less can only be measured by a real-LLM run
 (REVIEW.md open item 5).
+
+## Retrieval substrate (cost-reduction stack)
+
+`reports/knowledge-index/` (chunks.jsonl + vectors.db + embed-spend.json) is
+DERIVED data: excluded from every bundle profile, removed by clear-demo, and
+rebuilt on the receiving deployment with `make index-rebuild` (the import
+command's "Next:" line says so). `reports/cost-baseline.json` is deliberately
+local too — a baseline describes ONE deployment's measured costs and must be
+re-frozen (`make cost-baseline`) where the runs actually happen.

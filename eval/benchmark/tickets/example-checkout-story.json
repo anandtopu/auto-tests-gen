@@ -1,5 +1,19 @@
 {
-  "mode": "jira", "key": "PROJ-123",
-  "components": ["Checkout"], "labels": [],
-  "expected": { "test_repos": ["e2e-api-tests-1", "e2e-ui-tests-1"] }
+ "mode": "jira",
+ "key": "PROJ-123",
+ "components": [
+  "Checkout"
+ ],
+ "labels": [],
+ "expected": {
+  "test_repos": [
+   "e2e-api-tests-1",
+   "e2e-ui-tests-1"
+  ]
+ },
+ "expected_context": [
+  "e2e-api-tests-1",
+  "e2e-ui-tests-1",
+  "checkout"
+ ]
 }

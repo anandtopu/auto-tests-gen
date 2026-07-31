@@ -227,7 +227,10 @@ Validate credentials before a real run with the staged smoke test
 - **Backups** — everything durable is under the `ai-qe-reports` PVC; snapshot or copy
   it to preserve run history, the review board, and the work queue.
 - **Retention** — `make prune KEEP=200` trims old run records/diffs; run it
-  periodically (e.g. an OpenShift `CronJob` invoking `python3 bin/qa.py prune`).
+  periodically (e.g. an OpenShift `CronJob` invoking `python3 bin/qa.py prune`),
+  or run `make maintain` nightly — it also rebuilds the retrieval substrate
+  (`reports/knowledge-index/`, derived data that a fresh deployment restores
+  with `make index-rebuild`) and runs the cost regression alarm.
 - **Upgrades** — rebuild the image and re-run `deploy.sh`; the PVC (state) survives the
   `Recreate` rollout.
 

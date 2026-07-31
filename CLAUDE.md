@@ -19,7 +19,7 @@ make parity-jira         # Workflow B with real phases (costs ~$1.6; needs claud
 make demo-bootstrap      # live catalog bootstrap on both demo test repos
 make test-gate           # adversarial gate regression (4 attacks, tests/gate-adversarial.sh)
 make conformance         # adapter verb-coverage checks
-make eval                # replay benchmark fixtures + scorecard
+make eval                # replay benchmark fixtures + context-retention check (eval/context_check.py: scoped context keeps every fixture's expected_context, prints the token-counted size reduction; results file context-scope.json is EXCLUDED from the scorecard's replay glob) + scorecard
 make review              # all of the above in sequence — run before claiming anything works
 make bootstrap REPO=...  # real-estate catalog bootstrap for one test repo
 make status              # recent runs from reports/runs/*.json (bin/qa.py status)

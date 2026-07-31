@@ -13,12 +13,26 @@ def pct(x):
     return f"{x:.0%}"
 
 # --- routing accuracy (benchmark replays) ---------------------------------------
-res = [json.load(open(f)) for f in glob.glob("eval/results/*.json")]
+# context-scope.json is the retrieval guardrail's output (context_check.py),
+# not a replay result — the same shared-directory rule as reports/runs/.
+res = [json.load(open(f)) for f in glob.glob("eval/results/*.json")
+       if pathlib.Path(f).name != "context-scope.json"]
 if res:
     routing = sum(r["routing_ok"] for r in res) / len(res)
     print(f"Routing accuracy: {pct(routing)} across {len(res)} fixtures (target ≥95%)")
 else:
     print("Routing accuracy: n/a — run `make eval` after adding benchmark fixtures")
+
+# --- retrieval-scoped context (cost-reduction 7.2 guardrail) --------------------
+try:
+    cs = json.load(open("eval/results/context-scope.json", encoding="utf-8"))
+    red = cs.get("avg_reduction_vs_full")
+    print(f"Context scoping: retention {'OK' if cs.get('retention_ok') else 'FAILED'}"
+          f" across {len(cs.get('fixtures', []))} fixture(s)"
+          + (f", avg size reduction {red:.0%} vs full estate" if red is not None else "")
+          + " (token-counted; quality delta awaits parity runs)")
+except (OSError, ValueError):
+    pass
 
 # --- run outcomes + generation behavior (persisted run records) -----------------
 runs = []

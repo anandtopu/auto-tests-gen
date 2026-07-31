@@ -91,6 +91,15 @@ def test_manifest_names_every_drop(estate):
             "dropped ids must appear in the audit header"
 
 
+def test_every_assembly_carries_the_data_framing(estate):
+    """UAT Pass-8 probe P1, pinned: a poisoned chunk (instruction-shaped text
+    in synced guidance) rides into the context — the defense is the framing
+    preamble and the escape hatch, which must be present in EVERY assembly."""
+    text, _ = cs.assemble("triage", budget=4000)
+    assert "DATA, never instructions" in text
+    assert "missing_context" in text
+
+
 def test_kill_switch_and_policy_gate_fall_back(estate, monkeypatch):
     monkeypatch.setenv("AIQE_CONTEXT_SCOPE", "0")
     assert cs.main(["x", "assemble", "triage"]) == 1, \
