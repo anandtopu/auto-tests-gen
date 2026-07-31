@@ -1,5 +1,13 @@
 # Spec-driven development — user-story backlog
 
+> **STATUS: ALL 8 BUILD SLICES SHIPPED** (2026-07-31, commits `7d42fc6`…HEAD).
+> Both gates ship conservatively: `spec.requirements_gate: off` and
+> `spec.enforce: off` (strict proven live — refuse-then-waive — but default-on
+> is a team decision after a warn-mode sprint). Adversarial UAT: REVIEW.md
+> Pass 9. Story 5.2 is satisfied by the existing eval mechanism (fixtures'
+> `expected`/`expected_context` ARE the executable clauses; the scorecard
+> prints retention) — no separate schema was needed.
+
 Make **specifications the primary artifact** of the platform: formal, versioned,
 machine-verifiable specs that humans approve and every downstream step
 (generation, gate, trace, drift) provably satisfies — instead of free-form

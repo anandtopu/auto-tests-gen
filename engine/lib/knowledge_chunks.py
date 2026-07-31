@@ -180,11 +180,28 @@ def build():
         chunks.append(_chunk("catalog", app, "mapped",
                              "catalog/*.jsonl", "\n".join(lines)))
 
-    # --- scenario: one per test plan -----------------------------------------
+    # --- scenario: per SCENARIO when a structured spec exists (SDD 6.3 —
+    # sharper retrieval/reuse granularity), else one per plan (legacy).
+    try:
+        import spec_store
+    except Exception:
+        spec_store = None
     for p in sorted((ROOT / "testplans").glob("*.md")):
+        key = p.stem
+        spec = spec_store.load(key) if spec_store else None
+        if spec:
+            for s in spec.get("scenarios", []):
+                body = "\n".join(filter(None, [
+                    f"{s.get('id')}: {s.get('title')}",
+                    f"layer {s.get('layer')} -> {s.get('target_repo')}",
+                    str(s.get("steps") or ""),
+                    *(f"verify: {v}" for v in s.get("verification") or [])]))
+                chunks.append(_chunk("scenario", key, s.get("id", "?"),
+                                     f"specs/{key}/testplan.yaml", body))
+            continue
         text = p.read_text(encoding="utf-8", errors="ignore").strip()
         if text:
-            chunks.append(_chunk("scenario", p.stem, "plan",
+            chunks.append(_chunk("scenario", key, "plan",
                                  f"testplans/{p.name}", text))
 
     # --- testdata: one per ticket with generated data ------------------------

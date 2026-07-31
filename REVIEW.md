@@ -276,6 +276,30 @@ test_every_assembly_carries_the_data_framing`):
    skipped by cost-report; a torn baseline silences the regression alarm
    rather than crashing the nightly.
 
+## Pass 9 — spec-driven development UAT (2026-07-31)
+
+The SDD stack (8 slices) went through the same adversarial bar:
+
+1. **Forged scenario id** — a test claiming an id outside the signed spec is a
+   strict-mode violation (pinned; the gate names the file and the id).
+2. **Waiver abuse** — expired waivers refuse with the expiry named; a live
+   waiver satisfies; both pinned. Live proof: strict gate REFUSED PROJ-301's
+   two uncovered approved scenarios with actionable findings, then COMMITTED
+   once they carried reasoned waivers.
+3. **Arbiter stripping** — a re-emitting arbiter cannot demote a structured
+   spec (merge-fold inherits by id; the mock arbiter deliberately drops fields
+   so every demo exercises it).
+4. **Silent divergence** — a free-form edit that contradicts the rendering
+   supersedes the spec visibly (.superseded-<ts>); approval signs the yaml
+   sha on the history line.
+5. **Guess-instead-of-ask** — a blocking ambiguity stops the chain (exit 65)
+   with the question on the ticket; non-blocking ones flow to the editor.
+6. **Constitution rot** — every non-negotiable clause must name a live test
+   pin or the build breaks (test_constitution.py).
+
+Both gates ship OFF by default; strict enforcement is a two-step rollout
+(warn-mode sprint first) — pinned so a config default cannot skip it.
+
 Remaining honest gaps (all share the parity-auth blocker, REVIEW.md item 5):
 the QUALITY delta for scoped/reused output (`make eval` checks retention +
 token delta — 58% avg reduction — but not generation quality), the cache-probe

@@ -236,3 +236,30 @@ def test_trace_matrix_carries_requirements_and_waivers():
     assert "waiver" in trace_matrix.FIELDS
     assert "EXPIRED" in trace_matrix._waiver_cell(
         {"expired": True, "reason": "r", "by": "b"})
+
+
+def test_per_scenario_chunks_for_structured_specs(store, monkeypatch):
+    """SDD 6.3: retrieval/reuse operate at scenario granularity when the
+    structured spec exists; legacy plans keep one chunk per plan."""
+    s, ps, tmp = store
+    import knowledge_chunks as kc
+    ps.record_plan("K-1", STRUCTURED)               # writes spec + renders md
+    monkeypatch.setattr(kc, "ROOT", tmp)
+    monkeypatch.setattr(kc, "OUT", tmp / "chunks.jsonl")
+    chunks = [c for c in kc.build() if c["kind"] == "scenario"]
+    ids = {c["chunk_id"] for c in chunks}
+    assert "scenario:K-1:K-1-S1" in ids and "scenario:K-1:K-1-S2" in ids
+    s1 = next(c for c in chunks if c["chunk_id"].endswith("K-1-S1"))
+    assert "verify: status is 422" in s1["text"]
+    assert s1["source_path"].endswith("specs/K-1/testplan.yaml")
+
+
+def test_exports_carry_the_spec_rendering_by_construction(store):
+    """SDD 6.2: export/attach/publish read testplans/<KEY>.md — which for a
+    structured plan IS the deterministic rendering of the spec. One export
+    path, no second source of truth."""
+    s, ps, tmp = store
+    ps.record_plan("K-1", STRUCTURED)
+    md = ps.plan_path("K-1").read_text(encoding="utf-8")
+    assert md == s.render("K-1"), \
+        "what export_plan ships is exactly the spec's rendering"
