@@ -17,6 +17,7 @@ JIRA-triggered test authoring (Workflow B) across a multi-repo estate, powered b
 | [docs/cost-optimization.md](docs/cost-optimization.md) | LLM cost: token profile, model tiers, phase cache, cache-ordered prompts, and §5 — the shipped retrieval/reuse stack (RAG context scoping, vector index, plan reuse, spend controls) |
 | [docs/cost-reduction-stories.md](docs/cost-reduction-stories.md) · [docs/cost-reduction-architecture.md](docs/cost-reduction-architecture.md) | The cost backlog (8 epics / 28 stories) and per-story designs — **all 8 build slices shipped**; quality-gated levers stay off until the parity eval |
 | [docs/data-portability.md](docs/data-portability.md) | Durability matrix, portable state bundle (export/inspect/import), OpenHands request traceability |
+| [docs/spec-driven-stories.md](docs/spec-driven-stories.md) · [docs/spec-driven-architecture.md](docs/spec-driven-architecture.md) | Spec-driven development backlog (6 epics / 17 stories) and design: EARS requirements, schema'd scenario specs humans sign, spec-satisfaction gate mode, drift detection, machine-readable constitution |
 | [docs/product-roadmap.md](docs/product-roadmap.md) · [docs/roadmap-architecture.md](docs/roadmap-architecture.md) | Feature roadmap by persona/theme and the per-feature designs; 12 of the items are shipped |
 | [docs/onboarding-new-team.md](docs/onboarding-new-team.md) | Adopting the platform for a new estate (≤1 day) |
 | [docs/onboarding-new-tool.md](docs/onboarding-new-tool.md) | Adding a new SDLC tool behind the six ports |
