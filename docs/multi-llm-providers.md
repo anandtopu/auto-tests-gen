@@ -1,0 +1,226 @@
+# Multi-LLM providers — design & user stories
+
+Let users run the pipeline's LLM phases on **different providers — local Ollama,
+Claude Code (today's default), OpenAI Codex CLI, or OpenHands as an external
+model provider — switched from Settings**, with per-provider **cost tracked in
+the UI**. Design first; build slices at the end.
+
+## 1. Architecture review — what makes this tractable
+
+Three facts about the current code decide the whole design:
+
+1. **One choke point.** Every real LLM call goes through
+   `engine/phases/run_phase.sh` (the `claude -p` wrapper) — phase policy
+   (model, max_turns, allowed_tools) from org-config, prompt assembled
+   cache-ordered, result JSON teed to `out/<phase>.json`, contract extracted
+   and schema-checked after. Providers swap **under** this wrapper; nothing
+   upstream changes.
+2. **The port precedent exists.** The Embedding port (ADR-9) already proved
+   the shape: `adapters/<port>/` + a deterministic mock + conformance verbs +
+   engine-side client module + Settings section + check-integrations probe.
+   The LLM Runner becomes the **eighth port** with the same discipline.
+3. **Most phases don't actually need an agentic runtime.** The wrapper
+   pre-concatenates every context file into the prompt, so read-only phases
+   (`resolve_llm`, `triage`*, `analyze`, `planadversary`, `critic`) need only
+   a **chat completion**. And SDD made the plan-family artifacts DERIVED:
+   `testplans/<KEY>.md` is rendered from the contract, testdata files are
+   listed in the contract — so `testplan`/`planarbiter`/`testdata` can run
+   completion-style with **harness-side materialization**. Only
+   `generate`/`validate` genuinely require an agentic loop (multi-file edits
+   in the test repo + executing tests in repair loops).
+   *`triage` lists `Bash(git diff:*)` but the diff is already passed as
+   context (`out/pr.diff`) — completion-capable in practice.
+
+### Capability classes (the honest matrix)
+
+| Class | Phases | Needs | Ollama | Claude Code | Codex CLI | OpenHands |
+|---|---|---|---|---|---|---|
+| completion | resolve_llm, triage, analyze, planadversary, critic | one chat completion over pre-injected context | ✅ | ✅ | ✅ | ✅ |
+| completion + derived writes | testplan, planarbiter, testdata | completion + harness materializes files from the contract | ✅ | ✅ | ✅ | ✅ |
+| agentic | generate, validate | tool loop: Read/Write/Edit/Bash in the workspace, bounded turns | ❌ | ✅ | ✅ | ✅ (delegated conversation) |
+
+A **capability check at config time** refuses an impossible assignment
+("ollama cannot run `generate` — agentic phases need claude, codex, or
+openhands") instead of failing mid-run.
+
+## 2. The LLM Runner port (design)
+
+```
+adapters/llm/claude.sh     today's claude -p invocation, extracted verbatim
+adapters/llm/ollama.sh     OpenAI-compatible /v1/chat/completions (stdlib HTTP,
+                           no SDK — same rule as the Embed adapter); local =
+                           no credentials, OLLAMA_URL + per-tier model names
+adapters/llm/codex.sh      `codex exec` headless (agentic, JSON output);
+                           CODEX_API_KEY; usage harvested from its result
+adapters/llm/openhands.sh  delegates the phase as a conversation message via
+                           the existing openhands_client rails (launch record,
+                           request tracing, payload metering ALL reused);
+                           polls for the contract in the conversation output.
+                           Marked experimental: highest latency, weakest
+                           output-contract guarantees
+adapters/mock/llm.sh       thin shim over mock_phase.sh (existing behavior)
+```
+
+**Verbs** (conformance-tested, unknown verb exit 64):
+- `run_phase <phase> <prompt_file> <workdir> <out_json> [context...]` —
+  execute; write the provider-normalized result JSON to `<out_json>`
+- `capabilities` — prints `completion` or `agentic`
+- `check` — read-only reachability probe (for check-integrations)
+
+**Normalized result JSON** (what every adapter must produce — the contract
+that keeps telemetry provider-agnostic):
+
+```json
+{"result": "<final text incl. the JSON contract>",
+ "usage": {"input_tokens": N, "output_tokens": N,
+           "cache_read_input_tokens": N},
+ "num_turns": N, "total_cost_usd": 0.0123,   // omitted when unknown
+ "provider": "ollama", "model": "qwen2.5-coder:14b"}
+```
+
+`run_phase.sh` becomes a dispatcher: resolve the phase's runner (config
+below) → capability check → invoke the adapter → the EXISTING tail
+(contract extraction, schema validation, budget record, phase cache, context
+retry) runs unchanged. The phase cache key already includes the model — it
+gains the provider, so switching providers can never replay another
+provider's cached result.
+
+**Derived-writes materialization**: for the completion+derived class on a
+completion runner, the wrapper materializes artifacts AFTER contract
+extraction — testplan/planarbiter via the SDD renderer (already the source of
+truth), testdata from the contract's `fixtures[]` (content embedded in the
+contract by a prompt addendum those providers get). Agentic runners keep
+writing files themselves, exactly as today.
+
+### Configuration & the Settings switch
+
+```yaml
+# org-config.yaml
+llm:
+  provider: claude              # global default: claude|ollama|codex|openhands|mock
+  phase_providers: {}           # optional per-phase override, e.g.
+                                #   triage: ollama, analyze: ollama
+  models_by_provider:           # tier names stay per-phase in `models:`; each
+    ollama:                     # provider maps the claude ids to its own
+      claude-haiku-4-5-20251001: qwen2.5-coder:14b
+      claude-sonnet-4-6: qwen2.5-coder:32b
+pricing:                        # $/Mtok for providers that report tokens only
+  codex: {gpt-5-codex: {in: 1.25, out: 10.0}}
+  ollama: local                 # tokens tracked, cost rendered "$0 (local)"
+```
+
+Settings gains an **"LLM provider"** section: provider select (writes
+`AIQE_LLM_PROVIDER` — env layering as everywhere, so the UI switch takes
+effect on the next run without a restart), `OLLAMA_URL`/`OLLAMA_MODEL_*`,
+`CODEX_API_KEY` (secret), and a read-only capability note ("agentic phases
+stay on claude unless codex/openhands is selected for them").
+`check-integrations` probes the ACTIVE provider (and any per-phase ones).
+
+**No silent fallback** (guardrail): an unreachable provider fails the phase
+with `PROVIDER_UNREACHABLE: <provider> <fix hint>` — the platform never
+silently reroutes to a different (possibly paid) provider. Mock mode is
+untouched: `AIQE_MOCK=1` short-circuits before provider selection, so demos
+and the suite never depend on any provider being installed.
+
+### What deliberately does not change
+
+The gate (providers generate; only the gate commits), tool policy (agentic
+adapters receive the same `allowed_tools` and must enforce or subset it —
+conformance-tested), prompts (provider-agnostic; the derived-writes addendum
+is appended by the wrapper, not forked per provider), the mock posture, and
+the budget guard (which meters whatever the normalized JSON reports).
+
+## 3. Cost tracking from the UI (mostly extends what ships)
+
+The telemetry (cost-reduction 1.x) already records per-phase
+model/tokens/turns/cost and renders the Cost view. Provider support adds:
+
+- **Provider column in the ledger + spend blocks** (`provider` from the
+  normalized JSON) → `cost_report` gains `by_provider` rollup; the Cost view
+  gains a per-provider card and a provider badge on the phase table.
+- **Price-table costing**: when the adapter reports tokens but no
+  `total_cost_usd` (codex, openhands-delegated), `budget.py` computes cost
+  from `pricing:` — labelled `≈` (list-price estimate) to keep the iron rule:
+  a computed figure never masquerades as a provider-reported one, and
+  simulated never masquerades as either.
+- **Local honesty**: Ollama runs render **"$0 (local)"** with tokens still
+  tracked — visibly free, never invisibly uncounted. A "local vs cloud
+  tokens" split lands on the Cost view so an EM sees exactly what moving
+  triage/analyze to Ollama avoided.
+- Budgets/envelopes/degradation ladder apply unchanged (local $0 spend simply
+  never trips them).
+
+## 4. User stories
+
+**E1 — the port (no behavior change)**
+- **1.1 (M)** As an Op, I want the claude invocation extracted into
+  `adapters/llm/claude.sh` behind the runner dispatch, so that today's
+  behavior is byte-identical (pinned: mock demo + parity path untouched)
+  while the seam exists. AC: normalized-JSON contract; conformance verbs;
+  phase-cache key gains provider.
+- **1.2 (S)** As an Op, I want capability declarations + config-time
+  validation, so that an impossible phase→provider assignment is refused
+  with the fix named, never discovered mid-run.
+
+**E2 — providers**
+- **2.1 (M)** Ollama adapter (completion class): stdlib HTTP, model map per
+  tier, works fully offline; completion phases produce valid contracts on a
+  local model. AC: `PROVIDER_UNREACHABLE` on a down daemon; no silent
+  fallback (pinned).
+- **2.2 (M)** Derived-writes materialization for testplan/planarbiter/
+  testdata on completion runners (SDD renderer + contract fixtures); pinned
+  against the agentic path producing identical artifacts on the mock estate.
+- **2.3 (M)** Codex adapter (agentic): `codex exec` headless, tool policy
+  passed through, usage harvested, price-table costing (`≈`).
+- **2.4 (L)** OpenHands-as-provider (experimental): phase delegated as a
+  conversation via the existing client (launch/request/payload records
+  reused); poll-with-timeout for the contract; failure = the phase fails
+  actionably. Flagged experimental in Settings.
+- **2.5 (S)** Per-provider parity harness: `make parity-pr
+  LLM_PROVIDER=ollama` etc. — the same three quality claims measured per
+  provider before anyone trusts a cheap model with judgement phases.
+
+**E3 — Settings switch + routing**
+- **3.1 (M)** Settings "LLM provider" section (select + per-provider fields,
+  secrets write-only) writing env via the existing layering; per-phase
+  `phase_providers` in org-config for mixed estates (local triage, claude
+  generate). AC: switch effective next run, no restart; both example files
+  covered (the coverage pins enforce).
+- **3.2 (S)** `check-integrations` probes the active + per-phase providers
+  read-only, with fix hints.
+
+**E4 — cost in the UI**
+- **4.1 (M)** Provider-aware telemetry end to end: ledger/spend `provider`
+  field, `by_provider` rollup, Cost-view provider card + badges,
+  `qa.py status --cost` provider column. Labels: provider-reported ($),
+  price-table (≈$), local ($0 (local)), simulated (~). AC: the four label
+  classes are pinned and can never cross.
+- **4.2 (S)** Local-vs-cloud split + "avoided cloud tokens" line on the Cost
+  view — the number that justifies (or kills) the local-model experiment.
+
+**E5 — safety & conformance**
+- **5.1 (S)** Conformance: all LLM adapters pass verb/unknown-verb checks;
+  agentic adapters must echo their effective tool policy (pinned subset of
+  `allowed_tools`).
+- **5.2 (S)** Constitution clause: "No silent provider fallback; provider
+  switches are explicit configuration" + its pin.
+- **5.3 (M)** Adversarial UAT (Pass-10 style): provider outage mid-run,
+  malformed provider JSON, price-table absence (cost renders unknown — never
+  0), a completion provider assigned an agentic phase, cache poisoning
+  across providers.
+
+## 5. Build order
+
+| Slice | Stories | Gate |
+|---|---|---|
+| 1 | 1.1, 1.2 | suite green, demo byte-identical |
+| 2 | 2.1, 2.2, 3.2 | completion phases green on a local Ollama |
+| 3 | 3.1, 4.1 | UI switch + provider-labelled Cost view |
+| 4 | 2.3, 4.2 | codex parity on the demo estate |
+| 5 | 2.4 | openhands-delegated phase, experimental flag |
+| 6 | 2.5, 5.1–5.3 | per-provider parity + UAT before any default change |
+
+Default provider stays **claude** throughout; judgement phases
+(testplan/adversary/generate) stay on an agentic, proven provider until 2.5's
+per-provider parity measures them — the same quality-gated rollout discipline
+as context scoping and plan reuse.
