@@ -22,7 +22,7 @@ a brand-new test repo genuinely has no approach to follow yet.
 CLI: spec_exemplars.py <out_md> <repo_name>...   (repo located at workspace/tests/,
      demo/ as the fixture fallback; layout from the registry)
 """
-import pathlib, re, sys
+import os, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -62,6 +62,26 @@ def _resolve(spec_path, rel):
     except (OSError, ValueError):
         pass
     return None
+
+
+def _semantic_ranks(repo):
+    """rel-path -> rank for this repo's spec chunks, by semantic relevance to
+    the run's signals (diff/ticket/plan). {} when embeddings are unconfigured,
+    signals are absent, the index has no rows for the repo, or anything at all
+    fails — the heuristic ordering is ALWAYS the fallback (pinned)."""
+    try:
+        import embeddings
+        if not embeddings.configured():
+            return {}
+        import context_scope
+        import vector_index
+        sig = context_scope.gather_signals(os.environ.get("KEY", ""))
+        if not sig.strip():
+            return {}
+        hits = vector_index.query(sig[:2000], k=20, kind="spec", repo=repo)
+        return {h["chunk_id"].split(":", 2)[2]: i for i, h in enumerate(hits)}
+    except Exception:
+        return {}
 
 
 def profile(repo_root, name, specs_dir):
@@ -108,12 +128,21 @@ def profile(repo_root, name, specs_dir):
 
     # Exemplars: most-representative specs — imports closest to the repo norm,
     # legacy-ish paths penalized, recency as tie-break, then name (determinism).
+    # With embeddings configured (cost-reduction 3.4), semantic relevance to the
+    # RUN'S CHANGE becomes the primary key AFTER the legacy penalty — a similar
+    # legacy spec must still lose — and the heuristic order is the tiebreak.
+    # Unconfigured -> today's ordering, byte for byte (pinned).
+    semantic_rank = _semantic_ranks(name)
     common = {h for h in helper_users if len(helper_users[h]) >= 2}
     def score(p):
         own = {_resolve(p, r) for r in _rel_imports(texts[p])}
         penal = any(seg in _PENALIZED for seg in p.parts[:-1] or ()) or \
                 any(k in p.stem.lower() for k in _PENALIZED)
-        return (-len(own & common), penal, -p.stat().st_mtime, p.name)
+        heuristic = (-len(own & common), -p.stat().st_mtime, p.name)
+        if semantic_rank:
+            rel = p.relative_to(repo_root).as_posix()
+            return (penal, semantic_rank.get(rel, 10**6)) + heuristic
+        return (heuristic[0], penal) + heuristic[1:]
     exemplars = sorted(specs, key=score)[:EXEMPLARS]
 
     return {"name": name, "specs": len(specs), "facts": facts,

@@ -107,6 +107,13 @@ def build(key=None):
     by_id, by_file = _health_index()
 
     for k, record in sorted(latest.items()):
+        # Reuse provenance (cost-reduction 3.3/6.2): an audit row must say when
+        # the plan behind it was adapted from another key's approved plan.
+        try:
+            import plan_state
+            reused = plan_state.get(k).get("reused_from", "") or ""
+        except Exception:
+            reused = ""
         contracts = _contracts(record)
         tests = (contracts.get("generate") or {}).get("tests") or []
         tests_by_scenario = {}
@@ -134,6 +141,7 @@ def build(key=None):
                 "ci_runs": health.get("runs", ""),
                 "ci_failures": health.get("failures", ""),
                 "ci_last": health.get("last_status", ""),
+                "reused_from": reused,
             }
 
         claimed = set()
@@ -156,7 +164,7 @@ def build(key=None):
 
 FIELDS = ["key", "scenario_id", "scenario_title", "behavior_ref", "file",
           "test_repo", "action", "gate_status", "commit", "run_id",
-          "ci_runs", "ci_failures", "ci_last"]
+          "ci_runs", "ci_failures", "ci_last", "reused_from"]
 
 
 def to_csv(rows):

@@ -79,6 +79,16 @@ def set_status(key, status, by="", note=""):
     return e
 
 
+def _reuse_marker():
+    """This run's reuse provenance from out/plan-reuse.json, or {} — total,
+    like _adversary_detail: the record must not depend on the feature."""
+    try:
+        import plan_reuse
+        return plan_reuse.marker()
+    except Exception:
+        return {}
+
+
 def _adversary_detail():
     """The normalized adversarial signal from this run's out/ scratch, or {}.
     Total: a missing/failed adversary phase yields an empty dict, never an error —
@@ -115,6 +125,17 @@ def record_plan(key, contract=None, by="pipeline", adversary=""):
                   # without this the reviewer sees one summary line and the actual
                   # challenge dies with the run. Bounded: the gaps list only.
                   "adversary_detail": _adversary_detail()})
+        # Reuse provenance (cost-reduction 3.3): same out/-is-scratch pattern as
+        # the adversary detail — record time is the last moment the marker
+        # exists. A FRESH authoring clears any stale provenance from a prior
+        # reused draft of the same key.
+        reuse = _reuse_marker()
+        if reuse.get("reused_from"):
+            e["reused_from"] = reuse["reused_from"]
+            e["similarity"] = reuse.get("similarity")
+        else:
+            e.pop("reused_from", None)
+            e.pop("similarity", None)
         e.setdefault("history", []).append(
             {"status": "draft", "by": by, "note": "test plan authored", "ts": time.time()})
         state[key] = e
@@ -307,6 +328,10 @@ def ticket_comment(key):
         adv = (e.get("adversary") or "").strip()
         if adv:
             lines.append(f"- Plan review: {adv}")
+        if e.get("reused_from"):
+            lines.append(f"- Reused from: {e['reused_from']} (similarity "
+                         f"{e.get('similarity')}) — adapted mechanically, "
+                         f"human-reviewed before approval")
     if e.get("linked"):
         lines.append(f"- Plan attachment: {e['linked'].get('ref', '')}")
     # Latest run for this key (defensive parse — records are written via tee)

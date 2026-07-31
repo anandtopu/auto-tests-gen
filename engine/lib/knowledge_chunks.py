@@ -136,6 +136,23 @@ def build():
     except Exception:
         pass
 
+    # --- spec: one per exemplar-candidate spec file per test repo ------------
+    # Feeds semantic exemplar ranking (3.4): vector_index.query(kind="spec",
+    # repo=target) ranks a repo's REAL specs by relevance to the change.
+    for t in reg.get("test_repositories", []):
+        base = next((ROOT / b / t["name"] for b in ("workspace/tests", "demo")
+                     if (ROOT / b / t["name"]).is_dir()), None)
+        if base is None:
+            continue
+        spec_root = base / ((t.get("layout") or {}).get("specs") or "")
+        specs = sorted(p for pat in ("**/*.spec.js", "**/*.spec.ts",
+                                     "**/*.test.js", "**/*.test.ts")
+                       for p in spec_root.glob(pat))
+        for p in specs:
+            rel = p.relative_to(base).as_posix()
+            chunks.append(_chunk("spec", t["name"], rel, str(p),
+                                 p.read_text(encoding="utf-8", errors="ignore")))
+
     # --- catalog: one per app repo with mapped tests -------------------------
     catalog = []
     for f in sorted(glob.glob(str(ROOT / "catalog/*.jsonl"))):

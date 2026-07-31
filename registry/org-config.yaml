@@ -89,6 +89,13 @@ context_scope:
   planarbiter: off
 context_budget: 4000        # tokens; MUST-KEEP chunks may exceed it
 
+# Semantic artifact reuse (cost-reduction 3.3). plan_threshold is deliberately
+# conservative: a wrong reuse is a confidently incorrect plan, and only the
+# human diff step makes reuse safe at all. AIQE_PLAN_REUSE=1 enables (plan
+# mode only); default stays off until the 7.2 quality eval.
+reuse:
+  plan_threshold: 0.80
+
 budgets:
   max_cost_usd_single_suite: 2.0
   max_cost_usd_cross_repo: 4.0

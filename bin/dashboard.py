@@ -1556,6 +1556,17 @@ async function openPlan(key) {
   const adv = $('#plan-adversary');
   adv.textContent = p.adversary || '';
   adv.classList.toggle('hidden', !p.adversary);
+  // Reuse provenance (cost-reduction 3.3/6.2): a reused draft must never read
+  // as fresh authorship — the reviewer is approving an ADAPTATION.
+  const ru = $('#plan-reused');
+  if (ru) {
+    if (p.reused_from) {
+      ru.textContent = 'Reused from ' + p.reused_from + ' (similarity ' +
+        (p.similarity != null ? p.similarity : '?') +
+        ') — adapted mechanically; check the VERIFY section before approving.';
+      ru.classList.remove('hidden');
+    } else { ru.classList.add('hidden'); }
+  }
   // Per-gap verdicts (roadmap 4.5): the reviewer approves a plan that was already
   // challenged — show WHAT was challenged, not just that a challenge happened.
   const det = $('#plan-adversary-detail');
@@ -2341,6 +2352,8 @@ page = f"""<!doctype html>
         <span id="plan-status"></span>
         <span id="plan-adversary" class="hidden sm muted"
           title="A read-only adversary phase challenged this plan for missing negative, boundary, authz, state and cross-repo cases; an arbiter folded the accepted gaps in before you were asked to approve it."></span>
+        <span id="plan-reused" class="hidden sm chip chip-warning"
+          title="This draft was adapted mechanically from another key's approved plan (no model re-authored it). The VERIFY FOR THIS TICKET section lists what to re-check."></span>
         <button class="btn btn-sm" id="plan-save">Save edits</button>
         <button class="btn btn-sm info" id="plan-review">Mark in review</button>
         <button class="btn btn-sm danger" id="plan-changes">Request changes</button>

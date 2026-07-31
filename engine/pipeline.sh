@@ -336,7 +336,22 @@ elif [ "$MODE" = "tests" ]; then
   GENERATE "$(CTX generate)" out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md" out/catalog-slice.jsonl out/repo-conventions.md
 else
   PHASE analyze  jira-analyze.md "$(CTX analyze)" out/issue-guidance.md out/ticket.json out/confluence.md
-  PHASE testplan jira-testplan.md "$(CTX testplan)" out/issue-guidance.md out/analyze.contract.json out/coverage-gaps.md
+  # Semantic plan reuse (cost-reduction 3.3): PLAN MODE ONLY — reuse without the
+  # human draft gate would skip exactly the review that makes it safe. A hit
+  # replaces the testplan LLM phase with deterministic adaptation of a prior
+  # APPROVED plan; the adversary below still challenges the adapted draft.
+  # Default OFF (AIQE_PLAN_REUSE=1 enables) until the 7.2 quality eval.
+  PLAN_REUSED=0
+  if [ "$MODE" = "plan" ] && [ "${AIQE_PLAN_REUSE:-0}" = "1" ]; then
+    if REUSE_LINE=$(python3 engine/lib/plan_reuse.py try "$KEY" 2>/dev/null); then
+      PLAN_REUSED=1
+      echo "[plan-reuse] $REUSE_LINE — testplan phase skipped"
+    fi
+  fi
+  if [ "$PLAN_REUSED" != "1" ]; then
+    rm -f out/plan-reuse.json     # a fresh authoring must not inherit stale provenance
+    PHASE testplan jira-testplan.md "$(CTX testplan)" out/issue-guidance.md out/analyze.contract.json out/coverage-gaps.md
+  fi
   # Adversarial plan review: the plan is the artifact a human approves, and until now
   # one agent wrote it with nothing arguing back. A read-only ADVERSARY hunts for what
   # the author missed (negative/boundary/authz/state/cross-repo gaps) and an ARBITER
@@ -387,7 +402,7 @@ else
     exit 0
   fi
   PHASE testdata jira-testdata.md "$(CTX testdata)" out/testplan.contract.json
-  GENERATE AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json out/catalog-slice.jsonl out/repo-conventions.md
+  GENERATE "$(CTX generate)" out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json out/catalog-slice.jsonl out/repo-conventions.md
 fi
 PHASE validate validate-repair.md out/generate.contract.json out/repo-conventions.md
 
