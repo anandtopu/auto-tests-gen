@@ -77,6 +77,11 @@ catalog:
 budgets:
   max_cost_usd_single_suite: 2.0
   max_cost_usd_cross_repo: 4.0
+  # Embedding spend guard (cost-reduction 3.2): the vector index stops
+  # refreshing past the daily cap (queries fall back to TF-IDF); price is the
+  # $/M-token estimate used for the day ledger, not a billed figure.
+  max_embed_usd_per_day: 0.50
+  embed_price_per_mtok: 0.02
 knowledge:
   confluence_max_pages: 3
   confluence_max_tokens: 12000

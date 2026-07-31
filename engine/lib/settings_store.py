@@ -86,6 +86,19 @@ SPEC = [
          "help": "https://your-domain.atlassian.net/wiki"},
         {"env": "CONFLUENCE_SPACE", "label": "Default space", "default": "QA"},
      ]},
+    {"section": "Embeddings",
+     "hint": "Optional semantic index (vector search over plans, specs, estate "
+             "knowledge). Unset = lexical TF-IDF fallback, silently.",
+     "fields": [
+        {"env": "EMBED_URL", "label": "Embeddings API base URL",
+         "help": "OpenAI-compatible /v1 base (Voyage, OpenAI, Azure, local "
+                 "TEI/Ollama); /embeddings is appended"},
+        {"env": "EMBED_API_KEY", "label": "Embeddings API key", "secret": True},
+        {"env": "EMBED_MODEL", "label": "Embedding model",
+         "help": "e.g. voyage-3-lite / text-embedding-3-small"},
+        {"env": "EMBED_DIMS", "label": "Vector dimensions (optional)",
+         "help": "passed through when the provider supports it"},
+     ]},
     {"section": "OpenHands",
      "hint": "Optional orchestrator (Path 1). The pipeline never calls it — runs also "
              "trigger from CI, the TaskEvent receiver, or the work queue.",

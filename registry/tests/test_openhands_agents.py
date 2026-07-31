@@ -189,6 +189,18 @@ def _fake_cloud(handler_map):
 
     srv = http.server.HTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
+    # Readiness gate: under full-suite load the first client connect can race
+    # the serve_forever thread's startup and fail transiently (seen twice —
+    # 2026-07-28 self-hosted-id test, 2026-07-30 unresolved-cloud test). Wait
+    # until the socket actually accepts before handing the URL to the test.
+    import socket, time as _time
+    for _ in range(50):
+        try:
+            socket.create_connection(("127.0.0.1", srv.server_port),
+                                     timeout=0.2).close()
+            break
+        except OSError:
+            _time.sleep(0.05)
     return srv, f"http://127.0.0.1:{srv.server_port}"
 
 

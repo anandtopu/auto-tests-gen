@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""Artifact vector index (cost-reduction story 3.2).
+
+SQLite + float32 BLOBs + pure-Python cosine, per the ADR
+(docs/adr/embeddings.md): the corpus is hundreds-to-low-thousands of chunks, so
+brute force is ~10 ms and a native vector extension or a server would be pure
+operational weight. Documented revisit trigger: corpus > 50k chunks or p95
+query > 200 ms.
+
+Contracts:
+- refresh() embeds ONLY chunks whose sha256 changed and deletes rows whose
+  chunk_id vanished — an unchanged corpus costs zero embedding calls (pinned).
+- Embedding spend is estimated (chars/4 tokens x org-config
+  `budgets.embed_price_per_mtok`) into a day-ledger; over
+  `budgets.max_embed_usd_per_day` refresh STOPS (partial, reported) — the
+  cost-saving layer must never become its own runaway bill. query() never
+  spends more than one embedding call.
+- Corruption recovery is REGENERATION: any sqlite error moves the db aside
+  (.corrupt-<ts>, like fs_lock) and rebuilds from chunks.jsonl. The index is
+  derived data; there is nothing to repair.
+- The store is gitignored and excluded from state bundles; `make maintain`
+  refreshes it, `make index-rebuild` forces from scratch.
+
+CLI: vector_index.py refresh|rebuild|stats|query <text>
+"""
+import json
+import math
+import os
+import pathlib
+import sqlite3
+import struct
+import sys
+import time
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import embeddings
+import knowledge_chunks
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+DB = pathlib.Path(os.environ.get("AIQE_VECTOR_DB",
+                                 ROOT / "reports/knowledge-index/vectors.db"))
+SPEND = DB.parent / "embed-spend.json"
+
+DDL = """CREATE TABLE IF NOT EXISTS vectors (
+  chunk_id TEXT PRIMARY KEY, sha256 TEXT, kind TEXT, repo TEXT,
+  dims INT, vec BLOB, updated REAL)"""
+
+
+def _cfg():
+    try:
+        import yaml
+        return (yaml.safe_load(open(ROOT / "registry/org-config.yaml",
+                                    encoding="utf-8")) or {}).get("budgets") or {}
+    except Exception:
+        return {}
+
+
+def _pack(vec):
+    return struct.pack(f">{len(vec)}f", *vec)
+
+
+def _unpack(blob, n):
+    return struct.unpack(f">{n}f", blob)
+
+
+def _cos(a, b):
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(x * x for x in b))
+    return dot / (na * nb) if na and nb else 0.0
+
+
+def _connect():
+    DB.parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(DB)
+    try:
+        con.execute(DDL)
+    except sqlite3.Error:
+        # Close BEFORE the caller quarantines: Windows refuses to rename a
+        # file with an open handle, which would leave the corrupt db in place.
+        con.close()
+        raise
+    return con
+
+
+def _quarantine():
+    """A corrupt index is derived data — move it aside for forensics and
+    rebuild. Never attempt repair."""
+    try:
+        DB.rename(DB.with_name(f"{DB.name}.corrupt-{int(time.time())}"))
+    except OSError:
+        try:
+            DB.unlink()
+        except OSError:
+            pass
+
+
+# ---------------------------------------------------------------- spend cap
+def _day():
+    return time.strftime("%Y-%m-%d")
+
+
+def _spend_today():
+    try:
+        d = json.load(open(SPEND, encoding="utf-8"))
+        return float(d.get(_day(), 0.0))
+    except Exception:
+        return 0.0
+
+
+def _record_spend(usd):
+    try:
+        d = json.load(open(SPEND, encoding="utf-8"))
+    except Exception:
+        d = {}
+    d = {k: v for k, v in d.items() if k >= _day()}   # keep today only
+    d[_day()] = round(d.get(_day(), 0.0) + usd, 6)
+    SPEND.parent.mkdir(parents=True, exist_ok=True)
+    SPEND.write_text(json.dumps(d), encoding="utf-8", newline="\n")
+
+
+def _est_usd(texts):
+    price = float(_cfg().get("embed_price_per_mtok") or 0.02)  # $/M tokens
+    toks = sum(len(t) for t in texts) / 4
+    return toks / 1_000_000 * price
+
+
+def _cap():
+    v = _cfg().get("max_embed_usd_per_day")
+    return float(v) if isinstance(v, (int, float)) and v > 0 else 0.0
+
+
+# ---------------------------------------------------------------- refresh
+def refresh(force=False):
+    """Sync the index to chunks.jsonl. Returns {embedded, skipped, deleted,
+    stopped_reason}. sha-skip: unchanged chunks cost nothing."""
+    if not embeddings.configured():
+        return {"embedded": 0, "skipped": 0, "deleted": 0,
+                "stopped_reason": "embeddings not configured (TF-IDF fallback covers queries)"}
+    chunks = knowledge_chunks.load()
+    if not chunks:
+        knowledge_chunks.rebuild()
+        chunks = knowledge_chunks.load()
+    try:
+        con = _connect()
+        have = {r[0]: r[1] for r in con.execute(
+            "SELECT chunk_id, sha256 FROM vectors")}
+    except sqlite3.Error:
+        _quarantine()
+        con = _connect()
+        have = {}
+
+    wanted = {c["chunk_id"]: c for c in chunks}
+    stale = [c for c in chunks
+             if force or have.get(c["chunk_id"]) != c["sha256"]]
+    gone = [cid for cid in have if cid not in wanted]
+    embedded, stopped = 0, ""
+
+    cap = _cap()
+    BATCH = 32
+    for i in range(0, len(stale), BATCH):
+        batch = stale[i:i + BATCH]
+        est = _est_usd([c["text"] for c in batch])
+        if cap and _spend_today() + est > cap:
+            stopped = (f"daily embed cap ${cap:.2f} reached — refresh is partial; "
+                       f"queries fall back where vectors are missing")
+            _notify_once(stopped)
+            break
+        try:
+            vecs = embeddings.embed([c["text"] for c in batch])
+        except RuntimeError as e:
+            stopped = f"embed adapter failed: {e}"
+            break
+        _record_spend(est)
+        with con:
+            for c, v in zip(batch, vecs):
+                con.execute(
+                    "REPLACE INTO vectors VALUES (?,?,?,?,?,?,?)",
+                    (c["chunk_id"], c["sha256"], c["kind"], c["repo"],
+                     len(v), _pack(v), time.time()))
+        embedded += len(batch)
+    with con:
+        for cid in gone:
+            con.execute("DELETE FROM vectors WHERE chunk_id=?", (cid,))
+    con.close()
+    return {"embedded": embedded, "skipped": len(chunks) - len(stale),
+            "deleted": len(gone), "stopped_reason": stopped}
+
+
+def _notify_once(msg):
+    """Best-effort Notify-port ping, at most once per day (the marker rides the
+    spend ledger's keyspace)."""
+    try:
+        d = json.load(open(SPEND, encoding="utf-8"))
+    except Exception:
+        d = {}
+    marker = f"notified-{_day()}"
+    if d.get(marker):
+        return
+    d[marker] = True
+    SPEND.parent.mkdir(parents=True, exist_ok=True)
+    SPEND.write_text(json.dumps(d), encoding="utf-8", newline="\n")
+    try:
+        import subprocess
+        import work_queue
+        adapter = ROOT / ("adapters/mock/notify.sh"
+                          if os.environ.get("AIQE_MOCK", "1") == "1"
+                          else "adapters/notify/slack.sh")
+        if adapter.exists():
+            subprocess.run([work_queue.bash_exe(), str(adapter), "post",
+                            f"[ai-qe] {msg}"], cwd=ROOT, capture_output=True,
+                           stdin=subprocess.DEVNULL, timeout=30)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------- query
+def query(text, k=5, kind=None, repo=None):
+    """Top-k chunks by cosine similarity: [{chunk_id, kind, repo, score}].
+    One embedding call; [] when unconfigured or on any failure — callers'
+    TF-IDF fallback is the degradation path, never an exception."""
+    if not embeddings.configured():
+        return []
+    try:
+        qv = embeddings.embed([text])[0]
+        con = _connect()
+        sql, args = "SELECT chunk_id, kind, repo, dims, vec FROM vectors", []
+        conds = []
+        if kind:
+            conds.append("kind=?")
+            args.append(kind)
+        if repo:
+            conds.append("repo=?")
+            args.append(repo)
+        if conds:
+            sql += " WHERE " + " AND ".join(conds)
+        rows = list(con.execute(sql, args))
+        con.close()
+    except (sqlite3.Error, RuntimeError):
+        return []
+    scored = []
+    for cid, ckind, crepo, dims_, blob in rows:
+        try:
+            score = _cos(qv, _unpack(blob, dims_))
+        except struct.error:
+            continue
+        scored.append({"chunk_id": cid, "kind": ckind, "repo": crepo,
+                       "score": round(score, 4)})
+    scored.sort(key=lambda s: -s["score"])
+    return scored[:k]
+
+
+def stats():
+    try:
+        con = _connect()
+        rows = list(con.execute(
+            "SELECT kind, COUNT(*) FROM vectors GROUP BY kind"))
+        total = sum(n for _, n in rows)
+        con.close()
+    except sqlite3.Error:
+        return {"rows": 0, "by_kind": {}, "configured": embeddings.configured(),
+                "spend_today_usd": _spend_today()}
+    return {"rows": total, "by_kind": dict(rows),
+            "configured": embeddings.configured(),
+            "spend_today_usd": _spend_today(), "db": str(DB)}
+
+
+def main(argv):
+    cmd = argv[1] if len(argv) > 1 else "stats"
+    if cmd in ("refresh", "rebuild"):
+        r = refresh(force=(cmd == "rebuild"))
+        print(f"vector index: {r['embedded']} embedded, {r['skipped']} unchanged, "
+              f"{r['deleted']} removed"
+              + (f" — {r['stopped_reason']}" if r["stopped_reason"] else ""))
+        return 0
+    if cmd == "stats":
+        s = stats()
+        print(f"vector index: {s['rows']} row(s) {s.get('by_kind', {})} — "
+              f"configured={s['configured']}, spend today ${s['spend_today_usd']:.4f}")
+        return 0
+    if cmd == "query":
+        for r in query(" ".join(argv[2:]) or "checkout"):
+            print(f"{r['score']:.4f}  {r['chunk_id']}")
+        return 0
+    print("usage: vector_index.py refresh|rebuild|stats|query <text>",
+          file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

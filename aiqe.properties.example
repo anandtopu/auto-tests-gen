@@ -68,6 +68,18 @@ CONFLUENCE_URL=
 # Default space
 CONFLUENCE_SPACE=QA
 
+# --- Embeddings ---
+# Optional semantic index (vector search over plans, specs, estate knowledge).
+# Unset = lexical TF-IDF fallback, silently.
+# Embeddings API base URL  ·  OpenAI-compatible /v1 base (Voyage, OpenAI, Azure, local TEI/Ollama); /embeddings is appended
+EMBED_URL=
+# Embeddings API key  ·  SECRET
+EMBED_API_KEY=
+# Embedding model  ·  e.g. voyage-3-lite / text-embedding-3-small
+EMBED_MODEL=
+# Vector dimensions (optional)  ·  passed through when the provider supports it
+EMBED_DIMS=
+
 # --- OpenHands ---
 # Optional orchestrator (Path 1). The pipeline never calls it — runs also
 # trigger from CI, the TaskEvent receiver, or the work queue.

@@ -7,7 +7,7 @@ SHELL := /bin/bash
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
         demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config \
-        cost-report
+        cost-report index-rebuild
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -95,6 +95,8 @@ maintain:             # nightly estate maintenance (call from cron / a K8s CronJ
 	-python3 engine/lib/openhands_events.py prune
 	@echo "== knowledge chunk rebuild =="
 	-python3 engine/lib/knowledge_chunks.py rebuild
+	@echo "== vector index refresh (sha-skip; capped) =="
+	-python3 engine/lib/vector_index.py refresh
 	@echo "== coverage drift check =="
 	-python3 engine/lib/coverage_drift.py --notify
 	@echo "== state-bundle snapshot =="
@@ -110,6 +112,10 @@ state-import:         # restore a bundle here (BUNDLE=path [REPLACE=1] [DRY=1])
 
 cost-report:          # LLM spend attribution: by workflow/key/phase/model + turn calibration (DAYS=N)
 	python3 engine/lib/cost_report.py report $(if $(DAYS),--days $(DAYS),)
+
+index-rebuild:        # force-rebuild the semantic vector index from the knowledge chunks
+	python3 engine/lib/knowledge_chunks.py rebuild
+	python3 engine/lib/vector_index.py rebuild
 
 cache-stats:          # phase-cache hit report (LLM calls avoided)
 	python3 engine/lib/phase_cache.py stats

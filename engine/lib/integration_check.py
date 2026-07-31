@@ -376,11 +376,33 @@ def check_telemetry():
                                   "(no event sent)")
 
 
+def check_embeddings():
+    """Read-only probe of the Embedding port (cost-reduction 3.1): embed one
+    short string, report the dimensionality. Nothing is indexed or stored."""
+    if not _env("EMBED_URL"):
+        return _r("Embeddings", "skipped",
+                  "EMBED_URL not set — semantic search falls back to lexical "
+                  "TF-IDF (works, just less clever)")
+    try:
+        sys.path.insert(0, str(ROOT / "engine/lib"))
+        import embeddings
+        os.environ.setdefault("AIQE_MOCK", "0")
+        d = embeddings.dims()
+        if d:
+            return _r("Embeddings", "ok",
+                      f"{_env('EMBED_MODEL') or 'model unset'} — {d} dims")
+        return _r("Embeddings", "fail", "adapter returned no dimensionality",
+                  hint="check EMBED_URL/EMBED_API_KEY/EMBED_MODEL")
+    except Exception as e:
+        return _r("Embeddings", "fail", str(e)[:200],
+                  hint="check EMBED_URL/EMBED_API_KEY/EMBED_MODEL")
+
+
 CHECKS = {
     "llm": check_llm, "scm": check_scm, "jira": check_tracker,
     "confluence": check_confluence, "openhands": check_openhands,
     "jenkins": check_cicd, "slack": check_slack, "smtp": check_smtp,
-    "splunk": check_telemetry,
+    "splunk": check_telemetry, "embeddings": check_embeddings,
 }
 
 # Systems the platform can run entirely without: their outage is reported as
