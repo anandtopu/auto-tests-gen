@@ -164,6 +164,45 @@ def test_saving_the_rendering_back_keeps_the_spec(store):
     assert s.spec_path("K-1").exists()
 
 
+ANALYZE = {"behaviors": [{"id": "B1", "statement": "s", "source": "AC-1",
+                          "layer": "api"}],
+           "requirements": [
+               {"id": "R1", "ears": "WHEN x, THE SYSTEM SHALL y",
+                "source": "AC-1"},
+               {"id": "R2", "ears": "WHEN a, THE SYSTEM SHALL b",
+                "source": "AC-2", "ambiguity": "stacking undefined"}],
+           "open_questions": []}
+
+
+def test_requirements_written_and_ambiguities_surface(store):
+    """SDD 2.1: EARS requirements persist; ambiguities reach the reviewer."""
+    s, ps, tmp = store
+    p = s.write_requirements_from_contract("K-1", ANALYZE)
+    assert p and p.name == "requirements.yaml"
+    spec = s.load_requirements("K-1")
+    assert [r["id"] for r in spec["requirements"]] == ["R1", "R2"]
+    amb = s.ambiguities("K-1")
+    assert amb == [{"id": "R2", "question": "stacking undefined",
+                    "blocking": False}]
+
+
+def test_legacy_analyze_contract_writes_no_requirements(store):
+    s, ps, tmp = store
+    legacy = {"behaviors": [{"id": "B1", "statement": "s"}],
+              "open_questions": []}
+    assert s.write_requirements_from_contract("K-1", legacy) is None
+    assert s.load_requirements("K-1") is None and s.ambiguities("K-1") == []
+
+
+def test_requirements_validation_catches_shape(store):
+    s, ps, tmp = store
+    bad = {"key": "K", "requirements": [{"id": "R1"},
+                                        {"id": "R1", "ears": "x"}]}
+    problems = s.validate_requirements(bad)
+    assert any("missing ears" in p for p in problems)
+    assert any("duplicate" in p for p in problems)
+
+
 def test_spec_mode_kill_switch(store, monkeypatch):
     s, ps, tmp = store
     monkeypatch.setenv("AIQE_SPEC_MODE", "0")

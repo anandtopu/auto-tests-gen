@@ -239,7 +239,12 @@ class Handler(BaseHTTPRequestHandler):
             if not p or not p.exists():
                 self._send(404, {"error": f"no test plan for {key}"})
             else:
+                # SDD 2.1: requirement ambiguities ride along so the plan
+                # reviewer sees WHAT the ticket left undefined beside the
+                # scenarios that had to route around it.
+                import spec_store
                 self._send(200, {"key": key, "text": p.read_text(encoding="utf-8"),
+                                 "ambiguities": spec_store.ambiguities(key),
                                  **plan_state.get(key)})
         elif url.path == "/api/repos":
             self._send(200, repo_admin.summary())

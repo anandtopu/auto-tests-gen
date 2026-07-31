@@ -352,6 +352,11 @@ elif [ "$MODE" = "tests" ]; then
   GENERATE "$(CTX generate)" out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md" out/catalog-slice.jsonl out/repo-conventions.md
 else
   PHASE analyze  jira-analyze.md "$(CTX analyze)" out/issue-guidance.md out/ticket.json out/confluence.md
+  # SDD (story 2.1): persist the EARS requirements spec the analyze contract
+  # carries — the trace matrix's requirement end, and what a human validates
+  # when the requirements gate (2.2) is on. Best-effort; legacy contracts
+  # (behaviors only) write nothing.
+  python3 engine/lib/spec_store.py write-requirements "$KEY" out/analyze.contract.json >/dev/null 2>&1 || true
   # Semantic plan reuse (cost-reduction 3.3): PLAN MODE ONLY — reuse without the
   # human draft gate would skip exactly the review that makes it safe. A hit
   # replaces the testplan LLM phase with deterministic adaptation of a prior

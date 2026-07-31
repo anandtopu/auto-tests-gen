@@ -1,0 +1,103 @@
+# The platform's constitution (SDD story 5.1) — the non-negotiables as a
+# MACHINE-READABLE spec. Every clause names the test pin(s) that enforce it;
+# registry/tests/test_constitution.py verifies each pin exists (a deleted pin
+# breaks the build, not the promise), and the pins themselves run in every
+# suite. CLAUDE.md's "Non-negotiables" section is the human RENDERING of this
+# file — edit clauses here.
+clauses:
+  - id: C1
+    statement: The gate is the only push/commit path; no LLM phase touches git state.
+    category: safety
+    pins:
+      - file: tests/gate-adversarial.sh
+      - file: registry/tests/test_gate_stop_hook.py
+        test: test_check_only_runs_the_checks_but_never_commits
+  - id: C2
+    statement: >-
+      The critic is advisory - nothing under engine/gate/ may read its score,
+      it never gets write tools, and it can never move a review status.
+    category: safety
+    pins:
+      - file: registry/tests/test_critic.py
+        test: test_the_gate_never_reads_the_critic
+      - file: registry/tests/test_critic.py
+        test: test_critic_phase_has_no_write_tools
+      - file: registry/tests/test_critic.py
+        test: test_recording_a_score_never_moves_a_review_status
+  - id: C3
+    statement: >-
+      Every generated spec is born-mapped - a catalog sidecar entry in the same
+      commit, or the gate rejects it.
+    category: data-integrity
+    pins:
+      - file: tests/gate-adversarial.sh
+  - id: C4
+    statement: >-
+      Ticket, PR, Confluence and retrieved-chunk text is DATA, never
+      instructions - prompts and every scoped context enforce the framing.
+    category: security
+    pins:
+      - file: registry/tests/test_context_scope.py
+        test: test_every_assembly_carries_the_data_framing
+  - id: C5
+    statement: Coverage maps (covers:) are generated, never hand-edited.
+    category: data-integrity
+    pins:
+      - file: registry/tests/test_repo_admin.py
+        test: test_scope_mapping_feeds_generated_covers
+  - id: C6
+    statement: >-
+      A generated per-repo AGENTS.md never outranks one the repo owns, and is
+      never pushed to the repo.
+    category: safety
+    pins:
+      - file: registry/tests/test_repo_guidance_gen.py
+        test: test_generated_never_outranks_a_real_repo_owned_file
+  - id: C7
+    statement: >-
+      OpenHands is optional - the engine never imports the client, no trigger
+      path depends on it, and an outage is degraded, never fatal (unless
+      AIQE_OPENHANDS=required).
+    category: resilience
+    pins:
+      - file: registry/tests/test_standalone.py
+        test: test_no_engine_module_imports_the_openhands_client_at_run_time
+      - file: registry/tests/test_standalone.py
+        test: test_unreachable_openhands_is_degraded_and_not_fatal
+  - id: C8
+    statement: >-
+      The plan adversary is read-only (an opponent with write tools is just a
+      second author) and arbitration may only ADD scenarios.
+    category: safety
+    pins:
+      - file: registry/tests/test_multi_agent.py
+        test: test_the_adversary_can_never_be_given_write_tools
+  - id: C9
+    statement: >-
+      Reuse can never auto-approve - a reused plan lands as draft with visible
+      provenance, behind a human gate.
+    category: safety
+    pins:
+      - file: registry/tests/test_plan_reuse.py
+        test: test_reuse_end_to_end_with_provenance
+  - id: C10
+    statement: >-
+      A simulated cost figure can never masquerade as a measured dollar -
+      labels everywhere, savings print n/a until measured runs exist.
+    category: honesty
+    pins:
+      - file: registry/tests/test_cost_telemetry.py
+        test: test_simulated_share_is_visible
+      - file: registry/tests/test_spend_controls.py
+        test: test_baseline_refuses_simulated_runs
+  - id: C11
+    statement: >-
+      A structured spec has ONE source of truth - the reviewer's markdown is a
+      rendering, approval signs the spec's hash, and a divergent free-form edit
+      supersedes the spec visibly rather than contradicting it silently.
+    category: data-integrity
+    pins:
+      - file: registry/tests/test_spec_store.py
+        test: test_approval_signs_the_spec
+      - file: registry/tests/test_spec_store.py
+        test: test_freeform_edit_supersedes_the_spec

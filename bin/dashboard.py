@@ -1621,6 +1621,18 @@ async function openPlan(key) {
   }
   // Per-gap verdicts (roadmap 4.5): the reviewer approves a plan that was already
   // challenged — show WHAT was challenged, not just that a challenge happened.
+  // Requirement ambiguities (SDD 2.1): what the ticket left undefined.
+  const amb = $('#plan-ambiguities');
+  if (amb) {
+    const items = p.ambiguities || [];
+    if (items.length) {
+      amb.innerHTML = items.map(a =>
+        '<li><span class="chip ' + (a.blocking ? 'chip-danger' : 'chip-warning') + '">' +
+        (a.blocking ? 'blocking' : 'ambiguity') + '</span> <b>' + escHtml(a.id) +
+        '</b> <span class="sm">' + escHtml(a.question) + '</span></li>').join('');
+      amb.classList.remove('hidden');
+    } else { amb.classList.add('hidden'); }
+  }
   const det = $('#plan-adversary-detail');
   if (det) {
     const gaps = (p.adversary_detail && p.adversary_detail.gaps) || [];
@@ -2448,6 +2460,11 @@ page = f"""<!doctype html>
         <ul id="plan-adversary-detail" class="hidden"
           style="list-style:none; margin:0; padding:8px 12px; display:flex;
                  flex-direction:column; gap:6px; border:1px solid var(--sr-border);
+                 border-radius:8px"></ul>
+        <ul id="plan-ambiguities" class="hidden"
+          title="What the ticket's requirements left undefined (SDD 2.1) — the scenarios below had to route around these; consider resolving them on the ticket before approving."
+          style="list-style:none; margin:0; padding:8px 12px; display:flex;
+                 flex-direction:column; gap:6px; border:1px dashed var(--sr-border);
                  border-radius:8px"></ul>
         <div id="plan-similar" class="hidden sm"
           style="border:1px solid var(--sr-border); border-radius:8px;

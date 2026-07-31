@@ -1,0 +1,10 @@
+key: PROJ-301
+requirements:
+- ears: WHEN a discount over 90% is submitted, THE SYSTEM SHALL reject it and leave
+    the order total unchanged
+  id: R1
+  source: AC-2
+- ambiguity: AC-3 does not define stacking behavior for multiple discounts
+  ears: WHEN a valid discount is applied, THE SYSTEM SHALL recalculate the order total
+  id: R2
+  source: AC-1

@@ -203,6 +203,89 @@ def diff_scenarios(old_spec, new_spec):
     return out
 
 
+# ---------------------------------------------------------------- SDD 2.1
+def requirements_path(key):
+    return SPEC_DIR / key / "requirements.yaml"
+
+
+def validate_requirements(spec):
+    """Problems list for a requirements spec; [] = valid."""
+    problems = []
+    if not isinstance(spec, dict) or not spec.get("key"):
+        return ["requirements spec missing key"]
+    reqs = spec.get("requirements")
+    if not isinstance(reqs, list) or not reqs:
+        return ["requirements must be a non-empty list"]
+    seen = set()
+    for i, r in enumerate(reqs):
+        if not isinstance(r, dict):
+            problems.append(f"requirement[{i}] is not a mapping")
+            continue
+        if not r.get("id"):
+            problems.append(f"requirement[{i}] missing id")
+        if r.get("id") in seen:
+            problems.append(f"duplicate requirement id {r['id']}")
+        seen.add(r.get("id"))
+        if not r.get("ears"):
+            problems.append(f"{r.get('id', i)}: missing ears statement")
+    return problems
+
+
+def write_requirements_from_contract(key, contract):
+    """Persist requirements.yaml when the analyze contract carries EARS
+    requirements (SDD 2.1). Returns the path or None — total, like
+    write_from_contract: legacy contracts (behaviors only) write nothing."""
+    if not enabled():
+        return None
+    reqs = (contract or {}).get("requirements")
+    if not isinstance(reqs, list) or not reqs:
+        return None
+    spec = {"key": key, "requirements": reqs}
+    if validate_requirements(spec):
+        return None
+    try:
+        import yaml
+        p = requirements_path(key)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".yaml.tmp")
+        tmp.write_text(yaml.safe_dump(spec, sort_keys=True,
+                                      allow_unicode=True),
+                       encoding="utf-8", newline="\n")
+        os.replace(tmp, p)
+        return p
+    except Exception:
+        return None
+
+
+def load_requirements(key):
+    """The requirements spec dict, or None. Guarded like load()."""
+    p = requirements_path(key)
+    if not p.exists():
+        return None
+    try:
+        import yaml
+        spec = yaml.safe_load(p.read_text(encoding="utf-8"))
+        return spec if isinstance(spec, dict) \
+            and not validate_requirements(spec) else None
+    except Exception:
+        return None
+
+
+def ambiguities(key):
+    """[{id, question}] for requirements carrying an ambiguity — what the plan
+    reviewer must see beside the scenarios."""
+    spec = load_requirements(key)
+    if not spec:
+        return []
+    out = []
+    for r in spec.get("requirements", []):
+        q = r.get("blocking_ambiguity") or r.get("ambiguity")
+        if q:
+            out.append({"id": r.get("id", "?"), "question": str(q),
+                        "blocking": bool(r.get("blocking_ambiguity"))})
+    return out
+
+
 def merge_fold(original_path, folded_path):
     """Preserve the author's structured fields through the arbiter fold.
 
@@ -239,6 +322,15 @@ def main(argv):
         except Exception as e:
             print(f"merge-fold failed: {e}", file=sys.stderr)
             return 1
+    if cmd == "write-requirements" and len(argv) >= 3:
+        try:
+            contract = json.load(open(argv[2], encoding="utf-8"))
+        except Exception:
+            return 1
+        p = write_requirements_from_contract(argv[1], contract)
+        if p:
+            print(f"requirements spec -> {p}")
+        return 0 if p else 1
     if cmd == "render" and key:
         p = render_to_plan(key)
         print(f"rendered -> {p}" if p else f"no structured spec for {key}")

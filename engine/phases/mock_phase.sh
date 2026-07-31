@@ -61,6 +61,9 @@ EOF
     cat > out/analyze.contract.json << 'EOF'
 {"behaviors":[{"id":"B1","statement":"discount 1-90% accepted and total recalculated","source":"AC-1","layer":"api"},
               {"id":"B2","statement":"out-of-range discount rejected with 400","source":"AC-2","layer":"api"}],
+ "requirements":[{"id":"R1","ears":"WHEN a discount over 90% is submitted, THE SYSTEM SHALL reject it and leave the order total unchanged","source":"AC-2"},
+                 {"id":"R2","ears":"WHEN a valid discount is applied, THE SYSTEM SHALL recalculate the order total","source":"AC-1",
+                  "ambiguity":"AC-3 does not define stacking behavior for multiple discounts"}],
  "open_questions":["AC-3 does not define stacking behavior for multiple discounts"]}
 EOF
     ;;

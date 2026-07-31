@@ -88,6 +88,8 @@ Debug one gate run: logs land in `reports/<KEY>-<test_repo>.log`; mock adapter c
 
 ## Non-negotiables
 
+(This section is the human RENDERING of `specs/platform/constitution.yaml` — the machine-readable constitution whose every clause names its enforcing test pins; `registry/tests/test_constitution.py` breaks the build if a pin is deleted without amending the clause. Edit the yaml, keep this list in sync.)
+
 - The gate is the only push/commit path; no LLM phase touches git state.
 - The critic is advisory: nothing under `engine/gate/` may read its score, and it never gets write tools.
 - Every generated spec must be born-mapped (catalog sidecar entry in the same commit) or the gate rejects it.

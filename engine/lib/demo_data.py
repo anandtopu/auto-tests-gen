@@ -54,11 +54,17 @@ CLEAR_DIRS = ["reports/runs", "reports/exports", "reports/inline",
               "knowledge/synced",         # SCM guidance cache (re-pull: make sync-guidance)
               "reports/knowledge-index",  # retrieval chunks (derived; make agents rebuilds)
               "out", "workspace", "testplans", "testdata",
-              "specs"]                  # SDD spec store (specs/platform/ is
-                                        # future constitution space — recreated
-                                        # from git, so wholesale clear is safe:
-                                        # only generated per-key specs are
-                                        # untracked-at-clear time in demos)
+              "specs"]                  # SDD spec store: per-key specs are
+                                        # generated demo output. specs/platform/
+                                        # (the constitution) is hand-authored
+                                        # platform SPEC, preserved via
+                                        # KEEP_SUBDIRS below.
+
+# Subdirectories a wholesale dir-clear must PRESERVE: hand-authored content
+# living inside an otherwise-generated tree. A clear that deleted the platform
+# constitution would leave a running deployment without its own spec until
+# someone ran git checkout.
+KEEP_SUBDIRS = {"specs": {"platform"}}
 CLEAR_FILES = ["reports/dashboard.html", "reports/catalog.db", "catalog/health.json"]
 
 # Generated files that live BESIDE committed code/fixtures, so we clear by glob and
@@ -148,7 +154,9 @@ def clear(root=None, dry=False, force=False, factory=False):
             locks.enter_context(fs_lock.lock(root / "reports/plans/state.json"))
         for rel in CLEAR_DIRS:
             d = root / rel
-            files = _files_under(d)
+            keep = KEEP_SUBDIRS.get(rel, set())
+            files = [f for f in _files_under(d)
+                     if not (keep and f.relative_to(d).parts[0] in keep)]
             if not d.exists():
                 continue
             removed += len(files)
@@ -163,6 +171,8 @@ def clear(root=None, dry=False, force=False, factory=False):
                 for child in sorted(d.iterdir()):
                     if child.is_dir() and child.name.endswith(".lock"):
                         continue
+                    if child.is_dir() and child.name in KEEP_SUBDIRS.get(rel, ()):
+                        continue          # hand-authored (e.g. specs/platform)
                     if child.is_symlink():
                         # is_dir() follows links; rmtree refuses symlinks — the
                         # link itself is the thing to remove.
