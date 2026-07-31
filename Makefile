@@ -7,7 +7,7 @@ SHELL := /bin/bash
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
         demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config \
-        cost-report index-rebuild cache-probe cost-baseline \n        requirements demo-requirements requirements-approve
+        cost-report index-rebuild cache-probe cost-baseline \n        requirements demo-requirements requirements-approve spec-verify
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -99,6 +99,8 @@ maintain:             # nightly estate maintenance (call from cron / a K8s CronJ
 	-python3 engine/lib/vector_index.py refresh
 	@echo "== cost regression check (needs an armed baseline) =="
 	-python3 engine/lib/cost_report.py check-regression
+	@echo "== spec drift check (SDD 4.1) =="
+	-python3 engine/lib/spec_drift.py check --notify
 	@echo "== coverage drift check =="
 	-python3 engine/lib/coverage_drift.py --notify
 	@echo "== state-bundle snapshot =="
@@ -171,6 +173,9 @@ email:
 
 # --- JIRA test-plan workflow: author -> review/edit -> approve -> link -> generate ---
 # plan/plan-tests are real runs (like run-jira); demo-plan/demo-plan-tests use mocks.
+spec-verify:          # SDD 4.2: read-only - are a (stale) spec's EXISTING tests still passing?
+	python3 engine/lib/spec_verify.py $(KEY)
+
 requirements:         # SDD 2.2: formalize EARS requirements, then stop for human validation
 	bash engine/pipeline.sh requirements $(KEY)
 demo-requirements:

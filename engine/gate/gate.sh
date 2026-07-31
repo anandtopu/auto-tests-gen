@@ -41,6 +41,16 @@ for spec in $NEW_SPECS; do
   grep -qF "\"$spec\"" catalog/*.jsonl 2>/dev/null || { echo "UNMAPPED_TEST: $spec"; exit 4; }
 done
 
+# 2b. Spec satisfaction (SDD 3.2, org-config spec.enforce off|warn|strict).
+# Ordered after born-mapped: every approved scenario covered-or-waived, no
+# forged/stale scenario ids. off = absent; warn = printed; strict = exit 8.
+# Exempt by construction for keys without an approved structured spec.
+echo "$CHANGED" > "$ROOT/out/gate-changed-${TREPO}.txt"
+SPEC_RC=0
+python3 "$ROOT/engine/gate/spec_check.py" "$KEY" "$TREPO" \
+  "$ROOT/out/gate-changed-${TREPO}.txt" || SPEC_RC=$?
+[ "$SPEC_RC" -eq 0 ] || { echo "SPEC_UNSATISFIED"; exit 8; }
+
 # 3. Static checks
 bash -c "$LINT_CMD"
 

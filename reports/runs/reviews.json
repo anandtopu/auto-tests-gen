@@ -13,7 +13,7 @@
       "rationale": "assertions check the discounted total, not just the status code",
       "score": 0.86,
       "specs_reviewed": 2,
-      "ts": 1785481684.6202612,
+      "ts": 1785482895.4041612,
       "verdict": "accept"
     },
     "history": [
@@ -21,20 +21,20 @@
         "note": "new AI-generated artifacts committed",
         "reviewer": "pipeline",
         "status": "pending_review",
-        "ts": 1785481686.431227
+        "ts": 1785482897.187658
       }
     ],
     "note": "new AI-generated artifacts committed",
     "reviewer": "pipeline",
     "status": "pending_review",
-    "updated": 1785481686.431227
+    "updated": 1785482897.187658
   },
   "PROJ-301": {
     "history": [
       {
         "release": "2026.08",
         "source": "jira",
-        "ts": 1785481690.4110165
+        "ts": 1785482901.5117085
       }
     ],
     "release": "2026.08",

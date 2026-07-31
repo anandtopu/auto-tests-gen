@@ -1641,10 +1641,12 @@ async function openPlan(key) {
         const w = wv[x.id];
         const wchip = w ? '<span class="chip ' + (w.expired ? 'chip-danger' : 'chip-warning') + '">' +
           (w.expired ? 'waiver EXPIRED' : 'waived') + '</span>' : '';
+        const stale = (p.stale_scenarios || []).includes(x.id)
+          ? '<span class="chip chip-danger" title="This scenario references application surface that no longer exists (spec drift) — re-approve, edit, or waive.">stale</span>' : '';
         return '<div style="border:1px solid var(--sr-border); border-radius:8px; padding:8px 12px">' +
           '<div><b class="mono sm">' + escHtml(x.id) + '</b> ' + escHtml(x.title || '') +
           ' <span class="muted sm">[' + escHtml(x.layer || '') + ' · ' + escHtml(x.target_repo || '') + ']</span> ' +
-          req + ' ' + wchip + '</div>' + gwt + ver + '</div>';
+          req + ' ' + wchip + ' ' + stale + '</div>' + gwt + ver + '</div>';
       }).join('');
       specEl.classList.remove('hidden');
     } else { specEl.classList.add('hidden'); }

@@ -95,6 +95,11 @@ context_budget: 4000        # tokens; MUST-KEEP chunks may exceed it
 # Off = today's flow, byte for byte.
 spec:
   requirements_gate: off
+  # Spec-satisfaction gate check (SDD 3.2): off = absent, warn = findings
+  # print but the gate proceeds, strict = exit 8 (cover, waive with a reason
+  # in specs/<KEY>/waivers.yaml, or re-approve). Strict only after a
+  # warn-mode sprint proves the signal clean (two-step rollout by design).
+  enforce: off
 
 # Semantic artifact reuse (cost-reduction 3.3). plan_threshold is deliberately
 # conservative: a wrong reuse is a confidently incorrect plan, and only the
