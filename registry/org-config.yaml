@@ -89,6 +89,13 @@ context_scope:
   planarbiter: off
 context_budget: 4000        # tokens; MUST-KEEP chunks may exceed it
 
+# Spec-driven development (docs/spec-driven-stories.md). The requirements gate
+# makes `pipeline.sh plan|jira` refuse until a human validated the EARS
+# requirements (make requirements KEY=.. -> review -> requirements-approve).
+# Off = today's flow, byte for byte.
+spec:
+  requirements_gate: off
+
 # Semantic artifact reuse (cost-reduction 3.3). plan_threshold is deliberately
 # conservative: a wrong reuse is a confidently incorrect plan, and only the
 # human diff step makes reuse safe at all. AIQE_PLAN_REUSE=1 enables (plan

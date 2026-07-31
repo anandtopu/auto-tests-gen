@@ -9,7 +9,12 @@ set -euo pipefail
 MODE=${1:?pr|jira|plan|tests}; export AIQE_ROOT="$PWD"; mkdir -p out workspace
 # Validate — MODE is interpolated into python -c strings below, and an unknown
 # mode would silently take the jira branch.
-case "$MODE" in pr|jira|plan|tests) ;; *) echo "INVALID_MODE: $MODE (pr|jira|plan|tests)"; exit 64 ;; esac
+case "$MODE" in pr|jira|plan|tests|requirements) ;; *) echo "INVALID_MODE: $MODE (pr|jira|plan|tests|requirements)"; exit 64 ;; esac
+# SDD 2.2: `requirements <KEY>` runs the chain through analyze, persists the
+# EARS requirements spec, and STOPS for human validation — the stage before
+# planning, mirroring plan-first. Re-running it deliberately re-authors (the
+# env override lets the fresh analysis replace an approved file).
+if [ "$MODE" = "requirements" ]; then export AIQE_REQUIREMENTS_REAUTHOR=1; fi
 # The budget envelope (5.2) and degradation ladder (5.3) resolve per workflow.
 export AIQE_RUN_MODE="$MODE"
 # Config layers, lowest first: aiqe.properties < .env < explicit environment.
@@ -237,6 +242,11 @@ else
   if [ "$MODE" = "tests" ]; then
     python3 engine/lib/plan_state.py require-approved "$KEY"
   fi
+  # SDD 2.2: when the requirements gate is ON, planning requires validated
+  # requirements — checked BEFORE any clone/LLM work, like the plan gate.
+  if [ "$MODE" = "plan" ] || [ "$MODE" = "jira" ]; then
+    python3 engine/lib/plan_state.py require-requirements "$KEY"
+  fi
   # P0: inline JIRA context ("pass JIRA context as text input") bypasses the tracker
   if [ -n "${AIQE_INLINE_FILE:-}" ]; then
     cp "$AIQE_INLINE_FILE" out/ticket.json
@@ -357,6 +367,33 @@ else
   # when the requirements gate (2.2) is on. Best-effort; legacy contracts
   # (behaviors only) write nothing.
   python3 engine/lib/spec_store.py write-requirements "$KEY" out/analyze.contract.json >/dev/null 2>&1 || true
+  # SDD 2.2: requirements mode stops HERE — the human validates WHAT before
+  # the platform plans HOW. Blocking questions ride the ticket comment.
+  if [ "$MODE" = "requirements" ]; then
+    python3 engine/lib/plan_state.py requirements-record "$KEY" > /dev/null
+    RQ_MSG="AI-QE formalized requirements for ${KEY} (specs/${KEY}/requirements.yaml) — validate and approve with: make requirements-approve KEY=${KEY}"
+    if BLOCKING=$(python3 engine/lib/spec_store.py blocking "$KEY" 2>/dev/null); then
+      RQ_MSG="${RQ_MSG}. OPEN QUESTIONS NEEDING ANSWERS: $(echo "$BLOCKING" | tr '
+' ' ')"
+    fi
+    { TRACKER comment "$KEY" "$RQ_MSG"; } || true
+    NOTIFY post "$RQ_MSG" || true
+    echo "REQUIREMENTS_STATUS=DRAFT specs/${KEY}/requirements.yaml"
+    echo "$RQ_MSG"
+    exit 0
+  fi
+  # SDD 2.3: a BLOCKING ambiguity (contradictory/undefined ACs) stops the
+  # chain before planning — the platform asks instead of guessing, extending
+  # the resolver's needs_clarification pattern. Non-blocking ambiguities flow
+  # through and render in the plan editor.
+  if BLOCKING=$(python3 engine/lib/spec_store.py blocking "$KEY" 2>/dev/null); then
+    CL_MSG="AI-QE NEEDS CLARIFICATION for ${KEY} before planning: $(echo "$BLOCKING" | tr '
+' ' ') — answer on the ticket, then re-run."
+    { TRACKER comment "$KEY" "$CL_MSG"; } || true
+    NOTIFY post "$CL_MSG" || true
+    echo "NEEDS_CLARIFICATION: $(echo "$BLOCKING" | head -1)"
+    exit 65
+  fi
   # Semantic plan reuse (cost-reduction 3.3): PLAN MODE ONLY — reuse without the
   # human draft gate would skip exactly the review that makes it safe. A hit
   # replaces the testplan LLM phase with deterministic adaptation of a prior

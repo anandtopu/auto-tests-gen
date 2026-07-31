@@ -318,6 +318,83 @@ def mark_generated(key, run_id):
     return e
 
 
+# ------------------------------------------------------------------ SDD 2.2
+def _requirements_gate_on():
+    try:
+        import yaml
+        cfg = yaml.safe_load(open(ROOT / "registry/org-config.yaml",
+                                  encoding="utf-8")) or {}
+        return (cfg.get("spec") or {}).get("requirements_gate") in \
+            (True, "on", "yes", 1)
+    except Exception:
+        return False
+
+
+def requirements_record(key, by="pipeline"):
+    """Mark the key's requirements spec as draft, awaiting human validation."""
+    with fs_lock.lock(FILE):
+        state = load()
+        e = state.get(key, {"history": []})
+        e["requirements_status"] = "draft"
+        e.setdefault("history", []).append(
+            {"requirements": "draft", "by": by, "ts": time.time()})
+        state[key] = e
+        _save(state)
+    return state[key]
+
+
+def set_requirements_status(key, status, by=""):
+    """Validate/approve the requirements spec (SDD 2.2). Approval signs the
+    yaml's hash, mirroring plan approval."""
+    if status not in ("draft", "approved"):
+        raise SystemExit("requirements status must be draft|approved")
+    try:
+        import spec_store
+        if status == "approved" and not spec_store.load_requirements(key):
+            raise SystemExit(f"no valid requirements spec for {key} — run "
+                             f"`make requirements KEY={key}` first")
+    except SystemExit:
+        raise
+    except Exception:
+        pass
+    with fs_lock.lock(FILE):
+        state = load()
+        e = state.get(key, {"history": []})
+        e["requirements_status"] = status
+        entry = {"requirements": status, "by": by, "ts": time.time()}
+        if status == "approved":
+            try:
+                import hashlib
+                import spec_store
+                p = spec_store.requirements_path(key)
+                if p.exists():
+                    h = hashlib.sha256(p.read_bytes()).hexdigest()
+                    e["requirements_sha"] = h
+                    entry["requirements_sha"] = h
+            except Exception:
+                pass
+        e.setdefault("history", []).append(entry)
+        state[key] = e
+        _save(state)
+    return state[key]
+
+
+def require_requirements(key):
+    """Gate for planning (SDD 2.2): when org-config `spec.requirements_gate`
+    is on, a plan may only be authored over VALIDATED requirements. Gate off =
+    no-op — today's flow, byte for byte (pinned)."""
+    if not _requirements_gate_on():
+        return None
+    st = get(key).get("requirements_status")
+    if st != "approved":
+        raise SystemExit(
+            f"requirements gate is ON and {key}'s requirements are "
+            f"'{st or 'absent'}', not approved — run `make requirements "
+            f"KEY={key}`, review specs/{key}/requirements.yaml, then "
+            f"`make requirements-approve KEY={key}`")
+    return get(key)
+
+
 def require_approved(key):
     """Gate for test generation — raises unless the plan is approved."""
     e = get(key)
@@ -368,6 +445,13 @@ if __name__ == "__main__":
         # Optional 4th arg: the adversarial-review summary line for this plan.
         print(json.dumps(record_plan(a[1], contract, adversary=a[3] if len(a) > 3 else ""),
                          indent=2))
+    elif a[0] == "requirements-record":         # SDD 2.2: pipeline stop point
+        print(json.dumps(requirements_record(a[1]), indent=2))
+    elif a[0] == "requirements-set":
+        print(json.dumps(set_requirements_status(
+            a[1], a[2], a[3] if len(a) > 3 else ""), indent=2))
+    elif a[0] == "require-requirements":        # SDD 2.2: planning gate
+        require_requirements(a[1])
     elif a[0] == "generated":
         print(json.dumps(mark_generated(a[1], a[2]), indent=2))
     elif a[0] == "list":

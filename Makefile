@@ -7,7 +7,7 @@ SHELL := /bin/bash
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
         demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config \
-        cost-report index-rebuild cache-probe cost-baseline
+        cost-report index-rebuild cache-probe cost-baseline \n        requirements demo-requirements requirements-approve
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -171,6 +171,13 @@ email:
 
 # --- JIRA test-plan workflow: author -> review/edit -> approve -> link -> generate ---
 # plan/plan-tests are real runs (like run-jira); demo-plan/demo-plan-tests use mocks.
+requirements:         # SDD 2.2: formalize EARS requirements, then stop for human validation
+	bash engine/pipeline.sh requirements $(KEY)
+demo-requirements:
+	AIQE_MOCK=1 bash engine/pipeline.sh requirements $(or $(KEY),PROJ-301)
+requirements-approve: # validate the requirements spec (signs its hash)
+	python3 engine/lib/plan_state.py requirements-set $(KEY) approved $(or $(BY),)
+
 plan:                 # author the plan only, then stop for human review
 	bash engine/pipeline.sh plan $(KEY)
 demo-plan:

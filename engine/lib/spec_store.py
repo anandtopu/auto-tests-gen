@@ -240,6 +240,18 @@ def write_requirements_from_contract(key, contract):
     reqs = (contract or {}).get("requirements")
     if not isinstance(reqs, list) or not reqs:
         return None
+    # SDD 2.2: once a human APPROVED the requirements, a later run's re-analysis
+    # must not silently overwrite the validated artifact — the approved file is
+    # what planning consumes; re-authoring requirements is a deliberate act
+    # (make requirements KEY=..., which resets the status first).
+    try:
+        import plan_state
+        if plan_state.get(key).get("requirements_status") == "approved" \
+                and requirements_path(key).exists() \
+                and os.environ.get("AIQE_REQUIREMENTS_REAUTHOR") != "1":
+            return None
+    except Exception:
+        pass
     spec = {"key": key, "requirements": reqs}
     if validate_requirements(spec):
         return None
@@ -322,6 +334,13 @@ def main(argv):
         except Exception as e:
             print(f"merge-fold failed: {e}", file=sys.stderr)
             return 1
+    if cmd == "blocking" and key:
+        # Exit 0 + questions on stdout when a BLOCKING ambiguity exists —
+        # the pipeline's stop-and-ask signal (SDD 2.3).
+        qs = [a["question"] for a in ambiguities(key) if a.get("blocking")]
+        for q in qs:
+            print(q)
+        return 0 if qs else 1
     if cmd == "write-requirements" and len(argv) >= 3:
         try:
             contract = json.load(open(argv[2], encoding="utf-8"))
