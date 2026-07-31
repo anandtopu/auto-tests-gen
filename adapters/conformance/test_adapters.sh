@@ -12,6 +12,8 @@ declare -A verbs=( [scm/github.sh]="clone_ro clone_rw changed_files diff comment
                    [notify/slack.sh]="post digest"
                    [notify/email.sh]="post digest"
                    [telemetry/splunk.sh]="emit_event"
+                   [llm/claude.sh]="run_phase capabilities check"
+                   [mock/llm.sh]="run_phase capabilities check"
                    [embed/http.sh]="embed_texts dims"
                    [mock/embed.sh]="embed_texts dims" )
 for a in "${!verbs[@]}"; do

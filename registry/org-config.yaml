@@ -18,6 +18,17 @@ models:
   planarbiter: claude-sonnet-4-6
   generate: claude-sonnet-4-6           # writes the code that gets committed
   escalate: claude-opus-4-8             # after 2 failed generate attempts
+# LLM Runner port (docs/multi-llm-providers.md). `provider` is the global
+# default; `phase_providers` overrides per phase (e.g. local Ollama for
+# triage/analyze, claude for judgement + agentic phases). AIQE_LLM_PROVIDER
+# (the Settings switch) beats both. Agentic phases (generate, validate) refuse
+# a completion-only provider at CONFIG time — there is no silent fallback.
+# `models_by_provider` maps the tier ids in `models:` to each provider's own.
+llm:
+  provider: claude
+  phase_providers: {}
+  models_by_provider: {}
+
 phases:
   resolve:   { max_turns: 5,  allowed_tools: "Read" }
   triage:    { max_turns: 12, allowed_tools: "Read,Bash(git diff:*)" }   # 5 was too tight for real tool use (parity finding P1)
