@@ -320,7 +320,11 @@ def load_waivers(key):
             if not isinstance(w, dict) or not w.get("scenario"):
                 continue
             w = dict(w)
+            # YAML parses an unquoted `expires: 2099-01-01` as datetime.date,
+            # which is not JSON-serializable — /api/plans/one would 500 on any
+            # waiver. Normalize to the ISO string everywhere.
             exp = str(w.get("expires") or "")
+            w["expires"] = exp
             w["expired"] = bool(exp) and exp < _t.strftime("%Y-%m-%d")
             out[w["scenario"]] = w
         return out

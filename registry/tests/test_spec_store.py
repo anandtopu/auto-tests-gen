@@ -225,6 +225,11 @@ def test_waivers_load_and_flag_expiry(store):
         {"scenario": "K-1-S4", "reason": "old", "by": "lead",
          "expires": "2020-01-01"}]}), encoding="utf-8")
     w = s.load_waivers("K-1")
+    # Unquoted YAML dates parse as datetime.date — the loader must normalize
+    # to strings or /api/plans/one 500s on any waiver (found live, Pass 9+).
+    import json as _json
+    _json.dumps(w)
+    assert isinstance(w["K-1-S3"]["expires"], str)
     assert w["K-1-S3"]["expired"] is False
     assert w["K-1-S4"]["expired"] is True
     assert s.load_waivers("NOPE") == {}
