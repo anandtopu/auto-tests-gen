@@ -7,7 +7,9 @@ SHELL := /bin/bash
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
         demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config \
-        cost-report index-rebuild cache-probe cost-baseline \n        requirements demo-requirements requirements-approve spec-verify
+        cost-report index-rebuild cache-probe cost-baseline \
+        requirements demo-requirements requirements-approve spec-verify \
+        test-providers parity-compare
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -33,6 +35,10 @@ conformance:
 test-gate:
 	bash tests/gate-adversarial.sh
 
+# Adversarial UAT for the LLM Runner port (multi-LLM 5.3)
+test-providers:
+	bash tests/provider-adversarial.sh
+
 demo-bootstrap:
 	bash bin/demo-bootstrap.sh e2e-api-tests-1 && bash bin/demo-bootstrap.sh e2e-ui-tests-1
 
@@ -42,15 +48,23 @@ demo-pr:
 demo-jira:
 	AIQE_MOCK=1 bash engine/pipeline.sh jira PROJ-301
 
-# Real-LLM parity: claude -p phases, demo estate + mock adapters (REVIEW.md item 1)
+# Real-LLM parity: real phases, demo estate + mock adapters (REVIEW.md item 1).
+# LLM_PROVIDER=ollama|codex|claude routes the phases at a provider (multi-LLM
+# 2.5) so the SAME three quality claims can be measured per provider before
+# anyone trusts a cheaper model with judgement work. Empty = org-config default.
 parity-pr:
-	AIQE_MOCK=1 AIQE_REAL_LLM=1 bash engine/pipeline.sh pr orders-api 201
+	AIQE_MOCK=1 AIQE_REAL_LLM=1 AIQE_LLM_PROVIDER=$(LLM_PROVIDER) bash engine/pipeline.sh pr orders-api 201
 
 parity-jira:
-	AIQE_MOCK=1 AIQE_REAL_LLM=1 bash engine/pipeline.sh jira PROJ-301
+	AIQE_MOCK=1 AIQE_REAL_LLM=1 AIQE_LLM_PROVIDER=$(LLM_PROVIDER) bash engine/pipeline.sh jira PROJ-301
+
+# Compare parity runs ACROSS providers (multi-LLM 2.5): commit rate, critic
+# score, spend and turns per provider, from the run records they wrote.
+parity-compare:
+	python3 engine/lib/parity_compare.py $(DAYS)
 
 review:
-	python3 -m pytest registry/tests -q && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash eval/replay.sh && python3 eval/context_check.py && python3 eval/scorecard.py
+	python3 -m pytest registry/tests -q && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash tests/provider-adversarial.sh && bash eval/replay.sh && python3 eval/context_check.py && python3 eval/scorecard.py
 
 # --- QA monitoring & mapping management ---
 status:

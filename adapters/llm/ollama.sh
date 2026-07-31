@@ -87,5 +87,10 @@ except Exception as e:
     sys.exit(1)
 PY
     ;;
+  tool_policy)
+    # 5.1: a completion provider gets no tools at all — the harness
+    # materializes artifacts from the contract instead.
+    echo "none completion-provider allowedTools=${1:-}"
+    ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

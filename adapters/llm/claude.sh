@@ -47,6 +47,17 @@ PY
   capabilities)
     echo "agentic"
     ;;
+  tool_policy)
+    # 5.1: what this adapter will ACTUALLY enforce for a given allow-list.
+    # claude enforces it verbatim, so the answer is the input — printed anyway
+    # so every agentic adapter answers the same question the same way, and a
+    # read-only phase's policy is inspectable rather than assumed.
+    POLICY=${1:-}
+    case "$POLICY" in
+      *Write*|*Edit*) echo "writable allowedTools=$POLICY" ;;
+      *)              echo "readonly allowedTools=$POLICY" ;;
+    esac
+    ;;
   check)
     command -v claude >/dev/null 2>&1 || { echo "claude CLI not installed"; exit 1; }
     claude --version >/dev/null 2>&1 || { echo "claude CLI present but not runnable"; exit 1; }

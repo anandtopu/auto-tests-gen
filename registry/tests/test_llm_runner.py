@@ -735,3 +735,148 @@ def test_openhands_off_and_selected_as_provider_is_a_refusal(tmp_path):
     src = (ROOT / "adapters/llm/openhands.sh").read_text(encoding="utf-8")
     assert "AIQE_OH_ROOT" in src, "ROOT must travel via the environment"
     assert "'$ROOT/engine/lib'" not in src
+
+
+# ---------------------------------------------------------------- slice 6
+def test_no_provider_ever_falls_back_to_another():
+    """Constitution C12. Every adapter's failure path must END the phase, not
+    reroute it: a silent hop to a paid provider is a bill the user never
+    agreed to, and a hop to a weaker one is a quality change nobody reviewed.
+    Pinned as a SOURCE property because the failure is an absence — you cannot
+    observe a fallback that is correctly missing."""
+    banned = ("claude -p", "adapters/llm/claude.sh", "fallback_provider")
+    for name in ("ollama", "codex", "openhands"):
+        src = (ROOT / f"adapters/llm/{name}.sh").read_text(encoding="utf-8")
+        for token in banned:
+            assert token not in src, \
+                f"{name}.sh references {token!r} — a fallback path"
+        # ...and every one of them announces the refusal in the same language.
+        assert "No silent fallback" in src or "PROVIDER_REFUSED" in src
+    # The resolver refuses rather than substituting a provider that works.
+    err = lr.check_assignment("triage", "gpt9")
+    assert err and "unknown LLM provider" in err
+    assert lr.provider_for("triage", {"provider": "gpt9"}) == "gpt9", \
+        "resolution reports what was CONFIGURED; it never silently corrects it"
+
+
+def test_no_adapter_widens_a_read_only_policy():
+    """Constitution C12, second half. An adapter whose runtime cannot express
+    a per-tool allow-list (codex governs by sandbox) must still refuse to give
+    write access to a read-only phase — otherwise the critic stops being
+    advisory and the plan adversary becomes a second author."""
+    import work_queue
+    for adapter in ("llm/claude.sh", "llm/codex.sh", "llm/ollama.sh",
+                    "llm/openhands.sh", "mock/llm.sh"):
+        r = subprocess.run([work_queue.bash_exe(), str(ROOT / "adapters" / adapter),
+                            "tool_policy", "Read"], cwd=ROOT, capture_output=True,
+                           text=True, stdin=subprocess.DEVNULL)
+        assert r.returncode == 0, f"{adapter}: {r.stderr}"
+        assert r.stdout.split()[0] in ("readonly", "none"), \
+            f"{adapter} widened a read-only policy to {r.stdout.strip()!r}"
+        w = subprocess.run([work_queue.bash_exe(), str(ROOT / "adapters" / adapter),
+                            "tool_policy", "Read,Write,Edit"], cwd=ROOT,
+                           capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        assert w.stdout.split()[0] in ("writable", "none")
+
+
+def test_codex_sandbox_answer_matches_what_run_phase_uses():
+    """The tool_policy answer must be the SAME mapping run_phase applies, not
+    a description of it — a description drifts the moment someone edits one."""
+    src = (ROOT / "adapters/llm/codex.sh").read_text(encoding="utf-8")
+    assert src.count("*Write*|*Edit*) SANDBOX=workspace-write") == 1
+    assert src.count('*Write*|*Edit*) echo "writable sandbox=workspace-write') == 1
+
+
+def test_parity_compare_excludes_simulated_runs(tmp_path, monkeypatch):
+    """2.5 + the iron rule: a mock run is not evidence about a provider. It is
+    reported separately, never averaged into a provider's numbers — a table
+    that did would say a provider is cheap when nothing was measured."""
+    import parity_compare as pc
+    runs = tmp_path / "runs"; runs.mkdir()
+    monkeypatch.setattr(pc, "RUNS", runs)
+
+    def rec(rid, provider, cost, simulated, committed, critic=None):
+        d = {"run_id": rid, "ts": 9e9,
+             "gates": [{"repo": "r", "status": "COMMITTED" if committed else "NO_CHANGES"}],
+             "phases": [{"name": "triage", "contract": {},
+                         "spend": {"model": "m", "cost_usd": cost,
+                                   "turns_used": 3, "provider": provider,
+                                   "cost_basis": "simulated" if simulated else "reported",
+                                   "simulated": simulated}}]}
+        if critic is not None:
+            d["critic"] = {"overall": critic}
+        (runs / f"{rid}.json").write_text(json.dumps(d), encoding="utf-8")
+
+    rec("r1", "claude", 0.30, False, True, 0.9)
+    rec("r2", "ollama", 0.0, False, False, 0.6)
+    rec("r3", "mock", 0.05, True, True, 0.99)
+    rep = pc.compare()
+    provs = {e["provider"] for e in rep["measured"]}
+    assert provs == {"claude", "ollama"}, "a simulated run is not a data point"
+    assert [e["provider"] for e in rep["simulated_excluded"]] == ["mock"]
+    claude = [e for e in rep["measured"] if e["provider"] == "claude"][0]
+    assert claude["commit_rate"] == 1.0 and claude["critic_avg"] == 0.9
+    txt = pc.to_text(rep)
+    assert "simulated run(s) excluded" in txt
+
+
+def test_parity_compare_never_attributes_a_mixed_run(tmp_path, monkeypatch):
+    """A run whose phases used two providers cannot be credited to either."""
+    import parity_compare as pc
+    runs = tmp_path / "runs"; runs.mkdir()
+    monkeypatch.setattr(pc, "RUNS", runs)
+    (runs / "r1.json").write_text(json.dumps({
+        "run_id": "r1", "ts": 9e9, "gates": [],
+        "phases": [
+            {"name": "triage", "contract": {},
+             "spend": {"cost_usd": 0.0, "provider": "ollama", "cost_basis": "local"}},
+            {"name": "generate", "contract": {},
+             "spend": {"cost_usd": 0.3, "provider": "claude", "cost_basis": "reported"}}]}),
+        encoding="utf-8")
+    rep = pc.compare()
+    assert [e["provider"] for e in rep["measured"]] == ["mixed:claude+ollama"]
+
+
+def test_parity_compare_says_so_when_nothing_was_measured(tmp_path, monkeypatch):
+    import parity_compare as pc
+    runs = tmp_path / "runs"; runs.mkdir()
+    monkeypatch.setattr(pc, "RUNS", runs)
+    txt = pc.to_text(pc.compare())
+    assert "No MEASURED parity runs yet" in txt
+    assert "LLM_PROVIDER=" in txt, "an empty report must name how to fill it"
+
+
+def test_parity_and_provider_uat_are_wired_into_review():
+    mk = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "AIQE_LLM_PROVIDER=$(LLM_PROVIDER)" in mk, "2.5: parity is per-provider"
+    # `eval:` also ends in scorecard.py — take the recipe under `review:`.
+    review = mk.split("\nreview:\n", 1)[1].split("\n\n", 1)[0]
+    assert "tests/provider-adversarial.sh" in review, \
+        "the provider UAT must run in `make review`, not only on request"
+    # A literal two-character backslash-n, not a newline: an earlier heredoc
+    # left one inside .PHONY, minting a phony target actually named `\n`.
+    literal_backslash_n = chr(92) + "n"
+    phony = mk.split(".PHONY:", 1)[1].split("\n\n", 1)[0]
+    assert literal_backslash_n not in phony
+
+
+def test_session_sweep_detects_a_killed_runs_leftovers(tmp_path):
+    """A killed run skips a test's `finally`, leaving a throwaway repo in the
+    TRACKED registry — where it surfaces later as an unrelated test's fan-out
+    resolving a repo that cannot clone. The sweep must find it, and must read
+    test_repositories as the LIST it is (reading it as a mapping found nothing
+    and would have shipped as a no-op)."""
+    import yaml
+    import conftest
+    reg = tmp_path / "repo-registry.yaml"
+    reg.write_text(yaml.safe_dump({
+        "source_repositories": [{"name": "orders-api"}],
+        "test_repositories": [{"name": "e2e-api-tests-1"},
+                              {"name": "zz-nofetch"}]}), encoding="utf-8")
+    assert conftest.leftover_fixture_repos(reg) == ["zz-nofetch"]
+    # A registry with only real repos is left completely alone.
+    reg.write_text(yaml.safe_dump({
+        "test_repositories": [{"name": "e2e-api-tests-1"}]}), encoding="utf-8")
+    assert conftest.leftover_fixture_repos(reg) == []
+    # An unreadable registry is not this file's to fix.
+    assert conftest.leftover_fixture_repos(tmp_path / "nope.yaml") == []

@@ -233,6 +233,13 @@ model/tokens/turns/cost and renders the Cost view. Provider support adds:
 - **2.5 (S)** Per-provider parity harness: `make parity-pr
   LLM_PROVIDER=ollama` etc. — the same three quality claims measured per
   provider before anyone trusts a cheap model with judgement phases.
+  *As built:* plus `make parity-compare`, which puts providers side by side on
+  commit rate / critic score / $ per run / turns from the run records, groups a
+  multi-provider run as `mixed:a+b` rather than attributing it to either, and
+  EXCLUDES simulated runs (counted separately) — averaging a mock run in would
+  report a provider as cheap when nothing was measured. Blocked on the same
+  real-LLM auth as `make parity-*`, so it currently prints "No MEASURED parity
+  runs yet" rather than a comforting table.
 
 **E3 — Settings switch + routing**
 - **3.1 (M)** Settings "LLM provider" section (select + per-provider fields,
@@ -257,14 +264,17 @@ model/tokens/turns/cost and renders the Cost view. Provider support adds:
 
 **E5 — safety & conformance**
 - **5.1 (S)** Conformance: all LLM adapters pass verb/unknown-verb checks;
-  agentic adapters must echo their effective tool policy (pinned subset of
-  `allowed_tools`).
+  every adapter must echo its effective tool policy via a `tool_policy` verb,
+  and conformance asserts the answer is never MORE permissive than the policy
+  it was given. *As built:* the check bites — pointing codex's read-only branch
+  at `workspace-write` fails conformance with the reason.
 - **5.2 (S)** Constitution clause: "No silent provider fallback; provider
   switches are explicit configuration" + its pin.
 - **5.3 (M)** Adversarial UAT (Pass-10 style): provider outage mid-run,
   malformed provider JSON, price-table absence (cost renders unknown — never
   0), a completion provider assigned an agentic phase, cache poisoning
-  across providers.
+  across providers. *As built:* `make test-providers`
+  (`tests/provider-adversarial.sh`), 6 attacks, wired into `make review`.
 
 ## 5. Build order
 
@@ -275,7 +285,7 @@ model/tokens/turns/cost and renders the Cost view. Provider support adds:
 | 3 | 3.1, 4.1, 4.2 | UI switch + provider-labelled Cost view | shipped |
 | 4 | 2.3 | codex parity on the demo estate | shipped |
 | 5 | 2.4 | openhands-delegated phase, experimental flag | shipped |
-| 6 | 2.5, 5.1–5.3 | per-provider parity + UAT before any default change | |
+| 6 | 2.5, 5.1–5.3 | per-provider parity + UAT before any default change | shipped |
 
 Default provider stays **claude** throughout; judgement phases
 (testplan/adversary/generate) stay on an agentic, proven provider until 2.5's

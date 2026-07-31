@@ -21,5 +21,12 @@ case "$VERB" in
   check)
     echo "mock provider (always available)"
     ;;
+  tool_policy)
+    POLICY=${1:-}
+    case "$POLICY" in
+      *Write*|*Edit*) echo "writable mock allowedTools=$POLICY" ;;
+      *)              echo "readonly mock allowedTools=$POLICY" ;;
+    esac
+    ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

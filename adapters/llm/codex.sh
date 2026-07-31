@@ -156,6 +156,17 @@ PY
   capabilities)
     echo "agentic"
     ;;
+  tool_policy)
+    # 5.1: the sandbox this allow-list maps to. Codex cannot enforce a
+    # per-tool list, so this is the honest answer to "what will actually be
+    # allowed" — and it is the SAME mapping run_phase uses, not a description
+    # of it (a description drifts; a shared case statement cannot).
+    POLICY=${1:-}
+    case "$POLICY" in
+      *Write*|*Edit*) echo "writable sandbox=workspace-write allowedTools=$POLICY" ;;
+      *)              echo "readonly sandbox=read-only allowedTools=$POLICY" ;;
+    esac
+    ;;
   check)
     command -v "$CODEX_BIN" >/dev/null 2>&1 || {
       echo "codex CLI not installed (\$CODEX_BIN=$CODEX_BIN) — npm i -g @openai/codex" >&2
