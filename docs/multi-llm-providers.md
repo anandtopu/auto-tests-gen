@@ -197,6 +197,9 @@ model/tokens/turns/cost and renders the Cost view. Provider support adds:
   classes are pinned and can never cross.
 - **4.2 (S)** Local-vs-cloud split + "avoided cloud tokens" line on the Cost
   view — the number that justifies (or kills) the local-model experiment.
+  Shipped with 4.1: `local_tokens`/`cloud_tokens` on the report, rendered by
+  `#cost-localsplit` (hidden when there are no tokens to split, so a fresh
+  estate shows nothing rather than a meaningless `0 vs 0`).
 
 **E5 — safety & conformance**
 - **5.1 (S)** Conformance: all LLM adapters pass verb/unknown-verb checks;
@@ -211,12 +214,12 @@ model/tokens/turns/cost and renders the Cost view. Provider support adds:
 
 ## 5. Build order
 
-| Slice | Stories | Gate |
-|---|---|---|
-| 1 | 1.1, 1.2 | suite green, demo byte-identical |
-| 2 | 2.1, 2.2, 3.2 | completion phases green on a local Ollama |
-| 3 | 3.1, 4.1 | UI switch + provider-labelled Cost view |
-| 4 | 2.3, 4.2 | codex parity on the demo estate |
+| Slice | Stories | Gate | Status |
+|---|---|---|---|
+| 1 | 1.1, 1.2 | suite green, demo byte-identical | shipped |
+| 2 | 2.1, 2.2, 3.2 | completion phases green on a local Ollama | shipped |
+| 3 | 3.1, 4.1, 4.2 | UI switch + provider-labelled Cost view | shipped |
+| 4 | 2.3 | codex parity on the demo estate | |
 | 5 | 2.4 | openhands-delegated phase, experimental flag |
 | 6 | 2.5, 5.1–5.3 | per-provider parity + UAT before any default change |
 

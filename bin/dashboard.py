@@ -1505,6 +1505,28 @@ async function refreshCost() {
       '<td>' + v.turns_p50 + '/' + v.turns_p95 + '</td><td>' + v.max_turns + '</td>' +
       '<td>' + v.suggested_max_turns + '</td></tr>').join('') ||
       '<tr><td colspan="9"><div class="empty">No spend recorded yet.</div></td></tr>';
+    const pt2 = document.querySelector('#cost-provider-table tbody');
+    if (pt2) {
+      const fmt = (v, bases) => {
+        const b = Object.keys(bases || {});
+        if (b.length === 1 && b[0] === 'local') return '$0 (local)';
+        if (b.length === 1 && b[0] === 'simulated') return '~$' + v.toFixed(4);
+        if (b.includes('estimated')) return '~$' + v.toFixed(4);
+        if (b.length === 1 && b[0] === 'unknown') return 'unknown';
+        return '$' + v.toFixed(4);
+      };
+      pt2.innerHTML = Object.entries(d.by_provider || {}).sort().map(([k, v]) =>
+        '<tr><td class="mono sm">' + escHtml(k) + '</td><td>' + v.calls + '</td>' +
+        '<td>' + fmt(v.cost_usd, v.bases) + '</td>' +
+        '<td class="sm muted">' + escHtml(Object.keys(v.bases || {}).join(', ') || '—') + '</td>' +
+        '<td>' + v.input_tokens + '</td><td>' + v.output_tokens + '</td></tr>').join('') ||
+        '<tr><td colspan="6"><div class="empty">No provider spend recorded yet.</div></td></tr>';
+    }
+    const ls = document.getElementById('cost-localsplit');
+    if (ls) ls.textContent = (d.local_tokens || d.cloud_tokens)
+      ? 'Local vs cloud tokens: ' + (d.local_tokens || 0) + ' local (no cloud spend) vs ' +
+        (d.cloud_tokens || 0) + ' cloud — moving phases to a local provider avoids the local share.'
+      : '';
     const kt = document.querySelector('#cost-keys-table tbody');
     if (kt) kt.innerHTML = (d.by_key_top10 || []).map(e =>
       '<tr><td class="mono sm">' + escHtml(e.key) + '</td><td>' + e.runs + '</td>' +
@@ -2397,6 +2419,19 @@ page = f"""<!doctype html>
         <span class="grow"></span><span id="cost-badge"></span>
       </div>
       <div id="cost-summary" class="sm" style="padding:0 16px 12px"></div>
+    </section>
+    <section class="card">
+      <div class="card-h"><div><h2>By provider</h2>
+        <div class="sub">Which LLM ran the work, and how each cost figure was
+        arrived at: <b>$</b> provider-reported · <b>~$</b> list-price estimate ·
+        <b>$0 (local)</b> local inference, tokens still tracked ·
+        <b>~</b> simulated. The four never cross.</div></div>
+      </div>
+      <div class="scroll"><table id="cost-provider-table">
+        <thead><tr><th>provider</th><th>calls</th><th>cost</th><th>basis</th>
+          <th>in tokens</th><th>out tokens</th></tr></thead>
+        <tbody></tbody></table></div>
+      <div id="cost-localsplit" class="sm muted" style="padding:0 16px 12px"></div>
     </section>
     <section class="card">
       <div class="card-h"><h2>By phase — turn calibration &amp; cache hit rate</h2></div>

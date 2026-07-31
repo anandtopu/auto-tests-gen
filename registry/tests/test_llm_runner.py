@@ -5,6 +5,7 @@ dispatches through the adapter, and the phase-cache key gains the provider so
 a switch can never replay another provider's result. Capability validation is
 config-time and there is NO silent fallback.
 """
+import json
 import os
 import pathlib
 import subprocess
@@ -241,3 +242,109 @@ def test_llm_provider_check_is_registered_without_stealing_the_llm_id():
     assert ic.CHECKS["llm"].__name__ == "check_llm", \
         "`llm` is the Anthropic key check — the provider probe has its own id"
     assert "llm_provider" in ic.CHECKS
+
+
+# ---------------------------------------------------------------- slice 3
+def test_pricing_classes(monkeypatch):
+    """4.1: local is $0, a priced provider yields an ESTIMATE, and an unpriced
+    one stays UNKNOWN — never a silent 0 that would understate a real bill."""
+    import budget
+    usage = {"input_tokens": 1_000_000, "output_tokens": 100_000}
+    assert budget.priced("ollama", "qwen", usage) == (0.0, "local")
+    cost, basis = budget.priced("codex", "gpt-5-codex", usage)
+    assert basis == "estimated" and cost > 0
+    assert budget.priced("mystery-co", "m", usage) == (None, "unknown")
+
+
+def test_ledger_carries_provider_and_basis(tmp_path, monkeypatch):
+    import budget
+    monkeypatch.setattr(budget, "LEDGER", tmp_path / "cost.tsv")
+    # A provider-reported result.
+    res = tmp_path / "r.json"
+    res.write_text(json.dumps({"total_cost_usd": 0.02, "num_turns": 2,
+                               "provider": "claude",
+                               "usage": {"input_tokens": 10}}),
+                   encoding="utf-8")
+    budget.record("triage", res)
+    row = budget.read_ledger()[0]
+    assert row["provider"] == "claude" and row["cost_basis"] == "reported"
+    # A local result: tokens, no cost figure.
+    res2 = tmp_path / "r2.json"
+    res2.write_text(json.dumps({"provider": "ollama", "num_turns": 1,
+                                "usage": {"input_tokens": 500,
+                                          "output_tokens": 50}}),
+                    encoding="utf-8")
+    budget.record("analyze", res2)
+    row2 = budget.read_ledger()[1]
+    assert row2["provider"] == "ollama" and row2["cost_basis"] == "local"
+    assert row2["cost_usd"] == 0.0 and row2["input_tokens"] == 500, \
+        "local runs cost nothing but their tokens are still tracked"
+
+
+def test_old_ledger_rows_still_parse(tmp_path, monkeypatch):
+    """The pre-provider format must not break a run (crashed-run leftovers)."""
+    import budget
+    monkeypatch.setattr(budget, "LEDGER", tmp_path / "cost.tsv")
+    budget.LEDGER.write_text("triage\t0.05\t1\t1700000000\n", encoding="utf-8")
+    row = budget.read_ledger()[0]
+    assert row["provider"] == "" and row["cost_basis"] == ""
+    assert budget.total()[0] == pytest.approx(0.05)
+
+
+def test_report_rolls_up_by_provider_with_bases(tmp_path, monkeypatch):
+    import cost_report as cr
+    monkeypatch.setattr(cr, "RUNS", tmp_path / "runs")
+    (tmp_path / "runs").mkdir()
+
+    def spend(provider, basis, cost, tin=100, tout=10):
+        return {"model": "m", "cost_usd": cost, "input_tokens": tin,
+                "output_tokens": tout, "cache_read_tokens": 0,
+                "cache_creation_tokens": 0, "turns_used": 1, "max_turns": 8,
+                "provider": provider, "cost_basis": basis,
+                "simulated": basis == "simulated"}
+    rec = {"run_id": "r1", "trigger": {"type": "pr", "key": "K"}, "ts": 9e9,
+           "phases": [
+               {"name": "triage", "contract": {}, "spend": spend("ollama", "local", 0.0)},
+               {"name": "generate", "contract": {}, "spend": spend("claude", "reported", 0.3)},
+               {"name": "critic", "contract": {}, "spend": spend("codex", "estimated", 0.05)}]}
+    (tmp_path / "runs/r1.json").write_text(json.dumps(rec), encoding="utf-8")
+    rep = cr.report()
+    bp = rep["by_provider"]
+    assert set(bp) == {"ollama", "claude", "codex"}
+    assert bp["ollama"]["cost_usd"] == 0.0 and "local" in bp["ollama"]["bases"]
+    assert "reported" in bp["claude"]["bases"]
+    assert "estimated" in bp["codex"]["bases"]
+    # Local vs cloud token split (4.2): the number that justifies going local.
+    assert rep["local_tokens"] == 110
+    assert rep["cloud_tokens"] == 220
+    md = cr.to_markdown(rep)
+    assert "By provider" in md and "local vs cloud tokens" in md
+
+
+def test_cost_view_renders_the_provider_card():
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert "cost-provider-table" in src and "cost-localsplit" in src
+    # The four label classes must be distinguishable in the UI code.
+    for label in ("$0 (local)", "'~$'", "unknown"):
+        assert label in src
+
+
+def test_mock_run_names_its_provider_mock(tmp_path):
+    """Per-phase table and by_provider rollup must agree: a simulated run says
+    `mock`, not a blank that reads as 'unknown provider'."""
+    (tmp_path / "out").mkdir()
+    (tmp_path / "reports/runs").mkdir(parents=True)
+    (tmp_path / "out/cost.tsv").write_text(
+        "triage\t0.01\t1\t1700000000\tclaude-haiku\t0\t0\t0\t0\t0\t\t\n",
+        encoding="utf-8")
+    (tmp_path / "out/triage.contract.json").write_text(
+        json.dumps({"impact": "none"}), encoding="utf-8")
+    env = dict(os.environ, AIQE_MOCK="1")
+    r = subprocess.run([sys.executable, str(ROOT / "engine/lib/run_record.py"),
+                        "RUN1", "pr", "K-1"],
+                       cwd=tmp_path, env=env, capture_output=True,
+                       text=True, stdin=subprocess.DEVNULL)
+    assert r.returncode == 0, r.stderr
+    rec = json.loads(r.stdout)   # the record is printed; the caller persists it
+    spend = [p for p in rec["phases"] if p["name"] == "triage"][0]["spend"]
+    assert spend["provider"] == "mock" and spend["cost_basis"] == "simulated"

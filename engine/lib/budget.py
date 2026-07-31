@@ -80,6 +80,52 @@ def phase_usage(json_file):
             "turns": int(raw.get("num_turns") or 0)}
 
 
+def provider_of(json_file):
+    """The provider that produced this result, from the normalized JSON the
+    adapters emit (multi-LLM 4.1). Unknown -> "" rather than a guess."""
+    try:
+        raw = json.load(open(json_file, encoding="utf-8"))
+        return str(raw.get("provider") or "") if isinstance(raw, dict) else ""
+    except Exception:
+        return ""
+
+
+def _pricing():
+    try:
+        import yaml
+        return (yaml.safe_load(open(ROOT / "registry/org-config.yaml",
+                                    encoding="utf-8")) or {}).get("pricing") or {}
+    except Exception:
+        return {}
+
+
+def priced(provider, model, usage):
+    """(cost_usd, basis) for a provider that reports TOKENS but no cost.
+
+    basis is the honesty label the whole cost stack keys on:
+      reported  the provider gave a dollar figure (handled by phase_cost)
+      estimated computed here from org-config `pricing:` list prices — shown
+                with a ~ so it can never read as a billed number
+      local     local inference: $0, tokens still tracked
+      unknown   tokens exist but no price table entry — cost stays unknown,
+                NEVER silently 0 (that would understate a real bill)
+    """
+    table = _pricing().get(provider)
+    if table == "local" or provider == "ollama":
+        return 0.0, "local"
+    if not isinstance(table, dict):
+        return None, "unknown"
+    row = table.get(model) or table.get("*")
+    if not isinstance(row, dict):
+        return None, "unknown"
+    try:
+        cost = (int(usage.get("input_tokens") or 0) / 1_000_000 * float(row.get("in", 0))
+                + int(usage.get("output_tokens") or 0) / 1_000_000 * float(row.get("out", 0)))
+    except (TypeError, ValueError):
+        return None, "unknown"
+    return round(cost, 6), "estimated"
+
+
 def _model_for(label):
     """The configured model tier for a ledger label. Fan-out labels like
     generate-e2e-api-tests-1 resolve their POLICY phase (generate), mirroring
@@ -106,10 +152,20 @@ def record(phase, json_file=None):
       phase  cost  metered  ts  model  in  out  cache_read  cache_create  turns
     """
     cost, metered = (0.0, False)
-    usage = phase_usage(json_file) if json_file and \
-        pathlib.Path(json_file).exists() else phase_usage("/nonexistent")
-    if json_file and pathlib.Path(json_file).exists():
+    exists = bool(json_file) and pathlib.Path(json_file).exists()
+    usage = phase_usage(json_file) if exists else phase_usage("/nonexistent")
+    provider, basis = (provider_of(json_file) if exists else ""), ""
+    if exists:
         cost, metered = phase_cost(json_file)
+        if metered:
+            basis = "reported"
+        elif provider:
+            # The provider gave tokens but no dollar figure (local models,
+            # codex, openhands-delegated): price it from the org-config table
+            # or leave it UNKNOWN. Never a silent 0 for a real bill.
+            priced_cost, basis = priced(provider, _model_for(phase), usage)
+            if priced_cost is not None:
+                cost, metered = priced_cost, (basis == "estimated")
     if not metered:
         # Mock phases produce no cost JSON; a simulated cost keeps the whole
         # enforcement path testable without API spend.
@@ -125,7 +181,8 @@ def record(phase, json_file=None):
             fh.write(f"{phase}\t{cost:.6f}\t{int(metered)}\t{time.time():.0f}"
                      f"\t{_model_for(phase)}\t{usage['input_tokens']}"
                      f"\t{usage['output_tokens']}\t{usage['cache_read_tokens']}"
-                     f"\t{usage['cache_creation_tokens']}\t{usage['turns']}\n")
+                     f"\t{usage['cache_creation_tokens']}\t{usage['turns']}"
+                     f"\t{provider}\t{basis}\n")
     except OSError:
         pass
     return cost, metered
@@ -156,7 +213,11 @@ def read_ledger(ledger=None):
                          "model": parts[4] if len(parts) > 4 else "",
                          "input_tokens": _i(5), "output_tokens": _i(6),
                          "cache_read_tokens": _i(7),
-                         "cache_creation_tokens": _i(8), "turns": _i(9)})
+                         "cache_creation_tokens": _i(8), "turns": _i(9),
+                         # multi-LLM 4.1: which provider produced this, and
+                         # how its cost figure was arrived at.
+                         "provider": parts[10] if len(parts) > 10 else "",
+                         "cost_basis": parts[11] if len(parts) > 11 else ""})
     except OSError:
         pass
     return rows

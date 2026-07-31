@@ -274,13 +274,21 @@ def cmd_artifacts(args):
         spends = [(p["name"], p["spend"]) for p in r.get("phases", [])
                   if p.get("spend")]
         if spends:
-            print("\nSpend (~ = simulated):")
-            print(f"  {'phase':<28} {'model':<26} {'cost':>9} {'in':>8} {'out':>7} "
-                  f"{'cache-rd':>8} {'turns':>5}")
+            print("\nSpend ($ reported · ~$ estimated/simulated · $0 local):")
+            print(f"  {'phase':<28} {'provider':<10} {'model':<26} {'cost':>11} "
+                  f"{'in':>8} {'out':>7} {'cache-rd':>8} {'turns':>5}")
             for name, s in spends:
-                cost = ("~" if s.get("simulated") else "") + \
-                    f"${s.get('cost_usd', 0):.4f}"
-                print(f"  {name:<28} {s.get('model') or '-':<26} {cost:>9} "
+                # The four cost-basis classes, never crossed (multi-LLM 4.1).
+                basis = s.get("cost_basis") or ""
+                if basis == "local":
+                    cost = "$0 (local)"
+                elif basis == "unknown":
+                    cost = "unknown"
+                else:
+                    mark = "~" if (s.get("simulated") or basis == "estimated") else ""
+                    cost = f"{mark}${s.get('cost_usd', 0):.4f}"
+                print(f"  {name:<28} {s.get('provider') or '-':<10} "
+                      f"{s.get('model') or '-':<26} {cost:>11} "
                       f"{s.get('input_tokens', 0):>8} {s.get('output_tokens', 0):>7} "
                       f"{s.get('cache_read_tokens', 0):>8} "
                       f"{s.get('turns_used', 0):>5}")

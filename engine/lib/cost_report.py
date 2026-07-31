@@ -72,7 +72,8 @@ def _pct(values, q):
 
 def report(days=None):
     runs = collect(days)
-    by_mode, by_key, by_phase, by_model = {}, {}, {}, {}
+    by_mode, by_key, by_phase, by_model, by_provider = {}, {}, {}, {}, {}
+    local_tokens = cloud_tokens = 0
     total, spend_rows, simulated_rows = 0.0, 0, 0
     for r in runs:
         run_cost = 0.0
@@ -97,6 +98,24 @@ def report(days=None):
             ph["max_turns"] = max(ph["max_turns"], int(s.get("max_turns") or 0))
             if not s.get("simulated"):
                 ph["measured_costs"].append(cost)
+            # multi-LLM 4.1: per-provider rollup with the cost BASIS carried
+            # through, so the UI can label each number honestly.
+            prov = s.get("provider") or ("mock" if s.get("simulated") else "unknown")
+            pv = by_provider.setdefault(prov, {
+                "calls": 0, "cost_usd": 0.0, "input_tokens": 0,
+                "output_tokens": 0, "bases": {}})
+            pv["calls"] += 1
+            pv["cost_usd"] += cost
+            pv["input_tokens"] += int(s.get("input_tokens") or 0)
+            pv["output_tokens"] += int(s.get("output_tokens") or 0)
+            basis = s.get("cost_basis") or ("simulated" if s.get("simulated") else "")
+            if basis:
+                pv["bases"][basis] = pv["bases"].get(basis, 0) + 1
+            toks = int(s.get("input_tokens") or 0) + int(s.get("output_tokens") or 0)
+            if basis == "local":
+                local_tokens += toks
+            elif basis in ("reported", "estimated"):
+                cloud_tokens += toks
             mdl = s.get("model") or "unknown"
             m = by_model.setdefault(mdl, {"calls": 0, "cost_usd": 0.0,
                                           "input_tokens": 0, "output_tokens": 0})
@@ -169,6 +188,9 @@ def report(days=None):
             "by_phase": by_phase,
             "by_model": {k: {**v, "cost_usd": round(v["cost_usd"], 4)}
                          for k, v in by_model.items()},
+            "by_provider": {k: {**v, "cost_usd": round(v["cost_usd"], 4)}
+                            for k, v in by_provider.items()},
+            "local_tokens": local_tokens, "cloud_tokens": cloud_tokens,
             "phase_cache_hits": cache_hits,
             "phase_cache_savings_usd": cache_savings,
             "openhands_payload_chars": oh_payload_chars,
@@ -221,6 +243,17 @@ def to_markdown(rep):
         for k, v in sorted(rep["by_model"].items()):
             lines.append(f"- {k}: {v['calls']} call(s), ${v['cost_usd']:.4f}, "
                          f"{v['input_tokens']} in / {v['output_tokens']} out tokens")
+        lines.append("")
+    if rep.get("by_provider"):
+        lines.append("## By provider")
+        for k, v in sorted(rep["by_provider"].items()):
+            bases = ", ".join(f"{n}x {b}" for b, n in sorted(v["bases"].items()))
+            lines.append(f"- {k}: {v['calls']} call(s), ${v['cost_usd']:.4f} "
+                         f"({bases or 'no basis recorded'}), "
+                         f"{v['input_tokens']} in / {v['output_tokens']} out")
+        if rep.get("local_tokens"):
+            lines.append(f"- local vs cloud tokens: {rep['local_tokens']} local "
+                         f"(no cloud spend) vs {rep['cloud_tokens']} cloud")
         lines.append("")
     sav = rep["phase_cache_savings_usd"]
     lines.append(f"Phase-cache hits: {rep['phase_cache_hits']} — estimated saving: "

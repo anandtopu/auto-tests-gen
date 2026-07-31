@@ -37,6 +37,15 @@ try:
             "cache_read_tokens": row["cache_read_tokens"],
             "cache_creation_tokens": row["cache_creation_tokens"],
             "turns_used": row["turns"], "max_turns": _turns_ceiling(row["phase"]),
+            # multi-LLM 4.1: which provider ran the phase, and how its cost
+            # figure was arrived at (reported | estimated | local | simulated
+            # | unknown). The four label classes must never cross.
+            # A mock run has no provider to name; call it `mock` rather than
+            # blank so the per-phase table and the by_provider rollup (which
+            # already falls back to `mock`) tell the same story.
+            "provider": row.get("provider") or ("mock" if _simulated_run else ""),
+            "cost_basis": ("simulated" if _simulated_run
+                           else row.get("cost_basis", "")),
             "simulated": _simulated_run or not row["metered"]}
 except Exception:
     pass

@@ -119,6 +119,16 @@ spec:
 reuse:
   plan_threshold: 0.80
 
+# List prices ($ per MILLION tokens) for providers that report tokens but no
+# cost (multi-LLM 4.1). A figure computed from this table is an ESTIMATE and
+# renders with ~ — it can never masquerade as a provider-reported bill.
+# `local` means exactly that: $0, tokens still tracked. A provider/model with
+# no entry keeps cost UNKNOWN rather than silently 0.
+pricing:
+  ollama: local
+  codex:
+    "*": {in: 1.25, out: 10.0}
+
 budgets:
   max_cost_usd_single_suite: 2.0
   max_cost_usd_cross_repo: 4.0
