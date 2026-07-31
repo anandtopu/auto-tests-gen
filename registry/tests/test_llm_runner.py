@@ -348,3 +348,207 @@ def test_mock_run_names_its_provider_mock(tmp_path):
     rec = json.loads(r.stdout)   # the record is printed; the caller persists it
     spend = [p for p in rec["phases"] if p["name"] == "triage"][0]["spend"]
     assert spend["provider"] == "mock" and spend["cost_basis"] == "simulated"
+
+
+# ---------------------------------------------------------------- slice 4
+def _fake_codex(tmp_path):
+    """A stand-in codex CLI: echoes the sandbox it was given, emits a token
+    event and writes a final-message file."""
+    p = tmp_path / "codex"
+    p.write_text(
+        '#!/usr/bin/env bash\n'
+        '[ "$1" = "--version" ] && { echo "codex-cli 0.0.0-test"; exit 0; }\n'
+        'LAST=""; MODEL=""; SANDBOX=""\n'
+        'while [ $# -gt 0 ]; do case "$1" in\n'
+        '  --output-last-message) LAST=$2; shift 2 ;;\n'
+        '  --model) MODEL=$2; shift 2 ;;\n'
+        '  --sandbox) SANDBOX=$2; shift 2 ;;\n'
+        '  *) shift ;; esac; done\n'
+        'cat > /dev/null\n'
+        'echo \'{"type":"agent_message","message":"intermediate"}\'\n'
+        'echo \'{"type":"token_count","info":{"input_tokens":1200,'
+        '"output_tokens":340,"cached_input_tokens":900}}\'\n'
+        'printf \'{"sandbox":"%s","model":"%s"}\' "$SANDBOX" "$MODEL" > "$LAST"\n',
+        encoding="utf-8", newline="\n")
+    p.chmod(0o755)
+    return p
+
+
+def _run_codex(tmp_path, tools, out_name="r.json"):
+    fake = _fake_codex(tmp_path)
+    out = tmp_path / out_name
+    env = dict(os.environ, CODEX_BIN=str(fake))
+    import work_queue
+    r = subprocess.run([work_queue.bash_exe(),
+                        str(ROOT / "adapters/llm/codex.sh"), "run_phase",
+                        "gpt-5-codex", "10", tools, str(out)],
+                       input="prompt", capture_output=True, text=True,
+                       env=env, cwd=tmp_path)
+    return r, out
+
+
+def test_codex_is_agentic_and_normalizes_its_result(tmp_path):
+    r, out = _run_codex(tmp_path, "Read,Write,Edit")
+    assert r.returncode == 0, r.stderr
+    d = json.loads(out.read_text(encoding="utf-8"))
+    assert d["provider"] == "codex" and d["model"] == "gpt-5-codex"
+    # Tokens are harvested from the event stream...
+    assert d["usage"]["input_tokens"] == 1200
+    assert d["usage"]["output_tokens"] == 340
+    assert d["usage"]["cache_read_input_tokens"] == 900
+    # ...and NO dollar figure is invented: codex reports tokens, not cost.
+    assert "total_cost_usd" not in d
+    import work_queue
+    caps = subprocess.run([work_queue.bash_exe(),
+                           str(ROOT / "adapters/llm/codex.sh"),
+                           "capabilities"], capture_output=True, text=True,
+                          stdin=subprocess.DEVNULL)
+    assert caps.stdout.strip() == "agentic"
+
+
+def test_codex_maps_tool_policy_onto_a_sandbox(tmp_path):
+    """Codex has no per-tool allow-list, so an authoring phase must land in
+    workspace-write and an opinion-only phase in read-only — a read-only
+    critic that could edit files is not advisory any more."""
+    _, out = _run_codex(tmp_path, "Read,Write,Edit", "w.json")
+    assert json.loads(json.loads(out.read_text())["result"])["sandbox"] == \
+        "workspace-write"
+    _, out2 = _run_codex(tmp_path, "Read", "ro.json")
+    assert json.loads(json.loads(out2.read_text())["result"])["sandbox"] == \
+        "read-only"
+
+
+def test_codex_does_not_claim_a_turn_ceiling_it_cannot_enforce(tmp_path):
+    _, out = _run_codex(tmp_path, "Read")
+    d = json.loads(out.read_text(encoding="utf-8"))
+    assert d["turn_limit_enforced"] is False
+    assert d["max_turns_requested"] == 10
+
+
+def test_codex_refuses_when_the_cli_is_missing(tmp_path):
+    env = dict(os.environ, CODEX_BIN=str(tmp_path / "nope"))
+    import work_queue
+    r = subprocess.run([work_queue.bash_exe(),
+                        str(ROOT / "adapters/llm/codex.sh"), "run_phase",
+                        "gpt-5-codex", "5", "Read", str(tmp_path / "o.json")],
+                       input="p", capture_output=True, text=True, env=env)
+    assert r.returncode == 1
+    assert "PROVIDER_UNAVAILABLE" in r.stderr
+    assert "No silent fallback" in r.stderr
+    assert not (tmp_path / "o.json").exists()
+
+
+def test_codex_costs_are_estimated_never_reported():
+    """A codex run has tokens and a price table, so it prices as ESTIMATED —
+    it must never borrow the `reported` label a real bill carries."""
+    import budget
+    cost, basis = budget.priced("codex", "gpt-5-codex",
+                                {"input_tokens": 1200, "output_tokens": 340})
+    assert basis == "estimated" and cost > 0
+
+
+def test_unmapped_model_is_a_config_error_not_a_vendor_error(monkeypatch):
+    """Sending a claude id to another provider fails deep inside that vendor's
+    CLI as 'unknown model'. Caught here, naming the exact key to set."""
+    import llm_runner
+    monkeypatch.setenv("AIQE_LLM_PROVIDER", "ollama")
+    err = llm_runner.check_model_mapping("triage", "ollama")
+    assert err and "models_by_provider.ollama" in err
+    # codex ships mapped, so a bare switch to it works out of the box.
+    assert llm_runner.check_model_mapping("triage", "codex") is None
+    assert llm_runner.map_model("codex", "claude-sonnet-4-6") == "gpt-5-codex"
+    # claude is the identity case and must never trip this.
+    assert llm_runner.check_model_mapping("generate", "claude") is None
+
+
+def test_capability_error_still_outranks_the_mapping_error(monkeypatch):
+    """'this provider can never run this phase' is the more fundamental
+    answer — a mapping hint must not bury it."""
+    monkeypatch.setenv("AIQE_LLM_PROVIDER", "ollama")
+    r = subprocess.run([sys.executable, str(ROOT / "engine/lib/llm_runner.py"),
+                        "validate"], capture_output=True, text=True,
+                       env=dict(os.environ, AIQE_LLM_PROVIDER="ollama"),
+                       encoding="utf-8", cwd=ROOT,
+                       stdin=subprocess.DEVNULL)
+    assert r.returncode == 1
+    gen = [ln for ln in r.stderr.splitlines() if ln.startswith("PROVIDER_CONFIG: generate")]
+    assert gen and "cannot run agentic phase" in gen[0]
+
+
+def test_codex_conformance_unknown_verb():
+    import work_queue
+    r = subprocess.run([work_queue.bash_exe(),
+                        str(ROOT / "adapters/llm/codex.sh"), "bogus"],
+                       capture_output=True, text=True,
+                       stdin=subprocess.DEVNULL)
+    assert r.returncode == 64
+
+
+def test_provider_probe_reads_the_adapter_result_shape(monkeypatch):
+    """Regression: the probe treated _adapter's (rc, out, err) TUPLE as a
+    CompletedProcess, so it raised AttributeError on every non-mock run — the
+    one mode it exists for. Mock mode returns early, which hid it."""
+    import integration_check as ic
+    monkeypatch.setenv("AIQE_MOCK", "0")
+    monkeypatch.setenv("AIQE_LLM_PROVIDER", "codex")
+    r = ic.CHECKS["llm_provider"]()          # must not raise
+    assert r["status"] in ("ok", "fail")
+    assert "codex" in r["detail"]
+
+
+def _stub_codex(tmp_path, body):
+    p = tmp_path / "codex"
+    p.write_text("#!/usr/bin/env bash\ncat > /dev/null\n" + body,
+                 encoding="utf-8", newline="\n")
+    p.chmod(0o755)
+    return p
+
+
+@pytest.mark.parametrize("body,rc,marker", [
+    ('echo "model not found" >&2\nexit 3\n', 3, "PROVIDER_FAILED"),
+    ('echo \'{"type":"session.created"}\'\nexit 0\n', 1, "PROVIDER_BAD_RESPONSE"),
+])
+def test_codex_writes_no_result_when_it_has_nothing_to_report(tmp_path, body,
+                                                              rc, marker):
+    """A failed or empty provider call must leave NO result JSON: a phantom
+    contract would be read downstream as a phase that ran."""
+    import work_queue
+    out = tmp_path / "o.json"
+    r = subprocess.run([work_queue.bash_exe(),
+                        str(ROOT / "adapters/llm/codex.sh"), "run_phase",
+                        "m", "5", "Read", str(out)],
+                       input="p", capture_output=True, text=True,
+                       env=dict(os.environ, CODEX_BIN=str(_stub_codex(tmp_path, body))))
+    assert r.returncode == rc          # the vendor's exit code is propagated
+    assert marker in r.stderr
+    assert not out.exists()
+
+
+def test_adversarial_gate_harness_cannot_attack_the_scaffold():
+    """Regression: tests/gate-adversarial.sh's setup() did not abort on a
+    failed clone/cd, so the attack files (planted secret, out-of-scope src/)
+    landed in THIS repo and the gate was run against it. Only the gate's
+    exit-6 standalone check stopped it — the harness must not rely on that."""
+    src = (ROOT / "tests/gate-adversarial.sh").read_text(encoding="utf-8")
+    setup = src.split("setup()", 1)[1].split("\nrun_gate", 1)[0]
+    assert setup.count("exit 1") >= 3, \
+        "clone failure, cd failure and a still-in-ROOT check must each abort"
+    assert '"$PWD" != "$ROOT"' in setup
+
+
+def test_model_mapping_gates_configuration_not_capability():
+    """The mapping refusal must be a CONFIG gate, not a capability claim: once
+    ollama is mapped it gets its eight completion phases back, and only
+    generate/validate stay refused — on capability, as before."""
+    cfg = {"models_by_provider": {"ollama": {
+        "claude-haiku-4-5-20251001": "qwen2.5-coder:7b",
+        "claude-sonnet-4-6": "qwen2.5-coder:32b",
+        "claude-opus-4-8": "qwen2.5-coder:32b"}}}
+    ok = [p for p in lr.ALL_PHASES
+          if not (lr.check_assignment(p, "ollama")
+                  or lr.check_model_mapping(p, "ollama", cfg))]
+    assert set(lr.ALL_PHASES) - set(ok) == {"generate", "validate"}
+    # codex ships mapped: every phase, no config required.
+    assert all(not (lr.check_assignment(p, "codex")
+                    or lr.check_model_mapping(p, "codex"))
+               for p in lr.ALL_PHASES)

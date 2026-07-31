@@ -77,6 +77,8 @@ AIQE_LLM_PROVIDER=
 OLLAMA_URL=
 # Ollama API key (optional)  ·  SECRET
 OLLAMA_API_KEY=
+# Codex CLI binary  ·  default `codex` on PATH; absolute path if elsewhere
+CODEX_BIN=
 
 # --- Cost levers ---
 # Each cost-reduction mechanism has its own kill switch.

@@ -94,13 +94,46 @@ def check_assignment(phase, provider):
     return None
 
 
+def _phase_model(phase):
+    """The org-config tier id for a phase (same fallback run_phase.sh uses)."""
+    try:
+        import yaml
+        models = (yaml.safe_load(open(ROOT / "registry/org-config.yaml",
+                                      encoding="utf-8")) or {}).get("models") or {}
+    except Exception:
+        return ""
+    base = phase.split("-", 1)[0]
+    return str(models.get(base) or models.get("generate") or "")
+
+
+def check_model_mapping(phase, provider, cfg=None):
+    """Error string when `provider` would receive a model id from another
+    provider's namespace. Model ids are CONFIGURED, never guessed: sending
+    `claude-sonnet-4-6` to codex or a local daemon fails deep inside the CLI
+    with a message about an unknown model, long after the operator could
+    connect it to a provider switch. Caught here, at config time, instead."""
+    if provider in ("claude", "mock"):
+        return None
+    tier = _phase_model(phase)
+    if not tier:
+        return None
+    if map_model(provider, tier, cfg) != tier:
+        return None                       # explicitly mapped — nothing to say
+    if tier.startswith("claude-"):
+        return (f"no model mapping for '{provider}': phase '{phase}' would "
+                f"send the claude id '{tier}' to it — set "
+                f"llm.models_by_provider.{provider}['{tier}'] in "
+                f"registry/org-config.yaml")
+    return None
+
+
 def validate(cfg=None):
     """Every phase's assignment checked. Returns [errors]."""
     cfg = cfg if cfg is not None else _cfg()
     errors = []
     for phase in ALL_PHASES:
         p = provider_for(phase, cfg)
-        err = check_assignment(phase, p)
+        err = check_assignment(phase, p) or check_model_mapping(phase, p, cfg)
         if err:
             errors.append(f"{phase}: {err}")
     return errors
@@ -116,7 +149,11 @@ def main(argv):
     if argv and argv[0] == "resolve" and len(argv) > 1:
         phase = argv[1]
         provider = provider_for(phase)
-        err = check_assignment(phase, provider)
+        # Same two checks validate() runs, so a run that skipped config-time
+        # validation still fails with the fix named rather than with a vendor
+        # CLI's "unknown model" three layers down.
+        err = check_assignment(phase, provider) or \
+            check_model_mapping(phase, provider)
         if err:
             print(f"PROVIDER_CONFIG: {err}", file=sys.stderr)
             return 1

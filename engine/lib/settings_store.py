@@ -104,6 +104,9 @@ SPEC = [
                  "also serves LM Studio / vLLM / llama.cpp"},
         {"env": "OLLAMA_API_KEY", "label": "Ollama API key (optional)",
          "secret": True, "help": "local daemons need none"},
+        {"env": "CODEX_BIN", "label": "Codex CLI binary",
+         "help": "default `codex` on PATH; set an absolute path if it is "
+                 "installed elsewhere"},
      ]},
     {"section": "Cost levers",
      "hint": "Each cost-reduction mechanism has its own kill switch — any "

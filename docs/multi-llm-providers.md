@@ -43,6 +43,28 @@ A **capability check at config time** refuses an impossible assignment
 ("ollama cannot run `generate` — agentic phases need claude, codex, or
 openhands") instead of failing mid-run.
 
+**Agentic is not uniform** (slice 4 finding). Codex runs a real tool loop, but
+two guarantees the claude adapter provides do not survive the port, and the
+adapter says so rather than pretending:
+
+| Guarantee | claude | codex |
+|---|---|---|
+| per-tool allow-list | `--allowedTools` exactly | mapped onto a **sandbox**: `Write`/`Edit` in the policy → `workspace-write`, otherwise `read-only` |
+| turn ceiling (`phases.*.max_turns`) | enforced by the CLI | **not enforced** — no equivalent flag; the result JSON reports `turn_limit_enforced:false` and the budget ceiling (exit 77) is the backstop |
+| cost | provider-reported USD (`reported`) | tokens only → priced from `pricing:` (`estimated`, `~$`) |
+
+The sandbox mapping is coarser but preserves the property that matters: an
+opinion-only phase (critic, plan adversary) still cannot write, so "advisory"
+keeps meaning advisory.
+
+**Model ids are configured, never guessed.** `llm_runner.check_model_mapping`
+refuses a provider that would receive a claude-namespace id, naming the exact
+`llm.models_by_provider.<provider>` key to set — that failure otherwise
+surfaces as an "unknown model" error from the vendor CLI, several layers below
+the provider switch that caused it. Codex ships pre-mapped so a bare switch
+works; Ollama deliberately does not, because the right id depends on which
+models the operator has pulled.
+
 ## 2. The LLM Runner port (design)
 
 ```
@@ -111,13 +133,14 @@ pricing:                        # $/Mtok for providers that report tokens only
 
 Settings gains an **"LLM provider"** section: provider select (writes
 `AIQE_LLM_PROVIDER` — env layering as everywhere, so the UI switch takes
-effect on the next run without a restart), `OLLAMA_URL`/`OLLAMA_MODEL_*`,
-`CODEX_API_KEY` (secret), and a read-only capability note ("agentic phases
-stay on claude unless codex/openhands is selected for them").
-`check-integrations` probes the ACTIVE provider (and any per-phase ones).
+effect on the next run without a restart), `OLLAMA_URL`, `OLLAMA_API_KEY`
+(secret) and `CODEX_BIN`. *(As built: codex authenticates through its own CLI
+exactly like claude, so there is no `CODEX_API_KEY` for us to hold — the only
+setting worth having is where the binary lives.)* `check-integrations` probes
+the ACTIVE provider (and any per-phase ones).
 
 **No silent fallback** (guardrail): an unreachable provider fails the phase
-with `PROVIDER_UNREACHABLE: <provider> <fix hint>` — the platform never
+with `PROVIDER_UNREACHABLE` / `PROVIDER_UNAVAILABLE` + the fix — the platform never
 silently reroutes to a different (possibly paid) provider. Mock mode is
 untouched: `AIQE_MOCK=1` short-circuits before provider selection, so demos
 and the suite never depend on any provider being installed.
@@ -125,8 +148,10 @@ and the suite never depend on any provider being installed.
 ### What deliberately does not change
 
 The gate (providers generate; only the gate commits), tool policy (agentic
-adapters receive the same `allowed_tools` and must enforce or subset it —
-conformance-tested), prompts (provider-agnostic; the derived-writes addendum
+adapters receive the same `allowed_tools` and must enforce it as closely as
+their runtime allows — claude exactly, codex via the sandbox mapping above;
+the invariant an adapter may never break is that a read-only phase stays
+unable to write), prompts (provider-agnostic; the derived-writes addendum
 is appended by the wrapper, not forked per provider), the mock posture, and
 the budget guard (which meters whatever the normalized JSON reports).
 
@@ -219,7 +244,7 @@ model/tokens/turns/cost and renders the Cost view. Provider support adds:
 | 1 | 1.1, 1.2 | suite green, demo byte-identical | shipped |
 | 2 | 2.1, 2.2, 3.2 | completion phases green on a local Ollama | shipped |
 | 3 | 3.1, 4.1, 4.2 | UI switch + provider-labelled Cost view | shipped |
-| 4 | 2.3 | codex parity on the demo estate | |
+| 4 | 2.3 | codex parity on the demo estate | shipped |
 | 5 | 2.4 | openhands-delegated phase, experimental flag |
 | 6 | 2.5, 5.1–5.3 | per-provider parity + UAT before any default change |
 

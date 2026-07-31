@@ -27,7 +27,23 @@ models:
 llm:
   provider: claude
   phase_providers: {}
-  models_by_provider: {}
+  # Tier id -> the provider's own model id. Model ids are CONFIGURED, never
+  # guessed — `llm_runner.py validate` refuses a provider that would receive a
+  # claude-namespace id, because that failure otherwise surfaces deep inside
+  # the vendor CLI as "unknown model", long after anyone would connect it to a
+  # provider switch. Codex ships mapped so the switch works out of the box;
+  # ollama does not, because the right id depends on what you have PULLED.
+  # NOTE: mapping every tier to one model makes the degradation ladder's cheap
+  # tier a no-op for that provider — point the haiku tier at a cheaper model
+  # if you want 60%-of-envelope downgrades to actually save anything.
+  models_by_provider:
+    # ollama:                              # uncomment with ids you have pulled
+    #   claude-haiku-4-5-20251001: qwen2.5-coder:7b
+    #   claude-sonnet-4-6: qwen2.5-coder:32b
+    codex:
+      claude-haiku-4-5-20251001: gpt-5-codex
+      claude-sonnet-4-6: gpt-5-codex
+      claude-opus-4-8: gpt-5-codex
 
 phases:
   resolve:   { max_turns: 5,  allowed_tools: "Read" }

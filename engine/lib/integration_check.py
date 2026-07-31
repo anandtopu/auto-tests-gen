@@ -395,13 +395,17 @@ def check_llm_provider():
         return _r("LLM provider", "fail", f"resolution failed: {e}")
     errs = llm_runner.validate()
     if errs:
+        # The refusal already names the exact key to set; a generic hint that
+        # points somewhere else is worse than none.
         return _r("LLM provider", "fail", errs[0],
-                  hint="fix llm.provider / llm.phase_providers in org-config")
+                  hint="fix the assignment named above in "
+                       "registry/org-config.yaml `llm:`")
     details = []
     for prov in sorted(providers):
-        r = _adapter(str(llm_runner.adapter_path(prov)), "check")
-        ok = getattr(r, "returncode", 1) == 0
-        out = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
+        # _adapter returns a (rc, stdout, stderr) TUPLE, not a CompletedProcess.
+        rc, so, se = _adapter(str(llm_runner.adapter_path(prov)), "check")
+        ok = rc == 0
+        out = ((so or "") + (se or "")).strip().splitlines()
         details.append(f"{prov}: {'ok' if ok else 'UNREACHABLE'}"
                        + (f" ({out[0][:80]})" if out else ""))
         if not ok:
