@@ -109,8 +109,16 @@ def build(key, mode="pr"):
     if tests:
         created = sum(1 for t in tests if t.get("action") == "created")
         updated = len(tests) - created
+        # Reduced-cost mode (cost-reduction 5.3): a degraded run must SAY so
+        # where the user reads the result, not only in the raw record.
+        degraded = " · reduced-cost mode (near budget)" \
+            if (latest or {}).get("degradation") else ""
+        skipped = (latest or {}).get("skipped_phases") or []
+        skip_note = (" · skipped: " + ", ".join(s["phase"] for s in skipped)
+                     if skipped else "")
         steps.append(_step("done", "Generate E2E tests",
-                           f"{created} created · {updated} updated"))
+                           f"{created} created · {updated} updated"
+                           f"{degraded}{skip_note}"))
     elif tests_pending:
         steps.append(_step("running", "Generate E2E tests",
                            "the agent is analyzing and writing tests"))

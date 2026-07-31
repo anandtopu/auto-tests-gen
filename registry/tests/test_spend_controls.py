@@ -169,6 +169,69 @@ def wq_bash():
     return work_queue.bash_exe()
 
 
+def test_baseline_refuses_simulated_runs(tmp_path, monkeypatch):
+    """1.3: a baseline built from simulations would alarm on the first real
+    dollar or never alarm — refusal is the feature."""
+    import cost_report as cr
+    monkeypatch.setattr(cr, "RUNS", tmp_path / "runs")
+    monkeypatch.setattr(cr, "BASELINE", tmp_path / "baseline.json")
+    (tmp_path / "runs").mkdir()
+    rec = {"run_id": "r1", "trigger": {"type": "pr", "key": "K"}, "ts": 9e9,
+           "phases": [{"name": "triage", "contract": {}, "spend": {
+               "model": "m", "cost_usd": 0.1, "input_tokens": 1,
+               "output_tokens": 1, "cache_read_tokens": 0,
+               "cache_creation_tokens": 0, "turns_used": 1, "max_turns": 8,
+               "simulated": True}}]}
+    (tmp_path / "runs/r1.json").write_text(json.dumps(rec), encoding="utf-8")
+    with pytest.raises(SystemExit):
+        cr.snapshot_baseline()
+
+
+def test_regression_alarm_fires_and_stays_silent(tmp_path, monkeypatch):
+    """1.4: 2x over baseline -> named regression; no baseline -> silence."""
+    import cost_report as cr
+    monkeypatch.setattr(cr, "RUNS", tmp_path / "runs")
+    monkeypatch.setattr(cr, "BASELINE", tmp_path / "baseline.json")
+    (tmp_path / "runs").mkdir()
+
+    def measured(run_id, cost, ts):
+        rec = {"run_id": run_id, "trigger": {"type": "pr", "key": "K"},
+               "ts": ts, "phases": [{"name": "triage", "contract": {}, "spend": {
+                   "model": "m", "cost_usd": cost, "input_tokens": 1,
+                   "output_tokens": 1, "cache_read_tokens": 0,
+                   "cache_creation_tokens": 0, "turns_used": 1, "max_turns": 8,
+                   "simulated": False}}]}
+        (tmp_path / f"runs/{run_id}.json").write_text(json.dumps(rec),
+                                                      encoding="utf-8")
+    assert cr.check_regression() == [], "no baseline armed -> silence"
+    import time as _t
+    measured("r1", 0.10, _t.time())
+    cr.snapshot_baseline()
+    assert cr.check_regression(threshold=0.25) == [], "healthy at baseline"
+    measured("r2", 0.30, _t.time())
+    measured("r3", 0.30, _t.time())                 # median now 0.30 = 3x baseline
+    regs = cr.check_regression(threshold=0.25)
+    assert regs and "triage" in regs[0] and "prompt edit" in regs[0], \
+        "the alarm names the phase AND the likely causes"
+
+
+def test_wizard_says_reduced_cost_and_skipped(monkeypatch, tmp_path):
+    import wizard_status as ws
+    rec = {"run_id": "r1", "trigger": {"type": "pr", "key": "PR-a-1"},
+           "ts": 1, "overall": "committed",
+           "degradation": [{"phase": "triage", "grade": "degrade_tier"}],
+           "skipped_phases": [{"phase": "critic", "reason": "no tests"}],
+           "gates": [{"test_repo": "e2e-x", "status": "committed"}],
+           "phases": [{"name": "generate", "contract": {
+               "tests": [{"file": "a.spec.js", "action": "created"}]}}]}
+    monkeypatch.setattr(ws, "_runs_for", lambda key: [rec])
+    monkeypatch.setattr(ws, "_queue_for", lambda key: [])
+    steps = ws.build("PR-a-1", "pr")["steps"]
+    gen = next(s for s in steps if s["label"] == "Generate E2E tests")
+    assert "reduced-cost mode" in gen["detail"]
+    assert "skipped: critic" in gen["detail"]
+
+
 def test_hit_rate_floor_flags_in_report(tmp_path, monkeypatch):
     import cost_report as cr
     monkeypatch.setattr(cr, "RUNS", tmp_path / "runs")

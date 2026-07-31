@@ -7,7 +7,7 @@ SHELL := /bin/bash
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
         demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config \
-        cost-report index-rebuild cache-probe
+        cost-report index-rebuild cache-probe cost-baseline
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -97,6 +97,8 @@ maintain:             # nightly estate maintenance (call from cron / a K8s CronJ
 	-python3 engine/lib/knowledge_chunks.py rebuild
 	@echo "== vector index refresh (sha-skip; capped) =="
 	-python3 engine/lib/vector_index.py refresh
+	@echo "== cost regression check (needs an armed baseline) =="
+	-python3 engine/lib/cost_report.py check-regression
 	@echo "== coverage drift check =="
 	-python3 engine/lib/coverage_drift.py --notify
 	@echo "== state-bundle snapshot =="
@@ -112,6 +114,9 @@ state-import:         # restore a bundle here (BUNDLE=path [REPLACE=1] [DRY=1])
 
 cost-report:          # LLM spend attribution: by workflow/key/phase/model + turn calibration (DAYS=N)
 	python3 engine/lib/cost_report.py report $(if $(DAYS),--days $(DAYS),)
+
+cost-baseline:        # freeze per-phase MEASURED medians as the regression baseline (refuses simulated)
+	python3 engine/lib/cost_report.py baseline
 
 cache-probe:          # measure whether provider prompt caching engages (real CLI auth; ~$$0.02)
 	bash bin/cache-probe.sh

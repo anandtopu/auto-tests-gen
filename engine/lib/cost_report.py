@@ -231,7 +231,86 @@ def to_markdown(rep):
     return "\n".join(lines) + "\n"
 
 
+BASELINE = ROOT / "reports/cost-baseline.json"
+
+
+def snapshot_baseline():
+    """Freeze the current per-phase MEASURED medians as the regression baseline
+    (story 1.3). Refuses without a single measured run — a baseline built from
+    simulations would be worse than none (it would alarm on the first real
+    dollar, or worse, never alarm)."""
+    rep = report(None)
+    phases = {name: {"median_cost": v["median_measured_cost"],
+                     "calls": v["calls"]}
+              for name, v in rep["by_phase"].items()
+              if v.get("median_measured_cost")}
+    if not phases:
+        raise SystemExit("no measured runs to baseline — run a real (or parity) "
+                         "pipeline first; simulated spend never enters a baseline")
+    fs_lock.write_json_atomic(BASELINE, {"created": time.time(),
+                                         "phases": phases})
+    return phases
+
+
+def check_regression(threshold=None, days=7):
+    """Trailing-window medians vs the baseline (story 1.4). Returns a list of
+    regression strings (empty = healthy). No baseline file -> [] silently —
+    the alarm needs an armed baseline, not a guess."""
+    base = fs_lock.read_json_guarded(BASELINE, None)
+    if not base or not isinstance(base.get("phases"), dict):
+        return []
+    if threshold is None:
+        try:
+            import yaml
+            threshold = float(((yaml.safe_load(
+                open(ROOT / "registry/org-config.yaml", encoding="utf-8")) or {})
+                .get("budgets") or {}).get("cost_regression_threshold") or 0.25)
+        except Exception:
+            threshold = 0.25
+    rep = report(days)
+    out = []
+    for name, b in base["phases"].items():
+        cur = (rep["by_phase"].get(name) or {}).get("median_measured_cost")
+        if not cur or not b.get("median_cost"):
+            continue
+        ratio = cur / b["median_cost"]
+        if ratio > 1 + threshold:
+            out.append(f"phase '{name}' median cost ${cur:.4f} is "
+                       f"{(ratio - 1) * 100:.0f}% over its baseline "
+                       f"${b['median_cost']:.4f} — likely causes: a prompt edit "
+                       f"broke the cache prefix, or the phase's model tier "
+                       f"drifted (check org-config models:)")
+    return out
+
+
 def main(argv):
+    sys.stdout.reconfigure(encoding="utf-8")
+    if argv and argv[0] == "baseline":
+        phases = snapshot_baseline()
+        print(f"cost baseline frozen: {len(phases)} phase(s) -> {BASELINE}")
+        return 0
+    if argv and argv[0] == "check-regression":
+        regs = check_regression()
+        if not regs:
+            print("cost regression check: healthy (or no baseline armed)")
+            return 0
+        for r in regs:
+            print(f"COST REGRESSION: {r}")
+        # Notify (best-effort, mock-aware) — the nightly's whole point.
+        try:
+            import os
+            import subprocess
+            import work_queue
+            adapter = ROOT / ("adapters/mock/notify.sh"
+                              if os.environ.get("AIQE_MOCK", "1") == "1"
+                              else "adapters/notify/slack.sh")
+            subprocess.run([work_queue.bash_exe(), str(adapter), "post",
+                            "[ai-qe] " + "; ".join(regs)[:500]],
+                           cwd=ROOT, capture_output=True,
+                           stdin=subprocess.DEVNULL, timeout=30)
+        except Exception:
+            pass
+        return 1
     days = None
     if "--days" in argv:
         days = int(argv[argv.index("--days") + 1])
@@ -239,7 +318,6 @@ def main(argv):
     if "--json" in argv:
         print(json.dumps(rep, indent=1))
     else:
-        sys.stdout.reconfigure(encoding="utf-8")
         print(to_markdown(rep))
     return 0
 

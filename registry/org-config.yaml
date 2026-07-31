@@ -113,6 +113,9 @@ budgets:
   # $/M-token estimate used for the day ledger, not a billed figure.
   max_embed_usd_per_day: 0.50
   embed_price_per_mtok: 0.02
+  # Cost-regression alarm (1.4): maintain compares trailing per-phase medians
+  # against the frozen baseline (make cost-baseline) and notifies over this.
+  cost_regression_threshold: 0.25
 knowledge:
   confluence_max_pages: 3
   confluence_max_tokens: 12000

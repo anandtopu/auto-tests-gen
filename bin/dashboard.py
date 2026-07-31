@@ -164,7 +164,13 @@ try:
     if _rep["runs"] and _rep["simulated_share"] is not None:
         _sim = "~" if _rep["simulated_share"] > 0 else ""
         tiles.append((f"{_sim}${_rep['total_cost_usd']:.2f}", "LLM spend (all time)",
-                      "runs", False))
+                      "cost", False))
+        # Savings counterfactual (6.3): honest or absent — the tile only exists
+        # when a MEASURED median can price the avoided calls.
+        if _rep.get("phase_cache_savings_usd") is not None:
+            tiles.append((f"${_rep['phase_cache_savings_usd']:.2f}",
+                          "est. avoided spend (cache hits x measured median)",
+                          "cost", False))
 except Exception:
     pass
 tiles_html = "".join(
@@ -625,13 +631,15 @@ NAV = [("overview", "◧", "Overview"), ("wizard", "✦", "Guided run"),
        ("queue", "⇥", "Intake & queue"),
        ("plans", "✎", "Test plans"),
        ("runs", "▶", "Runs & reviews"), ("trace", "⇢", "Trace"),
+       ("cost", "◔", "Cost"),
        ("artifacts", "❏", "Artifacts"),
        ("catalog", "☰", "Test catalog"), ("repos", "⛁", "Repositories"),
        ("settings", "⚙", "Settings")]
 TITLES = {"overview": "Overview", "wizard": "Guided run — PR or JIRA, step by step",
           "queue": "Intake & work queue",
           "plans": "Test plans — review & approval",
-          "runs": "Runs & team reviews", "artifacts": "Generated artifacts",
+          "runs": "Runs & team reviews", "cost": "Cost — LLM spend & savings",
+          "artifacts": "Generated artifacts",
           "catalog": "Test knowledge catalog", "repos": "Repositories & mapping",
           "settings": "Settings & integrations"}
 nav_html = "".join(
@@ -985,6 +993,7 @@ const TITLES = { overview: 'Overview', wizard: 'Guided run — PR or JIRA, step 
   queue: 'Intake & work queue',
   plans: 'Test plans — review & approval',
   runs: 'Runs & team reviews', trace: 'Trace — story/PR to release',
+  cost: 'Cost — LLM spend & savings',
   artifacts: 'Generated artifacts',
   catalog: 'Test knowledge catalog', repos: 'Repositories & mapping',
   settings: 'Settings & integrations' };
@@ -1469,6 +1478,49 @@ async function refreshTraceMatrix() {
   } catch (err) { /* advisory table — never block the Trace view */ }
 }
 refreshTraceMatrix();
+
+// ---- Cost view (cost-reduction 6.1): one payload, three cards. Measured vs
+// simulated is labelled on every number — the iron rule made visible.
+async function refreshCost() {
+  if (!served) return;
+  try {
+    const d = await api('/api/cost-report');
+    const sim = d.simulated_share;
+    const badge = sim === null ? '<span class="chip chip-muted">no spend data</span>'
+      : sim === 0 ? '<span class="chip chip-ok">measured</span>'
+      : sim === 1 ? '<span class="chip chip-warning">all simulated</span>'
+      : '<span class="chip chip-warning">' + Math.round(sim * 100) + '% simulated</span>';
+    const el = document.getElementById('cost-badge');
+    if (el) el.innerHTML = badge;
+    const modes = Object.entries(d.by_mode || {}).map(([m, v]) =>
+      escHtml(m) + ': ' + v.runs + ' run(s) $' + v.cost_usd.toFixed(4)).join(' · ');
+    const sum = document.getElementById('cost-summary');
+    if (sum) sum.innerHTML = '<b>Total $' + (d.total_cost_usd || 0).toFixed(4) +
+      '</b> across ' + d.runs + ' run(s)' + (modes ? ' — ' + modes : '');
+    const pt = document.querySelector('#cost-phase-table tbody');
+    if (pt) pt.innerHTML = Object.entries(d.by_phase || {}).sort().map(([k, v]) =>
+      '<tr><td class="mono sm">' + escHtml(k) + '</td><td>' + v.calls + '</td>' +
+      '<td>$' + v.cost_usd.toFixed(4) + '</td><td>' + v.input_tokens + '</td>' +
+      '<td>' + v.cache_read_tokens + '</td><td>' + Math.round(v.cache_hit_rate * 100) + '%</td>' +
+      '<td>' + v.turns_p50 + '/' + v.turns_p95 + '</td><td>' + v.max_turns + '</td>' +
+      '<td>' + v.suggested_max_turns + '</td></tr>').join('') ||
+      '<tr><td colspan="9"><div class="empty">No spend recorded yet.</div></td></tr>';
+    const kt = document.querySelector('#cost-keys-table tbody');
+    if (kt) kt.innerHTML = (d.by_key_top10 || []).map(e =>
+      '<tr><td class="mono sm">' + escHtml(e.key) + '</td><td>' + e.runs + '</td>' +
+      '<td>$' + e.cost_usd.toFixed(4) + '</td></tr>').join('') ||
+      '<tr><td colspan="3"><div class="empty">No keyed spend yet.</div></td></tr>';
+    const sv = document.getElementById('cost-savings');
+    if (sv) sv.textContent = 'Phase-cache hits: ' + (d.phase_cache_hits || 0) +
+      ' — estimated saving: ' + (d.phase_cache_savings_usd != null
+        ? '$' + d.phase_cache_savings_usd.toFixed(4)
+        : 'n/a (no measured runs yet)') +
+      (d.openhands_payload_est_tokens
+        ? ' · OpenHands payloads ~' + d.openhands_payload_est_tokens +
+          ' tokens (billed on the OpenHands side)' : '');
+  } catch (err) { /* advisory view — never block the dashboard */ }
+}
+refreshCost();
 
 // ---- batch review (roadmap 4.3): clear a filtered set in one confirmed pass
 const batchBtn = document.getElementById('approve-filtered');
@@ -2291,6 +2343,34 @@ page = f"""<!doctype html>
       </nav>
       <div>{trace_panels_html or '<div class="card"><div class="empty">No traces yet — run make demo-pr / demo-jira.</div></div>'}</div>
     </div>
+  </div>
+
+  <div data-view="cost">
+    <section class="card">
+      <div class="card-h"><div><h2>LLM spend</h2>
+        <div class="sub">From the <code>spend</code> blocks every run records
+        (harvested from the CLI's own usage report). Simulated figures — mock
+        runs — are always labelled; they never masquerade as measured
+        dollars.</div></div>
+        <span class="grow"></span><span id="cost-badge"></span>
+      </div>
+      <div id="cost-summary" class="sm" style="padding:0 16px 12px"></div>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>By phase — turn calibration &amp; cache hit rate</h2></div>
+      <div class="scroll"><table id="cost-phase-table">
+        <thead><tr><th>phase</th><th>calls</th><th>cost</th><th>in tokens</th>
+          <th>cache-read</th><th>hit rate</th><th>turns p50/p95</th>
+          <th>ceiling</th><th>suggested</th></tr></thead>
+        <tbody></tbody></table></div>
+    </section>
+    <section class="card">
+      <div class="card-h"><h2>Top keys</h2></div>
+      <div class="scroll"><table id="cost-keys-table">
+        <thead><tr><th>key</th><th>runs</th><th>cost</th></tr></thead>
+        <tbody></tbody></table></div>
+      <div id="cost-savings" class="sm muted" style="padding:0 16px 12px"></div>
+    </section>
   </div>
 
   <div data-view="artifacts">
