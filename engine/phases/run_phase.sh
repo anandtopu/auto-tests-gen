@@ -12,6 +12,26 @@ PHASE=$1; PROMPT=$2; WORKDIR=$3; shift 3
 OUT="${AIQE_PHASE_LABEL:-$PHASE}"
 CFG=registry/org-config.yaml
 MODEL=$(python3 -c "import yaml;c=yaml.safe_load(open('$CFG'));m=c['models'];print(m.get('$PHASE', m['generate']))")
+# Degradation ladder (cost-reduction 5.3): near the budget envelope,
+# NON-JUDGEMENT phases drop to the cheap tier (validate's — haiku) and, one
+# rung later, scoped contexts halve. Judgement phases (testplan, the adversary
+# pair, generate) never downgrade — they run full-quality or the run aborts at
+# 100% via the existing exit-77 guard. Every rung is recorded for the run
+# record: a reduced-cost result must say so.
+GRADE=$(python3 engine/lib/budget.py grade 2>/dev/null || echo ok)
+if [ "$GRADE" = "degrade_tier" ] || [ "$GRADE" = "degrade_context" ]; then
+  case "$PHASE" in
+    triage|analyze|testdata|critic|validate|resolve)
+      CHEAP=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['models']['validate'])")
+      if [ "$MODEL" != "$CHEAP" ]; then
+        echo "[budget] $GRADE: $PHASE runs on the cheap tier ($CHEAP)"
+        MODEL="$CHEAP"
+      fi ;;
+  esac
+  echo -e "${AIQE_PHASE_LABEL:-$PHASE}\t$GRADE" >> out/cost-degrade.tsv
+fi
+# (The context-halving rung is consulted by context_scope.py itself at $(CTX)
+# time — an export here could never reach the parent shell's evaluation.)
 TURNS=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['phases']['$PHASE']['max_turns'])")
 TOOLS=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['phases']['$PHASE']['allowed_tools'])")
 mkdir -p out

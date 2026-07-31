@@ -207,11 +207,21 @@ def limits():
             cfg = yaml.safe_load(open(ROOT / "registry/org-config.yaml",
                                       encoding="utf-8")) or {}
             b = cfg.get("budgets") or {}
-            key = ("max_cost_usd_cross_repo" if _cross_repo()
-                   else "max_cost_usd_single_suite")
-            v = b.get(key)
+            # Per-workflow envelopes (cost-reduction 5.2) beat the generic
+            # single/cross-repo pair: a PR triage-and-generate run should not
+            # get a JIRA plan+generate chain's allowance. Explicit env still
+            # wins (checked above) — the layering rule everywhere.
+            mode = os.environ.get("AIQE_RUN_MODE", "").strip()
+            env_map = b.get("envelopes") or {}
+            v = env_map.get(mode)
             if isinstance(v, (int, float)):
-                cost_limit, source = float(v), f"org-config {key}"
+                cost_limit, source = float(v), f"org-config envelopes.{mode}"
+            else:
+                key = ("max_cost_usd_cross_repo" if _cross_repo()
+                       else "max_cost_usd_single_suite")
+                v = b.get(key)
+                if isinstance(v, (int, float)):
+                    cost_limit, source = float(v), f"org-config {key}"
         except Exception:
             pass
     try:
@@ -219,6 +229,31 @@ def limits():
     except ValueError:
         wall_min = 25.0
     return cost_limit, wall_min, source
+
+
+def grade(start_epoch=0):
+    """Degradation ladder (cost-reduction 5.3): where this run sits against its
+    cost envelope — 'ok' (<60%), 'degrade_tier' (60-80%: non-judgement phases
+    drop to the cheap tier), 'degrade_context' (80-100%: scoped context budgets
+    halve as well), 'abort' (>100%; `check` turns this into exit 77).
+
+    Judgement phases (testplan, adversary pair, generate) NEVER downgrade —
+    they run full-quality or the run aborts; a silently cheaper plan is worse
+    than no plan. Cost grading needs a metered phase, like `check`; wall-clock
+    is not graded (a slow run is aborted, not degraded).
+    """
+    cost_limit, _, _ = limits()
+    tot, metered, _ = total()
+    if cost_limit <= 0 or metered == 0:
+        return "ok"
+    ratio = tot / cost_limit
+    if ratio > 1.0:
+        return "abort"
+    if ratio >= 0.8:
+        return "degrade_context"
+    if ratio >= 0.6:
+        return "degrade_tier"
+    return "ok"
 
 
 def check(start_epoch):
@@ -250,6 +285,8 @@ if __name__ == "__main__":
         if metered and cost:
             tot, _, _ = total()
             print(f"[budget] {phase}: ${cost:.4f} (run total ${tot:.2f})")
+    elif cmd == "grade":
+        print(grade())
     elif cmd == "check":
         start = 0
         if "--start" in sys.argv:

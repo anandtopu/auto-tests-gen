@@ -194,14 +194,25 @@ def to_markdown(rep):
             lines.append(f"- {e['key']}: {e['runs']} run(s), ${e['cost_usd']:.4f}")
         lines.append("")
     if rep["by_phase"]:
+        # Hit-rate floor (4.2): a configured minimum makes a prefix-breaking
+        # prompt edit visible as a flagged falling rate, not just a bigger bill.
+        floor = 0.0
+        try:
+            import yaml
+            floor = float(((yaml.safe_load(open(ROOT / "registry/org-config.yaml",
+                                                encoding="utf-8")) or {})
+                           .get("budgets") or {}).get("min_cache_hit_rate") or 0)
+        except Exception:
+            floor = 0.0
         lines.append("## By phase (turn calibration + cache hit rate)")
         lines.append("phase | calls | cost | in-tok | cache-read | hit-rate | "
                      "turns p50/p95 | ceiling | suggested")
         lines.append("---|---|---|---|---|---|---|---|---")
         for k, v in sorted(rep["by_phase"].items()):
+            flag = " (BELOW FLOOR)" if floor and v["cache_hit_rate"] < floor else ""
             lines.append(f"{k} | {v['calls']} | ${v['cost_usd']:.4f} | "
                          f"{v['input_tokens']} | {v['cache_read_tokens']} | "
-                         f"{v['cache_hit_rate']:.0%} | "
+                         f"{v['cache_hit_rate']:.0%}{flag} | "
                          f"{v['turns_p50']}/{v['turns_p95']} | {v['max_turns']} | "
                          f"{v['suggested_max_turns']}")
         lines.append("")

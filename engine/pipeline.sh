@@ -10,6 +10,8 @@ MODE=${1:?pr|jira|plan|tests}; export AIQE_ROOT="$PWD"; mkdir -p out workspace
 # Validate — MODE is interpolated into python -c strings below, and an unknown
 # mode would silently take the jira branch.
 case "$MODE" in pr|jira|plan|tests) ;; *) echo "INVALID_MODE: $MODE (pr|jira|plan|tests)"; exit 64 ;; esac
+# The budget envelope (5.2) and degradation ladder (5.3) resolve per workflow.
+export AIQE_RUN_MODE="$MODE"
 # Config layers, lowest first: aiqe.properties < .env < explicit environment.
 # Both emitters print `export K='v'` lines ONLY for keys absent from the
 # environment, so an explicitly-exported variable always wins (the file can never
@@ -92,7 +94,8 @@ RUN_START=$(date +%s)
 # for every later mock run (phase_cost reads it as "metered", so the
 # AIQE_MOCK_PHASE_COST simulation never applies and the exit-77 guard is dead).
 rm -f "${AIQE_COST_LEDGER:-out/cost.tsv}" out/*.json out/gate_results.tsv \
-      out/context-*.md out/context-retries.tsv
+      out/context-*.md out/context-retries.tsv out/cost-degrade.tsv \
+      out/phase-skips.tsv
 _budget_guard() {
   local why
   if ! why=$(python3 engine/lib/budget.py check --start "$RUN_START"); then
@@ -136,6 +139,15 @@ PHASE() {
     fi
   fi
   return $rc
+}
+
+# No-op phase skipping (cost-reduction 5.1): a phase that cannot change the
+# outcome is a call never made — free savings. Each skip is logged to
+# out/phase-skips.tsv so the run record and surfaces render "skipped (nothing
+# to do)", distinct from a failure.
+SKIP_PHASE() {  # $1 = phase, $2 = reason
+  echo "[skip] $1: $2"
+  printf '%s\t%s\n' "$1" "$2" >> out/phase-skips.tsv
 }
 
 # Retrieval-scoped context (cost-reduction 2.2): echo the per-run scoped file
@@ -332,7 +344,11 @@ elif [ "$MODE" = "tests" ]; then
     echo "PLAN_SNAPSHOT_MISSING: reports/plans/${KEY}.contract.json — re-run 'pipeline.sh plan ${KEY}'"
     exit 64
   fi
-  PHASE testdata jira-testdata.md "$(CTX testdata)" out/testplan.contract.json "testplans/${KEY}.md"
+  if python3 -c "import json,sys; c=json.load(open('out/testplan.contract.json')); sys.exit(0 if c.get('data_needs')=='none' else 1)" 2>/dev/null; then
+    SKIP_PHASE testdata "plan declares data_needs: none"
+  else
+    PHASE testdata jira-testdata.md "$(CTX testdata)" out/testplan.contract.json "testplans/${KEY}.md"
+  fi
   GENERATE "$(CTX generate)" out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md" out/catalog-slice.jsonl out/repo-conventions.md
 else
   PHASE analyze  jira-analyze.md "$(CTX analyze)" out/issue-guidance.md out/ticket.json out/confluence.md
@@ -361,7 +377,11 @@ else
   # authored plan simply stands, exactly as it did before this existed.
   ADVERSARY_LINE=""
   rm -f out/planadversary.contract.json out/planarbiter.contract.json
-  if python3 engine/lib/plan_adversary.py enabled; then
+  # Skip when the plan has no scenarios (5.1): an adversary of an empty plan
+  # has nothing to challenge — the human gate will reject it anyway.
+  if python3 -c "import json,sys; c=json.load(open('out/testplan.contract.json')); sys.exit(1 if c.get('scenarios') else 0)" 2>/dev/null; then
+    SKIP_PHASE planadversary "zero-scenario plan — nothing to challenge"
+  elif python3 engine/lib/plan_adversary.py enabled; then
     ADV_RC=0
     PHASE planadversary jira-plan-adversary.md "$(CTX planadversary)" out/analyze.contract.json \
       out/testplan.contract.json "testplans/${KEY}.md" out/coverage-gaps.md || ADV_RC=$?
@@ -401,7 +421,11 @@ else
     echo "$MSG"
     exit 0
   fi
-  PHASE testdata jira-testdata.md "$(CTX testdata)" out/testplan.contract.json
+  if python3 -c "import json,sys; c=json.load(open('out/testplan.contract.json')); sys.exit(0 if c.get('data_needs')=='none' else 1)" 2>/dev/null; then
+    SKIP_PHASE testdata "plan declares data_needs: none"
+  else
+    PHASE testdata jira-testdata.md "$(CTX testdata)" out/testplan.contract.json
+  fi
   GENERATE "$(CTX generate)" out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json out/catalog-slice.jsonl out/repo-conventions.md
 fi
 PHASE validate validate-repair.md out/generate.contract.json out/repo-conventions.md
@@ -414,7 +438,11 @@ relocate_artifacts
 # below reads its score to decide anything. Failures are swallowed on purpose: a critic
 # outage must never quarantine an otherwise good run.
 rm -f out/critic.contract.json
-if python3 engine/lib/critic.py enabled; then
+# Skip when there is nothing to score (5.1): zero generated tests means zero
+# specs for the critic to review — a call that cannot change the outcome.
+if python3 -c "import json,sys; c=json.load(open('out/generate.contract.json')); sys.exit(1 if c.get('tests') else 0)" 2>/dev/null; then
+  SKIP_PHASE critic "no generated tests to score"
+elif python3 engine/lib/critic.py enabled; then
   CRITIC_CTX=(AGENTS.md out/generate.contract.json out/validate.contract.json)
   for extra in out/testplan.contract.json out/catalog-slice.jsonl out/coverage-gaps.md; do
     if [ -f "$extra" ]; then CRITIC_CTX+=("$extra"); fi

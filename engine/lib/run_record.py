@@ -74,6 +74,26 @@ record = {"run_id": run_id, "trigger": {"type": mode, "key": key},
 # Context-scope retries (cost-reduction 2.3): phases that reported missing
 # context and re-ran on the full estate — the tuning signal for the scoping
 # policy, and an honest marker that this run paid the retry.
+# No-op phase skips (5.1) and degradation-ladder rungs (5.3): a reduced or
+# shortened run must say so in its own record — "skipped (nothing to do)" and
+# "ran in reduced-cost mode" are facts the reviewer needs, not noise.
+if os.path.exists("out/phase-skips.tsv"):
+    skips = []
+    for line in open("out/phase-skips.tsv", encoding="utf-8"):
+        parts = line.rstrip("\n").split("\t", 1)
+        if parts[0]:
+            skips.append({"phase": parts[0],
+                          "reason": parts[1] if len(parts) > 1 else ""})
+    if skips:
+        record["skipped_phases"] = skips
+if os.path.exists("out/cost-degrade.tsv"):
+    rungs = []
+    for line in open("out/cost-degrade.tsv", encoding="utf-8"):
+        parts = line.rstrip("\n").split("\t", 1)
+        if parts[0] and len(parts) > 1:
+            rungs.append({"phase": parts[0], "grade": parts[1]})
+    if rungs:
+        record["degradation"] = rungs
 if os.path.exists("out/context-retries.tsv"):
     retries = []
     for line in open("out/context-retries.tsv", encoding="utf-8"):

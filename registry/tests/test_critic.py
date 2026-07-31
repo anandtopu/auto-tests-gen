@@ -54,7 +54,11 @@ def test_pipeline_runs_the_critic_non_fatally_and_after_the_gate_is_decided():
     # between validate and the gate (all the spend already happened — an exit-77
     # there would discard a fully-paid-for run over an advisory signal)...
     assert "_PHASE_IMPL critic critic.md" in src
-    assert "PHASE critic" not in src, \
+    # Word-precise: `SKIP_PHASE critic ...` (the 5.1 no-op skip) legitimately
+    # contains the substring — the invariant is that no line INVOKES the
+    # budget-guarded wrapper as `PHASE critic`.
+    import re
+    assert not re.search(r"^\s*PHASE critic\b", src, re.M), \
         "critic must not go through PHASE — the budget guard would abort pre-gate"
     idx = src.index("_PHASE_IMPL critic critic.md")
     # ...and a failing critic phase must not abort the run under `set -e`

@@ -7,7 +7,7 @@ SHELL := /bin/bash
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
         demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config \
-        cost-report index-rebuild
+        cost-report index-rebuild cache-probe
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -112,6 +112,9 @@ state-import:         # restore a bundle here (BUNDLE=path [REPLACE=1] [DRY=1])
 
 cost-report:          # LLM spend attribution: by workflow/key/phase/model + turn calibration (DAYS=N)
 	python3 engine/lib/cost_report.py report $(if $(DAYS),--days $(DAYS),)
+
+cache-probe:          # measure whether provider prompt caching engages (real CLI auth; ~$$0.02)
+	bash bin/cache-probe.sh
 
 index-rebuild:        # force-rebuild the semantic vector index from the knowledge chunks
 	python3 engine/lib/knowledge_chunks.py rebuild

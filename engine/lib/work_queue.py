@@ -117,9 +117,38 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
                 "requested_by": requested_by, "status": "queued", "ts": time.time(),
                 "finished": None, "exit_code": None,
                 "inline_file": str(inline_file) if inline_file else None}
+        warning = _envelope_warning(mode, target, pr)
+        if warning:
+            item["warning"] = warning
         items.append(item)
         save(items)
     return item, True
+
+
+def _envelope_warning(mode, target, pr=None):
+    """A WARNING (never a refusal) when this key's measured spend history
+    already exceeds its workflow envelope (cost-reduction 5.2) — the human
+    queueing it should know they are re-running an expensive key. Best-effort:
+    no telemetry, no envelope, or any failure means no warning."""
+    try:
+        import yaml
+        env_map = ((yaml.safe_load(open(pathlib.Path(__file__).resolve()
+                                        .parents[2] / "registry/org-config.yaml",
+                                        encoding="utf-8")) or {})
+                   .get("budgets") or {}).get("envelopes") or {}
+        cap = env_map.get(mode)
+        if not isinstance(cap, (int, float)) or cap <= 0:
+            return ""
+        import cost_report
+        key = f"PR-{target}-{pr}" if mode == "pr" and pr else str(target)
+        for e in cost_report.report(None).get("by_key_top10", []):
+            if e.get("key") == key and e.get("cost_usd", 0) > cap:
+                return (f"this key's spend history (${e['cost_usd']:.2f}) already "
+                        f"exceeds the {mode} envelope (${cap:.2f}) — expect the "
+                        f"run to degrade or abort")
+    except Exception:
+        pass
+    return ""
 
 
 def _mark(items, item, **kw):

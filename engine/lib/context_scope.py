@@ -72,9 +72,29 @@ def phase_enabled(phase, cfg=None):
 def budget_tokens(cfg=None):
     cfg = cfg if cfg is not None else _cfg()
     try:
-        return int(cfg.get("context_budget") or 4000)
+        base = int(cfg.get("context_budget") or 4000)
     except (TypeError, ValueError):
-        return 4000
+        base = 4000
+    # Degradation ladder rung 2 (5.3): at 80% of the run's envelope, scoped
+    # contexts halve. Consulted HERE because assembly runs in the pipeline's
+    # $(CTX ...) evaluation — an env var exported inside run_phase.sh could
+    # never reach it. AIQE_CONTEXT_BUDGET_FACTOR remains as a manual override.
+    # MUST-KEEP still survives any budget.
+    factor = 1.0
+    env_f = os.environ.get("AIQE_CONTEXT_BUDGET_FACTOR", "").strip()
+    if env_f:
+        try:
+            factor = float(env_f)
+        except ValueError:
+            factor = 1.0
+    else:
+        try:
+            import budget
+            if budget.grade() == "degrade_context":
+                factor = 0.5
+        except Exception:
+            pass
+    return max(1, int(base * factor))
 
 
 _TOKEN_RE = re.compile(r"[a-z0-9/_.{}-]{3,}")
