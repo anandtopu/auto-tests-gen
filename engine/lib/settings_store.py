@@ -86,6 +86,25 @@ SPEC = [
          "help": "https://your-domain.atlassian.net/wiki"},
         {"env": "CONFLUENCE_SPACE", "label": "Default space", "default": "QA"},
      ]},
+    {"section": "LLM provider",
+     "hint": "Which model runs the pipeline's phases. Agentic phases "
+             "(generate, validate) need claude/codex/openhands; completion "
+             "providers like Ollama serve every other phase. Per-phase "
+             "routing lives in org-config llm.phase_providers.",
+     "fields": [
+        {"env": "AIQE_LLM_PROVIDER", "label": "Provider",
+         "options": [["", "org-config default (claude)"],
+                     ["claude", "Claude Code (agentic)"],
+                     ["ollama", "Ollama / local (completion phases only)"],
+                     ["codex", "OpenAI Codex CLI (agentic)"],
+                     ["openhands", "OpenHands (delegated, experimental)"]],
+         "help": "empty = follow registry/org-config.yaml llm.provider"},
+        {"env": "OLLAMA_URL", "label": "Ollama base URL",
+         "help": "OpenAI-compatible /v1 (default http://localhost:11434/v1); "
+                 "also serves LM Studio / vLLM / llama.cpp"},
+        {"env": "OLLAMA_API_KEY", "label": "Ollama API key (optional)",
+         "secret": True, "help": "local daemons need none"},
+     ]},
     {"section": "Cost levers",
      "hint": "Each cost-reduction mechanism has its own kill switch — any "
              "regression is one save away from off, per deployment.",

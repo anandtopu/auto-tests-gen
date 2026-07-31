@@ -48,6 +48,11 @@ RUNNER_LINE=$(python3 engine/lib/llm_runner.py resolve "$PHASE") || {
 }
 PROVIDER=$(printf '%s' "$RUNNER_LINE" | cut -f1)
 RUNNER=$(printf '%s' "$RUNNER_LINE" | cut -f2)
+# Capability class decides whether the harness materializes this phase's
+# artifacts (multi-LLM 2.2). Completion providers cannot write files; the
+# plan family's artifacts are DERIVABLE from the contract, so the harness
+# renders them after extraction.
+CAPS=$(bash "$RUNNER" capabilities 2>/dev/null || echo agentic)
 # Content-addressed reuse: if this exact phase, model, prompt and context set has been
 # run before, restore the result instead of paying for it again. The key is the whole
 # input, so a stale hit is impossible; `generate`/`validate` are excluded because their
@@ -72,7 +77,18 @@ CONTEXT+=$'\n\n--- RUN PARAMETERS ---\n'"KEY=${KEY:-}"
 if [ -n "${AIQE_TARGET_REPO:-}" ]; then
   CONTEXT+=$'\n'"TARGET_REPO=${AIQE_TARGET_REPO}"
 fi
-CONTEXT+=$'\nWherever this prompt says {{KEY}} use the KEY above; wherever it says {{TARGET_REPO}} use TARGET_REPO (empty = every resolved test repo).\n--- END RUN PARAMETERS ---'
+CONTEXT+=$'\nWherever this prompt says {{KEY}} use the KEY above; wherever it says {{TARGET_REPO}} use TARGET_REPO (empty = every resolved test repo).'
+# Completion providers get the derived-writes note HERE — inside the
+# run-parameters block, i.e. AFTER the cacheable prefix. Prompts stay
+# provider-agnostic; the wrapper adds the one instruction the provider's
+# capability class requires.
+if [ "$CAPS" = "completion" ]; then
+  CONTEXT+=$(python3 -c "
+import sys; sys.path.insert(0, 'engine/lib')
+import derived_writes
+sys.stdout.write(derived_writes.addendum('$PHASE'))")
+fi
+CONTEXT+=$'\n--- END RUN PARAMETERS ---'
 
 # Run from the engine root: prompts reference workspace/tests/, catalog/, testplans/
 # relative to here (P3: cwd=workspace made every documented path miss).
@@ -90,6 +106,15 @@ printf '%s' "$PROMPT_TEXT$CONTEXT" | \
 # Extract the trailing JSON contract the prompt requires the agent to print:
 python3 engine/lib/extract_contract.py "out/${OUT}.json" "engine/phases/contracts/${PHASE}.schema.json" \
   > "out/${OUT}.contract.json"
+# Derived writes (multi-LLM 2.2): a completion provider produced a valid
+# contract but could write no files — the harness materializes the plan
+# document / testdata fixtures from it. Agentic providers wrote their own,
+# so this is skipped. Never fatal: problems are reported and the pipeline's
+# own checks (schema, gate) still decide the run's fate.
+if [ "$CAPS" = "completion" ]; then
+  python3 engine/lib/derived_writes.py materialize "$PHASE" "${KEY:-}" \
+    "out/${OUT}.contract.json" || true
+fi
 # Record the result for identical future inputs. Never fatal: a cache write failure
 # must not fail a phase that already succeeded.
 python3 engine/lib/phase_cache.py store "$PHASE" "$OUT" "${PROVIDER}:${MODEL}" "$PROMPT" \

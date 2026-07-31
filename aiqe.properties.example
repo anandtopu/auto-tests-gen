@@ -68,6 +68,16 @@ CONFLUENCE_URL=
 # Default space
 CONFLUENCE_SPACE=QA
 
+# --- LLM provider ---
+# Which model runs the pipeline's phases. Agentic phases (generate, validate)
+# need claude/codex/openhands; completion providers serve every other phase.
+# Provider  ·  claude | ollama | codex | openhands (empty = org-config llm.provider)
+AIQE_LLM_PROVIDER=
+# Ollama base URL  ·  OpenAI-compatible /v1 (default http://localhost:11434/v1)
+OLLAMA_URL=
+# Ollama API key (optional)  ·  SECRET
+OLLAMA_API_KEY=
+
 # --- Cost levers ---
 # Each cost-reduction mechanism has its own kill switch.
 # Content-addressed phase cache  ·  1 = on (default) · 0 = off

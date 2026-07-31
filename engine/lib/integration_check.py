@@ -376,6 +376,41 @@ def check_telemetry():
                                   "(no event sent)")
 
 
+def check_llm_provider():
+    """Read-only probe of the ACTIVE LLM provider(s) — the global default plus
+    any per-phase override (multi-LLM 3.2). Nothing is generated; each
+    adapter's `check` verb only reports reachability.
+
+    Registered under its OWN id (`llm_provider`): `llm` is the Anthropic
+    API-key check and must keep that slot."""
+    if _env("AIQE_MOCK", "1") == "1":
+        return _r("LLM provider", "skipped",
+                  "mock mode — phases run via mock_phase.sh, no provider is "
+                  "called", "set AIQE_MOCK=0 to probe the real provider")
+    try:
+        sys.path.insert(0, str(ROOT / "engine/lib"))
+        import llm_runner
+        providers = {llm_runner.provider_for(p) for p in llm_runner.ALL_PHASES}
+    except Exception as e:
+        return _r("LLM provider", "fail", f"resolution failed: {e}")
+    errs = llm_runner.validate()
+    if errs:
+        return _r("LLM provider", "fail", errs[0],
+                  hint="fix llm.provider / llm.phase_providers in org-config")
+    details = []
+    for prov in sorted(providers):
+        r = _adapter(str(llm_runner.adapter_path(prov)), "check")
+        ok = getattr(r, "returncode", 1) == 0
+        out = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
+        details.append(f"{prov}: {'ok' if ok else 'UNREACHABLE'}"
+                       + (f" ({out[0][:80]})" if out else ""))
+        if not ok:
+            return _r("LLM provider", "fail", "; ".join(details),
+                      hint=f"start/point at {prov}, or switch provider in "
+                           f"Settings — there is no silent fallback")
+    return _r("LLM provider", "ok", "; ".join(details))
+
+
 def check_embeddings():
     """Read-only probe of the Embedding port (cost-reduction 3.1): embed one
     short string, report the dimensionality. Nothing is indexed or stored."""
@@ -403,6 +438,7 @@ CHECKS = {
     "confluence": check_confluence, "openhands": check_openhands,
     "jenkins": check_cicd, "slack": check_slack, "smtp": check_smtp,
     "splunk": check_telemetry, "embeddings": check_embeddings,
+    "llm_provider": check_llm_provider,
 }
 
 # Systems the platform can run entirely without: their outage is reported as
