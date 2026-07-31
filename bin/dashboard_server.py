@@ -245,6 +245,8 @@ class Handler(BaseHTTPRequestHandler):
                 import spec_store
                 self._send(200, {"key": key, "text": p.read_text(encoding="utf-8"),
                                  "ambiguities": spec_store.ambiguities(key),
+                                 "spec": spec_store.load(key),
+                                 "waivers": spec_store.load_waivers(key),
                                  **plan_state.get(key)})
         elif url.path == "/api/repos":
             self._send(200, repo_admin.summary())

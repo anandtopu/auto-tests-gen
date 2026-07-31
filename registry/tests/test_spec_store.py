@@ -210,3 +210,29 @@ def test_spec_mode_kill_switch(store, monkeypatch):
     ps.record_plan("K-1", STRUCTURED)
     assert not s.spec_path("K-1").exists()
     assert ps.plan_path("K-1").read_text(encoding="utf-8") == "# phase md\n"
+
+
+def test_waivers_load_and_flag_expiry(store):
+    """SDD 3.2/3.3: waivers are human escape hatches — expired ones surface
+    as expired, never silently valid or silently hidden."""
+    s, ps, tmp = store
+    import yaml
+    wp = s.waivers_path("K-1")
+    wp.parent.mkdir(parents=True, exist_ok=True)
+    wp.write_text(yaml.safe_dump({"waivers": [
+        {"scenario": "K-1-S3", "reason": "covered upstream", "by": "lead",
+         "expires": "2099-01-01"},
+        {"scenario": "K-1-S4", "reason": "old", "by": "lead",
+         "expires": "2020-01-01"}]}), encoding="utf-8")
+    w = s.load_waivers("K-1")
+    assert w["K-1-S3"]["expired"] is False
+    assert w["K-1-S4"]["expired"] is True
+    assert s.load_waivers("NOPE") == {}
+
+
+def test_trace_matrix_carries_requirements_and_waivers():
+    import trace_matrix
+    assert "requirements" in trace_matrix.FIELDS
+    assert "waiver" in trace_matrix.FIELDS
+    assert "EXPIRED" in trace_matrix._waiver_cell(
+        {"expired": True, "reason": "r", "by": "b"})

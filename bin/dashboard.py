@@ -1621,6 +1621,34 @@ async function openPlan(key) {
   }
   // Per-gap verdicts (roadmap 4.5): the reviewer approves a plan that was already
   // challenged — show WHAT was challenged, not just that a challenge happened.
+  // Structured spec (SDD 6.1): review at the level the machine enforces —
+  // scenario cards with GWT steps, verification clauses, requirement links
+  // and waivers, rendered from specs/<KEY>/testplan.yaml via /api/plans/one.
+  const specEl = $('#plan-spec');
+  if (specEl) {
+    const sc = (p.spec && p.spec.scenarios) || [];
+    if (sc.length) {
+      const wv = p.waivers || {};
+      specEl.innerHTML = sc.map(x => {
+        const steps = x.steps || {};
+        const gwt = ['given', 'when', 'then'].filter(k => steps[k])
+          .map(k => '<div class="sm"><b>' + k.charAt(0).toUpperCase() + k.slice(1) +
+                    '</b> ' + escHtml(steps[k]) + '</div>').join('');
+        const ver = (x.verification || []).map(v =>
+          '<div class="sm muted">verify: ' + escHtml(v) + '</div>').join('');
+        const req = (x.requirement_refs || []).length
+          ? '<span class="chip chip-muted">' + escHtml(x.requirement_refs.join(', ')) + '</span>' : '';
+        const w = wv[x.id];
+        const wchip = w ? '<span class="chip ' + (w.expired ? 'chip-danger' : 'chip-warning') + '">' +
+          (w.expired ? 'waiver EXPIRED' : 'waived') + '</span>' : '';
+        return '<div style="border:1px solid var(--sr-border); border-radius:8px; padding:8px 12px">' +
+          '<div><b class="mono sm">' + escHtml(x.id) + '</b> ' + escHtml(x.title || '') +
+          ' <span class="muted sm">[' + escHtml(x.layer || '') + ' · ' + escHtml(x.target_repo || '') + ']</span> ' +
+          req + ' ' + wchip + '</div>' + gwt + ver + '</div>';
+      }).join('');
+      specEl.classList.remove('hidden');
+    } else { specEl.classList.add('hidden'); }
+  }
   // Requirement ambiguities (SDD 2.1): what the ticket left undefined.
   const amb = $('#plan-ambiguities');
   if (amb) {
@@ -2461,6 +2489,7 @@ page = f"""<!doctype html>
           style="list-style:none; margin:0; padding:8px 12px; display:flex;
                  flex-direction:column; gap:6px; border:1px solid var(--sr-border);
                  border-radius:8px"></ul>
+        <div id="plan-spec" class="hidden" style="display:flex; flex-direction:column; gap:8px"></div>
         <ul id="plan-ambiguities" class="hidden"
           title="What the ticket's requirements left undefined (SDD 2.1) — the scenarios below had to route around these; consider resolving them on the ticket before approving."
           style="list-style:none; margin:0; padding:8px 12px; display:flex;

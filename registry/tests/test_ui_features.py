@@ -226,6 +226,7 @@ def test_dashboard_page_carries_every_new_feature_surface():
     for marker in ("Curated guidance file", "cur-save", "cur-export",
                    "Plan only", "plan-author-oh", "inl-plan-oh",
                    "fetch-rel-known", "PR coverage report",
+                   "plan-spec", "plan-ambiguities",
                    # view persistence: mutation reloads (repo remove, settings
                    # save/clear) must return to the view they started from,
                    # not dump the user on Overview

@@ -37,6 +37,9 @@ thresholds, so report the score you actually believe.
 
 Finally print exactly one JSON object:
 {"score":0.0,"verdict":"accept|review|weak","noise_count":N,"specs_reviewed":N,
- "findings":[{"file":"path/to/spec","kind":"vacuous|weak|duplicate|missing|brittle|unclear|new-approach",
+ "findings":[{"file":"path/to/spec","kind":"vacuous|weak|duplicate|missing|brittle|unclear|new-approach|spec-mismatch",
               "severity":"low|med|high","note":"one sentence, concrete"}],
  "rationale":"one or two sentences"}
+
+spec-mismatch: the plan scenario this test claims (its scenario_id) lists
+`verification` clauses the test does not assert — covered in name only.

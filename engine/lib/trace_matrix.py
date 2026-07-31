@@ -114,6 +114,18 @@ def build(key=None):
             reused = plan_state.get(k).get("reused_from", "") or ""
         except Exception:
             reused = ""
+        # SDD 3.3: close the requirement end of the chain and render waivers —
+        # an audit distinguishes "waived, with a signed reason" from "missing".
+        req_by_sid, waivers = {}, {}
+        try:
+            import spec_store
+            spec = spec_store.load(k)
+            if spec:
+                req_by_sid = {sc.get("id"): ", ".join(sc.get("requirement_refs") or [])
+                              for sc in spec.get("scenarios", [])}
+            waivers = spec_store.load_waivers(k)
+        except Exception:
+            pass
         contracts = _contracts(record)
         tests = (contracts.get("generate") or {}).get("tests") or []
         tests_by_scenario = {}
@@ -142,6 +154,8 @@ def build(key=None):
                 "ci_failures": health.get("failures", ""),
                 "ci_last": health.get("last_status", ""),
                 "reused_from": reused,
+                "requirements": req_by_sid.get((scenario or {}).get("id"), ""),
+                "waiver": _waiver_cell(waivers.get((scenario or {}).get("id"))),
             }
 
         claimed = set()
@@ -164,7 +178,15 @@ def build(key=None):
 
 FIELDS = ["key", "scenario_id", "scenario_title", "behavior_ref", "file",
           "test_repo", "action", "gate_status", "commit", "run_id",
-          "ci_runs", "ci_failures", "ci_last", "reused_from"]
+          "ci_runs", "ci_failures", "ci_last", "reused_from",
+          "requirements", "waiver"]
+
+
+def _waiver_cell(w):
+    if not w:
+        return ""
+    tag = "waived (EXPIRED)" if w.get("expired") else "waived"
+    return f"{tag}: {w.get('reason', '')} ({w.get('by', '?')})"
 
 
 def to_csv(rows):

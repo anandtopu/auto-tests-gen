@@ -34,6 +34,10 @@ Rules (also see each test repo's CLAUDE.md — it is authoritative for conventio
   in that test repo: {"test_id","file","mapping":{"app_repos":[...],"feature":"{{KEY}}",
   "confidence":1.0,"method":["born_mapped"],"status":"confirmed"}}
 - Ambiguous behavior => test.fixme() skeleton + entry in open_questions. Never guess.
+- SPEC-DRIVEN scenarios (steps + verification in the plan contract): a test only
+  COVERS its scenario_id when it asserts every listed `verification` clause —
+  status codes, unchanged state, exact boundaries. Name-matching a scenario while
+  asserting less is a spec mismatch the critic will flag.
 
 Finally print exactly one JSON object:
 {"tests":[{"file":"...","name":"...","scenario_id":"...","action":"created|updated"}],

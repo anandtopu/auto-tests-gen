@@ -298,6 +298,36 @@ def ambiguities(key):
     return out
 
 
+# ---------------------------------------------------------------- SDD 3.2/3.3
+def waivers_path(key):
+    return SPEC_DIR / key / "waivers.yaml"
+
+
+def load_waivers(key):
+    """{scenario_id: waiver} for the key. A waiver is a HUMAN escape hatch
+    (reason, who, expiry) — reading is total; expired waivers are returned
+    with expired=True so callers render them honestly rather than hiding
+    them."""
+    p = waivers_path(key)
+    if not p.exists():
+        return {}
+    try:
+        import time as _t
+        import yaml
+        doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        out = {}
+        for w in doc.get("waivers") or []:
+            if not isinstance(w, dict) or not w.get("scenario"):
+                continue
+            w = dict(w)
+            exp = str(w.get("expires") or "")
+            w["expired"] = bool(exp) and exp < _t.strftime("%Y-%m-%d")
+            out[w["scenario"]] = w
+        return out
+    except Exception:
+        return {}
+
+
 def merge_fold(original_path, folded_path):
     """Preserve the author's structured fields through the arbiter fold.
 
