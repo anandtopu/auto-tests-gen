@@ -131,6 +131,11 @@ def test_analyze_phase_receives_the_ticket_and_prompt_names_comments():
     """End of the chain: the pipeline passes out/ticket.json to analyze, and the
     prompt tells the model comments are part of the requirements input."""
     pipeline = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
-    assert "jira-analyze.md AGENTS.md out/issue-guidance.md out/ticket.json" in pipeline
+    # Since context scoping (2.2) the estate file arrives via $(CTX analyze),
+    # which falls back to AGENTS.md; the invariant pinned here is that the
+    # TICKET reaches analyze, whatever the estate context's delivery shape.
+    assert 'jira-analyze.md "$(CTX analyze)" out/issue-guidance.md out/ticket.json' \
+        in pipeline or \
+        "jira-analyze.md AGENTS.md out/issue-guidance.md out/ticket.json" in pipeline
     prompt = (ROOT / "prompts/jira-analyze.md").read_text(encoding="utf-8")
     assert "comments" in prompt

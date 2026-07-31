@@ -198,12 +198,18 @@ def test_agents_md_is_context_for_pr_and_jira_generation():
         parts = line.strip().split()
         if not parts:
             continue
+        # Since context scoping (2.2), estate knowledge arrives as AGENTS.md or
+        # as $(CTX <phase>) — which FALLS BACK to AGENTS.md when scoping is off
+        # or fails, and whose scoped file embeds the same synced guidance
+        # (guidance chunks are must-keep for resolved repos). Either form
+        # satisfies this invariant.
+        has_estate = "AGENTS.md" in line or "$(CTX " in line
         if parts[0] == "GENERATE":
             seen.add("generate")
-            assert "AGENTS.md" in line, f"phase without estate knowledge: {line.strip()}"
+            assert has_estate, f"phase without estate knowledge: {line.strip()}"
         elif len(parts) > 1 and parts[0] == "PHASE" and parts[1] in AUTHORING:
             seen.add(parts[1])
-            assert "AGENTS.md" in line or '"$@"' in line or '"${ctx[@]}"' in line, \
+            assert has_estate or '"$@"' in line or '"${ctx[@]}"' in line, \
                 f"phase without estate knowledge: {line.strip()}"
     assert (AUTHORING | {"generate"}) <= seen, \
         f"phases not exercised: {(AUTHORING | {'generate'}) - seen}"

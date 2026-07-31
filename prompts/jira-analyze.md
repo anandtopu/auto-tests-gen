@@ -13,3 +13,5 @@ contradictory, or missing expected outcomes — do NOT resolve ambiguity by inve
 Finally print exactly one JSON object:
 {"behaviors":[{"id":"B1","statement":"...","source":"AC-1|confluence:<page>","layer":"api|ui|both"}],
  "open_questions":["..."]}
+
+If the estate context provided is SCOPED (its header says so) and lacks knowledge you genuinely need (a repo's surface, a convention, a mapping), add "missing_context":["what was missing"] to the JSON instead of guessing — the pipeline retries once with the full estate.

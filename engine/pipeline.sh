@@ -91,7 +91,8 @@ RUN_START=$(date +%s)
 # a leftover real-run transcript carrying total_cost_usd poisons budget metering
 # for every later mock run (phase_cost reads it as "metered", so the
 # AIQE_MOCK_PHASE_COST simulation never applies and the exit-77 guard is dead).
-rm -f "${AIQE_COST_LEDGER:-out/cost.tsv}" out/*.json out/gate_results.tsv
+rm -f "${AIQE_COST_LEDGER:-out/cost.tsv}" out/*.json out/gate_results.tsv \
+      out/context-*.md out/context-retries.tsv
 _budget_guard() {
   local why
   if ! why=$(python3 engine/lib/budget.py check --start "$RUN_START"); then
@@ -115,7 +116,40 @@ PHASE() {
   local rc=0
   _PHASE_IMPL "$@" || rc=$?
   python3 engine/lib/budget.py record "$label" "out/$label.json" || true
+  # Context-retry escape hatch (cost-reduction 2.3): a phase that ran on a
+  # SCOPED context and reported `missing_context` gets ONE re-run with the full
+  # estate — the miss is recorded so the scoping policy can be tuned instead of
+  # silently degrading output.
+  if [ "$rc" -eq 0 ] && [ "${AIQE_CONTEXT_RETRY:-1}" != "0" ]; then
+    if python3 -c "import json,sys; c=json.load(open('out/${label}.contract.json')); sys.exit(0 if c.get('missing_context') else 1)" 2>/dev/null; then
+      local args=() f swapped=0
+      for f in "$@"; do
+        case "$f" in out/context-*.md) args+=("AGENTS.md"); swapped=1 ;;
+                     *) args+=("$f") ;; esac
+      done
+      if [ "$swapped" = "1" ]; then
+        echo "[context] $label reported missing context — one retry with the full estate"
+        python3 -c "import json; c=json.load(open('out/${label}.contract.json')); print('${label}\t' + '; '.join(map(str, c.get('missing_context') or [])))" >> out/context-retries.tsv 2>/dev/null || true
+        _PHASE_IMPL "${args[@]}" || rc=$?
+        python3 engine/lib/budget.py record "$label" "out/$label.json" || true
+      fi
+    fi
+  fi
   return $rc
+}
+
+# Retrieval-scoped context (cost-reduction 2.2): echo the per-run scoped file
+# for a phase, or AGENTS.md when scoping is off (globally, per-phase in
+# org-config `context_scope:`), unavailable, or failed. Fallback is ALWAYS the
+# full estate — a scoping failure must never break or quietly starve a run.
+CTX() {
+  local phase="$1"
+  if python3 engine/lib/context_scope.py assemble "$phase" >/dev/null 2>&1 \
+     && [ -s "out/context-${phase}.md" ]; then
+    echo "out/context-${phase}.md"
+  else
+    echo "AGENTS.md"
+  fi
 }
 
 # Per-repo generation fan-out (openhands-review §3.3, reopened by the existing-approach
@@ -283,12 +317,12 @@ relocate_artifacts() {
 
 # Phase chain (Workflow A: triage->generate->validate; B: analyze->plan->data->generate->validate)
 if [ "$MODE" = "pr" ]; then
-  PHASE triage   pr-triage.md    AGENTS.md out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md
+  PHASE triage   pr-triage.md    "$(CTX triage)" out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md
   # Extend-vs-create scout (roadmap 2.1): deterministic join of the diff's surface
   # against catalog evidence, emitting NAMED extend targets. Tolerant — a scout
   # failure yields an empty file, never a failed run.
   python3 engine/lib/extend_scout.py > out/extend-candidates.md 2>/dev/null || : > out/extend-candidates.md
-  GENERATE AGENTS.md out/triage.contract.json out/pr.diff out/catalog-slice.jsonl out/extend-candidates.md out/coverage-gaps.md out/repo-conventions.md
+  GENERATE "$(CTX generate)" out/triage.contract.json out/pr.diff out/catalog-slice.jsonl out/extend-candidates.md out/coverage-gaps.md out/repo-conventions.md
 elif [ "$MODE" = "tests" ]; then
   # Resume from the APPROVED plan. The reviewed markdown is authoritative (it may have
   # been edited), so it is passed to both phases alongside the snapshotted contract.
@@ -298,11 +332,11 @@ elif [ "$MODE" = "tests" ]; then
     echo "PLAN_SNAPSHOT_MISSING: reports/plans/${KEY}.contract.json — re-run 'pipeline.sh plan ${KEY}'"
     exit 64
   fi
-  PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json "testplans/${KEY}.md"
-  GENERATE AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md" out/catalog-slice.jsonl out/repo-conventions.md
+  PHASE testdata jira-testdata.md "$(CTX testdata)" out/testplan.contract.json "testplans/${KEY}.md"
+  GENERATE "$(CTX generate)" out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md" out/catalog-slice.jsonl out/repo-conventions.md
 else
-  PHASE analyze  jira-analyze.md AGENTS.md out/issue-guidance.md out/ticket.json out/confluence.md
-  PHASE testplan jira-testplan.md AGENTS.md out/issue-guidance.md out/analyze.contract.json out/coverage-gaps.md
+  PHASE analyze  jira-analyze.md "$(CTX analyze)" out/issue-guidance.md out/ticket.json out/confluence.md
+  PHASE testplan jira-testplan.md "$(CTX testplan)" out/issue-guidance.md out/analyze.contract.json out/coverage-gaps.md
   # Adversarial plan review: the plan is the artifact a human approves, and until now
   # one agent wrote it with nothing arguing back. A read-only ADVERSARY hunts for what
   # the author missed (negative/boundary/authz/state/cross-repo gaps) and an ARBITER
@@ -314,14 +348,14 @@ else
   rm -f out/planadversary.contract.json out/planarbiter.contract.json
   if python3 engine/lib/plan_adversary.py enabled; then
     ADV_RC=0
-    PHASE planadversary jira-plan-adversary.md AGENTS.md out/analyze.contract.json \
+    PHASE planadversary jira-plan-adversary.md "$(CTX planadversary)" out/analyze.contract.json \
       out/testplan.contract.json "testplans/${KEY}.md" out/coverage-gaps.md || ADV_RC=$?
     if [ "$ADV_RC" -ne 0 ]; then
       echo "[plan-adversary] phase failed — the authored plan stands"
       rm -f out/planadversary.contract.json
     elif [ -f out/planadversary.contract.json ]; then
       ARB_RC=0
-      PHASE planarbiter jira-plan-arbitrate.md AGENTS.md out/analyze.contract.json \
+      PHASE planarbiter jira-plan-arbitrate.md "$(CTX planarbiter)" out/analyze.contract.json \
         out/testplan.contract.json out/planadversary.contract.json \
         "testplans/${KEY}.md" out/resolve.contract.json || ARB_RC=$?
       # The arbiter's contract REPLACES the plan contract only on success — a failed
@@ -352,7 +386,7 @@ else
     echo "$MSG"
     exit 0
   fi
-  PHASE testdata jira-testdata.md AGENTS.md out/testplan.contract.json
+  PHASE testdata jira-testdata.md "$(CTX testdata)" out/testplan.contract.json
   GENERATE AGENTS.md out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json out/catalog-slice.jsonl out/repo-conventions.md
 fi
 PHASE validate validate-repair.md out/generate.contract.json out/repo-conventions.md

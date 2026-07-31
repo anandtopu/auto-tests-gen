@@ -71,6 +71,18 @@ overall = ("quarantined" if any(g["status"] in ("quarantined", "clone_failed")
 record = {"run_id": run_id, "trigger": {"type": mode, "key": key},
           "ts": time.time(), "overall": overall,
           "gates": gates, "phases": phases}
+# Context-scope retries (cost-reduction 2.3): phases that reported missing
+# context and re-ran on the full estate — the tuning signal for the scoping
+# policy, and an honest marker that this run paid the retry.
+if os.path.exists("out/context-retries.tsv"):
+    retries = []
+    for line in open("out/context-retries.tsv", encoding="utf-8"):
+        parts = line.rstrip("\n").split("\t", 1)
+        if parts[0]:
+            retries.append({"phase": parts[0],
+                            "missing": parts[1] if len(parts) > 1 else ""})
+    if retries:
+        record["context_retries"] = retries
 signal = critic_lib.load()
 if signal:
     record["critic"] = signal

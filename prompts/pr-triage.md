@@ -21,3 +21,5 @@ Steps:
 Finally print exactly one JSON object:
 {"impact":"none|update|create","areas":["..."],"existing_tests":["test_id"],
  "risk":"low|med|high","rationale":"..."}
+
+If the estate context provided is SCOPED (its header says so) and lacks knowledge you genuinely need (a repo's surface, a convention, a mapping), add "missing_context":["what was missing"] to the JSON instead of guessing — the pipeline retries once with the full estate.

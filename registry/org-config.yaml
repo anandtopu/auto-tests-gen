@@ -74,6 +74,21 @@ resolution:
 catalog:
   auto_accept_confidence: 0.85
   review_band: [0.5, 0.85]
+# Retrieval-scoped context (cost-reduction 2.2): which phases get a per-run
+# chunk assembly instead of the full AGENTS.md. Judgement phases (testplan,
+# generate, the plan adversary pair) stay on the full estate until the paired
+# quality eval (story 7.2) clears them — flipping one to `on` is a quality
+# decision, not a config tweak. AIQE_CONTEXT_SCOPE=0 kills it globally.
+context_scope:
+  triage: on
+  analyze: on
+  testdata: on
+  testplan: off
+  generate: off
+  planadversary: off
+  planarbiter: off
+context_budget: 4000        # tokens; MUST-KEEP chunks may exceed it
+
 budgets:
   max_cost_usd_single_suite: 2.0
   max_cost_usd_cross_repo: 4.0

@@ -196,4 +196,7 @@ def test_generation_receives_the_test_catalog_on_every_path():
         assert "out/catalog-slice.jsonl" in line, \
             f"generate cannot decide extend-vs-create without the catalog: {line.strip()}"
         assert "out/repo-conventions.md" in line
-        assert "AGENTS.md" in line
+        # Estate knowledge arrives as AGENTS.md or, since context scoping (2.2),
+        # via $(CTX generate) — which FALLS BACK to AGENTS.md. Either satisfies
+        # the invariant: generation always gets the estate context.
+        assert "AGENTS.md" in line or "CTX generate" in line
