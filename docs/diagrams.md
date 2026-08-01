@@ -150,13 +150,18 @@ sequenceDiagram
 flowchart TD
     S([gate.sh KEY test_repo]) --> T6{cwd is a standalone<br/>test repo?}
     T6 -- no --> E6["exit 6 GATE_REFUSED"]
-    T6 -- yes --> CH{any changes?}
+    T6 -- yes --> CFG{".ai-qe/config.yaml<br/>committed?"}
+    CFG -- no --> E6b["exit 6 GATE_REFUSED<br/>(will not execute an<br/>uncommitted config)"]
+    CFG -- yes --> RD["read commands.lint/.test from<br/><b>git show HEAD:</b> — never the working tree"]
+    RD --> CH{any changes?}
     CH -- no --> OK0(["exit 0 · GATE_STATUS=NO_CHANGES"])
-    CH -- yes --> T2{safe filenames +<br/>only test-repo paths?}
-    T2 -- no --> E2["exit 2 SCOPE_VIOLATION<br/>(unsafe charset OR out of scope)"]
+    CH -- yes --> T2{"safe filenames +<br/>only test-repo paths?<br/>(.ai-qe/ is NOT writable)"}
+    T2 -- no --> E2["exit 2 SCOPE_VIOLATION<br/>(unsafe charset, out of scope,<br/>OR a run touched repo config)"]
     T2 -- yes --> T4{every new spec has a<br/>catalog sidecar entry?}
     T4 -- no --> E4["exit 4 UNMAPPED_TEST"]
-    T4 -- yes --> L["lint (commands.lint from .ai-qe/config.yaml)"]
+    T4 -- yes --> SP{"spec satisfied?<br/>(spec.enforce: strict)"}
+    SP -- no --> E8["exit 8 SPEC_UNSATISFIED"]
+    SP -- yes --> L["lint (from the COMMITTED config)"]
     L --> RUN["with-env.sh: boot app (fail if not ready) →<br/>run changed specs → teardown"]
     RUN -- fail --> E5["exit 5 TESTS_FAILED<br/>(log → reports/, NOT committed)"]
     RUN -- pass --> T3{secret / PII patterns<br/>in new content?}
@@ -171,7 +176,16 @@ flowchart TD
 All red paths quarantine the run for human inspection — never auto-retried. The
 scope check rejects filenames outside a safe charset **before** any spec name is
 interpolated into a shell command (the gate is the deterministic safety boundary).
-Codes 2–5 are permanently regression-tested by `make test-gate`.
+
+**The two config steps are the trust boundary (§5.5.1).** The gate *executes*
+`commands.{lint,test}`, so it must never read a version a run could have
+written: `.ai-qe/` is off the writable scope, and the commands come from the
+committed file. Either guard alone leaves a gap — without the scope removal the
+gate would commit a malicious config and the *next* run would execute it.
+
+Codes 2–5 are permanently regression-tested by `make test-gate` (6 attacks,
+two of which pin exactly this: the rewrite is refused **and** the planted
+command never runs).
 
 ## 6. Repo resolution — Phase 0 (§5.8.2)
 
@@ -480,3 +494,68 @@ flowchart TB
     SPEND --> REC["run record spend blocks<br/>simulated flag — never reads as measured"]
     REC --> RPT["cost_report.py: make cost-report ·<br/>Cost view · baseline + nightly<br/>regression alarm (make maintain)"]
 ```
+
+## 17. LLM Runner port — provider independence (§5.14)
+
+```mermaid
+flowchart TD
+    RP["run_phase.sh"] --> RES["llm_runner.py resolve &lt;phase&gt;"]
+    RES --> SEL{"selection, in order:<br/>AIQE_LLM_PROVIDER (Settings) ><br/>llm.phase_providers[phase] ><br/>llm.provider > claude"}
+    SEL --> CAP{"capability check<br/>at CONFIG time"}
+    CAP -- "agentic phase on a<br/>completion provider" --> X1["refuse, naming the fix<br/>(never mid-run)"]
+    CAP -- "claude-namespace id would<br/>reach another provider" --> X2["refuse, naming the exact<br/>models_by_provider key"]
+    CAP -- ok --> AD["adapters/llm/&lt;provider&gt;.sh"]
+
+    AD --> C["claude<br/>AGENTIC · allowedTools verbatim<br/>cost: reported $"]
+    AD --> X["codex<br/>AGENTIC · policy → sandbox<br/>no --max-turns ⇒ turn_limit_enforced:false<br/>cost: estimated ~$"]
+    AD --> O["ollama<br/>COMPLETION · OpenAI-compatible HTTP<br/>cost: $0 (local), tokens tracked"]
+    AD --> H["openhands<br/>COMPLETION (its sandbox ≠ our workspace)<br/>opt-in · cost: unknown, never 0"]
+
+    C & X & O & H --> NR["normalized result JSON<br/>result · usage · num_turns · provider · model"]
+    NR --> DW{"capabilities = completion?"}
+    DW -- yes --> MAT["derived_writes: harness materializes<br/>testplan/planarbiter via the SDD renderer,<br/>testdata from fixtures[].content"]
+    DW -- no --> OWN["the agent wrote its own files"]
+    MAT & OWN --> CACHE["phase cache keyed PROVIDER:MAPPED_MODEL<br/>+ run key — a switch can never replay<br/>another provider's result"]
+
+    FAIL["unreachable · refusing · unconfigured"] --> STOP["END the phase, naming the fix.<br/><b>No silent fallback</b> to a paid provider (C12)"]
+```
+
+Every adapter also answers `tool_policy <allowed_tools>` — what it will
+*actually* enforce — and conformance asserts the answer is never **more**
+permissive than the policy. That is what stops a runtime which cannot express a
+per-tool allow-list from quietly granting the critic or the plan adversary write
+access, at which point "advisory" stops being true.
+
+## 18. Attribution → routing: one chain, silent when wrong (§5.15)
+
+```mermaid
+flowchart LR
+    subgraph attribute["what a test covers"]
+        EX["extract<br/>endpoints · ui_routes"] --> CO["correlate"]
+        CO --> M1["contract_match / route_match<br/><b>ATTRIBUTING</b> — raises confidence"]
+        CO --> M2["git_history (JIRA keys)<br/>recorded as evidence,<br/><b>does NOT vote</b>"]
+        M1 --> CF["confidence = 0.65 + 0.2 × attributing"]
+        CF --> ST{"tier"}
+        ST -- "≥ 0.85" --> AUTO["auto"]
+        ST -- "0.5–0.85" --> REV["needs_review<br/>(human queue)"]
+        ST -- "< 0.5" --> ORPH["orphan → LLM classifier"]
+    end
+
+    AUTO --> COV["regen_coverage: covers: =<br/>catalog evidence ∪ scope<br/><b>only confirmed/auto route</b>"]
+    REV -. never .-> COV
+
+    subgraph route["who does the work"]
+        COV --> RS["resolve_pr / resolve_jira"]
+        RS --> FO{"contract changed?<br/><b>path test</b>, not a string prefix"}
+        FO -- yes --> CON["fan out to consumer UI repos"]
+        FO -- no --> ONE["the covering test repos"]
+        CON & ONE --> SLICE["catalog_slice: existing-test context<br/>filtered by the SAME mapping,<br/>per-repo in the generate fan-out"]
+    end
+
+    SLICE --> GEN["generate (one agent per test repo)"]
+```
+
+Nothing in this chain errors when it is wrong. Tests get written, the gate
+commits them, the run reports success — into the wrong repo, or not at all, and
+the only symptom is coverage that quietly does not exist. `make test-routing-adv`
+(11 attacks) exists because that class of failure is invisible to ordinary tests.

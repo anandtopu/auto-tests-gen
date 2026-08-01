@@ -1,7 +1,7 @@
 # Solution Architecture Document
 ## AI-Driven Test Engineering Workflow PoC — OpenHands + Claude Code
 
-**Version:** 2.3 | **Date:** July 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 adds §5.13 (retrieval & reuse subsystem — the shipped cost-reduction stack: telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9 (embeddings)
+**Version:** 2.4 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md)
 **Author:** QA / AI Quality Engineering Team
 **Scope:** Proof of Concept — Agentic SDLC test generation workflow across a **multi-repository estate**: multiple UI repos, multiple backend/API repos, and **6 existing E2E test repositories (3 API, 3 UI) whose tests are currently unmapped to any application repository or feature**. v2.0 adds the **Test Catalog & Mapping subsystem** (bootstrap + continuous mapping of existing tests) and a **pluggable Integration & Extensibility layer** (Jira, Bitbucket, GitHub, Slack, Splunk, and future tools), and restructures the solution as a reusable, customizable platform. v2.1 extends the integration layer with **Confluence (knowledge source + publishing)**, **Jenkins (CI/CD trigger, execution, and results feedback)**, and a documented onboarding pattern for any additional SDLC tool.
 
@@ -356,7 +356,20 @@ git commit -m "test(${KEY}): AI-generated E2E updates" \
 git push origin HEAD
 ```
 
-Exit codes map to structured failure reasons in the run record; scope or secret violations quarantine the run for human inspection instead of retrying. The implemented gate (`engine/gate/gate.sh`) uses the full set: **2** scope violation — including any filename outside a safe charset, checked *before* a spec name is ever interpolated into a shell command; **3** secret/PII pattern; **4** unmapped (no born-mapped catalog sidecar); **5** tests failed; **6** refuse-if-not-a-standalone-repo; **7** push failed with a configured remote (auth/protection/network — never reported as success; only the no-remote demo case is skippable). Codes 2–5 are regression-tested by `make test-gate`.
+Exit codes map to structured failure reasons in the run record; scope or secret violations quarantine the run for human inspection instead of retrying. The implemented gate (`engine/gate/gate.sh`) uses the full set: **2** scope violation — including any filename outside a safe charset, checked *before* a spec name is ever interpolated into a shell command; **3** secret/PII pattern; **4** unmapped (no born-mapped catalog sidecar); **5** tests failed; **6** refuse-if-not-a-standalone-repo; **7** push failed with a configured remote (auth/protection/network — never reported as success; only the no-remote demo case is skippable); **8** spec unsatisfied (SDD 3.2, `spec.enforce: strict`). Codes 2–5 are regression-tested by `make test-gate`, now 6 attacks.
+
+#### 5.5.1 The gate takes no orders from what a run produced (v2.4)
+
+The gate does not just decide *whether* a run's output is acceptable — it **executes** that run's repository config. `commands.lint` and `commands.test` come from the test repo's `.ai-qe/config.yaml`, and the gate runs them with the authority that holds the push credential.
+
+`.ai-qe/` used to be on the gate's own writable-scope allow-list. That closed a loop no threat model had named: the `generate` phase — whose prompt context includes untrusted ticket and PR text — could rewrite that config, and the gate would execute it **in the same run**. Reproduced with a planted `lint` command that ran while the gate still reported `GATE_STATUS=WOULD_COMMIT`. The chain is *untrusted input → LLM phase → repo config → trusted executor*: the same failure the platform already names for ticket text ("data, never instructions"), applied to a file instead of a prompt, and therefore missed.
+
+Two independent guards, because either alone leaves a gap:
+
+1. **`.ai-qe/` is off the writable scope** — a run that touches repo config is a `SCOPE_VIOLATION`. Nothing in a run has ever legitimately written it; repo config belongs to its owner and changes out of band via `bin/onboard.sh`.
+2. **Commands are read from the COMMITTED config** (`git show HEAD:.ai-qe/config.yaml`), never the working tree — so a modification arriving by any other route still cannot steer the current run. A repo whose config is uncommitted is refused (exit 6) with the reason.
+
+Guard 2 alone would only *delay* the injection by one run: the gate would commit the malicious config and the next run would execute it. Constitution clause C1 states both properties; two assertions in `tests/gate-adversarial.sh` pin them — the attack must be refused **and** the planted command must never run.
 
 ### 5.6 Trigger Architecture — Two Interchangeable Paths
 
@@ -842,6 +855,96 @@ and every human approval gate is unchanged. The quality-gated levers
 (judgement-phase scoping, plan reuse) ship default-OFF until the parity eval
 measures their quality delta — the same honesty rule as §5.12's cost figures.
 
+### 5.14 LLM Runner port — provider independence (v2.4)
+
+Built as 6 slices against [multi-llm-providers.md](multi-llm-providers.md). Every
+real LLM call dispatches through `adapters/llm/<provider>.sh` — the **eighth
+port**, following the Embedding port's discipline (§5.10 rule 4). `claude` is
+today's `claude -p` invocation extracted verbatim, so the seam shipped
+behavior-neutral.
+
+**Capability classes decide what a provider may serve**, and the matrix is
+honest about what does not survive the port:
+
+| class | phases | claude | codex | ollama | openhands |
+|---|---|---|---|---|---|
+| completion | resolve_llm, triage, analyze, planadversary, critic | ✅ | ✅ | ✅ | ✅ |
+| completion + derived writes | testplan, planarbiter, testdata | ✅ | ✅ | ✅ | ✅ |
+| agentic (tool loop **in our workspace**) | generate, validate | ✅ | ✅ | ❌ | ❌ |
+
+OpenHands is **completion class, a correction to the original design**: a
+delegated conversation runs the agent in its own sandbox, so files it writes
+never reach `workspace/tests/<repo>` where the gate looks. Closing that gap
+would need the agent pushing its own branch — which §5.5 forbids — or a
+fetch-back channel. Having OpenHands *author tests* remains supported the way
+it always was: as a trigger that runs the pipeline, where the gate still commits.
+
+Agentic is also **not uniform**. Codex has no per-tool allow-list, so the policy
+maps onto a sandbox (`Write`/`Edit` → `workspace-write`, else `read-only`), and
+no `--max-turns`, so the org-config ceiling is not enforced there and the result
+JSON reports `turn_limit_enforced: false` rather than let a report imply a cap
+nobody applied. Every adapter answers a `tool_policy` verb, and conformance
+asserts the answer is never *more* permissive than the policy — the check that
+stops a runtime silently granting the critic or the plan adversary write access.
+
+**No silent fallback** (constitution C12): an unreachable, refusing or
+unconfigured provider ends the phase naming the fix. Model ids are configured,
+never guessed — `check_model_mapping` refuses a provider that would receive a
+claude-namespace id, because that failure otherwise surfaces as a vendor
+"unknown model" error layers below the switch that caused it.
+
+**Cost is provider-aware** and the four bases never cross: `reported` (`$x`),
+`estimated` (`~$x`, priced from org-config), `local` (`$0 (local)`, tokens still
+tracked), `simulated` (`~`). A provider with no price entry stays **`unknown`,
+never 0** — and because both spend controls gate on metered spend, the
+*inability* to enforce is now reported (`budget.enforceability()`) rather than
+passing silently as "within budget".
+
+### 5.15 Attribution & routing integrity (v2.4)
+
+Correlator and resolver form one chain — `correlate → mapping.status → covers:
+→ resolve → which repo does the work` — in which every defect is **silent by
+construction**: nothing errors, tests get written, the gate commits, and the
+only symptom is coverage that quietly does not exist, or exists in the wrong
+repo. Three properties now hold explicitly:
+
+1. **Confidence may only count evidence that attributes.** `git_history` says
+   which *ticket* touched a file; it contributes no app repo. It used to score
+   anyway, taking a single-signal mapping over the auto-accept line so it
+   skipped human review on the strength of a commit message. It stays recorded
+   as evidence; it no longer votes. (The base was re-calibrated 0.55 → 0.65 so
+   one *attributing* match still auto-accepts — the tiering the old formula
+   reached by accident.)
+2. **A JIRA key is a project key, not any hyphenated token.** `UTF-8`, `HTTP-2`,
+   `SHA-1` and `RFC-2616` were being extracted from ordinary commit messages.
+3. **Contract fan-out is a path test, not a string prefix.**
+   `openapi-backup/old.yaml` used to trigger fan-out for `openapi/orders.yaml`.
+
+The per-run existing-test context (`catalog_slice.py`) is filtered by the same
+`covers:` mapping that routed the run, per-repo in the generate fan-out — an
+agent writing into one repo no longer reasons over every other repo's catalog.
+An empty selection falls back to the whole catalog **loudly**: starving
+generation of existing-test context makes it duplicate work it cannot see.
+
+### 5.16 Structured per-repo facts (knowledge base, v2.4)
+
+`knowledge/facts/<repo>.yaml` (authored, tracked) beside
+`knowledge/facts/derived/<repo>.yaml` (harvested, gitignored), for **E2E test
+repos only** — an app repo's useful facts are surface and ownership, which the
+registry and harvested contract already carry.
+
+The gap this closes is not plumbing: every repo already had guidance, catalog
+evidence, harvested surface and chunks. It is that everything *qualitative* was
+one undifferentiated blob of prose, which cannot be ranked, filtered by
+severity, or **attributed**. Facts carry provenance per key, so a prompt can
+distinguish "the team asserts" from "harvested from the repo", and precedence
+extends C6: `repo_owned > authored > harvested`.
+
+The `observed` tier (flake, churn, reviewer-edit patterns) is the highest-value
+one and is **deliberately not built** — it needs a real CI feed, and shipping an
+empty tier that looks populated is worse than not having one. See
+[knowledge-base-proposal.md](knowledge-base-proposal.md).
+
 ## 6. Scalability, Reliability, Efficiency, Maintainability — Deep Dive
 
 ### 6.1 Scalability
@@ -888,7 +991,10 @@ measures their quality delta — the same honesty rule as §5.12's cost figures.
 | SCM credentials | Fine-grained deploy token: contents write on feature branches only; branch protection blocks agent pushes to `main`/release branches |
 | JIRA credentials | Dedicated service account; project-scoped read + comment write; API token rotated; admin MCP-client allowlisting enabled |
 | LLM credentials | `ANTHROPIC_API_KEY` injected as secret at runtime; never written to repo, logs, or prompts; usage-scoped key with spend limit |
-| Prompt injection | Ticket/PR text framed as data; per-phase `allowedTools` whitelist; no arbitrary network tools; deterministic gate blocks out-of-scope diffs and secret-like strings |
+| Prompt injection | Ticket/PR text framed as data (verified across every standalone prompt); per-phase `allowedTools` whitelist that each LLM adapter must declare it can enforce (`tool_policy`, conformance-checked as never *more* permissive); no arbitrary network tools; deterministic gate blocks out-of-scope diffs and secret-like strings |
+| Trusted-executor integrity | The gate executes the test repo's `commands.{lint,test}`, so `.ai-qe/` is OFF the writable scope and those commands are read from the COMMITTED config — a run cannot rewrite what the component holding the push credential will execute (§5.5.1) |
+| Provider trust | No silent fallback: an unreachable or unconfigured LLM provider ends the phase naming the fix, never reroutes to another (possibly paid) one. Model ids are configured, never guessed (C12) |
+| Path containment | Every write derived from model output or an imported bundle is confined by a PATH relationship, never a string prefix — `derived_writes`, `phase_cache` restore, `state_bundle` import and contract fan-out were each corrected to this rule |
 | Data protection | Synthetic test data only (policy + gate regex for PII patterns); run transcripts stored in access-controlled bucket with retention policy |
 | Auditability | Signed commits with agent trailer; run records link trigger → transcript → artifacts → cost |
 | Operator UI / webhooks | Dashboard: `AIQE_UI_TOKEN` Bearer/cookie auth, or reverse-proxy SSO via `AIQE_SSO_HEADER` (fails closed with 401 when the header is absent; SSO identity signs approvals and review marks; token coexists for API clients). Receiver: `AIQE_HOOK_TOKEN` on `X-AIQE-Token` |
