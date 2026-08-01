@@ -168,13 +168,58 @@ to prove the exposure — crashing the machine to demonstrate a low-severity DoS
 is a poor trade.
 
 ## R14 — Decide whether `resolve_llm` is a real phase
-**Priority: low · DESIGN DECISION, not a bug**
+**Priority: low · DECIDED AND DONE (2026-08-01) — it is not a phase**
 
-`llm_runner.ALL_PHASES` includes `resolve_llm`, and `models:` gives it a tier,
-but `phases:` has no policy entry — so `validate()` checks an assignment that
-`run_phase.sh` would `KeyError` on. Unreachable today because nothing dispatches
-it. Making it consistent means deciding whether it is a phase or a tier entry,
-which is a design call, not a fix.
+**The finding as filed.** `llm_runner.ALL_PHASES` includes `resolve_llm`, and
+`models:` gives it a tier, but `phases:` has no policy entry — so `validate()`
+reports the config clean while a dispatch would die on `KeyError: 'resolve_llm'`
+in `run_phase.sh`. Unreachable, because nothing dispatches it.
+
+**What the investigation actually found.** Not one phantom but three, and the
+filing under-described the problem:
+
+| key | tier | policy | in `ALL_PHASES` | prompt | dispatched |
+|---|---|---|---|---|---|
+| `resolve_llm` | ✅ | ❌ | ✅ | ✅ `prompts/resolve-llm.md` | ❌ |
+| `resolve` | ✅ | ✅ | ❌ | ❌ | ❌ |
+| `escalate` | ✅ | ❌ | ❌ | ❌ | ❌ |
+
+`resolve` and `resolve_llm` are two names for the *same* unbuilt thing — ADR-5's
+LLM routing fallback — split across the config so neither half looked wrong on
+its own. `models.resolve` even carried the comment "routing is deterministic;
+this is the fallback". `escalate` (`claude-opus-4-8`, "after 2 failed generate
+attempts") is a tier for a retry escalation nothing implements. All three read
+as live configuration: an operator tuning any of them would have changed
+nothing, and the only way to discover that was to read the dispatch sites.
+
+**Decision: `resolve_llm` is not a real phase, and the auto-routing LLM fallback
+should not be built.** Full reasoning in architecture §5.8.2 and the ADR-5
+amendment. In short: a misroute is the one failure this pipeline cannot see — it
+reports *success* while writing tests against the wrong repo, so the cost is not
+a wasted run but coverage nobody knows is missing (this is what §5.15 and the
+11-attack routing suite exist for). An LLM rung's upside is bounded by the cases
+where it is confident *and* right; its downside is precisely confident-and-wrong.
+The rung it would replace — ask a human — costs one reply.
+
+The option is preserved in the shape that keeps determinism: an LLM
+**suggestion inside the clarification comment**, which a human confirms. A
+proposal to a person, never a route. Not built; recorded as the correct
+follow-on if poor-metadata tickets ever justify it.
+
+**Shipped.** All three keys removed; `prompts/resolve-llm.md` deleted;
+`resolve.py`'s docstring (which promised the fallback), architecture §5.8.2, the
+capability matrices in architecture + `multi-llm-providers.md`, the routing
+table and ADR-5 all corrected.
+
+**The durable fix is the pin, not the deletion.** `registry/tests/`
+`test_phase_inventory.py` asserts `org-config models: == phases: ==
+llm_runner.ALL_PHASES == what pipeline.sh dispatches`, so any future half-wired
+phase breaks the build naming which side is missing. Writing it surfaced a trap
+worth recording: `critic` is dispatched via `_PHASE_IMPL`, not `PHASE`
+(deliberately — the budget guard must not abort a fully-paid-for run over an
+advisory signal), so a pin matching only `PHASE` would have reported `critic` as
+a phantom and "confirmed" the bug it exists to catch. All 8 assertions are
+mutation-tested.
 
 ## R15 — Constant-time token comparison
 **Priority: very low · DELIBERATELY NOT DONE**

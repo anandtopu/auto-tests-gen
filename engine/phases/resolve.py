@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
 """Phase 0 — Repo Resolution (architecture §5.8.2).
-Rules-first; emits resolution JSON. LLM fallback is invoked by pipeline.sh
-only when confidence < threshold (see prompts/resolve-llm.md).
+Rules-first, and rules-ONLY: this emits resolution JSON, and below the
+confidence threshold the answer is `needs_clarification` — pipeline.sh asks a
+human on the ticket/PR and exits 0. That is the terminal answer, not a
+placeholder.
+
+This docstring used to promise an LLM fallback "invoked by pipeline.sh ... see
+prompts/resolve-llm.md". Nothing invoked it, and the prompt has been removed.
+ADR-5's step 2 is deliberately not built: a misroute is the one failure this
+system cannot see (§5.15 — the run reports success, tests land in the wrong
+repo, and coverage silently does not exist), so the layer that decides routing
+is the last place to add a component that can be confidently wrong.
 
 Usage:
   resolve.py pr   <source_repo> --changed-files files.txt

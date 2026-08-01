@@ -3,9 +3,13 @@
 # eight of ten phases on the authoring-grade model, including bounded, structured jobs
 # that never needed it. Every phase is now named deliberately: pick the cheapest tier
 # that can do the job, and say why when it is not the cheapest.
+# Keys here must match `phases:` and llm_runner.ALL_PHASES EXACTLY — pinned by
+# test_phase_inventory.py. Three keys were removed as phantoms: `resolve` and
+# `resolve_llm` (two names for the one LLM routing fallback, ADR-5 step 2, now
+# deliberately not built — see architecture §5.8.2) and `escalate` (a retry
+# tier for an escalation nothing implements). Nothing dispatched any of them,
+# so tuning them changed nothing while looking like it did.
 models:
-  resolve: claude-haiku-4-5-20251001    # routing is deterministic; this is the fallback
-  resolve_llm: claude-haiku-4-5-20251001
   triage: claude-haiku-4-5-20251001     # classify a diff's impact — bounded
   analyze: claude-haiku-4-5-20251001    # extract behaviors from a ticket — extraction
   testdata: claude-haiku-4-5-20251001   # emit fixtures from a fixed schema
@@ -17,7 +21,6 @@ models:
   planadversary: claude-sonnet-4-6
   planarbiter: claude-sonnet-4-6
   generate: claude-sonnet-4-6           # writes the code that gets committed
-  escalate: claude-opus-4-8             # after 2 failed generate attempts
 # LLM Runner port (docs/multi-llm-providers.md). `provider` is the global
 # default; `phase_providers` overrides per phase (e.g. local Ollama for
 # triage/analyze, claude for judgement + agentic phases). AIQE_LLM_PROVIDER
@@ -46,7 +49,6 @@ llm:
       claude-opus-4-8: gpt-5-codex
 
 phases:
-  resolve:   { max_turns: 5,  allowed_tools: "Read" }
   triage:    { max_turns: 12, allowed_tools: "Read,Bash(git diff:*)" }   # 5 was too tight for real tool use (parity finding P1)
   analyze:   { max_turns: 12, allowed_tools: "Read" }
   testplan:  { max_turns: 10, allowed_tools: "Read,Write" }

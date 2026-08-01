@@ -21,7 +21,7 @@ Three facts about the current code decide the whole design:
    The LLM Runner becomes the **eighth port** with the same discipline.
 3. **Most phases don't actually need an agentic runtime.** The wrapper
    pre-concatenates every context file into the prompt, so read-only phases
-   (`resolve_llm`, `triage`*, `analyze`, `planadversary`, `critic`) need only
+   (`triage`*, `analyze`, `planadversary`, `critic`) need only
    a **chat completion**. And SDD made the plan-family artifacts DERIVED:
    `testplans/<KEY>.md` is rendered from the contract, testdata files are
    listed in the contract — so `testplan`/`planarbiter`/`testdata` can run
@@ -35,7 +35,7 @@ Three facts about the current code decide the whole design:
 
 | Class | Phases | Needs | Ollama | Claude Code | Codex CLI | OpenHands |
 |---|---|---|---|---|---|---|
-| completion | resolve_llm, triage, analyze, planadversary, critic | one chat completion over pre-injected context | ✅ | ✅ | ✅ | ✅ |
+| completion | triage, analyze, planadversary, critic | one chat completion over pre-injected context | ✅ | ✅ | ✅ | ✅ |
 | completion + derived writes | testplan, planarbiter, testdata | completion + harness materializes files from the contract | ✅ | ✅ | ✅ | ✅ |
 | agentic | generate, validate | tool loop: Read/Write/Edit/Bash **in our workspace**, bounded turns | ❌ | ✅ | ✅ | ❌ (see below) |
 

@@ -53,7 +53,15 @@ AGENTIC_PHASES = ("generate", "validate")
 # experimental provider would silently have been unlocked by OpenHands' flag.
 EXPERIMENTAL_PROVIDERS = {"openhands": "AIQE_OPENHANDS_PROVIDER"}
 
-ALL_PHASES = ("resolve_llm", "triage", "analyze", "testplan", "planadversary",
+# Exactly the phases pipeline.sh dispatches — no more. `resolve_llm` used to sit
+# at the front of this tuple: a phase with a model tier, a written prompt and an
+# entry here, but no `phases:` policy, so a dispatch would have died on a
+# KeyError in run_phase.sh. It was the LLM routing fallback from ADR-5 step 2,
+# which is now deliberately NOT built (architecture §5.8.2) — below the
+# confidence threshold the platform asks a human, and that is the terminal
+# answer. registry/tests/test_phase_inventory.py pins this tuple against
+# org-config and the dispatch sites so a phantom phase cannot come back.
+ALL_PHASES = ("triage", "analyze", "testplan", "planadversary",
               "planarbiter", "testdata", "generate", "validate", "critic")
 
 

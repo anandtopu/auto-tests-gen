@@ -477,7 +477,8 @@ The registry gives the system three derived structures: a **service dependency g
 
 #### 5.8.2 Repo Resolution — Phase 0 of every run
 
-Resolution is **rules-first, LLM-second**, so the common cases are deterministic, cheap, and explainable:
+Resolution is **rules-only**. Rules resolve or a human is asked — there is no LLM
+rung between them:
 
 ```
                        ┌────────────────────────────────────────┐
@@ -494,24 +495,41 @@ Resolution is **rules-first, LLM-second**, so the common cases are deterministic
                            │                       │
                            ▼                       ▼
                     proceed with set   ┌─────────────────────────────┐
-                                       │ Step 2: LLM RESOLVER (Haiku)│
-                                       │  Input: ticket/PR text +    │
-                                       │  registry (names, domains,  │
-                                       │  service descriptions)      │
-                                       │  Output: candidate repos +  │
-                                       │  confidence + rationale     │
-                                       └──────────────┬──────────────┘
-                                                      │
-                                    confidence ≥ 0.8? │
-                              yes ◀───────────────────┴──▶ no
-                               │                            │
-                               ▼                            ▼
-                        proceed, record            POST clarifying comment
-                        rationale in run log       to JIRA/PR listing candidate
-                                                   repos; human replies
-                                                   "@openhands use orders-api,
-                                                    e2e-api-tests" → re-trigger
+                                       │ Step 2: ASK A HUMAN         │
+                                       │  POST clarifying comment to │
+                                       │  JIRA/PR listing the        │
+                                       │  candidate repos + why the  │
+                                       │  rules were unsure; exit 0. │
+                                       │  Human replies "@openhands  │
+                                       │  use orders-api,            │
+                                       │  e2e-api-tests" → re-trigger│
+                                       └─────────────────────────────┘
 ```
+
+**There is no LLM resolver rung, by decision (R14).** ADR-5 originally specified
+one between the rules and the human: a cheap Haiku pass over the registry, with
+its own 0.8 threshold, falling through to the human below it. It was never
+built — `resolve_llm` existed as a model tier, a prompt and an `ALL_PHASES`
+entry, but nothing dispatched it and it had no policy, so a dispatch would have
+died on a `KeyError`. Reviewing it to finish the wiring, we removed it instead:
+
+- **A misroute is the failure this system cannot see.** Everything else surfaces:
+  a bad plan gets rejected in review, a weak test gets flagged by the critic, an
+  over-budget run aborts at exit 77. A wrong route produces a *successful* run —
+  tests written, gate green, PR comment posted — against the wrong repo, and the
+  only symptom is coverage that quietly does not exist. §5.15 and the 11-attack
+  routing suite exist for exactly this class.
+- **The LLM rung only pays when it is confident *and* right.** Confident-and-wrong
+  is the worst outcome in the system, and it is the one an LLM adds here. The
+  human rung has no such mode: a person who cannot tell either asks or answers.
+- **The rung it would replace is cheap.** It fires only on low-confidence runs,
+  where a human's answer costs one reply.
+
+The value ADR-5 wanted — help for tickets with poor metadata — is real, and the
+option is preserved in the shape that keeps determinism: an LLM **suggestion
+inside the clarification comment**, clearly labelled, that a human confirms.
+That is a proposal to a person, not a route. It is not built either; if the
+poor-metadata pain ever justifies it, build that and never the auto-route.
 
 Resolution rules by trigger type:
 
@@ -521,7 +539,7 @@ Resolution rules by trigger type:
 | PR in a **backend** repo, no contract change | The PR repo | Its mapped API E2E repo |
 | PR in a **backend** repo, **contract file changed** | The PR repo + `consumed_by` consumer repos (read-only) | API E2E repo **and** each consumer's UI E2E repo (impact: contract-driven UI flows) |
 | JIRA ticket, component-mapped | Repos from `jira_component_map` (+ dev-panel branches) | Union of mapped repos' test repos, filtered by label hints |
-| JIRA ticket, unmapped/ambiguous | LLM resolver over registry; below threshold → ask on ticket | — |
+| JIRA ticket, unmapped/ambiguous | None — below threshold the run stops and asks on the ticket (R14: no LLM resolver) | — |
 
 **Contract-aware impact** is the highest-value multi-repo behavior: a diff touching a file listed as `contract:` triggers an OpenAPI diff (deterministic tooling, e.g., `oasdiff`) in Phase 1; breaking or shape-changing operations map to affected consumer flows, and the generation phase is instructed to update both API-level suites (request/response assertions) and UI-level suites (user-visible behavior of consuming screens).
 
@@ -868,7 +886,7 @@ honest about what does not survive the port:
 
 | class | phases | claude | codex | ollama | openhands |
 |---|---|---|---|---|---|
-| completion | resolve_llm, triage, analyze, planadversary, critic | ✅ | ✅ | ✅ | ✅ |
+| completion | triage, analyze, planadversary, critic | ✅ | ✅ | ✅ | ✅ |
 | completion + derived writes | testplan, planarbiter, testdata | ✅ | ✅ | ✅ | ✅ |
 | agentic (tool loop **in our workspace**) | generate, validate | ✅ | ✅ | ❌ | ❌ |
 
@@ -1112,11 +1130,28 @@ The platform ships as a single OpenShift-compatible image running two co-located
 **Decision:** Commit only artifacts that pass the deterministic gate; deliver diagnostics (not broken code) on failure. Protects trust in the system — one confidently-broken commit costs more adoption than ten "needs human" reports.
 
 ### ADR-5: Declarative registry + rules-first resolution vs. pure-LLM repo selection
-**Decision:** Registry-driven deterministic routing with LLM fallback for ambiguous tickets only (§5.8.2).
+**Decision (AMENDED — see below):** Registry-driven deterministic routing with LLM fallback for ambiguous tickets only (§5.8.2).
 - *Pure LLM:* flexible but unexplainable, untestable, and drifts; a mis-routed run wastes an entire pipeline execution and can write tests to the wrong suite.
 - *Pure rules:* breaks on tickets with poor metadata (missing components), which are common.
 - *Hybrid:* ~80% of triggers resolve deterministically at zero LLM cost; the remainder get a cheap Haiku pass with a confidence threshold and a human clarification path below it. Routing is regression-tested with golden fixtures.
 **Consequence:** the registry must be maintained; mitigated by making it review-gated YAML in one control repo and adding a CI check that flags source repos missing registry entries.
+
+**Amendment (R14): the LLM rung is dropped. Routing is rules → human.** The
+hybrid's middle rung was specified here and never built; reviewing the
+half-wired `resolve_llm` config we chose to remove it rather than finish it.
+The reasoning is in §5.8.2 and turns on one asymmetry this ADR underweighted:
+its own first bullet names the risk ("can write tests to the wrong suite") but
+treats it as *wasted execution*. It is worse than that — a misroute is the only
+failure in the pipeline that reports **success**, so it is not paid for once in
+compute but indefinitely in coverage nobody knows is missing. Against that, the
+rung's upside is bounded by the cases where it is both confident and correct,
+and the rung it replaces costs a human one reply.
+
+What survives: this ADR's "pure rules breaks on poor metadata" objection is
+correct, and it is answered by the clarification path (which exists) rather
+than by a guess. If that proves too coarse in practice, the follow-on is an LLM
+**suggestion inside the clarification comment** — a proposal to a person, never
+an auto-route. Pinned by `registry/tests/test_phase_inventory.py`.
 
 ### ADR-6: Single multi-clone sandbox per run vs. fan-out (one run per test repo)
 **Decision (PoC):** Single sandbox cloning all resolved repos, with per-test-repo gates and independent commit outcomes (§5.8.5).
@@ -1155,7 +1190,7 @@ The platform ships as a single OpenShift-compatible image running two co-located
 | 1–2 | **Catalog bootstrap** on the 2 pilot test repos: extract → correlate → classify → review queue (Slack digest) → publish; regenerate coverage maps | ≥70% of pilot tests mapped with confidence ≥0.85; orphan report produced; QE sign-off on sample |
 | 2 | Workflow A happy path via GH Actions (Path 2): **resolve → triage → generate → validate → gate** on labeled PRs, incl. one **contract-change PR that fans into both API and UI test repos** | 3 sample PRs (1 UI-repo, 1 API-repo, 1 contract-change) produce passing committed tests in the correct test repos |
 | 3 | OpenHands integration (Path 1): GitHub App/resolver trigger, sandbox provisioning, PR comment feedback; `@openhands` re-trigger loop | Same 3 PRs succeed via OpenHands; feedback comment round-trip works |
-| 4 | Workflow B: JIRA webhook, Atlassian MCP, resolve (component map + LLM fallback + clarification path) → plan → shared data → per-repo tests → validate → commit; aggregated JIRA comment | 3 tickets (1 clean-mapped, 1 cross-layer, 1 ambiguous→clarification) produce artifacts in correct repos |
+| 4 | Workflow B: JIRA webhook, Atlassian MCP, resolve (component map + clarification path) → plan → shared data → per-repo tests → validate → commit; aggregated JIRA comment | 3 tickets (1 clean-mapped, 1 cross-layer, 1 ambiguous→clarification) produce artifacts in correct repos |
 | 5 | Catalog integration in pipeline: update-vs-create via catalog, born-mapped commits, merge-hook classification, catalog gate check; extend bootstrap to remaining 4 test repos | Duplicate-prevention demo (PR whose behavior is already covered → agent updates, doesn't duplicate); all 6 repos cataloged |
 | 6 | Integrations: Slack notifications + clarification flow; Splunk HEC ingestion + starter dashboard; Bitbucket trigger parity on one pilot repo; **Confluence inbound context (linked-page retrieval in Workflow B) + one-way test-plan mirroring; Jenkins Path-3 trigger + post-merge job trigger/results ingest on one test repo** | Slack + Splunk live; Bitbucket-triggered run succeeds; ticket with linked Confluence PRD yields richer plan (before/after comparison); Jenkins round-trip (trigger → run → results in catalog) works |
 | 7 | Hardening: idempotency, retries, budgets, quarantine path, prompt-injection red-team pass, flaky-test rerun logic, drift-detection job | Failure-mode test matrix passes; concurrent runs (5) stable |

@@ -165,11 +165,15 @@ with no agent message"* — blaming the agent for a capability gap. It now raise
   high is the safe direction for a budget estimate; correcting it needs
   per-provider cache pricing that is not in the table.
 * **`resolve_llm` is in `ALL_PHASES` but has no `phases:` policy entry.**
-  `validate()` therefore checks a phase `run_phase.sh` would `KeyError` on —
-  but nothing dispatches it (it is a model-tier entry only), so the code path
-  is unreachable. Noted rather than changed, because "make it consistent" here
-  means deciding whether `resolve_llm` is a real phase, which is a design call,
-  not a bug fix.
+  ~~Noted rather than changed, because "make it consistent" means deciding
+  whether `resolve_llm` is a real phase, which is a design call.~~
+  **RESOLVED — see R14.** The decision was: not a real phase. Acting on it
+  turned up two more of the same shape that this entry missed — `resolve` (a
+  second name for the same unbuilt fallback, this one *with* a policy) and
+  `escalate` (a tier for an escalation nothing implements). All three are
+  removed, ADR-5 is amended, and `test_phase_inventory.py` now pins
+  `models: == phases: == ALL_PHASES == dispatched` so a half-wired phase
+  breaks the build instead of waiting for a reviewer to notice it.
 * **`spec_store` interpolates the key into `specs/<key>/…` without its own
   check.** Same class as R4 and the same entry-point guard applies. Left for a
   single shared key validator rather than a third copy of the regex.
