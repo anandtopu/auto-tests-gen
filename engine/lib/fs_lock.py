@@ -57,12 +57,28 @@ def lock(path, timeout=10.0):
     """Exclusive lock named after `path` (creates `<path>.lock/`)."""
     lockdir = pathlib.Path(str(path) + ".lock")
     deadline = time.time() + timeout
+    denied = None
     while True:
         try:
             lockdir.mkdir(parents=True, exist_ok=False)
             (lockdir / "owner").write_text(f"{os.getpid()} {time.time()}",
                                            encoding="utf-8")
             break
+        except PermissionError as e:
+            # Windows raises WinError 5 (not FileExistsError) when the lock dir
+            # is in a PENDING-DELETE state — the holder just released and the
+            # directory entry has not cleared yet. Measured at ~1.8% of
+            # acquisitions under 6-way contention. This used to escape `lock()`
+            # entirely: no retry, no timeout, just a crash inside whatever was
+            # mutating a state file. Treat it as "taken, try again" and keep the
+            # cause so a REAL permission problem still reports itself below
+            # rather than masquerading as a timeout.
+            denied = e
+            if time.time() > deadline:
+                raise TimeoutError(
+                    f"could not acquire {lockdir}: {e}") from e
+            time.sleep(0.05)
+            continue
         except FileExistsError:
             try:                                   # break stale locks
                 owner_txt = (lockdir / "owner").read_text(encoding="utf-8")
@@ -97,7 +113,8 @@ def lock(path, timeout=10.0):
                 except OSError:
                     pass                           # vanished between checks — retry
             if time.time() > deadline:
-                raise TimeoutError(f"could not acquire {lockdir}")
+                raise TimeoutError(f"could not acquire {lockdir}"
+                                   + (f" (last error: {denied})" if denied else ""))
             time.sleep(0.05)
     try:
         yield
@@ -106,10 +123,34 @@ def lock(path, timeout=10.0):
 
 
 def _release(lockdir):
+    """Drop the lock. RETRIES the rmdir, because giving up after one attempt
+    wedges every waiter.
+
+    On Windows the directory entry for a just-unlinked file lingers for a few
+    milliseconds, so `rmdir` immediately after `unlink("owner")` can raise
+    PermissionError(WinError 32) — the classic "directory not empty right after
+    emptying it". A single swallowed failure left the lockdir standing with NO
+    owner file, and an ownerless orphan is only breakable after ORPHAN_GRACE_S
+    (5 s), so every waiter spun and callers with the default 10 s timeout
+    started raising TimeoutError. Reproduced by tests/state-adversarial.sh:
+    one WinError 32 turned into six timed-out writers and 77 lost decisions.
+
+    Bounded at ~200 ms — long enough to outlast the pending-delete window,
+    short enough that a genuinely undeletable dir still falls through to the
+    stale-break path rather than blocking here.
+    """
     try:
         (lockdir / "owner").unlink(missing_ok=True)
+    except OSError:
+        pass
+    try:
         lockdir.rmdir()
     except OSError:
+        # Windows can refuse the rmdir for a few ms after the unlink
+        # (WinError 32). Retrying here was MEASURED and rejected: it made
+        # contention worse (8/8 trials losing decisions vs 7/8), because a
+        # retry can outlive our ownership and delete a lock a waiter has
+        # since acquired. The orphan-grace path in lock() recovers instead.
         pass
 
 

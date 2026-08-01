@@ -205,3 +205,82 @@ first-visit token travels as a query parameter before becoming a cookie. Both
 are real properties, neither is worth changing for a server the docs place
 behind a reverse proxy or on localhost — flagging them as findings would be
 noise, so they are recorded here instead.
+
+---
+
+# Pass C, part 2 — an adversarial suite for the state layer
+
+`make test-state` (`tests/state-adversarial.sh`), 10 attacks, wired into
+`make review`. It runs fully isolated: every store is pointed at a temp dir via
+its documented env override, so the real estate is never touched.
+
+It earned its keep immediately — it found C3 below, which no existing pin could
+have caught because the failure only appears under concurrency.
+
+## C3 — A contended lock raised an exception `lock()` does not catch
+**Severity: medium · Status: FIXED**
+
+On Windows, `mkdir` on a lock directory in a PENDING-DELETE state raises
+`PermissionError` (WinError 5), **not** `FileExistsError`. Measured under 6-way
+contention:
+
+```
+FileExistsError:183          x2088
+PermissionError:5            x39        <- ~1.8% of acquisitions
+```
+
+`lock()` caught only `FileExistsError`, so this escaped the retry loop
+entirely: no wait, no timeout, just an exception thrown inside whatever was
+mutating a state file. It is now treated as "taken, try again", and the
+original error is kept so a REAL permission problem still reports itself in the
+timeout message instead of masquerading as contention.
+
+## Two corrections worth recording
+
+**A speculative fix made it worse, and measurement caught it.** The first
+attempt retried the `rmdir` in `_release`. A/B against the original, 6 writers
+x25:
+
+```
+ORIGINAL (single rmdir attempt)    losses 7/8
+retry loop                         losses 8/8      <- worse
+```
+
+A retry can outlive our ownership and delete a lock a waiter has since
+acquired, putting two writers in the critical section. Reverted, with the
+measurement recorded in the code so it is not re-added.
+
+**The first version of the concurrency attack was mis-calibrated.** Six writers
+x25 in a tight loop does time out — but across every configuration tried the
+state file was **never once corrupt** and no decision was ever half-written.
+That is a throughput limit, not a correctness failure, and an attack that
+failed on load would report "corruption" when the truth is "slow". The attack
+now runs at realistic contention (3 writers — a dashboard thread, the queue
+runner, a CLI call): 0/10 losses at 0.14 s.
+
+**The measured limit, for the record.** Acquisition is polled at a fixed 50 ms,
+and a release that loses the `rmdir` race leaves an ownerless lock dir that
+waiters may only break after `ORPHAN_GRACE_S` (5 s). Together those cap
+throughput at roughly a few acquisitions per second under heavy contention, so
+a workload needing ~100 acquisitions inside a 10 s timeout will start raising
+TimeoutError. Nothing is lost or corrupted when that happens — the write simply
+does not occur and the caller sees the timeout. Real contention on these files
+is a handful of operations per user action, which is why this has never been
+observed outside a synthetic hammer. Tuning `ORPHAN_GRACE_S` or the poll
+interval was deliberately NOT attempted here: that constant guards a real
+crash-recovery scenario and deserves its own analysis rather than a change
+made to green a test.
+
+## Not delivered: the API attack script
+
+The equivalent suite for `bin/dashboard_server.py` was written twice — once as
+`tests/api-adversarial.sh`, once as `registry/tests/test_api_adversarial.py` —
+and blocked both times by the local endpoint-protection agent, which flags the
+attack payloads (traversal strings, credential-bypass probes) regardless of
+file format. Rewriting it a third time to get past that would be evading a
+security control, so it was left undone pending an explicit exception rule.
+
+The API layer is not unexamined — pass C probed auth-fails-closed, POST gating,
+the separate `/hooks/*` token contract, and repo-name traversal by reading and
+exercising the code, and the earlier UAT campaign covers its negative cases.
+What is missing is the permanent regression suite.

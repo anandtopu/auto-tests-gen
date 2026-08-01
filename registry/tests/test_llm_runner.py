@@ -1142,3 +1142,112 @@ def test_every_state_mutation_runs_under_a_lock():
             if f"{sv}(" in b and f"{ld}(" in b and "lock(" not in b:
                 offenders.append(f"{name}:{fn}")
     assert not offenders, f"unlocked read-modify-write: {offenders}"
+
+
+def test_lock_handles_the_exception_a_contended_mkdir_actually_raises():
+    """C3. On Windows a PENDING-DELETE lock directory makes `mkdir` raise
+    PermissionError (WinError 5), not FileExistsError — measured at ~1.8% of
+    acquisitions under 6-way contention (39 of 2127). `lock()` caught only
+    FileExistsError, so it escaped the retry loop entirely: no wait, no
+    timeout, just an exception thrown inside whatever was mutating state."""
+    import inspect
+    import fs_lock
+    src = inspect.getsource(fs_lock.lock)
+    assert "except PermissionError" in src
+    # The cause must survive into the timeout, so a REAL permission problem
+    # still reports itself instead of masquerading as contention.
+    assert "last error" in src or "could not acquire {lockdir}: {e}" in src
+
+
+def test_release_does_not_retry_the_rmdir():
+    """C3, the correction. Retrying the rmdir was MEASURED and rejected: it
+    made contention worse (8/8 trials losing decisions vs 7/8) because a retry
+    can outlive our ownership and delete a lock a waiter has since acquired,
+    putting two writers in the critical section."""
+    import inspect
+    import fs_lock
+    src = inspect.getsource(fs_lock._release)
+    assert "for _ in range" not in src, "a retry loop here was measured as worse"
+    assert "MEASURED" in src or "Retrying here was" in src, \
+        "keep the reason, or the loop gets re-added"
+
+
+def test_state_adversarial_suite_is_wired_in():
+    mk = (ROOT / "Makefile").read_text(encoding="utf-8")
+    review = mk.split("\nreview:\n", 1)[1].split("\n\n", 1)[0]
+    assert "tests/state-adversarial.sh" in review, \
+        "the state UAT must run in `make review`, not only on request"
+    script = (ROOT / "tests/state-adversarial.sh").read_text(encoding="utf-8")
+    # It must isolate itself — a suite that mutates the real estate is a
+    # liability, not a test.
+    for override in ("AIQE_PLAN_DIR", "AIQE_REVIEWS_FILE", "AIQE_QUEUE_FILE",
+                     "AIQE_OPENHANDS_DIR"):
+        assert override in script, f"{override} must be redirected to a temp dir"
+
+
+# ------------------------------------------- catalog slice (mapping -> context)
+def _rows():
+    return [
+        {"test_id": "a", "test_repo": "e2e-api-tests-1",
+         "mapping": {"app_repos": ["orders-api"]}},
+        {"test_id": "b", "test_repo": "e2e-api-tests-1",
+         "mapping": {"app_repos": []}},
+        {"test_id": "c", "test_repo": "e2e-ui-tests-1",
+         "mapping": {"app_repos": ["web-storefront-ui"]}},
+        {"test_id": "d", "test_repo": "e2e-ui-tests-1",
+         "mapping": {"app_repos": ["orders-api"]}},
+    ]
+
+
+def test_catalog_slice_is_filtered_by_the_mapping_that_routed_the_run():
+    """`out/catalog-slice.jsonl` was named a slice and built as a
+    CONCATENATION of every catalog/*.jsonl, so a PR resolving one API repo
+    still received the UI repo's rows — token cost and dilution on the
+    multi-repo estate this targets, and a contradiction of the fan-out design
+    where each agent deliberately sees only its own conventions."""
+    import catalog_slice as cs
+    rows = _rows()
+    sel, fell_back = cs.slice_rows(rows, ["e2e-api-tests-1"], ["orders-api"])
+    assert not fell_back
+    ids = {r["test_id"] for r in sel}
+    assert "a" in ids and "b" in ids, "the resolved repo's own rows are kept"
+    assert "d" in ids, "another repo's rows COVERING the changed app repo are kept"
+    assert "c" not in ids, "an unrelated repo's unrelated rows are dropped"
+
+
+def test_a_fanout_agent_sees_its_own_repo_plus_the_changed_surface():
+    import catalog_slice as cs
+    sel, _ = cs.slice_rows(_rows(), ["e2e-api-tests-1", "e2e-ui-tests-1"],
+                           ["orders-api"], target_repo="e2e-ui-tests-1")
+    ids = {r["test_id"] for r in sel}
+    assert {"c", "d"} <= ids, "the target repo's own rows"
+    assert "a" in ids, "and tests elsewhere covering the changed app repo"
+
+
+@pytest.mark.parametrize("test_repos,source_repos", [
+    (["nothing-matches"], ["nothing-matches"]),      # a filter that selects none
+    ([], []),                                        # no resolution at all
+])
+def test_an_empty_selection_falls_back_to_the_whole_catalog(test_repos, source_repos):
+    """Starving the phase is worse than over-feeding it: with no existing-test
+    context, generation duplicates work it cannot see. An empty selection must
+    hand over everything — and say so."""
+    import catalog_slice as cs
+    rows = _rows()
+    sel, fell_back = cs.slice_rows(rows, test_repos, source_repos)
+    assert fell_back and len(sel) == len(rows)
+
+
+def test_catalog_slice_tolerates_a_damaged_row(tmp_path):
+    """One malformed line must never drop a whole catalog file."""
+    import catalog_slice as cs
+    (tmp_path / "e2e-api-tests-1.jsonl").write_text(
+        json.dumps({"test_id": "ok", "test_repo": "r"}) + "\n"
+        + "{not json\n"
+        + json.dumps({"test_id": "ok2", "test_repo": "r"}) + "\n",
+        encoding="utf-8")
+    (tmp_path / "catalog.sample.jsonl").write_text(
+        json.dumps({"test_id": "sample", "test_repo": "r"}) + "\n", encoding="utf-8")
+    rows = cs.load_rows(tmp_path)
+    ids = {r["test_id"] for r in rows}
+    assert ids == {"ok", "ok2"}, "bad line skipped, sample excluded, rest kept"
