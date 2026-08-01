@@ -60,6 +60,7 @@ spec:
             - { name: reports,   mountPath: /app/reports }
             - { name: workspace, mountPath: /app/workspace }
             - { name: out,       mountPath: /app/out }
+            - { name: tmp,       mountPath: /tmp }
         - name: receiver
           image: ai-qe-platform:latest
           command: ["python3", "bin/taskevent_receiver.py"]
@@ -89,7 +90,16 @@ spec:
             - { name: reports,   mountPath: /app/reports }
             - { name: workspace, mountPath: /app/workspace }
             - { name: out,       mountPath: /app/out }
+            - { name: tmp,       mountPath: /tmp }
       volumes:
+        # `mktemp` in adapters/scm/{github,bitbucket,stash}.sh and bin/with-env.sh,
+        # and tempfile in bin/taskevent_receiver.py, all need a writable /tmp.
+        # Mounted NOW so it is not missed when readOnlyRootFilesystem is turned
+        # on: podman --read-only supplies a /tmp tmpfs automatically, Kubernetes
+        # does not — so a podman-only proof passes while the cluster fails.
+        # See docs/review-readonly-rootfs.md (R12).
+        - name: tmp
+          emptyDir: {}
         - name: reports
           persistentVolumeClaim:
             claimName: ai-qe-reports

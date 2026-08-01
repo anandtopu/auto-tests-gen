@@ -44,6 +44,20 @@ fi
 # Waits up to 2 min; breaks locks older than 90 min (crashed holder — threshold
 # sits above the longest real-LLM phase chain so a live run is never broken).
 LOCK=out/.pipeline.lock
+# `mkdir` cannot tell "another run holds it" from "this filesystem is read-only"
+# — both simply fail, and stderr is discarded. Under readOnlyRootFilesystem that
+# made the loop below spin its full 120 seconds and then report PIPELINE_BUSY,
+# sending an operator to hunt a concurrent run that does not exist. Same defect
+# class as review C3 (a Windows PENDING-DELETE raising PermissionError where the
+# code expected FileExistsError): a distinguishable failure reported as the
+# wrong one. Found by running the image with `--read-only` (R12). Check once, up
+# front, and fail fast with the actual reason.
+mkdir -p "$(dirname "$LOCK")" 2>/dev/null || true
+if [ ! -w "$(dirname "$LOCK")" ]; then
+  echo "PIPELINE_UNWRITABLE: $(dirname "$LOCK") is not writable, so $LOCK cannot be taken."
+  echo "  This is NOT lock contention — check the volume mount, filesystem and ownership."
+  exit 75
+fi
 ACQUIRED=0
 for i in $(seq 1 120); do
   if mkdir "$LOCK" 2>/dev/null; then trap 'rmdir "$LOCK" 2>/dev/null' EXIT; ACQUIRED=1; break; fi

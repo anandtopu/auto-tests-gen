@@ -139,20 +139,66 @@ dependency on a convention nobody enforces.
 # Part 2 — Requirements still OPEN
 
 ## R12 — Enable `readOnlyRootFilesystem` on the deployment
-**Priority: medium · NOT DONE**
+**Priority: medium · AUDITED AND PART-SHIPPED (2026-08-01) — flag still OFF**
 
-The OpenShift manifests are otherwise well hardened: `runAsNonRoot`,
-`seccompProfile: RuntimeDefault`, `allowPrivilegeEscalation: false`,
-`capabilities: drop [ALL]`, resource limits, no literal secrets.
-`readOnlyRootFilesystem` is absent.
+Full audit: `docs/review-readonly-rootfs.md`. Method was a before/after
+filesystem snapshot across both demos, a static scan of every write site, and a
+real `podman run --read-only` probe. **15 of 19 audited paths are blocked** — the
+container run matched the static audit exactly.
 
-**Why it is not just a one-line fix.** The pipeline writes to `catalog/`,
-`testplans/`, `testdata/`, `specs/` and `knowledge/generated/` inside `/app`,
-while only `reports/`, `workspace/` and `out/` are mounted volumes. Turning the
-root filesystem read-only would break runs until every writable path is either
-mounted or relocated.
-**Acceptance:** audit the writable set, mount or relocate it, then set the flag
-and prove a full `demo-pr` + `demo-jira` still commit.
+**The filed requirement was wrong in three ways.** It listed five `/app` paths
+and prescribed "mount or relocate" them.
+
+1. It missed `/tmp` — `readOnlyRootFilesystem` covers the whole root, and four
+   SCM adapters plus the CI receiver call `mktemp`/`tempfile`.
+2. It missed Python bytecode: no `PYTHONDONTWRITEBYTECODE`, so CPython writes
+   `__pycache__/` inside `/app` on every import.
+3. It missed `AGENTS.md` and `.env` — files at the checkout root, which no
+   volume mount can cover. `AGENTS.md` is the first thing a read-only run fails
+   on, and it is the proof that mounting alone cannot solve this.
+
+**And its prescribed fix would have caused a worse bug.** Every mutable
+directory except `testplans/` and `testdata/` mixes data with code or config —
+`catalog/` holds `bootstrap/*.py`, `registry/` holds `org-config.yaml`,
+`specs/` holds the constitution, `.agents/skills/` holds seven hand-authored
+skills. Mounting a volume over one hides the code; seeding that volume from the
+image instead freezes the code and config at first boot, so an image upgrade
+ships logic that never runs — **silently**, with a healthy container and a new
+version label. State must therefore be RELOCATED, not mounted over.
+
+**Shipped in this pass**
+- `engine/lib/app_paths.py` — the resolver (`per-path knob → AIQE_STATE_DIR →
+  ROOT`), with defaults byte-identical to today's hard-coded paths, plus a pin
+  that no resolver may ever point at code or config. 8 pins in
+  `test_app_paths.py`.
+- `PYTHONDONTWRITEBYTECODE=1` in the image.
+- An explicit `/tmp` emptyDir in the OpenShift manifests. This is mounted before
+  the flag is set on purpose: `podman --read-only` supplies a `/tmp` tmpfs
+  automatically and Kubernetes does not, so a podman-only proof would pass while
+  the cluster failed.
+- **A real bug the container run exposed:** `pipeline.sh` took its run lock with
+  `mkdir "$LOCK" 2>/dev/null`, which cannot tell `EEXIST` (contention) from
+  `EROFS` (read-only). A read-only root spun the full 120-second retry loop and
+  then reported `PIPELINE_BUSY: another run holds out/.pipeline.lock` — sending
+  an operator after a concurrent run that does not exist. Same class as review
+  C3. Now an up-front writability check reports `PIPELINE_UNWRITABLE`, names the
+  directory, states that it is *not* contention, and returns in 0.08s. Genuine
+  contention still reports `PIPELINE_BUSY`.
+
+**Not shipped — what remains before the flag can go on**
+- Rewire ~16 Python and ~20 shell call sites onto the resolver. The shell half
+  needs care: `engine/gate/gate.sh` also says `catalog/`, but the gate runs
+  *inside the test repo checkout* where that is the born-mapped sidecar, not
+  `/app/catalog`. Rewiring it would break constitution C3 while looking like a
+  consistent search-and-replace.
+- A first-boot seed step for `catalog`, `registry/repo-registry.yaml` and
+  `knowledge` (the three that ship content). The generated paths must NOT be
+  seeded.
+- Then set `readOnlyRootFilesystem: true` and prove a full `demo-pr` +
+  `demo-jira` commits inside a `--read-only` container.
+
+The flag stays OFF until that lands. Setting it now would trade a hardening gap
+for an outage.
 
 ## R13 — Bound XML entity expansion on the CI ingest
 **Priority: low · NOT DONE**
