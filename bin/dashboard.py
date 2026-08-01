@@ -945,8 +945,14 @@ const served = location.protocol.startsWith('http');
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 // Every client-rendered cell goes through this — queue items and fetched JIRA
 // summaries are external data and must never reach innerHTML unescaped.
+// Escapes the single quote too. Every attribute in this file is double-quoted,
+// so `"` alone is sufficient TODAY — and that is exactly the shape of guard
+// this codebase keeps losing: correct until someone writes one single-quoted
+// attribute, at which point ticket text becomes executable. Escaping both
+// quote characters costs nothing and removes the dependency on a convention
+// nobody is enforcing.
 const escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 let toastT;
 function toast(t) {
   let el = $('#toast');

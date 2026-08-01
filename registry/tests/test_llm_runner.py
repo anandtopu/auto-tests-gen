@@ -1425,3 +1425,30 @@ def test_clear_demo_keeps_authored_facts():
     assert "knowledge/facts" not in src or "KEEP" in src, \
         "clear-demo must not list authored facts for deletion"
     assert (ROOT / "knowledge/facts/e2e-api-tests-1.yaml").exists()
+
+
+def test_html_escaping_covers_both_quote_characters():
+    """R11. escHtml escaped & < > " but not ' — safe only while every attribute
+    stays double-quoted, which is the shape of guard this codebase keeps
+    losing. Escaping both removes the dependency on an unenforced convention."""
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    # A fixed window, NOT a split on ";" — every HTML entity ends in a
+    # semicolon, so splitting there truncates the definition at '&amp' and the
+    # assertion fails against correct code. (It did.)
+    esc = src.split("const escHtml", 1)[1][:300]
+    for entity in ("&amp;", "&lt;", "&gt;", "&quot;", "&#39;"):
+        assert entity in esc, f"escHtml does not produce {entity}"
+
+
+def test_every_prompt_taking_external_text_frames_it_as_data():
+    """Constitution C4, checked with whitespace NORMALISED — the framing wraps
+    across a line break in several prompts, and a naive substring search
+    reports a false positive on the critic (it did, during the round-4 scan)."""
+    import re
+    pat = re.compile(r"data,? not instruction|never instruction|is data|as data")
+    unframed = []
+    for p in sorted((ROOT / "prompts").glob("*.md")):     # standalone prompts only
+        txt = " ".join(p.read_text(encoding="utf-8", errors="replace").lower().split())
+        if not pat.search(txt):
+            unframed.append(p.name)
+    assert not unframed, f"prompts missing the data framing: {unframed}"
