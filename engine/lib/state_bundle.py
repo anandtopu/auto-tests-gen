@@ -72,6 +72,11 @@ SCHEMA = 1
 # filtered through EXCLUDE so a new disposable path cannot leak in by accident.
 INCLUDE_DIRS = [
     "knowledge/repos", "knowledge/curated", "knowledge/synced",
+    # Authored per-repo facts (docs/knowledge-base-proposal.md) are a
+    # human's assertions about a repo — exactly the "state that IS
+    # somebody's work" this bundle exists to carry. The derived tier
+    # under knowledge/facts/derived/ is EXCLUDED below: it rebuilds.
+    "knowledge/facts",
     "catalog", "reports/runs", "reports/plans", "reports/openhands",
     "testplans", "testdata", "specs",
 ]
@@ -84,6 +89,7 @@ INCLUDE_FILES = [
 # WITHOUT inheriting the donor's run history, review decisions or plan lifecycle,
 # which are that team's records, not transferable wisdom.
 KNOWLEDGE_DIRS = ["knowledge/repos", "knowledge/curated", "knowledge/synced",
+                  "knowledge/facts",
                   "catalog", "testplans", "specs"]
 KNOWLEDGE_FILES = ["registry/org-config.yaml", "AGENTS.md"]
 
@@ -91,7 +97,8 @@ KNOWLEDGE_FILES = ["registry/org-config.yaml", "AGENTS.md"]
 # something people copy between machines and attach to tickets.
 EXCLUDE_PARTS = (
     "out/", "workspace/", "reports/phase-cache/", "reports/exports/",
-    "knowledge/generated/", "__pycache__/", ".git/",
+    "knowledge/generated/", "knowledge/facts/derived/",
+    "__pycache__/", ".git/",
     # Retrieval substrate (cost-reduction 8.1): chunks + vectors are DERIVED
     # data — a bundle carries work, not caches; `make index-rebuild` restores
     # them on the receiving deployment.

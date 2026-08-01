@@ -9,7 +9,7 @@ SHELL := /bin/bash
         demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config \
         cost-report index-rebuild cache-probe cost-baseline \
         requirements demo-requirements requirements-approve spec-verify \
-        test-providers test-state parity-compare
+        test-providers test-state parity-compare repo-facts
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -38,6 +38,9 @@ test-gate:
 # Adversarial UAT for the LLM Runner port (multi-LLM 5.3)
 test-providers:
 	bash tests/provider-adversarial.sh
+
+repo-facts:           # structured per-repo facts: rebuild the harvested tier (E2E repos)
+	python3 engine/lib/repo_facts.py rebuild $(REPO)
 
 # Adversarial UAT for the STATE layer (review pass C)
 test-state:
@@ -111,6 +114,8 @@ maintain:             # nightly estate maintenance (call from cron / a K8s CronJ
 	-python3 bin/qa.py prune --keep 200
 	@echo "== prune finished OpenHands conversations (24h window) =="
 	-python3 engine/lib/openhands_events.py prune
+	@echo "== per-repo harvested facts =="
+	-python3 engine/lib/repo_facts.py rebuild
 	@echo "== knowledge chunk rebuild =="
 	-python3 engine/lib/knowledge_chunks.py rebuild
 	@echo "== vector index refresh (sha-skip; capped) =="

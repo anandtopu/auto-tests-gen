@@ -39,3 +39,6 @@ config/aiqe.properties
 # secret.example.yaml (placeholder) is committed; secret.yaml is not.
 deploy/vcp/secret.yaml
 reports/phase-cache/
+
+# Derived per-repo facts (repo_facts.py rebuild) — authored facts ARE tracked
+knowledge/facts/derived/

@@ -1,0 +1,44 @@
+# Authored facts for e2e-api-tests-1 — what the TEAM asserts about this repo.
+# Tracked in git; never regenerated. The harvested tier lives beside this in
+# derived/ and is rebuilt from the estate. See ../../docs/knowledge-base-proposal.md
+#
+# This file doubles as the worked example for the schema, using the demo
+# estate's real conventions so it is not aspirational fiction.
+repo: e2e-api-tests-1
+schema: 1
+
+authored:
+  ownership:
+    team: orders-qe
+    contact: "#orders-qe"          # a channel, not a person — people move
+
+  conventions:
+    - id: seed-via-fixtures
+      rule: >-
+        Seed order data through the fixtures in data/, never by POSTing orders
+        inline in a spec. Inline setup drifts from the seeded shape and makes
+        failures ambiguous.
+      applies_to: ["suites/**"]
+      severity: must
+
+    - id: no-volatile-assertions
+      rule: >-
+        Never assert on createdAt / updatedAt / generated ids — they differ
+        between runs and turn a real regression into noise.
+      severity: must
+
+    - id: one-behaviour-per-spec
+      rule: >-
+        One behaviour per spec file, named after the behaviour rather than the
+        endpoint, so a failure names what broke.
+      severity: should
+
+  pitfalls:
+    - id: legacy-suite
+      note: >-
+        suites/legacy/ predates the current approach and is NOT an exemplar.
+        The exemplar profiler already penalises it; do not copy its style.
+      severity: avoid
+
+  data_setup:
+    - "Order fixtures live in data/; discount cases are generated per ticket into testdata/<KEY>/."

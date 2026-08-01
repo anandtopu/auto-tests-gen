@@ -1295,3 +1295,133 @@ def test_catalog_slice_falls_back_loudly_when_the_contract_is_unreadable(tmp_pat
                        stdin=subprocess.DEVNULL)
     assert r.returncode == 0
     assert "full catalog" in r.stderr
+
+
+# ------------------------------------ per-repo facts (knowledge base, steps 1-2)
+def test_absent_facts_change_nothing():
+    """Adoption is per-repo and optional: no file means no facts, and every
+    accessor returns empty rather than raising. A repo nobody has documented
+    must behave exactly as it did before this module existed."""
+    import repo_facts as rf
+    assert rf.authored("e2e-api-tests-2") == {} or isinstance(
+        rf.authored("e2e-api-tests-2"), dict)
+    assert rf.merged("no-such-repo") == {
+        "repo": "no-such-repo", "authored": {}, "harvested": {}, "tiers": {}}
+    assert rf.conventions("no-such-repo") == []
+
+
+def test_facts_are_an_e2e_test_repo_concept():
+    """App repos are deliberately not modelled: their useful facts are surface
+    and ownership, which the registry and harvested contract already carry."""
+    import repo_facts as rf
+    assert rf.is_test_repo("e2e-api-tests-1")
+    assert not rf.is_test_repo("orders-api")
+    r = subprocess.run([sys.executable, str(ROOT / "engine/lib/repo_facts.py"),
+                        "show", "orders-api"], cwd=ROOT, capture_output=True,
+                       text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
+    assert r.returncode == 1 and "not a registered E2E test repo" in r.stderr
+
+
+def test_a_rebuild_never_touches_authored_facts(tmp_path, monkeypatch):
+    """THE property that makes the tier split worth having: regenerating the
+    harvested tier must not be able to lose a human's assertions."""
+    import repo_facts as rf
+    before = (ROOT / "knowledge/facts/e2e-api-tests-1.yaml").read_bytes()
+    rf.rebuild(["e2e-api-tests-1"])
+    after = (ROOT / "knowledge/facts/e2e-api-tests-1.yaml").read_bytes()
+    assert before == after, "a rebuild rewrote an authored file"
+    # ...and the authored content is still what the loader returns.
+    ids = {c["id"] for c in rf.conventions("e2e-api-tests-1")}
+    assert "seed-via-fixtures" in ids
+
+
+def test_authored_outranks_harvested():
+    """Constitution C6 extended: nothing generated outranks a human."""
+    import repo_facts as rf
+    m = rf.merged("e2e-api-tests-1")
+    assert m["tiers"].get("conventions") == "authored"
+    assert m["tiers"].get("framework") == "harvested"
+
+
+def test_severity_filter_selects_the_load_bearing_rules():
+    """`must` is what earns MUST-KEEP treatment when retrieval starts ranking
+    by severity (step 5) — so the filter has to be exact, not substring."""
+    import repo_facts as rf
+    must = {c["id"] for c in rf.conventions("e2e-api-tests-1", severity="must")}
+    should = {c["id"] for c in rf.conventions("e2e-api-tests-1", severity="should")}
+    assert must and should and not (must & should)
+
+
+def test_validate_reports_authored_schema_problems(tmp_path, monkeypatch):
+    import repo_facts as rf
+    monkeypatch.setattr(rf, "FACTS_DIR", tmp_path)
+    (tmp_path / "r.yaml").write_text(
+        "repo: r\nschema: 1\nauthored:\n  conventions:\n"
+        "    - id: bad\n      severity: critical\n", encoding="utf-8")
+    problems = rf.validate("r")
+    assert any("severity" in p for p in problems)
+    assert any("no `rule`" in p for p in problems)
+
+
+def test_a_damaged_or_future_schema_file_is_ignored_not_fatal(tmp_path, monkeypatch):
+    """Facts are an ENRICHMENT. A broken one degrades to no-facts; it never
+    takes down a run that worked without them."""
+    import repo_facts as rf
+    monkeypatch.setattr(rf, "FACTS_DIR", tmp_path)
+    (tmp_path / "r.yaml").write_text("{{ not yaml", encoding="utf-8")
+    assert rf.authored("r") == {}
+    (tmp_path / "r.yaml").write_text("repo: r\nschema: 99\nauthored:\n  x: 1\n",
+                                     encoding="utf-8")
+    assert rf.authored("r") == {}, "an unknown schema is ignored, not guessed at"
+
+
+def test_harvested_is_a_reshaping_of_what_the_estate_already_computes():
+    """No new analysis — so the facts cannot drift away from what the phases
+    actually see."""
+    import repo_facts as rf
+    import yaml
+    h = rf.build_harvested("e2e-api-tests-1")
+    assert h["framework"] and h["layer"] == "api"
+    # `covers` must MIRROR the registry, whatever it currently says. Asserting a
+    # literal value made this pin depend on estate state: covers: is regenerated
+    # from catalog evidence, so it is empty until a bootstrap runs and the test
+    # failed after clear-demo for a reason that had nothing to do with facts.
+    reg = yaml.safe_load(open(ROOT / "registry/repo-registry.yaml", encoding="utf-8"))
+    entry = next(t for t in reg["test_repositories"] if t["name"] == "e2e-api-tests-1")
+    assert h["covers"] == list(entry.get("covers") or [])
+    assert isinstance(h.get("surface_covered"), list)
+    assert "generated_at" in h
+
+
+def test_derived_facts_are_gitignored_and_authored_are_not():
+    ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert "knowledge/facts/derived/" in ignore
+    assert "knowledge/facts/\n" not in ignore, \
+        "authored facts are somebody's work — they must be tracked"
+
+
+def test_authored_facts_are_carried_by_the_state_bundle_but_derived_is_not():
+    """The bundle's own criterion is "state that IS somebody's work". Authored
+    facts are exactly that — a new deployment that lost them would lose the
+    team's assertions about their own repos. The derived tier rebuilds, so
+    carrying it would just move stale data around."""
+    import state_bundle as sb
+    files = {p.as_posix() for p in sb.collect()}
+    assert any(f.startswith("knowledge/facts/") and f.endswith(".yaml")
+               for f in files), "authored facts must be bundled"
+    assert not any("knowledge/facts/derived/" in f for f in files), \
+        "the derived tier rebuilds — it is not work"
+    # The knowledge-only profile carries them too: they ARE transferable wisdom,
+    # unlike run history.
+    kfiles = {p.as_posix() for p in sb.collect(profile="knowledge")}
+    assert any(f.startswith("knowledge/facts/") for f in kfiles)
+
+
+def test_clear_demo_keeps_authored_facts():
+    """clear-demo removes GENERATED demo data. A team's assertions about their
+    repos are not demo data."""
+    import demo_data
+    src = pathlib.Path(demo_data.__file__).read_text(encoding="utf-8")
+    assert "knowledge/facts" not in src or "KEEP" in src, \
+        "clear-demo must not list authored facts for deletion"
+    assert (ROOT / "knowledge/facts/e2e-api-tests-1.yaml").exists()
