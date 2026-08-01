@@ -6,6 +6,26 @@ import json, re, subprocess, sys
 entries = [json.loads(l) for l in open(sys.argv[1])]
 facts = json.load(open(sys.argv[2]))
 
+# Methods that actually ATTRIBUTE a test to an app repo. Confidence is a claim
+# about the attribution, so only these may raise it — see the formula below.
+ATTRIBUTING = ("contract_match", "route_match")
+
+# A JIRA key, not any hyphenated uppercase token. `[A-Z][A-Z0-9]+-\d+` matched
+# UTF-8, HTTP-2, SHA-1 and RFC-2616 in ordinary commit messages, which invented
+# a `feature` value and pushed mappings over the auto-accept line. Two to ten
+# characters (JIRA's own project-key limit), and well-known technical tokens
+# are excluded by name.
+KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]{1,9})-(\d+)\b")
+NOT_PROJECTS = {"UTF", "HTTP", "HTTPS", "SHA", "RFC", "ISO", "AES", "RSA",
+                "TLS", "SSL", "MD", "IPV", "IEEE", "ANSI", "BASE64", "SOCKS",
+                "OAUTH", "SAML", "JSON", "XML", "CVE", "ES", "EC", "GB", "MB"}
+
+
+def jira_keys(text):
+    return sorted({f"{m.group(1)}-{m.group(2)}" for m in KEY_RE.finditer(text)
+                   if m.group(1) not in NOT_PROJECTS})
+
+
 def norm(p):  # /v1/orders/123/discounts -> /v1/orders/{id}/discounts
     return re.sub(r"/\d+", "/{id}", p)
 
@@ -22,12 +42,30 @@ for e in entries:
         log = subprocess.run(["git", "-C", f"workspace/bootstrap/{e['test_repo']}/repo",
                               "log", "--format=%s", "--", e["file"]],
                              capture_output=True, text=True, timeout=30).stdout
-        keys = sorted(set(re.findall(r"[A-Z][A-Z0-9]+-\d+", log)))
+        keys = jira_keys(log)
         e["evidence"]["git_jira_keys"] = keys
         if keys: methods.append("git_history")
     except Exception:
         pass
-    conf = min(0.99, 0.55 + 0.2 * len(set(methods))) if repos else 0.0
+    # Confidence is a claim about WHICH APP REPO this test covers, so only
+    # evidence that attributes a repo may raise it. git_history says which
+    # TICKET touched the file and contributes no repo, yet it used to count as
+    # a method — taking a single-signal mapping from 0.75 to 0.95, over the
+    # 0.85 auto line, so a mapping skipped human review on the strength of a
+    # commit message. `covers:` regenerates from these mappings and decides
+    # routing, so a wrong one silently misroutes future work. It stays recorded
+    # as evidence; it just no longer votes.
+    #
+    # The base is 0.65, RE-CALIBRATED because the git_history term was removed.
+    # One attributing match now scores 0.85 (auto) where it scored 0.75. That
+    # is the tiering the old formula reached by ACCIDENT: a contract_match
+    # means the test's endpoint is literally defined in that repo's OpenAPI
+    # contract — deterministic and checkable, and a reviewer confirming it only
+    # re-reads the contract. Mappings with NO deterministic attribution still
+    # score 0.0, fall below split_residue's 0.55 line, and go to the LLM
+    # classifier — whose output is what the [0.5, 0.85) review band is for.
+    attributing = {m for m in methods if m in ATTRIBUTING}
+    conf = min(0.99, 0.65 + 0.2 * len(attributing)) if repos else 0.0
     e["mapping"] = {"app_repos": sorted(repos), "services": sorted(repos),
                     "domain": (e["tags"][0].lstrip("@") if e["tags"] else ""),
                     "feature": (e["evidence"]["git_jira_keys"] or [""])[0],

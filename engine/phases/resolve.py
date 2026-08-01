@@ -23,7 +23,13 @@ def resolve_pr(reg, repo_name, changed):
     sources, impact = [repo_name], []
     tests = set(test_repos_for(reg, repo_name))
     contract = src.get("contract")
-    if contract and any(f == contract or f.startswith(contract.rsplit("/", 1)[0]) for f in changed):
+    # A path relationship, never a string prefix. `f.startswith("openapi")`
+    # fired for `openapi-backup/old.yaml` and `openapignore.txt` — a SIBLING
+    # directory and an unrelated file that merely share the leading characters
+    # — fanning consumer UI repos into a run that never touched the contract.
+    # Same defect class as the bundle-import containment bug (review C2).
+    cdir = contract.rsplit("/", 1)[0] + "/" if contract and "/" in contract else None
+    if contract and any(f == contract or (cdir and f.startswith(cdir)) for f in changed):
         for consumer in src.get("consumed_by", []):
             sources.append(consumer)
             ui = test_repos_for(reg, consumer, layers=["ui"])
