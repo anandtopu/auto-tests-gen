@@ -159,6 +159,11 @@ Four passes in sequence — all must be green:
 
 ## Next steps
 
+**Have a real job to do?** `docs/use-cases.md` is organised by the task —
+"a PR changed a service", "a ticket needs coverage", "a test is flaky",
+"what does this cost" — with the commands and what you should see.
+
+
 - [User Guide](user-guide.md) — configuration reference, integration paths, onboarding
   real repositories, switching off mock mode.
 - [Architecture diagrams](diagrams.md) — rendered views of the system.

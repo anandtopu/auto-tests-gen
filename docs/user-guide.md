@@ -1,5 +1,10 @@
 # User Guide
 
+> This is the **reference manual** — concepts, configuration, every command
+> and its options. If you are trying to get a specific job done, start with
+> `docs/use-cases.md`, which is organised by task and links back here for
+> the detail.
+
 Operating, configuring, and integrating the AI QE Platform. For first-run setup see
 [Getting Started](getting-started.md); for design rationale see
 [architecture.md](architecture.md) (section numbers below refer to it).
