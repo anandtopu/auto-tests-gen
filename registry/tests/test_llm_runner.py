@@ -1018,3 +1018,28 @@ def test_cost_report_never_prints_a_total_that_hides_unpriced_spend(tmp_path, mo
     assert rep["unpriced_calls"] == 1 and rep["unpriced_providers"] == ["mystery"]
     md = cr.to_markdown(rep)
     assert "total is incomplete" in md and "mystery" in md
+
+
+def test_gate_never_executes_config_a_run_could_have_written():
+    """Round-2 review S1 (critical). The gate EXECUTES commands.{lint,test} from
+    the test repo's .ai-qe/config.yaml with the authority that holds the push
+    credential. `.ai-qe/` used to be on its own writable-scope allow-list, so a
+    generate phase — whose context includes untrusted ticket/PR text — could
+    rewrite the config and have it run in the SAME run (verified: the planted
+    command executed and the gate still said GATE_STATUS=WOULD_COMMIT).
+
+    Two guards, both pinned here because either alone leaves a gap: without the
+    scope removal the gate would commit the malicious config and the NEXT run
+    would execute it."""
+    src = (ROOT / "engine/gate/gate.sh").read_text(encoding="utf-8")
+    scope = [ln for ln in src.splitlines() if "SCOPE_VIOLATION" in ln or "grep -vE" in ln]
+    scope_rule = next(ln for ln in scope if "grep -vE" in ln)
+    assert ".ai-qe/" not in scope_rule, \
+        "repo config must not be writable by a run — the gate executes it"
+    assert 'git show "HEAD:$CFG"' in src, \
+        "lint/test commands must come from the COMMITTED config, not the tree"
+    # ...and the working-tree read is gone.
+    assert "yaml.safe_load(open('$CFG'))['commands']" not in src
+    # The attack is pinned in the gate suite too, with both assertions.
+    adv = (ROOT / "tests/gate-adversarial.sh").read_text(encoding="utf-8")
+    assert "ADV-CONFIG" in adv and "never executed" in adv

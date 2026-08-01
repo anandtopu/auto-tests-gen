@@ -6,7 +6,11 @@
 # file — edit clauses here.
 clauses:
   - id: C1
-    statement: The gate is the only push/commit path; no LLM phase touches git state.
+    statement: >-
+      The gate is the only push/commit path; no LLM phase touches git state.
+      The gate also never takes ORDERS from what a run produced: `.ai-qe/` is
+      off the writable scope and the lint/test commands it EXECUTES come from
+      the committed config, never the working tree.
     category: safety
     pins:
       - file: tests/gate-adversarial.sh

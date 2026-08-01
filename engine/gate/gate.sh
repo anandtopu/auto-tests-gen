@@ -14,8 +14,24 @@ if [ -z "$TOP" ] || [ "$TOP/.git" -ef "$ROOT/.git" ]; then
   echo "GATE_REFUSED: cwd is not a standalone test repo"; exit 6
 fi
 CFG=".ai-qe/config.yaml"
-LINT_CMD=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['commands']['lint'])")
-TEST_CMD=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['commands']['test'])")
+# The gate EXECUTES commands/1 from this file, so it must never read a version
+# an LLM phase could have authored in THIS run. Two independent guards:
+#   (1) `.ai-qe/` is off the writable scope list below — a run that touched it
+#       is a SCOPE_VIOLATION, so the injection cannot even be introduced;
+#   (2) the commands come from the COMMITTED file, never the working tree, so
+#       a modification arriving by any other route still cannot steer this run.
+# Without these, `commands.lint` was arbitrary code the gate ran with its own
+# authority — and the gate is the component that holds the push credential.
+CFG_YAML=$(git show "HEAD:$CFG" 2>/dev/null) || {
+  echo "GATE_REFUSED: $CFG is not committed — the gate will not take its"
+  echo "  lint/test commands from an uncommitted config. Commit it first."
+  exit 6; }
+_cmd() {
+  printf '%s' "$CFG_YAML" | python3 -c \
+    "import sys,yaml;print((yaml.safe_load(sys.stdin) or {})['commands']['$1'])"
+}
+LINT_CMD=$(_cmd lint)
+TEST_CMD=$(_cmd test)
 
 CHANGED=$(git diff --name-only HEAD; git ls-files --others --exclude-standard)
 CHANGED=$(echo "$CHANGED" | sed '/^$/d')
@@ -27,7 +43,12 @@ CHANGED=$(echo "$CHANGED" | sed '/^$/d')
 if echo "$CHANGED" | grep -qE '[^A-Za-z0-9._/-]'; then
   echo "SCOPE_VIOLATION (unsafe characters in filename)"; exit 2
 fi
-if echo "$CHANGED" | grep -vE '^(tests/|suites/|fixtures/|data/|pages/|catalog/|\.ai-qe/)' ; then
+# `.ai-qe/` is deliberately NOT on this list. It holds the lint/test commands
+# the gate executes, so letting a run rewrite it turns the repo's own config
+# into an injection vector against the one component that holds push rights.
+# Repo config is changed by its owner (bin/onboard.sh), out of band — no
+# pipeline phase has ever needed to write it.
+if echo "$CHANGED" | grep -vE '^(tests/|suites/|fixtures/|data/|pages/|catalog/)' ; then
   echo "SCOPE_VIOLATION"; exit 2
 fi
 

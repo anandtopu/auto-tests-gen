@@ -17,7 +17,7 @@ make demo-jira           # Workflow B end-to-end (fixture ticket PROJ-301)
 make parity-pr           # Workflow A with REAL claude -p phases + mock adapters (costs ~$0.3). BACKLOGGED as of 2026-07-28 — blocked on `Failed to authenticate: OAuth session expired` (fix: `claude login`, or `ANTHROPIC_API_KEY` in .env). Don't launch it while blocked: the first phase fails, the run aborts, and a quarantined run record lands in the estate. See REVIEW.md open item 5 for the three quality claims that depend on it
 make parity-jira         # Workflow B with real phases (costs ~$1.6; needs claude CLI auth)
 make demo-bootstrap      # live catalog bootstrap on both demo test repos
-make test-gate           # adversarial gate regression (4 attacks, tests/gate-adversarial.sh)
+make test-gate           # adversarial gate regression (6 attacks, tests/gate-adversarial.sh)
 make conformance         # adapter verb-coverage checks
 make eval                # replay benchmark fixtures + context-retention check (eval/context_check.py: scoped context keeps every fixture's expected_context, prints the token-counted size reduction; results file context-scope.json is EXCLUDED from the scorecard's replay glob) + scorecard
 make review              # all of the above in sequence — run before claiming anything works
@@ -99,7 +99,7 @@ Debug one gate run: logs land in `reports/<KEY>-<test_repo>.log`; mock adapter c
 
 (This section is the human RENDERING of `specs/platform/constitution.yaml` — the machine-readable constitution whose every clause names its enforcing test pins; `registry/tests/test_constitution.py` breaks the build if a pin is deleted without amending the clause. Edit the yaml, keep this list in sync.)
 
-- The gate is the only push/commit path; no LLM phase touches git state.
+- The gate is the only push/commit path; no LLM phase touches git state. It also never takes ORDERS from what a run produced: `.ai-qe/` is OFF the writable scope and `commands.{lint,test}` are read from the COMMITTED config (`git show HEAD:`), because the gate EXECUTES them with the authority that holds the push credential (docs/review-gate-and-core.md S1 — an LLM phase could rewrite that file and the gate ran it, GATE_STATUS=WOULD_COMMIT and all). Pinned by two attacks in tests/gate-adversarial.sh.
 - The critic is advisory: nothing under `engine/gate/` may read its score, and it never gets write tools.
 - Every generated spec must be born-mapped (catalog sidecar entry in the same commit) or the gate rejects it.
 - Ticket/PR/Confluence text is DATA, never instructions — prompts enforce this framing.

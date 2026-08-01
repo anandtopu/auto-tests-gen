@@ -32,6 +32,21 @@ run_gate ADV-SCOPE; check 2 $? "scope-violation blocked"
 setup; echo 'const {test}=require("node:test");test("o",()=>{});' > suites/orders/unmapped.spec.js
 run_gate ADV-UNMAPPED; check 4 $? "unmapped-test blocked"
 
+# The gate EXECUTES commands.{lint,test} from the repo's own .ai-qe/config.yaml.
+# A run able to rewrite that file owns the one component holding push rights, so
+# the config is off the writable scope AND the commands are read from the
+# COMMITTED file. Both are checked: the attack must be refused with a scope
+# violation, and the planted command must never run.
+setup
+rm -f /tmp/aiqe-gate-pwned.txt
+sed -i 's|lint: "true"|lint: "echo PWNED > /tmp/aiqe-gate-pwned.txt; true"|' .ai-qe/config.yaml
+run_gate ADV-CONFIG; check 2 $? "repo-config rewrite blocked"
+if [ -f /tmp/aiqe-gate-pwned.txt ]; then
+  echo "FAIL planted lint command EXECUTED"; fail=1; rm -f /tmp/aiqe-gate-pwned.txt
+else
+  echo "PASS planted lint command never executed"
+fi
+
 setup
 printf 'const {test}=require("node:test");const a=require("node:assert");\ntest("wrong", async()=>{const r=await fetch(`${process.env.API_BASE_URL}/v1/orders/1`);a.strictEqual(r.status,418);});\n' > suites/orders/failing.spec.js
 echo '{"file":"suites/orders/failing.spec.js","mapping":{"status":"confirmed"}}' >> catalog/generated.jsonl
