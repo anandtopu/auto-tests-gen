@@ -110,3 +110,98 @@ is the designed trade-off — the alternative is breaking live runs — and
 `registry/tests/conftest.py` already sweeps the >90-minute case and says so.
 Worth knowing when a suite suddenly crawls: the cause is usually a killed run,
 not the code under test.
+
+---
+
+# Pass C — state files, locking, and the server API
+
+Same method: probe the claims, don't confirm the pins. Two defects, both in
+code whose *purpose* is to prevent exactly the failure it allowed.
+
+## C1 — An unreadable state file was reported as an empty one
+**Severity: medium-high (silent loss of human decisions) · Status: FIXED**
+
+`fs_lock.read_json_guarded` exists to stop silent state loss. Its docstring is
+explicit: returning `default` for a damaged file "is the silent data-loss path
+(the next save overwrites real data)". It handled that carefully for a corrupt
+file — quarantine the bytes, warn loudly on stderr — and then did the exact
+forbidden thing one branch below, for `OSError`:
+
+```python
+except OSError:
+    return default          # sharing violation, EIO, full disk...
+```
+
+The `not path.exists()` check happens earlier, so reaching that branch means
+**the file is there and could not be read**. Reproduction — one transient error
+destroys a human's plan approval:
+
+```
+before: {"PROJ-301": {"status": "approved", "history": ["human sign-off"]}}
+read_json_guarded returned: {}
+after : {}
+quarantine file created? NO
+```
+
+**Fix.** Retry briefly (transient causes clear in milliseconds), then **raise**.
+A loud failure on one surface is recoverable; a silently emptied state file is
+not. Corrupt-file quarantine and absent-file defaults are unchanged, and all
+four paths are pinned:
+
+```
+A. persistent read failure -> raised;  state intact
+B. transient failure       -> {'PROJ-301': {'status': 'approved'}}
+C. corrupt file            -> quarantined as c.json.corrupt-<ts>
+D. absent file             -> default
+```
+
+## C2 — Bundle-import containment was a string prefix, not a path test
+**Severity: medium · Status: FIXED**
+
+```python
+target = (ROOT / rel).resolve()
+if not str(target).startswith(str(ROOT.resolve())):
+    raise SystemExit(f"bundle contains an unsafe path: {rel}")
+```
+
+A **sibling** directory whose name merely starts with the root's satisfies the
+prefix while living entirely outside the checkout:
+
+```
+../evil.txt                        accepted=False truly_inside=False
+../auto-tests-gen-evil/payload.txt accepted=True  truly_inside=False  <-- outside
+../auto-tests-genX/payload.txt     accepted=True  truly_inside=False  <-- outside
+```
+
+The module's own header calls a bundle untrusted input — they get emailed and
+attached to tickets. **Fix:** containment is a path relationship
+(`root in target.parents`), never a string prefix. A real bundle still
+round-trips (`merge import: would write 0 file(s), kept 20 existing`).
+
+## Checked and found correct
+
+* **Lock coverage.** Every read-modify-write cycle in `plan_state`,
+  `review_state`, `work_queue` and `openhands_events` runs inside `fs_lock`.
+  Checked against the code, and now pinned so a new unlocked mutation fails the
+  build rather than losing a decision in a race.
+* **Atomic writes.** `write_json_atomic` writes a same-directory tmp and
+  `os.replace`s it, so a crash leaves the old or the new file, never a torn one.
+* **Lock breaking.** Stale locks need age *and* a dead owner, with a hard
+  ceiling for Windows PID reuse — and the owner is re-verified immediately
+  before the break, so a waiter that already re-acquired is not torn down.
+* **No path traversal via repo names.** `/api/repos/curated` and friends look
+  unvalidated at the transport layer, but `curated_guidance` requires the repo
+  to exist in the registry and restricts filenames to an allow-list. Validation
+  lives at the domain layer, which is the right place for it.
+* **Auth fails closed.** With `AIQE_SSO_HEADER` set, a missing header is 401
+  (Bearer token still works for CLI clients). `do_POST` gates too, and
+  `/hooks/*` has its own token contract that also fails closed when UI auth is
+  configured but no hook token is set.
+
+## Not treated as defects
+
+Token comparisons use `==` rather than a constant-time compare, and the
+first-visit token travels as a query parameter before becoming a cookie. Both
+are real properties, neither is worth changing for a server the docs place
+behind a reverse proxy or on localhost — flagging them as findings would be
+noise, so they are recorded here instead.

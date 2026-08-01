@@ -226,9 +226,16 @@ def import_bundle(bundle, replace=False, dry_run=False, force=False):
             if not m.isfile() or not m.name.startswith("state/"):
                 continue
             rel = m.name[len("state/"):]
-            # Refuse anything that escapes the root: a bundle is untrusted input.
+            # Refuse anything that escapes the root: a bundle is untrusted input
+            # (they get emailed and attached to tickets — see the module header).
+            #
+            # Containment is a PATH relationship, never a string prefix. The old
+            # str.startswith check accepted `../<root-name>-evil/payload`: a
+            # SIBLING directory whose name merely starts with the root's does
+            # satisfy the prefix while living entirely outside the checkout.
             target = (ROOT / rel).resolve()
-            if not str(target).startswith(str(ROOT.resolve())):
+            root = ROOT.resolve()
+            if target == root or root not in target.parents:
                 raise SystemExit(f"bundle contains an unsafe path: {rel}")
             data = tar.extractfile(m).read()
             if shas.get(rel) and hashlib.sha256(data).hexdigest() != shas[rel]:

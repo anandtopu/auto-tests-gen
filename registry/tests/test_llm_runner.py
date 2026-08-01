@@ -1043,3 +1043,102 @@ def test_gate_never_executes_config_a_run_could_have_written():
     # The attack is pinned in the gate suite too, with both assertions.
     adv = (ROOT / "tests/gate-adversarial.sh").read_text(encoding="utf-8")
     assert "ADV-CONFIG" in adv and "never executed" in adv
+
+
+# ------------------------------------------------ review pass C: state & API
+def test_unreadable_state_is_never_reported_as_empty(tmp_path, monkeypatch):
+    """C1. read_json_guarded handled a CORRUPT file carefully (quarantine + a
+    loud warning) but returned `default` on OSError — so a transient read
+    failure made the caller believe the state was empty, and its next save
+    overwrote it. Verified: one OSError turned an approved plan into {}.
+
+    The file EXISTS (absence returns default earlier), so "cannot read" must
+    never be reported as "nothing there"."""
+    import builtins
+    import fs_lock
+    state = tmp_path / "state.json"
+    state.write_text(json.dumps({"PROJ-301": {"status": "approved"}}),
+                     encoding="utf-8")
+    real_open = builtins.open
+
+    def always_fails(f, *a, **kw):
+        if str(f).endswith("state.json"):
+            raise OSError(11, "Resource temporarily unavailable")
+        return real_open(f, *a, **kw)
+
+    monkeypatch.setattr(builtins, "open", always_fails)
+    with pytest.raises(OSError, match="refusing to report it as empty"):
+        fs_lock.read_json_guarded(state, {})
+    monkeypatch.undo()
+    assert json.loads(state.read_text(encoding="utf-8"))["PROJ-301"], \
+        "the state file must survive untouched"
+
+    # A TRANSIENT failure still succeeds — the retry keeps surfaces working.
+    calls = {"n": 0}
+
+    def flaky_once(f, *a, **kw):
+        if str(f).endswith("state.json") and calls["n"] < 1:
+            calls["n"] += 1
+            raise OSError(11, "transient")
+        return real_open(f, *a, **kw)
+
+    monkeypatch.setattr(builtins, "open", flaky_once)
+    assert fs_lock.read_json_guarded(state, {})["PROJ-301"]["status"] == "approved"
+    monkeypatch.undo()
+
+    # ...and the corrupt-file and absent-file behaviours are unchanged.
+    corrupt = tmp_path / "c.json"
+    corrupt.write_text("{not json", encoding="utf-8")
+    assert fs_lock.read_json_guarded(corrupt, {}) == {}
+    assert list(tmp_path.glob("c.json.corrupt-*")), "corrupt files still quarantine"
+    assert fs_lock.read_json_guarded(tmp_path / "nope.json", {"d": 1}) == {"d": 1}
+
+
+def test_bundle_import_containment_is_a_path_test_not_a_string_prefix():
+    """C2. `str(target).startswith(str(ROOT))` accepted a SIBLING directory
+    whose name merely starts with the root's — `../<root>-evil/payload` lives
+    entirely outside the checkout and satisfied the prefix. A bundle is
+    untrusted input by the module's own description (they get emailed)."""
+    import state_bundle as sb
+    root = sb.ROOT.resolve()
+
+    def accepted(rel):
+        target = (sb.ROOT / rel).resolve()
+        return not (target == root or root not in target.parents)
+
+    assert accepted("reports/runs/x.json")
+    assert accepted("specs/K/testplan.yaml")
+    for escape in ("../evil.txt", f"../{root.name}-evil/payload.txt",
+                   f"../{root.name}X/p.txt", ""):
+        assert not accepted(escape), escape
+    src = (ROOT / "engine/lib/state_bundle.py").read_text(encoding="utf-8")
+    assert "startswith(str(ROOT.resolve()))" not in src, \
+        "containment must not be a string-prefix test"
+
+
+def test_every_state_mutation_runs_under_a_lock():
+    """The documented rule ('state-file mutations go through fs_lock') checked
+    against the code rather than trusted: no read-modify-write cycle in a state
+    store may run unlocked, or two writers silently lose one's decision."""
+    import re
+    targets = {"plan_state.py": ("_load", "_save"),
+               "review_state.py": ("load", "save"),
+               "work_queue.py": ("load", "save"),
+               "openhands_events.py": ("load", "_save")}
+    offenders = []
+    for name, (ld, sv) in targets.items():
+        lines = (ROOT / "engine/lib" / name).read_text(encoding="utf-8").splitlines()
+        funcs, cur = {}, None
+        for ln in lines:
+            if re.match(r"^def ", ln):
+                cur = ln.split("(")[0][4:]
+                funcs[cur] = []
+            if cur:
+                funcs[cur].append(ln)
+        for fn, body in funcs.items():
+            b = "\n".join(body)
+            if fn in (ld, sv):
+                continue
+            if f"{sv}(" in b and f"{ld}(" in b and "lock(" not in b:
+                offenders.append(f"{name}:{fn}")
+    assert not offenders, f"unlocked read-modify-write: {offenders}"

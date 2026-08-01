@@ -184,5 +184,26 @@ def read_json_guarded(path, default):
                   f"continuing from empty state WITHOUT overwriting it.",
                   file=sys.stderr)
         return default
-    except OSError:
-        return default
+    except OSError as e:
+        # The file EXISTS (checked above) but could not be read — a sharing
+        # violation, EIO, a full disk. Returning `default` here is the same
+        # silent data-loss path this function was written to close for a
+        # corrupt file: the caller reads "empty", saves, and a human's plan
+        # approval or review decision is gone. Verified: one transient OSError
+        # turned an approved plan into {}.
+        #
+        # Transient causes clear in milliseconds, so retry briefly; if it still
+        # cannot be read, RAISE. A loud failure on a surface is recoverable —
+        # a silently emptied state file is not.
+        for _ in range(4):
+            time.sleep(0.05)
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    return json.load(fh)
+            except json.JSONDecodeError:
+                return read_json_guarded(path, default)   # quarantine path
+            except OSError:
+                continue
+        raise OSError(
+            f"{path} exists but could not be read ({e}) — refusing to report it "
+            f"as empty, because the next save would overwrite it") from e
