@@ -27,6 +27,7 @@ CLI (run_phase.sh):  derived_writes.py materialize <phase> <key> <contract>
 """
 import json
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -35,6 +36,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 # Phases whose artifacts the harness can reconstruct from the contract.
 DERIVED_PHASES = ("testplan", "planarbiter", "testdata")
+# Same shape pipeline.sh enforces at entry (INVALID_KEY, exit 64).
+_KEY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 
 
 def addendum(phase):
@@ -57,6 +60,22 @@ def addendum(phase):
     return ""
 
 
+def safe_key(key):
+    """A run key that is safe to interpolate into a path, or None.
+
+    The testdata branch below already refuses a contract-chosen path outside
+    testdata/; the plan branch interpolated `key` straight into
+    testplans/<key>.md with no such check, so a key carrying `..` escaped the
+    checkout entirely. pipeline.sh validates its own KEY (exit 64), which is why
+    this was not reachable through a normal run — but this function is also a
+    library entry point and a CLI, and one branch confining while its sibling
+    does not is exactly how a guard gets lost."""
+    k = str(key or "")
+    if not k or not _KEY_RE.fullmatch(k):
+        return None
+    return k
+
+
 def _write(path, text):
     p = ROOT / path
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -72,6 +91,9 @@ def materialize(phase, key, contract):
         return written, problems
     if not isinstance(contract, dict):
         return written, ["contract is not an object"]
+    key = safe_key(key)
+    if key is None:
+        return written, ["refused — the run key is not path-safe"]
 
     if base in ("testplan", "planarbiter"):
         try:

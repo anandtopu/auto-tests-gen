@@ -75,7 +75,14 @@ def _digest(path):
 def key(phase, model, prompt_file, context_files, extra=""):
     """The cache key. Uses the prompt TEMPLATE (pre-substitution) plus the context
     files, which already carry the run's specifics — so two runs of the same ticket
-    hash the same, while a changed ticket hashes differently."""
+    hash the same, while a changed ticket hashes differently.
+
+    `extra` carries the RUN KEY, and it is not optional in practice. A cached
+    entry stores its artifacts under the paths of the run that produced them
+    (testplans/<KEY>.md, testdata/<KEY>/). Leaving the key out of the hash meant
+    two runs whose context bytes coincided — the same text pasted under two
+    ticket ids via AIQE_INLINE_FILE is the realistic case — shared an entry, so
+    the second run restored the FIRST key's artifacts and never wrote its own."""
     h = hashlib.sha256()
     h.update(f"v1|{phase}|{model}|{extra}".encode())
     h.update(_digest(prompt_file).encode())
@@ -93,7 +100,7 @@ def lookup(phase, out_label, model, prompt_file, context_files, run_key=""):
     """Restore a previous result for an identical input set. True on a hit."""
     if not enabled() or phase not in CACHEABLE:
         return False
-    entry_path = DIR / f"{key(phase, model, prompt_file, context_files)}.json"
+    entry_path = DIR / f"{key(phase, model, prompt_file, context_files, run_key)}.json"
     if not entry_path.exists():
         return False
     try:
@@ -108,7 +115,13 @@ def lookup(phase, out_label, model, prompt_file, context_files, run_key=""):
     # A phase's artifacts are part of its product; a hit must reproduce them or the
     # next phase reads a file that is not there.
     for rel, body in (entry.get("artifacts") or {}).items():
-        dest = ROOT / rel
+        # Restore INSIDE the checkout only. A cache entry is a file on disk,
+        # and a restore loop that honours whatever path it names is the same
+        # gap derived_writes closes on its own writes — cheap to hold here too.
+        p = pathlib.Path(rel)
+        if p.is_absolute() or ".." in p.parts:
+            continue
+        dest = ROOT / p
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(body, encoding="utf-8", newline="\n")
     entry["hits"] = entry.get("hits", 0) + 1
@@ -148,7 +161,7 @@ def store(phase, out_label, model, prompt_file, context_files, run_key=""):
              "stored": time.time(), "hits": 0,
              "contract": contract, "artifacts": artifacts}
     try:
-        (DIR / f"{key(phase, model, prompt_file, context_files)}.json").write_text(
+        (DIR / f"{key(phase, model, prompt_file, context_files, run_key)}.json").write_text(
             json.dumps(entry, indent=1), encoding="utf-8", newline="\n")
     except OSError:
         return False

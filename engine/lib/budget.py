@@ -111,7 +111,13 @@ def priced(provider, model, usage):
                 NEVER silently 0 (that would understate a real bill)
     """
     table = _pricing().get(provider)
-    if table == "local" or provider == "ollama":
+    # CONFIGURATION WINS over the provider's name. `ollama` used to be forced
+    # to `local` here regardless of the price table — but that adapter speaks
+    # plain OpenAI-compatible HTTP and happily serves a PAID hosted gateway,
+    # so an operator who priced it got "$0 (local)" for a real bill. Exactly
+    # the understatement this module exists to prevent. org-config carries
+    # `ollama: local` as the DEFAULT; an explicit table now overrides it.
+    if table == "local":
         return 0.0, "local"
     if not isinstance(table, dict):
         return None, "unknown"
@@ -245,6 +251,51 @@ def total(ledger=None):
     return tot, metered, unmetered
 
 
+def unpriced(ledger=None):
+    """(calls, providers) whose cost basis is `unknown` — tokens were spent but
+    no price could be attached.
+
+    This is the hole that made the whole spend-control stack silently inert: an
+    unpriced provider records cost 0 and metered=0, so `check()` never fires the
+    exit-77 ceiling and `grade()` never starts the degradation ladder. A run
+    could burn tens of millions of tokens and report $0.00 "within budget".
+    Cost cannot be invented — but the INABILITY to enforce must be visible.
+    """
+    calls, provs = 0, set()
+    for r in read_ledger(ledger):
+        if r.get("cost_basis") == "unknown":
+            calls += 1
+            provs.add(r.get("provider") or "?")
+    return calls, sorted(provs)
+
+
+def enforceability(ledger=None):
+    """(state, message). state is 'enforced' | 'partial' | 'unenforceable'.
+
+    Callers must never render a budget verdict without this: "within budget"
+    is only true when the spend it covers could actually be priced.
+    """
+    cost_limit, _, source = limits()
+    calls, provs = unpriced(ledger)
+    _, metered, _ = total(ledger)
+    if cost_limit <= 0:
+        return "unenforceable", "no cost limit configured (only wall-clock applies)"
+    if not calls:
+        return "enforced", ""
+    who = ", ".join(provs)
+    if metered:
+        return "partial", (
+            f"BUDGET_PARTIAL: {calls} phase(s) on {who} have no price entry, so "
+            f"their spend is NOT counted against the ${cost_limit:.2f} limit "
+            f"({source}). Add `pricing:` entries for {who} in "
+            f"registry/org-config.yaml to enforce the ceiling on them.")
+    return "unenforceable", (
+        f"BUDGET_UNENFORCEABLE: every metered phase ran on {who}, which has no "
+        f"price entry — the ${cost_limit:.2f} ceiling ({source}) and the "
+        f"degradation ladder cannot fire at all. Add `pricing:` entries for "
+        f"{who} in registry/org-config.yaml, or accept an unbounded run.")
+
+
 def _cross_repo():
     try:
         d = json.load(open("out/resolve.contract.json", encoding="utf-8"))
@@ -356,6 +407,17 @@ if __name__ == "__main__":
         if reason:
             print(reason)
             sys.exit(1)
+        # Within budget — but say so only about spend that could be PRICED.
+        # An unpriced provider records $0, so silence here would read as
+        # "under the ceiling" when nothing was ever weighed against it.
+        state, msg = enforceability()
+        if state in ("partial", "unenforceable") and msg:
+            print(msg, file=sys.stderr)
+    elif cmd == "enforceability":
+        state, msg = enforceability()
+        print(state)
+        if msg:
+            print(msg, file=sys.stderr)
     elif cmd == "total":
         tot, metered, unmetered = total()
         print(f"{tot:.4f}\t{metered}\t{unmetered}")

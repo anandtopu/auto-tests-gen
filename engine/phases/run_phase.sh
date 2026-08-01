@@ -53,11 +53,20 @@ RUNNER=$(printf '%s' "$RUNNER_LINE" | cut -f2)
 # plan family's artifacts are DERIVABLE from the contract, so the harness
 # renders them after extraction.
 CAPS=$(bash "$RUNNER" capabilities 2>/dev/null || echo agentic)
+# The model the provider will ACTUALLY be called with (llm.models_by_provider),
+# resolved BEFORE the cache lookup on purpose: keying the cache on the tier id
+# meant that re-pointing a tier at a different provider model kept the old key,
+# and the next run replayed a result produced by a model that is no longer
+# configured. Mapping applies after any degradation-ladder downgrade above.
+FINAL_MODEL=$(AIQE_PHASE_MODEL="$MODEL" AIQE_MAP_PROVIDER="$PROVIDER" python3 -c "
+import os, sys; sys.path.insert(0, 'engine/lib')
+import llm_runner
+print(llm_runner.map_model(os.environ['AIQE_MAP_PROVIDER'], os.environ['AIQE_PHASE_MODEL']))")
 # Content-addressed reuse: if this exact phase, model, prompt and context set has been
 # run before, restore the result instead of paying for it again. The key is the whole
 # input, so a stale hit is impossible; `generate`/`validate` are excluded because their
 # product is files in the test repos, not the contract (see phase_cache.py).
-if python3 engine/lib/phase_cache.py lookup "$PHASE" "$OUT" "${PROVIDER}:${MODEL}" "$PROMPT" \
+if python3 engine/lib/phase_cache.py lookup "$PHASE" "$OUT" "${PROVIDER}:${FINAL_MODEL}" "$PROMPT" \
      "${KEY:-}" "$@" 2>/dev/null; then
   echo "[cache] $PHASE reused a previous result for identical inputs (no LLM call)"
   exit 0
@@ -95,12 +104,7 @@ CONTEXT+=$'\n--- END RUN PARAMETERS ---'
 # Dispatch through the LLM Runner port (multi-LLM story 1.1): the adapter
 # receives the ASSEMBLED prompt on stdin (cache-ordering preserved byte for
 # byte) plus this phase's policy, and writes the normalized result JSON to
-# out/<OUT>.json. Model mapping (llm.models_by_provider) applies to the FINAL
-# model — after any degradation-ladder downgrade above.
-FINAL_MODEL=$(AIQE_PHASE_MODEL="$MODEL" AIQE_MAP_PROVIDER="$PROVIDER" python3 -c "
-import os, sys; sys.path.insert(0, 'engine/lib')
-import llm_runner
-print(llm_runner.map_model(os.environ['AIQE_MAP_PROVIDER'], os.environ['AIQE_PHASE_MODEL']))")
+# out/<OUT>.json, using the FINAL_MODEL resolved above.
 printf '%s' "$PROMPT_TEXT$CONTEXT" | \
   bash "$RUNNER" run_phase "$FINAL_MODEL" "$TURNS" "$TOOLS" "out/${OUT}.json"
 # Extract the trailing JSON contract the prompt requires the agent to print:
@@ -117,5 +121,5 @@ if [ "$CAPS" = "completion" ]; then
 fi
 # Record the result for identical future inputs. Never fatal: a cache write failure
 # must not fail a phase that already succeeded.
-python3 engine/lib/phase_cache.py store "$PHASE" "$OUT" "${PROVIDER}:${MODEL}" "$PROMPT" \
+python3 engine/lib/phase_cache.py store "$PHASE" "$OUT" "${PROVIDER}:${FINAL_MODEL}" "$PROMPT" \
   "${KEY:-}" "$@" >/dev/null 2>&1 || true

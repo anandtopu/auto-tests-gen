@@ -191,6 +191,13 @@ def report(days=None):
             "by_provider": {k: {**v, "cost_usd": round(v["cost_usd"], 4)}
                             for k, v in by_provider.items()},
             "local_tokens": local_tokens, "cloud_tokens": cloud_tokens,
+            # Spend that could not be priced at all. The total EXCLUDES it, so
+            # every surface that prints the total must print this beside it or
+            # a partial figure reads as the whole bill.
+            "unpriced_calls": sum(
+                v["bases"].get("unknown", 0) for v in by_provider.values()),
+            "unpriced_providers": sorted(
+                k for k, v in by_provider.items() if v["bases"].get("unknown")),
             "phase_cache_hits": cache_hits,
             "phase_cache_savings_usd": cache_savings,
             "openhands_payload_chars": oh_payload_chars,
@@ -205,6 +212,11 @@ def to_markdown(rep):
              + (f", last {rep['window_days']}d" if rep['window_days'] else "")
              + f") — {label}",
              f"", f"Total: ${rep['total_cost_usd']:.4f}", ""]
+    if rep.get("unpriced_calls"):
+        lines += [f"> **This total is incomplete.** {rep['unpriced_calls']} "
+                  f"call(s) on {', '.join(rep['unpriced_providers'])} have no "
+                  f"`pricing:` entry, so their spend is counted as $0 here and "
+                  f"is NOT weighed against any budget ceiling.", ""]
     if rep["by_mode"]:
         lines.append("## By workflow")
         for k, v in sorted(rep["by_mode"].items()):

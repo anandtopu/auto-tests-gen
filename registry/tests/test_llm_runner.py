@@ -107,8 +107,14 @@ def test_wrapper_dispatches_through_the_port_and_keys_the_cache_by_provider():
     assert 'claude -p "$PROMPT_TEXT' not in src, \
         "the wrapper must not call a provider CLI directly"
     assert 'bash "$RUNNER" run_phase' in src
-    assert src.count('"${PROVIDER}:${MODEL}"') == 2, \
+    assert src.count('"${PROVIDER}:${FINAL_MODEL}"') == 2, \
         "both phase_cache lookup and store are provider-qualified"
+    # ...and qualified by the MAPPED model, not the tier id. Keying on the tier
+    # meant re-pointing llm.models_by_provider at a different model kept the old
+    # key, so the next run replayed a result from a model no longer configured.
+    assert '"${PROVIDER}:${MODEL}"' not in src
+    assert src.index("FINAL_MODEL=") < src.index("phase_cache.py lookup"), \
+        "the mapped model must be resolved BEFORE the cache lookup"
     assert "llm_runner.py resolve" in src
 
 
@@ -880,3 +886,135 @@ def test_session_sweep_detects_a_killed_runs_leftovers(tmp_path):
     assert conftest.leftover_fixture_repos(reg) == []
     # An unreadable registry is not this file's to fix.
     assert conftest.leftover_fixture_repos(tmp_path / "nope.yaml") == []
+
+
+# --------------------------------------------------- multi-pass review fixes
+def test_unpriced_provider_cannot_silently_disable_the_budget(tmp_path, monkeypatch):
+    """R1 (critical). An unpriced provider records cost 0 / metered 0, so the
+    exit-77 ceiling never fired and the degradation ladder never started: a run
+    could burn tens of millions of tokens and report "$0.00, within budget".
+    Cost cannot be invented — but the INABILITY to enforce must be visible."""
+    import budget
+    monkeypatch.setattr(budget, "LEDGER", tmp_path / "cost.tsv")
+    monkeypatch.setenv("MAX_COST_USD_PER_RUN", "1.00")
+    res = tmp_path / "r.json"
+    res.write_text(json.dumps({"provider": "brand-new-vendor", "num_turns": 3,
+                               "usage": {"input_tokens": 5_000_000,
+                                         "output_tokens": 500_000}}),
+                   encoding="utf-8")
+    for _ in range(5):
+        budget.record("generate", res)
+
+    calls, provs = budget.unpriced()
+    assert calls == 5 and provs == ["brand-new-vendor"]
+    state, msg = budget.enforceability()
+    assert state == "unenforceable"
+    assert "cannot fire" in msg and "pricing:" in msg, "name the fix"
+    # The ceiling still cannot abort (we do not know the cost) — but nothing
+    # may report this run as having been checked against a limit.
+    assert budget.check(0) is None
+
+    # One priced phase alongside them -> partial, not silence.
+    res2 = tmp_path / "r2.json"
+    res2.write_text(json.dumps({"provider": "claude", "total_cost_usd": 0.42,
+                                "usage": {"input_tokens": 10}}), encoding="utf-8")
+    budget.record("triage", res2)
+    state, msg = budget.enforceability()
+    assert state == "partial" and "NOT counted" in msg
+
+
+def test_explicit_pricing_beats_the_hardcoded_provider_name():
+    """R2. `ollama` was forced to $0 (local) regardless of the price table —
+    but that adapter speaks plain OpenAI-compatible HTTP and serves PAID hosted
+    gateways too, so an operator who priced it was shown $0 for a real bill."""
+    import budget
+    usage = {"input_tokens": 10_000_000, "output_tokens": 1_000_000}
+    real = budget._pricing
+    try:
+        budget._pricing = lambda: {"ollama": {"*": {"in": 3.0, "out": 15.0}}}
+        assert budget.priced("ollama", "gpt-4o", usage) == (45.0, "estimated")
+        budget._pricing = lambda: {"ollama": "local"}
+        cost, basis = budget.priced("ollama", "qwen", usage)
+        assert (cost, basis) == (0.0, "local"), "the shipped default still holds"
+    finally:
+        budget._pricing = real
+    # And org-config still ships the local default, so nothing changed for
+    # anyone running a genuinely local daemon.
+    import yaml
+    cfg = yaml.safe_load(open(ROOT / "registry/org-config.yaml", encoding="utf-8"))
+    assert (cfg.get("pricing") or {}).get("ollama") == "local"
+
+
+def test_cache_key_separates_run_keys(tmp_path):
+    """R3b. lookup/store accepted a run_key but never hashed it, while the
+    entry's artifacts are stored under the PRODUCING run's paths. Two runs whose
+    context bytes coincide — the same text pasted under two ticket ids — shared
+    an entry, so the second restored the first key's plan and never wrote its
+    own."""
+    import phase_cache
+    p = tmp_path / "p.md"; p.write_text("prompt", encoding="utf-8")
+    c = tmp_path / "c.md"; c.write_text("identical context", encoding="utf-8")
+    k1 = phase_cache.key("testplan", "claude:m", str(p), [str(c)], "PROJ-1")
+    k2 = phase_cache.key("testplan", "claude:m", str(p), [str(c)], "PROJ-2")
+    assert k1 != k2
+    src = (ROOT / "engine/lib/phase_cache.py").read_text(encoding="utf-8")
+    assert src.count("key(phase, model, prompt_file, context_files, run_key)") == 2, \
+        "both lookup and store must feed the run key into the hash"
+
+
+def test_derived_writes_confines_the_plan_path_like_its_sibling(tmp_path):
+    """R4. The testdata branch refuses a path outside testdata/; the plan branch
+    interpolated the key straight into testplans/<key>.md, so `..` escaped the
+    checkout. pipeline.sh validates KEY (exit 64), so this was not reachable
+    through a normal run — but one branch confining while its sibling does not
+    is how a guard gets lost."""
+    import derived_writes as dw
+    assert dw.safe_key("PROJ-301") == "PROJ-301"
+    for bad in ("../../ESCAPED", "/abs/path", "a/b", "", None, "x" * 90):
+        assert dw.safe_key(bad) is None, bad
+    real_root = dw.ROOT
+    try:
+        dw.ROOT = tmp_path / "repo"
+        (tmp_path / "repo").mkdir()
+        written, problems = dw.materialize("testplan", "../../ESCAPED",
+                                           {"scenarios": [{"id": "S1"}]})
+        assert written == [] and problems and "path-safe" in problems[0]
+        assert not list(tmp_path.glob("ESCAPED.md")), "nothing escaped the root"
+    finally:
+        dw.ROOT = real_root
+
+
+def test_experimental_gate_is_per_provider(monkeypatch):
+    """R5. The gate was hardcoded to AIQE_OPENHANDS_PROVIDER while the container
+    was a generic tuple — a second experimental provider would have been
+    unlocked by OpenHands' flag."""
+    import llm_runner
+    assert isinstance(llm_runner.EXPERIMENTAL_PROVIDERS, dict)
+    assert llm_runner.EXPERIMENTAL_PROVIDERS["openhands"] == "AIQE_OPENHANDS_PROVIDER"
+    monkeypatch.setattr(llm_runner, "EXPERIMENTAL_PROVIDERS",
+                        {"openhands": "AIQE_OPENHANDS_PROVIDER",
+                         "codex": "AIQE_CODEX_PROVIDER"})
+    monkeypatch.setenv("AIQE_OPENHANDS_PROVIDER", "1")
+    monkeypatch.delenv("AIQE_CODEX_PROVIDER", raising=False)
+    err = llm_runner.check_assignment("triage", "codex")
+    assert err and "AIQE_CODEX_PROVIDER=1" in err, \
+        "each provider is gated by its OWN flag"
+
+
+def test_cost_report_never_prints_a_total_that_hides_unpriced_spend(tmp_path, monkeypatch):
+    """R1b. The headline total EXCLUDES unpriced calls; printing it alone reads
+    as the whole bill."""
+    import cost_report as cr
+    runs = tmp_path / "runs"; runs.mkdir()
+    monkeypatch.setattr(cr, "RUNS", runs)
+    (runs / "r1.json").write_text(json.dumps({
+        "run_id": "r1", "ts": 9e9, "trigger": {"type": "pr", "key": "K"},
+        "phases": [{"name": "generate", "contract": {},
+                    "spend": {"model": "m", "cost_usd": 0.0, "provider": "mystery",
+                              "cost_basis": "unknown", "input_tokens": 9_000_000,
+                              "output_tokens": 100, "turns_used": 4}}]}),
+        encoding="utf-8")
+    rep = cr.report()
+    assert rep["unpriced_calls"] == 1 and rep["unpriced_providers"] == ["mystery"]
+    md = cr.to_markdown(rep)
+    assert "total is incomplete" in md and "mystery" in md

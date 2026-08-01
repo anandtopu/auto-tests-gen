@@ -369,7 +369,13 @@ def events(conversation_id, limit=200):
     if err and code is None:
         raise RuntimeError(f"could not reach {url}: {err}")
     if code is not None and code >= 400:
-        return []
+        # "this deployment exposes no event stream" is not "the agent said
+        # nothing" — a caller that cannot tell them apart reports a working
+        # conversation as empty. Raise so the difference survives.
+        raise LookupError(
+            f"no readable event stream at {url} (HTTP {code}) — this OpenHands "
+            f"deployment may not expose one; set OPENHANDS_CONVERSATIONS_PATH "
+            f"for Cloud, or read the conversation in the UI")
     if isinstance(resp, list):
         return resp
     resp = resp or {}

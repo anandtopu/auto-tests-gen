@@ -121,6 +121,16 @@ try:
     _tot, _metered, _ = budget.total()
     if _metered:
         record["cost_usd"] = round(_tot, 4)
+    # Whether `cost_usd` is the WHOLE bill. An unpriced provider records $0, so
+    # without this a reader (and the report, and the Cost view) would take a
+    # partial figure for the total and the ceiling as having been applied.
+    _calls, _provs = budget.unpriced()
+    if _calls:
+        _state, _msg = budget.enforceability()
+        record["budget"] = {"enforceability": _state,
+                            "unpriced_calls": _calls,
+                            "unpriced_providers": _provs,
+                            "detail": _msg}
 except Exception:
     pass
 print(json.dumps(record))

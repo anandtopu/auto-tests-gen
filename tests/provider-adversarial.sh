@@ -96,9 +96,33 @@ PY
 )
 check ok "$r" "identical prompt on two providers does not share a cache key"
 
-# The wrapper must actually USE that qualified key at both call sites.
-n=$(grep -c '"${PROVIDER}:${MODEL}"' engine/phases/run_phase.sh)
-check 2 "$n" "run_phase qualifies both cache call sites by provider"
+# The wrapper must actually USE that qualified key at both call sites — and
+# qualify it by the MAPPED model, not the tier id. Keying on the tier meant
+# re-pointing llm.models_by_provider kept the old key, so the next run replayed
+# a result produced by a model that is no longer configured (review R3a).
+n=$(grep -c '"${PROVIDER}:${FINAL_MODEL}"' engine/phases/run_phase.sh)
+check 2 "$n" "run_phase qualifies both cache call sites by provider+mapped model"
+n=$(grep -c '"${PROVIDER}:${MODEL}"' engine/phases/run_phase.sh || true)
+check 0 "$n" "no cache call site keys on the unmapped tier id"
+
+# --- 7. an unpriced provider must not silently disable the budget ----------
+r=$(MAX_COST_USD_PER_RUN=1.00 AIQE_COST_LEDGER="$TMPD/led.tsv" python3 - "$TMPD" <<'PY'
+import json, pathlib, sys
+sys.path.insert(0, "engine/lib")
+import budget
+d = pathlib.Path(sys.argv[1])
+budget.LEDGER = d / "led.tsv"
+res = d / "r.json"
+res.write_text(json.dumps({"provider": "mystery-vendor", "num_turns": 3,
+                           "usage": {"input_tokens": 9_000_000,
+                                     "output_tokens": 900_000}}), encoding="utf-8")
+for _ in range(4):
+    budget.record("generate", res)
+state, msg = budget.enforceability()
+print("ok" if state == "unenforceable" and "pricing:" in msg else f"{state}:{msg[:60]}")
+PY
+)
+check ok "$r" "unpriced provider is reported as UNENFORCEABLE, not silently fine"
 
 [ $fail -eq 0 ] && echo "provider adversarial UAT OK"
 exit $fail

@@ -48,7 +48,10 @@ AGENTIC_PHASES = ("generate", "validate")
 # Delegating a phase to another agent platform is experimental: latency is a
 # conversation, not a call, and the spend lands on an account we cannot meter.
 # Opt in per run/deployment rather than by picking it in a dropdown.
-EXPERIMENTAL_PROVIDERS = ("openhands",)
+# provider -> the env var that opts IN to it. A dict, not a bare tuple: the
+# gate used to be hardcoded to AIQE_OPENHANDS_PROVIDER, so a second
+# experimental provider would silently have been unlocked by OpenHands' flag.
+EXPERIMENTAL_PROVIDERS = {"openhands": "AIQE_OPENHANDS_PROVIDER"}
 
 ALL_PHASES = ("resolve_llm", "triage", "analyze", "testplan", "planadversary",
               "planarbiter", "testdata", "generate", "validate", "critic")
@@ -107,12 +110,12 @@ def check_assignment(phase, provider):
         return (f"'{provider}' cannot run agentic phase '{base}' (multi-file "
                 f"edits + test execution){extra} — assign claude or codex "
                 f"for it in llm.phase_providers")
-    if provider in EXPERIMENTAL_PROVIDERS and \
-            os.environ.get("AIQE_OPENHANDS_PROVIDER", "").strip() != "1":
+    gate = EXPERIMENTAL_PROVIDERS.get(provider)
+    if gate and os.environ.get(gate, "").strip() != "1":
         return (f"'{provider}' as an LLM provider is EXPERIMENTAL: a phase "
                 f"becomes a conversation (minutes, not seconds) and its spend "
                 f"lands on an account this platform cannot meter — set "
-                f"AIQE_OPENHANDS_PROVIDER=1 to opt in")
+                f"{gate}=1 to opt in")
     if not adapter_path(provider).exists():
         return (f"provider '{provider}' has no adapter at "
                 f"{adapter_path(provider).relative_to(ROOT).as_posix()} — "
