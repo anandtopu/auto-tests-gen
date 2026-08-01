@@ -1251,3 +1251,47 @@ def test_catalog_slice_tolerates_a_damaged_row(tmp_path):
     rows = cs.load_rows(tmp_path)
     ids = {r["test_id"] for r in rows}
     assert ids == {"ok", "ok2"}, "bad line skipped, sample excluded, rest kept"
+
+
+def test_pipeline_builds_the_catalog_slice_from_the_mapping():
+    """Wiring pin: the pipeline must call catalog_slice (not re-concatenate
+    every catalog/*.jsonl), and the fan-out must swap in a PER-REPO slice the
+    same way it already swaps per-repo conventions — an agent writing into one
+    repo should not be reasoning over every other repo's catalog."""
+    src = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
+    assert "catalog_slice.py out/resolve.contract.json" in src
+    assert 'catalog_slice.py out/resolve.contract.json "$repo"' in src, \
+        "the fan-out needs its own per-repo slice"
+    assert 'elif [ "$f" = "out/catalog-slice.jsonl" ]; then ctx+=("$slice")' in src, \
+        "the per-repo slice must actually be substituted into the context"
+    # The fallback must survive: losing existing-test context makes generation
+    # duplicate work it cannot see.
+    assert "catalog.sample.jsonl" in src, "the full-catalog fallback is still there"
+
+
+def test_catalog_slice_cli_reports_what_it_kept(tmp_path):
+    """A slice that silently narrowed the phase's world is the failure worth
+    seeing, so the CLI says how many rows it kept and why."""
+    contract = tmp_path / "resolve.contract.json"
+    contract.write_text(json.dumps({"test_repos": ["e2e-api-tests-1"],
+                                    "source_repos": ["orders-api"]}),
+                        encoding="utf-8")
+    r = subprocess.run([sys.executable, str(ROOT / "engine/lib/catalog_slice.py"),
+                        str(contract)], cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", stdin=subprocess.DEVNULL)
+    assert r.returncode == 0
+    assert "[catalog-slice]" in r.stderr and "row(s)" in r.stderr
+    for line in r.stdout.splitlines():
+        if line.strip():
+            json.loads(line)          # stdout stays valid JSONL
+
+
+def test_catalog_slice_falls_back_loudly_when_the_contract_is_unreadable(tmp_path):
+    """No resolution to filter by must mean the FULL catalog, said out loud —
+    never an empty slice."""
+    r = subprocess.run([sys.executable, str(ROOT / "engine/lib/catalog_slice.py"),
+                        str(tmp_path / "missing.json")], cwd=ROOT,
+                       capture_output=True, text=True, encoding="utf-8",
+                       stdin=subprocess.DEVNULL)
+    assert r.returncode == 0
+    assert "full catalog" in r.stderr

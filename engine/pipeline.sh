@@ -198,12 +198,22 @@ GENERATE() {
     # Only THIS repo's helpers and exemplars — the whole point of the fan-out.
     python3 engine/lib/spec_exemplars.py "$conv" "$repo" > /dev/null 2>&1 || : > "$conv"
     [ -f "$conv" ] || : > "$conv"
+    # This repo's own existing-test rows, plus anything covering the app repos
+    # this run touched — so the agent extends its own suite instead of
+    # duplicating, and knows what is already covered elsewhere. Same reason the
+    # conventions are per-repo: an agent writing into ONE repo should not be
+    # reasoning over every other repo's catalog.
+    slice="out/catalog-slice-${repo}.jsonl"
+    python3 engine/lib/catalog_slice.py out/resolve.contract.json "$repo" \
+      > "$slice" 2>/dev/null || cp out/catalog-slice.jsonl "$slice" 2>/dev/null || : > "$slice"
     # Swap the all-repos conventions file for this repo's. Done by rebuilding the
     # array rather than with ${@/../..}: the pattern contains slashes, which that
     # expansion treats as delimiters.
     ctx=()
     for f in "$@"; do
-      if [ "$f" = "out/repo-conventions.md" ]; then ctx+=("$conv"); else ctx+=("$f"); fi
+      if [ "$f" = "out/repo-conventions.md" ]; then ctx+=("$conv")
+      elif [ "$f" = "out/catalog-slice.jsonl" ]; then ctx+=("$slice")
+      else ctx+=("$f"); fi
     done
     rc=0
     # Set + unset explicitly rather than as an `VAR=x func` prefix: for a FUNCTION,
@@ -311,15 +321,23 @@ done
 # CURRENT contracts/routes/coverage (AGENTS.md is passed as phase context below).
 python3 bin/gen_agents_md.py > /dev/null || true
 
-# Catalog slice: existing-test knowledge handed to the phases (P2). Any test-repo
-# name is valid (bootstrap writes catalog/<repo>.jsonl) — only the committed sample
-# is excluded, matching every Python reader's glob.
-: > out/catalog-slice.jsonl
-for _cf in catalog/*.jsonl; do
-  [ -f "$_cf" ] || continue
-  [ "$(basename "$_cf")" = "catalog.sample.jsonl" ] && continue
-  grep -h . "$_cf" >> out/catalog-slice.jsonl 2>/dev/null || true
-done
+# Catalog slice: existing-test knowledge handed to the phases (P2), FILTERED by
+# the same `covers:` mapping that routed this run. It used to be a plain
+# concatenation of every catalog/*.jsonl — a PR resolving one API repo still
+# received the UI repo's rows, which is token cost and dilution on a real
+# estate, and contradicts the fan-out design where each agent sees only its own
+# conventions. An empty selection falls back to the whole catalog and says so:
+# starving generation of existing-test context makes it duplicate work it
+# cannot see, which is worse than over-feeding it.
+python3 engine/lib/catalog_slice.py out/resolve.contract.json \
+  > out/catalog-slice.jsonl 2>/dev/null || {
+    : > out/catalog-slice.jsonl
+    for _cf in catalog/*.jsonl; do
+      [ -f "$_cf" ] || continue
+      [ "$(basename "$_cf")" = "catalog.sample.jsonl" ] && continue
+      grep -h . "$_cf" >> out/catalog-slice.jsonl 2>/dev/null || true
+    done
+  }
 # Coverage gaps: surface with NO test evidence — generation targets these first
 python3 engine/lib/coverage_gaps.py md > out/coverage-gaps.md 2>/dev/null || : > out/coverage-gaps.md
 # Existing-approach exemplars: REAL helper + spec code from each resolved test repo,
