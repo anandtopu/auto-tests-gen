@@ -194,17 +194,35 @@ second start    -> "already populated — nothing seeded"   (no clobber)
 # Part 2 — Requirements still OPEN
 
 ## R13 — Bound XML entity expansion on the CI ingest
-**Priority: low · NOT DONE**
+**Priority: low · DONE (2026-08-02)**
 
-XXE file disclosure is **not** possible — the stdlib parser refuses external
-entities (`ParseError: reference to external entity`). Internal entity
-*expansion* is not explicitly bounded; the 5 MB cap limits input, not what it
-expands to. The endpoint is token-gated, so this is a DoS shape available only
-to an authenticated CI sender.
-**Acceptance:** parse with `defusedxml`, or disable DTD processing, and pin a
-bomb-shaped payload that is refused. I did not detonate a real billion-laughs
-to prove the exposure — crashing the machine to demonstrate a low-severity DoS
-is a poor trade.
+XXE file disclosure was never possible — the stdlib parser refuses external
+entities. What was unbounded was INTERNAL entity expansion: the 5 MB upload cap
+limits input, not what that input expands to.
+
+**Measured, on a deliberately tiny payload.** 202 bytes of nested entities
+expanded to 1000 characters at three levels, and each further level multiplies
+by ten. I did not detonate a real billion-laughs — crashing the machine to
+demonstrate a low-severity DoS is a poor trade, and a bomb-SHAPED payload proves
+the guard just as well.
+
+**Fix: refuse any DOCTYPE, before the tree parser sees the document.**
+`test_health._reject_dtd` runs a stdlib expat pass whose
+`StartDoctypeDeclHandler` raises `UnsafeXML`. A DOCTYPE refusal rather than an
+expansion budget, because JUnit XML has no legitimate use for a DTD — so
+refusing outright costs nothing real and cannot be tuned wrong. No entity
+declarations means there is no expansion left to bound.
+
+stdlib only, deliberately: `defusedxml` would also solve this, but this codebase
+avoids dependencies for things it can state in ten lines, and that would be the
+only dependency in the parse path.
+
+**Verified end to end** against the live receiver: a bomb-shaped upload returns
+`400 {"error": "... refused: the document declares a DOCTYPE ..."}` — an
+actionable message in the CI job's own log — while a clean JUnit upload still
+ingests. Ordinary syntax errors still surface as `ParseError` from the real
+parser, with line and column, because a malformed file is not a security
+refusal. Pins in `test_ci_ingest.py`; removing the guard fails them.
 
 ## R14 — Decide whether `resolve_llm` is a real phase
 **Priority: low · DECIDED AND DONE (2026-08-01) — it is not a phase**

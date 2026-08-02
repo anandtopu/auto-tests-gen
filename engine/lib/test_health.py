@@ -18,9 +18,52 @@ FILE = pathlib.Path(os.environ.get("AIQE_HEALTH_FILE") or ROOT / "catalog/health
 FLAKY_BAND = (0.05, 0.95)      # sometimes-passing => flaky
 
 
+class UnsafeXML(ValueError):
+    """A document refused before parsing. Carries a reason a CI operator can act on."""
+
+
+def _reject_dtd(data):
+    """Refuse any DOCTYPE before the tree parser sees the document (R13).
+
+    XXE file disclosure was already impossible — the stdlib parser refuses
+    EXTERNAL entities. What was unbounded was INTERNAL entity expansion: the
+    5 MB upload cap limits input, not what that input expands to. Measured on a
+    deliberately tiny payload rather than a real bomb: 202 bytes of nested
+    entities expanded to 1000 characters at three levels, and each further
+    level multiplies by ten. Crashing a machine to prove a low-severity DoS is
+    a poor trade; a bomb-SHAPED payload proves the guard just as well.
+
+    The guard is a DOCTYPE refusal rather than an expansion budget, because
+    JUnit XML has no legitimate use for a DTD — so refusing outright costs
+    nothing real and cannot be tuned wrong. No entity declarations means no
+    expansion to bound.
+
+    stdlib only, deliberately: `defusedxml` would solve this too, but this
+    codebase avoids dependencies for things it can state in ten lines, and a
+    dependency here would be the only one in the parse path.
+    """
+    import xml.parsers.expat as expat
+    p = expat.ParserCreate()
+
+    def refuse(name, sysid, pubid, has_internal):
+        raise UnsafeXML(
+            "refused: the document declares a DOCTYPE. JUnit XML needs none, "
+            "and internal entity declarations allow unbounded expansion.")
+
+    p.StartDoctypeDeclHandler = refuse
+    try:
+        p.Parse(data, True)
+    except expat.ExpatError:
+        # Malformed XML is not this function's problem — let the real parser
+        # report it, with its own line/column detail.
+        pass
+
+
 def parse_junit(path):
     """[(case_name, passed)] from a JUnit XML file."""
-    root = ET.parse(path).getroot()
+    data = pathlib.Path(path).read_bytes()
+    _reject_dtd(data)
+    root = ET.fromstring(data)
     cases = []
     for tc in root.iter("testcase"):
         failed = tc.find("failure") is not None or tc.find("error") is not None
