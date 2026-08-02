@@ -9,7 +9,7 @@ SHELL := /bin/bash
         demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config \
         cost-report index-rebuild cache-probe cost-baseline \
         requirements demo-requirements requirements-approve spec-verify \
-        test-providers test-state test-routing-adv parity-compare repo-facts
+        test-providers test-state test-routing-adv test-observability parity-compare repo-facts
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -50,6 +50,10 @@ test-state:
 test-routing-adv:
 	bash tests/routing-adversarial.sh
 
+# Adversarial UAT for the OBSERVABILITY stack (log, activity, alerts, delivery)
+test-observability:
+	bash tests/observability-adversarial.sh
+
 demo-bootstrap:
 	bash bin/demo-bootstrap.sh e2e-api-tests-1 && bash bin/demo-bootstrap.sh e2e-ui-tests-1
 
@@ -75,7 +79,7 @@ parity-compare:
 	python3 engine/lib/parity_compare.py $(DAYS)
 
 review:
-	python3 -m pytest registry/tests -q && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash tests/provider-adversarial.sh && bash tests/state-adversarial.sh && bash tests/routing-adversarial.sh && bash eval/replay.sh && python3 eval/context_check.py && python3 eval/scorecard.py
+	python3 -m pytest registry/tests -q && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash tests/provider-adversarial.sh && bash tests/state-adversarial.sh && bash tests/routing-adversarial.sh && bash tests/observability-adversarial.sh && bash eval/replay.sh && python3 eval/context_check.py && python3 eval/scorecard.py
 
 # --- QA monitoring & mapping management ---
 status:
