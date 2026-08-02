@@ -227,8 +227,19 @@ def test_post_is_wrapped_once_rather_than_edited_per_endpoint():
     guarantee the next endpoint added is the one that goes unrecorded."""
     src = (ROOT / "bin" / "dashboard_server.py").read_text(encoding="utf-8")
     assert "def _handle_post(self):" in src, "the real handler must be wrapped"
-    assert src.count("event_log.emit(") == 1, \
-        "exactly one emission site for POSTs — per-endpoint calls drift"
+    # Exactly one REQUEST-level emission. Endpoints may still emit their own
+    # DOMAIN events (`/api/alerts/save` records `settings.changed`) — that is
+    # the point of the vocabulary. What must never drift is per-endpoint
+    # request logging, because then a new endpoint silently goes unrecorded.
+    wrapper = src.split("def do_POST(self):", 1)[1].split("def _handle_post", 1)[0]
+    assert wrapper.count("event_log.emit(") == 1, \
+        "the wrapper must emit exactly once per request"
+    handler = src.split("def _handle_post(self):", 1)[1]
+    assert "_classify_status" not in handler, \
+        "request classification belongs to the wrapper, not to any endpoint"
+    for kind in ('"request.received"', '"request.refused"', '"request.failed"'):
+        assert kind not in handler, \
+            f"{kind} emitted inside an endpoint — request logging must stay in the wrapper"
     # GETs must not be logged: browsing is not a transaction.
     get_body = src.split("def do_GET(self):", 1)[1].split("def do_POST", 1)[0]
     assert "event_log.emit" not in get_body, "a GET must not write an event"

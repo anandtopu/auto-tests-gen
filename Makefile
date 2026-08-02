@@ -122,6 +122,8 @@ maintain:             # nightly estate maintenance (call from cron / a K8s CronJ
 	-python3 engine/lib/openhands_events.py prune
 	@echo "== prune the transaction log (observability.retain_days) =="
 	-python3 engine/lib/event_log.py prune $(RETAIN_DAYS)
+	@echo "== evaluate alert rules (fires/resolves + notifies) =="
+	-python3 engine/lib/alert_rules.py
 	@echo "== per-repo harvested facts =="
 	-python3 engine/lib/repo_facts.py rebuild
 	@echo "== knowledge chunk rebuild =="

@@ -65,10 +65,10 @@ UI_SCHEMA = 2
 # with the authenticated user, e.g. X-Forwarded-User. Empty = SSO off.
 SSO_HEADER = os.environ.get("AIQE_SSO_HEADER", "").strip()
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import demo_data, email_notify, event_log, export_plan, guidance_sync, \
-    inline_ticket, integration_check, openhands_client, openhands_events, \
-    openhands_mode, plan_state, pr_url, repo_admin, repo_guidance_gen, \
-    review_state, settings_store, team_report, work_queue
+import alert_rules, demo_data, email_notify, event_log, export_plan, \
+    guidance_sync, inline_ticket, integration_check, openhands_client, \
+    openhands_events, openhands_mode, plan_state, pr_url, repo_admin, \
+    repo_guidance_gen, review_state, settings_store, team_report, work_queue
 
 
 def _classify_status(code):
@@ -245,6 +245,15 @@ class Handler(BaseHTTPRequestHandler):
                            cwd=ROOT, capture_output=True, stdin=subprocess.DEVNULL)
             self._send(200, (ROOT / "reports/dashboard.html").read_bytes(),
                        "text/html; charset=utf-8")
+        elif url.path == "/api/alerts":
+            # Rules plus their CURRENT evaluation (observability 3.1-3.4).
+            # notify=False: rendering a page must never send a notification —
+            # opening a dashboard is not an alerting event.
+            doc = alert_rules.load()
+            status = alert_rules.evaluate(notify=False)
+            self._send(200, {"rules": doc.get("rules") or [], "status": status,
+                             "kinds": sorted(event_log.KINDS),
+                             "channels": list(alert_rules.CHANNELS)})
         elif url.path == "/api/events":
             # Activity view (observability 2.1-2.3). Filters map straight onto
             # event_log.read; `format=csv` serves the export. `corrupt` and the
@@ -590,6 +599,41 @@ class Handler(BaseHTTPRequestHandler):
         elif not self._authed():
             return self._deny()
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0)
+        if self.path == "/api/alerts/save":
+            # Story 3.1/3.2: define and enable rules without editing a file.
+            # normalize() decides the shape and returns PROBLEMS rather than
+            # raising, so a rule that will never match is saved and shown as
+            # broken instead of silently rejected — the user needs to see why.
+            try:
+                p = json.loads(body or b"{}")
+            except ValueError:
+                return self._send(400, {"error": "invalid JSON"})
+            incoming = p.get("rules")
+            if not isinstance(incoming, list):
+                return self._send(400, {"error": "rules must be a list"})
+            if len(incoming) > 200:
+                return self._send(400, {"error": "too many rules (max 200)"})
+            cleaned, problems = [], {}
+            for i, raw in enumerate(incoming):
+                rule, probs = alert_rules.normalize(raw)
+                rule["id"] = str(rule.get("id") or f"rule-{i + 1}")
+                cleaned.append(rule)
+                if probs:
+                    problems[rule["id"]] = probs
+            alert_rules.save({"rules": cleaned})
+            event_log.emit("settings.changed", source="ui",
+                           target="alert-rules", outcome="ok",
+                           detail={"rules": len(cleaned),
+                                   "with_problems": len(problems)})
+            return self._send(200, {"saved": len(cleaned), "problems": problems})
+        if self.path == "/api/alerts/test":
+            # Deliberately a REAL send (story 3.2): the failure this catches is
+            # a misconfigured channel, and a simulated one proves nothing.
+            try:
+                p = json.loads(body or b"{}")
+            except ValueError:
+                return self._send(400, {"error": "invalid JSON"})
+            return self._send(200, alert_rules.test_fire(p.get("id", "")))
         if self.path == "/api/queue":
             try:
                 p = json.loads(body or b"{}")

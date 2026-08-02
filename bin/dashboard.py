@@ -631,7 +631,7 @@ gen_ts = time.strftime("%Y-%m-%d %H:%M")
 NAV = [("overview", "◧", "Overview"), ("wizard", "✦", "Guided run"),
        ("queue", "⇥", "Intake & queue"),
        ("plans", "✎", "Test plans"),
-       ("runs", "▶", "Runs & reviews"), ("activity", "⚡", "Activity"),
+       ("runs", "▶", "Runs & reviews"), ("activity", "⚡", "Activity"), ("alerts", "△", "Alerts"),
        ("trace", "⇢", "Trace"),
        ("cost", "◔", "Cost"),
        ("artifacts", "❏", "Artifacts"),
@@ -642,6 +642,7 @@ TITLES = {"overview": "Overview", "wizard": "Guided run — PR or JIRA, step by 
           "plans": "Test plans — review & approval",
           "runs": "Runs & team reviews",
           "activity": "Activity — every transaction, who did it and what happened",
+          "alerts": "Alerts — rules over the transaction log",
           "cost": "Cost — LLM spend & savings",
           "artifacts": "Generated artifacts",
           "catalog": "Test knowledge catalog", "repos": "Repositories & mapping",
@@ -1004,6 +1005,7 @@ const TITLES = { overview: 'Overview', wizard: 'Guided run — PR or JIRA, step 
   plans: 'Test plans — review & approval',
   runs: 'Runs & team reviews',
   activity: 'Activity — every transaction, who did it and what happened',
+  alerts: 'Alerts — rules over the transaction log',
   trace: 'Trace — story/PR to release',
   cost: 'Cost — LLM spend & savings',
   artifacts: 'Generated artifacts',
@@ -1462,6 +1464,119 @@ async function refreshOpenHands() {
   } catch (err) { /* advisory panel — never block the view it sits in */ }
 }
 refreshOpenHands();
+
+// ---- alert rules (observability 3.1-3.4)
+let AL_RULES = [], AL_META = { kinds: [], channels: ['slack', 'email', 'both'] };
+function alRow(r, st) {
+  const m = r.match || {};
+  // Status carries its REASON when unevaluable — "ok" with no explanation is
+  // exactly the lie this feature exists to avoid.
+  let badge = '<span class="chip">—</span>';
+  if (st) {
+    const cls = st.status === 'firing' ? 'chip-danger'
+      : (st.status === 'unevaluable' ? 'chip-warning' : '');
+    badge = '<span class="chip ' + cls + '" title="' + escHtml(st.reason || '') + '">' +
+      escHtml(st.status) + (st.hits !== undefined ? ' (' + st.hits + ')' : '') + '</span>';
+    if (st.problems && st.problems.length) {
+      badge += '<div class="muted sm">' + escHtml(st.problems.join('; ')) + '</div>';
+    }
+  }
+  return '<tr data-id="' + escHtml(r.id) + '">' +
+    '<td><input class="h32 al-f" data-f="name" value="' + escHtml(r.name || '') + '"></td>' +
+    '<td><input class="h32 al-f" data-f="kinds" style="min-width:210px" value="' +
+      escHtml((m.kinds || []).join(',')) + '" placeholder="gate.refused,run.aborted"></td>' +
+    '<td><input class="h32 al-f" data-f="outcome" style="width:90px" value="' +
+      escHtml(m.outcome || '') + '" placeholder="any"></td>' +
+    '<td><input class="h32 al-f" data-f="target_contains" style="width:120px" value="' +
+      escHtml(m.target_contains || '') + '"></td>' +
+    '<td><input class="h32 al-f" data-f="threshold" type="number" min="1" style="width:64px" value="' +
+      escHtml(String(r.threshold || 1)) + '"></td>' +
+    '<td><input class="h32 al-f" data-f="window_minutes" type="number" min="1" style="width:80px" value="' +
+      escHtml(String(r.window_minutes || 60)) + '"></td>' +
+    '<td><input class="h32 al-f" data-f="cooldown_minutes" type="number" min="0" style="width:80px" value="' +
+      escHtml(String(r.cooldown_minutes == null ? 60 : r.cooldown_minutes)) + '"></td>' +
+    '<td><select class="h32 al-f" data-f="channel">' +
+      AL_META.channels.map(c => '<option' + (r.channel === c ? ' selected' : '') + '>' +
+        escHtml(c) + '</option>').join('') + '</select></td>' +
+    '<td><input type="checkbox" class="al-f" data-f="enabled"' +
+      (r.enabled === false ? '' : ' checked') + '></td>' +
+    '<td>' + badge + '</td>' +
+    '<td><button class="btn btn-sm al-test" title="Send through the REAL channel">Test</button>' +
+      ' <button class="btn btn-sm al-del">✕</button></td></tr>';
+}
+function alCollect() {
+  return Array.from(document.querySelectorAll('#al-table tbody tr')).map((tr, i) => {
+    const g = f => { const e = tr.querySelector('[data-f="' + f + '"]'); return e ? e.value : ''; };
+    const chk = tr.querySelector('[data-f="enabled"]');
+    return {
+      id: tr.dataset.id || ('rule-' + (i + 1)), name: g('name'),
+      enabled: chk ? chk.checked : true,
+      match: { kinds: g('kinds').split(',').map(x => x.trim()).filter(Boolean),
+               outcome: g('outcome'), target_contains: g('target_contains') },
+      threshold: Number(g('threshold') || 1),
+      window_minutes: Number(g('window_minutes') || 60),
+      cooldown_minutes: Number(g('cooldown_minutes') || 60),
+      channel: g('channel') || 'slack', recipients: []
+    };
+  });
+}
+async function refreshAlerts() {
+  const tb = document.querySelector('#al-table tbody');
+  if (!served || !tb) return;
+  try {
+    const d = await api('/api/alerts');
+    AL_RULES = d.rules || []; AL_META = { kinds: d.kinds || [], channels: d.channels || AL_META.channels };
+    const byId = {};
+    (d.status || []).forEach(s => { byId[s.id] = s; });
+    tb.innerHTML = AL_RULES.length
+      ? AL_RULES.map(r => alRow(r, byId[r.id])).join('')
+      : '<tr><td colspan="11" class="muted">No rules yet — "Add rule" creates one.</td></tr>';
+  } catch (e) { /* diagnostic view — never break the page */ }
+}
+function alMsg(t, bad) {
+  const m = $('#al-msg'); if (!m) return;
+  m.textContent = t; m.style.display = t ? '' : 'none';
+  m.style.color = bad ? 'var(--sr-danger-fg)' : '';
+}
+if ($('#al-add')) {
+  $('#al-add').addEventListener('click', () => {
+    const tb = document.querySelector('#al-table tbody');
+    if (tb.querySelector('td.muted')) tb.innerHTML = '';
+    tb.insertAdjacentHTML('beforeend', alRow(
+      { id: 'rule-' + (tb.children.length + 1), name: 'new rule', enabled: true,
+        match: { kinds: [] }, threshold: 3, window_minutes: 60,
+        cooldown_minutes: 60, channel: 'slack' }, null));
+  });
+}
+if ($('#al-save')) {
+  $('#al-save').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/alerts/save', { rules: alCollect() });
+      const probs = Object.entries(r.problems || {});
+      // Problems are shown, not swallowed: a rule that can never match is
+      // saved so the user can fix it, but they must be told.
+      alMsg(probs.length
+        ? 'Saved ' + r.saved + ' rule(s). Check: ' +
+          probs.map(([id, p]) => id + ': ' + p.join('; ')).join(' · ')
+        : 'Saved ' + r.saved + ' rule(s).', probs.length > 0);
+      refreshAlerts();
+    } catch (e) { alMsg('Save failed: ' + e.message, true); }
+  });
+}
+document.addEventListener('click', async e => {
+  const tr = e.target.closest('#al-table tr');
+  if (!tr) return;
+  if (e.target.classList.contains('al-del')) { tr.remove(); return; }
+  if (e.target.classList.contains('al-test')) {
+    alMsg('Sending a test through the real channel…');
+    try {
+      const r = await api('/api/alerts/test', { id: tr.dataset.id });
+      alMsg(r.ok ? 'Test delivered via ' + r.channel + ' — check the Activity view for notify.sent'
+                 : 'Test FAILED via ' + r.channel + ' (' + (r.problems || []).join('; ') + ')', !r.ok);
+    } catch (err) { alMsg('Test failed: ' + err.message, true); }
+  }
+});
+refreshAlerts();
 
 // ---- activity: the transaction log (observability 2.1-2.3)
 async function refreshActivity() {
@@ -2449,6 +2564,27 @@ page = f"""<!doctype html>
           <th>release</th><th style="min-width:280px">gate results per test repo</th>
           <th>team review</th></tr></thead>
         <tbody>{runs_rows}</tbody></table></div>
+    </section>
+  </div>
+
+  <div data-view="alerts">
+    <section class="card">
+      <div class="card-h"><div><h2>Alert rules</h2>
+        <div class="sub">A rule asks a question of the transaction log on the
+        nightly tick: "did N matching events happen inside a window?" Firing is
+        a state — a rule resolves when the condition clears, and a cooldown
+        stops a flapping condition sending the same message repeatedly. A rule
+        that cannot be evaluated reports <b>unevaluable</b>, never "ok".</div></div>
+        <span class="grow"></span>
+        <button class="btn btn-sm" id="al-add">Add rule</button>
+        <button class="btn btn-primary btn-sm" id="al-save">Save rules</button>
+      </div>
+      <div id="al-msg" class="sub" style="display:none;padding:0 14px 8px"></div>
+      <div class="scroll"><table id="al-table">
+        <thead><tr><th>name</th><th>kinds</th><th>outcome</th><th>target has</th>
+          <th>N</th><th>window (m)</th><th>cooldown (m)</th><th>channel</th>
+          <th>on</th><th>status</th><th></th></tr></thead>
+        <tbody></tbody></table></div>
     </section>
   </div>
 
