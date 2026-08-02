@@ -124,6 +124,10 @@ def normalize(rule):
         r["cooldown_minutes"] = 60
 
     r["channel"] = r.get("channel") if r.get("channel") in CHANNELS else "slack"
+    # Story 4.3: a digest rule contributes a LINE to one combined message per
+    # tick instead of sending its own. For a rule that fires often this is the
+    # difference between an inbox someone reads and one they filter away.
+    r["digest"] = bool(r.get("digest", False))
     r["recipients"] = [str(x).strip() for x in (r.get("recipients") or []) if str(x).strip()]
     if r["channel"] in ("email", "both") and not r["recipients"]:
         problems.append("email channel with no recipients — nothing will be delivered")
@@ -154,7 +158,7 @@ def evaluate(now=None, notify=True):
     """
     now = now or _now()
     doc = load()
-    out, changed = [], False
+    out, changed, digest_lines = [], False, []
 
     health = event_log.health()
     since = _iso(now - datetime.timedelta(minutes=MAX_WINDOW_MINUTES))
@@ -216,10 +220,14 @@ def evaluate(now=None, notify=True):
                                    "window_minutes": rule["window_minutes"],
                                    "notified": bool(notify and may_notify)})
             if notify and may_notify:
-                msg = (f"[AI-QE alert] {rule['name']} {transition.upper()}: "
-                       f"{len(hits)} matching event(s) in {rule['window_minutes']}m "
-                       f"(threshold {rule['threshold']})")
-                deliver(msg, rule["channel"], rule["recipients"], rule["name"])
+                line = (f"{rule['name']} {transition.upper()}: {len(hits)} "
+                        f"matching event(s) in {rule['window_minutes']}m "
+                        f"(threshold {rule['threshold']})")
+                if rule["digest"]:
+                    digest_lines.append((line, rule))
+                else:
+                    deliver("[AI-QE alert] " + line, rule["channel"],
+                            rule["recipients"], rule["name"])
                 st["last_notified"] = _iso(now)
 
         raw.update(rule)
@@ -229,17 +237,43 @@ def evaluate(now=None, notify=True):
                     "transition": transition, "corrupt_lines": corrupt,
                     "problems": problems})
 
+    # One combined message for every digest rule that changed state this tick.
+    # Grouped by channel so a Slack digest and an email digest do not become one
+    # message sent to the wrong place.
+    for chan in sorted({r["channel"] for _, r in digest_lines}):
+        lines = [ln for ln, r in digest_lines if r["channel"] == chan]
+        rcpts = sorted({x for _, r in digest_lines if r["channel"] == chan
+                        for x in r["recipients"]})
+        deliver("[AI-QE alert digest] " + f"{len(lines)} rule(s) changed state"
+                + chr(10) + chr(10).join("- " + ln for ln in lines),
+                chan, rcpts, "digest")
+
     if changed:
         save(doc)
     return out
 
 
-def deliver(msg, channel="slack", recipients=(), rule_name=""):
+# Backoff between delivery attempts, in seconds (story 4.4). Small and finite:
+# this runs on the maintenance tick, and a channel that is down stays down —
+# retrying for minutes delays every other rule behind it. A module constant so
+# tests can shorten it without patching the logic.
+RETRY_BACKOFF = (2, 5)
+
+
+def deliver(msg, channel="slack", recipients=(), rule_name="", retries=None):
     """Send through the Notify port and RECORD the attempt (F3).
 
     Best-effort delivery, but never silent: `notify.failed` is what makes
     "we could not tell you" different from "nothing happened".
+
+    `retries` (story 4.4) defaults to len(RETRY_BACKOFF) for scheduled sends.
+    Callers pass 0 when a HUMAN is watching — `test_fire` does, because the
+    whole point of a test is to learn whether the channel works right now, and
+    a retry that papers over a transient failure defeats it. Delivery never
+    raises into the caller either way: an unreachable channel must not abort
+    the work that triggered the alert.
     """
+    import time
     import work_queue
     mock = os.environ.get("AIQE_MOCK", "1") == "1"
     targets = []
@@ -249,35 +283,56 @@ def deliver(msg, channel="slack", recipients=(), rule_name=""):
     if channel in ("email", "both"):
         targets.append(ROOT / "adapters/notify/email.sh")
 
+    attempts = len(RETRY_BACKOFF) if retries is None else max(0, int(retries))
     ok_any = False
     for adapter in targets:
-        try:
-            env = dict(os.environ)
-            if recipients:
-                # SMTP_TO, not EMAIL_TO. The first version set EMAIL_TO, which
-                # NOTHING reads — `adapters/notify/email.sh` shells to
-                # `email_notify.py`, and that resolves recipients from SMTP_TO
-                # or `--to`. A per-rule recipient list that silently does not
-                # apply is precisely the failure this epic exists to remove, so
-                # test_recipient_env_var_is_one_the_adapter_actually_reads pins
-                # the name against the library rather than trusting it.
-                # `.env` is defaults-only, so this subprocess value wins.
-                env["SMTP_TO"] = ",".join(recipients)
-            r = subprocess.run([work_queue.bash_exe(), str(adapter), "post", msg],
-                               cwd=ROOT, stdin=subprocess.DEVNULL, timeout=30,
-                               capture_output=True, env=env)
-            sent = r.returncode == 0
-            ok_any = ok_any or sent
+        for attempt in range(attempts + 1):
+            if attempt:
+                time.sleep(RETRY_BACKOFF[min(attempt - 1, len(RETRY_BACKOFF) - 1)])
+            last = attempt == attempts
+            if _attempt_one(adapter, msg, recipients, channel, rule_name,
+                            attempt, last, work_queue):
+                ok_any = True
+                break
+    return ok_any
+
+
+def _attempt_one(adapter, msg, recipients, channel, rule_name, attempt, last,
+                 work_queue):
+    """One delivery attempt. Records only the OUTCOME that matters: a success,
+    or the final failure. Recording every intermediate retry would bury the
+    signal under noise from a channel that was merely slow."""
+    try:
+        env = dict(os.environ)
+        if recipients:
+            # SMTP_TO, not EMAIL_TO. The first version set EMAIL_TO, which
+            # NOTHING reads — `adapters/notify/email.sh` shells to
+            # `email_notify.py`, and that resolves recipients from SMTP_TO or
+            # `--to`. A per-rule recipient list that silently does not apply is
+            # precisely the failure this epic exists to remove, so
+            # test_recipient_env_var_is_one_the_adapter_actually_reads pins the
+            # name against the library rather than trusting it. `.env` is
+            # defaults-only, so this subprocess value wins.
+            env["SMTP_TO"] = ",".join(recipients)
+        r = subprocess.run([work_queue.bash_exe(), str(adapter), "post", msg],
+                           cwd=ROOT, stdin=subprocess.DEVNULL, timeout=30,
+                           capture_output=True, env=env)
+        sent = r.returncode == 0
+        if sent or last:
             event_log.emit("notify.sent" if sent else "notify.failed",
                            source="cron", target=rule_name or adapter.name,
                            outcome="ok" if sent else "failed",
                            detail={"adapter": adapter.name, "channel": channel,
-                                   "rc": r.returncode})
-        except Exception as e:                  # noqa: BLE001
+                                   "rc": r.returncode, "attempts": attempt + 1})
+        return sent
+    except Exception as e:                      # noqa: BLE001
+        if last:
             event_log.emit("notify.failed", source="cron",
                            target=rule_name or adapter.name, outcome="failed",
-                           detail={"adapter": adapter.name, "error": str(e)[:200]})
-    return ok_any
+                           detail={"adapter": adapter.name,
+                                   "error": str(e)[:200],
+                                   "attempts": attempt + 1})
+        return False
 
 
 def test_fire(rule_id):
@@ -291,9 +346,13 @@ def test_fire(rule_id):
     for raw in doc.get("rules") or []:
         if str(raw.get("id")) == str(rule_id):
             rule, problems = normalize(raw)
+            # retries=0 deliberately: the point of a test is to learn whether
+            # the channel works RIGHT NOW, and a retry that hides a transient
+            # failure defeats it. The user is watching and wants the truth.
             ok = deliver(f"[AI-QE alert] TEST of rule {rule['name']!r} — "
                          f"if you can read this, delivery works.",
-                         rule["channel"], rule["recipients"], rule["name"])
+                         rule["channel"], rule["recipients"], rule["name"],
+                         retries=0)
             return {"ok": ok, "problems": problems, "channel": rule["channel"]}
     return {"ok": False, "problems": [f"no rule with id {rule_id!r}"]}
 

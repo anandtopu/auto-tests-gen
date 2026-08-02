@@ -207,3 +207,68 @@ def test_per_rule_recipients_reach_the_delivered_mail(monkeypatch):
     finally:
         for f in (set(outdir.glob("*.eml")) if outdir.is_dir() else set()) - before:
             f.unlink(missing_ok=True)
+
+
+# ----------------------------------------------------- digests + retry (E4)
+def test_digest_rules_produce_one_message_not_one_each(monkeypatch, tmp_path):
+    """Story 4.3: for rules that fire often, this is the difference between an
+    inbox someone reads and one they filter away."""
+    sent = []
+    monkeypatch.setattr(ar, "deliver",
+                        lambda msg, *a, **k: sent.append(msg) or True)
+    ar.save({"rules": [_rule(id="a", name="alpha", digest=True, threshold=1),
+                       _rule(id="b", name="beta", digest=True, threshold=1)]})
+    el.emit("gate.refused", target="repo-1", outcome="refused")
+    ar.evaluate()
+    assert len(sent) == 1, f"expected ONE digest, got {len(sent)}: {sent}"
+    assert "alpha" in sent[0] and "beta" in sent[0], "both rules must appear"
+    assert "digest" in sent[0].lower()
+
+
+def test_digests_are_grouped_by_channel(monkeypatch):
+    """A Slack digest and an email digest must not become one message sent to
+    the wrong place."""
+    calls = []
+    monkeypatch.setattr(ar, "deliver",
+                        lambda msg, chan="slack", *a, **k: calls.append(chan) or True)
+    ar.save({"rules": [_rule(id="a", name="alpha", digest=True, threshold=1,
+                             channel="slack"),
+                       _rule(id="b", name="beta", digest=True, threshold=1,
+                             channel="email", recipients=["x@example.com"])]})
+    el.emit("gate.refused", target="repo-1", outcome="refused")
+    ar.evaluate()
+    assert sorted(calls) == ["email", "slack"], calls
+
+
+def test_a_non_digest_rule_still_sends_immediately(monkeypatch):
+    sent = []
+    monkeypatch.setattr(ar, "deliver", lambda msg, *a, **k: sent.append(msg) or True)
+    ar.save({"rules": [_rule(threshold=1, digest=False)]})
+    el.emit("gate.refused", target="repo-1", outcome="refused")
+    ar.evaluate()
+    assert len(sent) == 1 and "digest" not in sent[0].lower()
+
+
+def test_delivery_retries_then_records_one_failure(monkeypatch, tmp_path):
+    """Story 4.4: retry a transient failure, but record ONE notify.failed —
+    recording every attempt buries the signal under noise from a slow channel."""
+    monkeypatch.setattr(ar, "RETRY_BACKOFF", (0, 0))          # no real sleeping
+    missing = tmp_path / "no-such-adapter.sh"
+    monkeypatch.setattr(ar, "ROOT", tmp_path)                 # adapters resolve here
+    ok = ar.deliver("msg", channel="slack", rule_name="r1")
+    assert ok is False
+    fails = [r for r in el.read()[0] if r["kind"] == "notify.failed"]
+    assert len(fails) == 1, f"one failure record expected, got {len(fails)}"
+    assert fails[0]["detail"]["attempts"] == 3, "should have tried 1 + 2 retries"
+    assert not missing.exists()
+
+
+def test_test_fire_does_not_retry(monkeypatch):
+    """A human is watching. A retry that papers over a transient failure
+    defeats the entire point of pressing Test."""
+    seen = {}
+    monkeypatch.setattr(ar, "deliver",
+                        lambda *a, **k: seen.update(k) or True)
+    ar.save({"rules": [_rule()]})
+    ar.test_fire("r1")
+    assert seen.get("retries") == 0, f"test-fire must pass retries=0, got {seen}"

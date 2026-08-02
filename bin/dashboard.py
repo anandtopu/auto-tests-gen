@@ -1498,6 +1498,8 @@ function alRow(r, st) {
     '<td><select class="h32 al-f" data-f="channel">' +
       AL_META.channels.map(c => '<option' + (r.channel === c ? ' selected' : '') + '>' +
         escHtml(c) + '</option>').join('') + '</select></td>' +
+    '<td><input type="checkbox" class="al-f" data-f="digest"' +
+      (r.digest ? ' checked' : '') + '></td>' +
     '<td><input type="checkbox" class="al-f" data-f="enabled"' +
       (r.enabled === false ? '' : ' checked') + '></td>' +
     '<td>' + badge + '</td>' +
@@ -1508,6 +1510,7 @@ function alCollect() {
   return Array.from(document.querySelectorAll('#al-table tbody tr')).map((tr, i) => {
     const g = f => { const e = tr.querySelector('[data-f="' + f + '"]'); return e ? e.value : ''; };
     const chk = tr.querySelector('[data-f="enabled"]');
+    const dig = tr.querySelector('[data-f="digest"]');
     return {
       id: tr.dataset.id || ('rule-' + (i + 1)), name: g('name'),
       enabled: chk ? chk.checked : true,
@@ -1516,7 +1519,8 @@ function alCollect() {
       threshold: Number(g('threshold') || 1),
       window_minutes: Number(g('window_minutes') || 60),
       cooldown_minutes: Number(g('cooldown_minutes') || 60),
-      channel: g('channel') || 'slack', recipients: []
+      channel: g('channel') || 'slack', recipients: [],
+      digest: dig ? dig.checked : false
     };
   });
 }
@@ -1530,7 +1534,7 @@ async function refreshAlerts() {
     (d.status || []).forEach(s => { byId[s.id] = s; });
     tb.innerHTML = AL_RULES.length
       ? AL_RULES.map(r => alRow(r, byId[r.id])).join('')
-      : '<tr><td colspan="11" class="muted">No rules yet — "Add rule" creates one.</td></tr>';
+      : '<tr><td colspan="12" class="muted">No rules yet — "Add rule" creates one.</td></tr>';
   } catch (e) { /* diagnostic view — never break the page */ }
 }
 function alMsg(t, bad) {
@@ -2583,6 +2587,7 @@ page = f"""<!doctype html>
       <div class="scroll"><table id="al-table">
         <thead><tr><th>name</th><th>kinds</th><th>outcome</th><th>target has</th>
           <th>N</th><th>window (m)</th><th>cooldown (m)</th><th>channel</th>
+          <th title="One combined message per tick instead of one per rule">digest</th>
           <th>on</th><th>status</th><th></th></tr></thead>
         <tbody></tbody></table></div>
     </section>
