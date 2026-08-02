@@ -184,3 +184,58 @@ def test_cli_lists_events():
                        env={**os.environ})
     assert r.returncode == 0, r.stderr
     assert "run.completed" in r.stdout and "PROJ-9" in r.stdout
+
+
+# ------------------------------------------- server wiring (observability 1.1/2.x)
+def _server_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "ds_under_test", ROOT / "bin" / "dashboard_server.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def test_status_classification_never_calls_a_rejection_ok():
+    """The first live run recorded a 400 as `ok`, which would make "nothing is
+    failing" true of a log full of rejected requests."""
+    m = _server_module()
+    assert m._classify_status(200) == ("request.received", "ok")
+    assert m._classify_status(302) == ("request.received", "ok")
+    for refused in (400, 401, 403, 404, 409, 422):
+        assert m._classify_status(refused)[1] == "refused", refused
+    for failed in (500, 503):
+        assert m._classify_status(failed)[1] == "failed", failed
+    assert m._classify_status(None)[1] == "failed", "no response is a failure, not unknown"
+
+
+def test_csv_export_defuses_spreadsheet_formulas():
+    """`actor` arrives from an SSO header we do not control. A cell starting
+    with = + - @ executes on open in Excel and Sheets, so an audit export
+    would attack the person doing the audit."""
+    m = _server_module()
+    assert m._csv_cell("=cmd|' /c calc'!A1").startswith("'=")
+    assert m._csv_cell("+1").startswith("'+")
+    assert m._csv_cell("@SUM(A1)").startswith("'@")
+    assert m._csv_cell("a,b") == '"a,b"'
+    assert m._csv_cell('say "hi"') == '"say ""hi"""'
+    assert m._csv_cell(None) == ""
+
+
+def test_post_is_wrapped_once_rather_than_edited_per_endpoint():
+    """34 mutating endpoints share one wrapper. Per-branch emission would
+    guarantee the next endpoint added is the one that goes unrecorded."""
+    src = (ROOT / "bin" / "dashboard_server.py").read_text(encoding="utf-8")
+    assert "def _handle_post(self):" in src, "the real handler must be wrapped"
+    assert src.count("event_log.emit(") == 1, \
+        "exactly one emission site for POSTs — per-endpoint calls drift"
+    # GETs must not be logged: browsing is not a transaction.
+    get_body = src.split("def do_GET(self):", 1)[1].split("def do_POST", 1)[0]
+    assert "event_log.emit" not in get_body, "a GET must not write an event"
+
+
+def test_the_request_body_is_never_stored():
+    """The Settings endpoint receives .env values in its body."""
+    src = (ROOT / "bin" / "dashboard_server.py").read_text(encoding="utf-8")
+    wrapper = src.split("def do_POST(self):", 1)[1].split("def _handle_post", 1)[0]
+    assert "body" not in wrapper, "the wrapper must not touch the request body"

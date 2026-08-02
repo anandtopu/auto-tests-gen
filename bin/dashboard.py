@@ -631,7 +631,8 @@ gen_ts = time.strftime("%Y-%m-%d %H:%M")
 NAV = [("overview", "◧", "Overview"), ("wizard", "✦", "Guided run"),
        ("queue", "⇥", "Intake & queue"),
        ("plans", "✎", "Test plans"),
-       ("runs", "▶", "Runs & reviews"), ("trace", "⇢", "Trace"),
+       ("runs", "▶", "Runs & reviews"), ("activity", "⚡", "Activity"),
+       ("trace", "⇢", "Trace"),
        ("cost", "◔", "Cost"),
        ("artifacts", "❏", "Artifacts"),
        ("catalog", "☰", "Test catalog"), ("repos", "⛁", "Repositories"),
@@ -639,7 +640,9 @@ NAV = [("overview", "◧", "Overview"), ("wizard", "✦", "Guided run"),
 TITLES = {"overview": "Overview", "wizard": "Guided run — PR or JIRA, step by step",
           "queue": "Intake & work queue",
           "plans": "Test plans — review & approval",
-          "runs": "Runs & team reviews", "cost": "Cost — LLM spend & savings",
+          "runs": "Runs & team reviews",
+          "activity": "Activity — every transaction, who did it and what happened",
+          "cost": "Cost — LLM spend & savings",
           "artifacts": "Generated artifacts",
           "catalog": "Test knowledge catalog", "repos": "Repositories & mapping",
           "settings": "Settings & integrations"}
@@ -999,7 +1002,9 @@ async function api(path, opts) {
 const TITLES = { overview: 'Overview', wizard: 'Guided run — PR or JIRA, step by step',
   queue: 'Intake & work queue',
   plans: 'Test plans — review & approval',
-  runs: 'Runs & team reviews', trace: 'Trace — story/PR to release',
+  runs: 'Runs & team reviews',
+  activity: 'Activity — every transaction, who did it and what happened',
+  trace: 'Trace — story/PR to release',
   cost: 'Cost — LLM spend & savings',
   artifacts: 'Generated artifacts',
   catalog: 'Test knowledge catalog', repos: 'Repositories & mapping',
@@ -1457,6 +1462,60 @@ async function refreshOpenHands() {
   } catch (err) { /* advisory panel — never block the view it sits in */ }
 }
 refreshOpenHands();
+
+// ---- activity: the transaction log (observability 2.1-2.3)
+async function refreshActivity() {
+  const tb = document.querySelector('#ev-table tbody');
+  if (!served || !tb) return;
+  const q = new URLSearchParams();
+  const val = sel => { const e = $(sel); return e ? String(e.value || '').trim() : ''; };
+  if (val('#ev-kind')) q.set('kind', val('#ev-kind'));
+  if (val('#ev-actor')) q.set('actor', val('#ev-actor'));
+  if (val('#ev-target')) q.set('target', val('#ev-target'));
+  if (val('#ev-outcome')) q.set('outcome', val('#ev-outcome'));
+  q.set('limit', '300');
+  try {
+    const d = await api('/api/events?' + q.toString());
+    // Say the history is INCOMPLETE rather than showing a convincing partial
+    // list — the same rule the cost report follows about unmeasured figures.
+    const warn = $('#ev-warn'), notes = [];
+    if (d.corrupt) notes.push(d.corrupt + ' unreadable line(s) skipped');
+    if (d.health && d.health.degraded) {
+      notes.push('this process could not write ' + d.health.dropped +
+                 ' event(s) — the list below is INCOMPLETE');
+    }
+    if (warn) {
+      warn.textContent = notes.join(' · ');
+      warn.style.display = notes.length ? '' : 'none';
+    }
+    if (!d.events.length) {
+      tb.innerHTML = '<tr><td colspan="7" class="muted">No transactions match. ' +
+        'The log starts when the platform next does something — it is not backfilled.' +
+        '</td></tr>';
+      return;
+    }
+    // Every cell escaped: `actor` arrives from an SSO header and `target` from a
+    // request path, neither of which this platform controls.
+    tb.innerHTML = d.events.map(r => {
+      const cls = r.outcome === 'ok' ? '' :
+        (r.outcome === 'refused' ? 'chip-warning' : 'chip-danger');
+      return '<tr><td class="mono sm">' + escHtml(r.ts) + '</td>' +
+        '<td class="sm">' + escHtml(r.kind) + '</td>' +
+        '<td class="sm">' + escHtml(r.actor || '—') +
+          (r.actor_source && r.actor_source !== 'explicit'
+            ? '<span class="muted sm"> (' + escHtml(r.actor_source) + ')</span>' : '') + '</td>' +
+        '<td class="mono sm">' + escHtml(r.target || '—') + '</td>' +
+        '<td><span class="chip ' + cls + '">' + escHtml(r.outcome) + '</span></td>' +
+        '<td class="num sm">' + (r.duration_ms == null ? '—' : escHtml(String(r.duration_ms))) + '</td>' +
+        '<td class="mono sm muted">' + escHtml(r.run_id || '—') + '</td></tr>';
+    }).join('');
+  } catch (err) { /* diagnostic view — never break the page it sits in */ }
+}
+['#ev-refresh', '#ev-kind', '#ev-actor', '#ev-target', '#ev-outcome'].forEach(sel => {
+  const el = $(sel);
+  if (el) el.addEventListener(el.tagName === 'BUTTON' ? 'click' : 'change', refreshActivity);
+});
+refreshActivity();
 
 // ---- traceability matrix (roadmap 3.1)
 async function refreshTraceMatrix() {
@@ -2390,6 +2449,34 @@ page = f"""<!doctype html>
           <th>release</th><th style="min-width:280px">gate results per test repo</th>
           <th>team review</th></tr></thead>
         <tbody>{runs_rows}</tbody></table></div>
+    </section>
+  </div>
+
+  <div data-view="activity">
+    <section class="card">
+      <div class="card-h"><div><h2>Transaction log</h2>
+        <div class="sub">Every state-changing request and pipeline transaction —
+        who did it, what happened, and how long it took. Browsing (GET) is not
+        recorded; request bodies are never stored, and secret values are
+        redacted at write time.</div></div>
+        <span class="grow"></span>
+        <a class="btn btn-sm" id="ev-csv" href="/api/events?format=csv&amp;limit=2000"
+           download>Download CSV</a>
+      </div>
+      <div class="card-h">
+        <label class="f">Kind <input id="ev-kind" class="h32" placeholder="gate.refused,plan.approved"></label>
+        <label class="f">Actor <input id="ev-actor" class="h32" placeholder="anyone"></label>
+        <label class="f">Target <input id="ev-target" class="h32" placeholder="PROJ-301"></label>
+        <label class="f">Outcome <select id="ev-outcome" class="h32">
+          <option value="">any</option><option>ok</option><option>refused</option>
+          <option>failed</option><option>degraded</option></select></label>
+        <button class="btn btn-sm" id="ev-refresh">Refresh</button>
+      </div>
+      <div id="ev-warn" class="sub" style="display:none;padding:0 14px 8px"></div>
+      <div class="scroll"><table id="ev-table">
+        <thead><tr><th>when</th><th>kind</th><th>actor</th><th>target</th>
+          <th>outcome</th><th>ms</th><th>run</th></tr></thead>
+        <tbody></tbody></table></div>
     </section>
   </div>
 

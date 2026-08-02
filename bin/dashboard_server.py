@@ -65,10 +65,49 @@ UI_SCHEMA = 2
 # with the authenticated user, e.g. X-Forwarded-User. Empty = SSO off.
 SSO_HEADER = os.environ.get("AIQE_SSO_HEADER", "").strip()
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import demo_data, email_notify, export_plan, guidance_sync, inline_ticket, \
-    integration_check, openhands_client, openhands_events, openhands_mode, \
-    plan_state, pr_url, repo_admin, repo_guidance_gen, review_state, \
-    settings_store, team_report, work_queue
+import demo_data, email_notify, event_log, export_plan, guidance_sync, \
+    inline_ticket, integration_check, openhands_client, openhands_events, \
+    openhands_mode, plan_state, pr_url, repo_admin, repo_guidance_gen, \
+    review_state, settings_store, team_report, work_queue
+
+
+def _classify_status(code):
+    """HTTP status -> (event kind, outcome).
+
+    Extracted from the request handler so it can be tested without a socket —
+    the first live run classified a 400 as `ok` because only 401/403 were
+    special-cased, which would have made "nothing is failing" true of a log
+    full of rejected requests.
+
+    Any 4xx is a REFUSAL: the transaction did not happen. A missing status
+    (the handler raised before responding) is a FAILURE, not an unknown —
+    something went wrong and the client got nothing back.
+    """
+    if code is None or code >= 500:
+        return "request.failed", "failed"
+    if code >= 400:
+        return "request.refused", "refused"
+    return "request.received", "ok"
+
+
+def _csv_cell(v):
+    """One CSV field, quoted defensively.
+
+    A `target` is an endpoint path or a ticket key, and a `kind` is from a
+    closed vocabulary — but an actor arrives from an SSO header we do not
+    control. A value starting with = + - @ is treated as a FORMULA by Excel and
+    Sheets, so it is prefixed with a quote: an export that runs code when
+    opened is a real attack on the person doing the audit, not a theoretical
+    one. Values are already redacted at write time; this is about the reader.
+    """
+    if v is None:
+        return ""
+    s = str(v)
+    if s[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        s = "'" + s
+    if any(c in s for c in (",", '"', "\n", "\r")):
+        s = '"' + s.replace('"', '""') + '"'
+    return s
 
 # The Settings view writes .env; honor it here too (explicit env still wins) so
 # adapter mode and credentials configured in the UI actually reach this server.
@@ -128,6 +167,11 @@ def _err(e):
 
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json"):
+        # Remembered for the do_POST wrapper below, which needs the status to
+        # classify the transaction. Recorded HERE because every branch of the
+        # handler funnels through _send — so one line covers all 34 endpoints
+        # and cannot drift as endpoints are added.
+        self._last_status = code
         data = body if isinstance(body, bytes) else json.dumps(body).encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype)
@@ -201,6 +245,33 @@ class Handler(BaseHTTPRequestHandler):
                            cwd=ROOT, capture_output=True, stdin=subprocess.DEVNULL)
             self._send(200, (ROOT / "reports/dashboard.html").read_bytes(),
                        "text/html; charset=utf-8")
+        elif url.path == "/api/events":
+            # Activity view (observability 2.1-2.3). Filters map straight onto
+            # event_log.read; `format=csv` serves the export. `corrupt` and the
+            # log's own health ride along so the UI can say the history is
+            # INCOMPLETE rather than presenting a convincing partial list —
+            # the same rule the cost report follows about unmeasured figures.
+            q = urllib.parse.parse_qs(url.query)
+            one = lambda k: (q.get(k, [""])[0] or "").strip()   # noqa: E731
+            kinds = [k for k in one("kind").split(",") if k]
+            try:
+                limit = max(1, min(2000, int(one("limit") or 200)))
+            except ValueError:
+                limit = 200
+            rows, corrupt = event_log.read(
+                limit=limit, kinds=kinds or None, actor=one("actor") or None,
+                target=one("target") or None, outcome=one("outcome") or None,
+                run_id=one("run_id") or None, since=one("since") or None)
+            if one("format") == "csv":
+                cols = ["ts", "kind", "actor", "actor_source", "source",
+                        "target", "run_id", "outcome", "duration_ms"]
+                out = [",".join(cols)]
+                for r in rows:
+                    out.append(",".join(_csv_cell(r.get(c)) for c in cols))
+                return self._send(200, ("\n".join(out) + "\n").encode("utf-8"),
+                                  "text/csv; charset=utf-8")
+            self._send(200, {"events": rows, "corrupt": corrupt,
+                             "health": event_log.health()})
         elif url.path == "/api/items":
             rel = urllib.parse.parse_qs(url.query).get("release", [""])[0]
             # Mode-aware: a pending PLAN-ONLY item must not mark the ticket's
@@ -471,6 +542,39 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
+        """Record the transaction, then run the real handler (observability 1.1).
+
+        A WRAPPER, not 34 edits. The handler is one if/elif chain over 34
+        mutating endpoints; touching each branch would guarantee the next
+        endpoint someone adds is the one that goes unrecorded. Status comes from
+        `_send`, which every branch already calls.
+
+        Three deliberate choices:
+
+        * GETs are NOT logged. Browsing is not a transaction, and audit noise
+          makes the real entries harder to find.
+        * The BODY is never stored. On the Settings path it carries `.env`
+          values; the event records endpoint, actor, outcome and duration.
+        * Emission happens in `finally` and the exception is re-raised, so a
+          handler crash is recorded as `request.failed` and the server behaves
+          exactly as it did before.
+        """
+        import time
+        started = time.time()
+        self._last_status = None
+        try:
+            self._handle_post()
+        finally:
+            code = self._last_status
+            kind, outcome = _classify_status(code)
+            actor = self.headers.get(SSO_HEADER) if SSO_HEADER else None
+            event_log.emit(kind, actor=actor, source="ui",
+                           target=urllib.parse.urlparse(self.path).path,
+                           outcome=outcome,
+                           duration_ms=(time.time() - started) * 1000,
+                           detail={"status": code})
+
+    def _handle_post(self):
         # /hooks/* is machine-to-machine ingest (OpenHands Agent Server): the sender
         # has no SSO header or UI token, so gate it on AIQE_HOOK_TOKEN (same contract
         # as the receiver on :4998 — X-AIQE-Token or Bearer) instead of UI auth.
