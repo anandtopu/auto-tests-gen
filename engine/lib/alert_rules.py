@@ -254,7 +254,15 @@ def deliver(msg, channel="slack", recipients=(), rule_name=""):
         try:
             env = dict(os.environ)
             if recipients:
-                env["EMAIL_TO"] = ",".join(recipients)
+                # SMTP_TO, not EMAIL_TO. The first version set EMAIL_TO, which
+                # NOTHING reads — `adapters/notify/email.sh` shells to
+                # `email_notify.py`, and that resolves recipients from SMTP_TO
+                # or `--to`. A per-rule recipient list that silently does not
+                # apply is precisely the failure this epic exists to remove, so
+                # test_recipient_env_var_is_one_the_adapter_actually_reads pins
+                # the name against the library rather than trusting it.
+                # `.env` is defaults-only, so this subprocess value wins.
+                env["SMTP_TO"] = ",".join(recipients)
             r = subprocess.run([work_queue.bash_exe(), str(adapter), "post", msg],
                                cwd=ROOT, stdin=subprocess.DEVNULL, timeout=30,
                                capture_output=True, env=env)

@@ -159,3 +159,51 @@ def test_saving_rules_is_bounded_and_validated():
     save = src.split('self.path == "/api/alerts/save"', 1)[1].split("if self.path ==", 1)[0]
     assert "normalize(" in save, "incoming rules must be normalized, not trusted"
     assert "max 200" in save or "200" in save, "an unbounded rule list is a DoS"
+
+
+# --------------------------------------------------- per-rule recipients (E4)
+def test_recipient_env_var_is_one_the_adapter_actually_reads():
+    """The first version set EMAIL_TO, which NOTHING reads.
+
+    `adapters/notify/email.sh` shells to `email_notify.py`, and that resolves
+    recipients from SMTP_TO or --to. A per-rule recipient list that silently
+    does not apply is exactly the class of failure this epic exists to remove,
+    so the name is pinned against the LIBRARY rather than assumed.
+    """
+    lib = (ROOT / "engine" / "lib" / "email_notify.py").read_text(encoding="utf-8")
+    src = (ROOT / "engine" / "lib" / "alert_rules.py").read_text(encoding="utf-8")
+    import re
+    set_vars = set(re.findall(r'env\["([A-Z_]+)"\]', src))
+    assert set_vars, "deliver() must set the recipient env var"
+    for var in set_vars:
+        assert f'_env("{var}")' in lib or f'"{var}"' in lib, (
+            f"alert_rules sets {var}, which email_notify never reads — "
+            f"the recipient list would silently not apply")
+
+
+def test_per_rule_recipients_reach_the_delivered_mail(monkeypatch):
+    """End to end through the REAL adapter and library.
+
+    email_notify.MOCK_DIR is a module constant, so this reads the actual
+    out/mock-email/ output rather than redirecting it — and only inspects files
+    it created itself. A skipped test would prove nothing, and this is the one
+    assertion that would have caught the EMAIL_TO bug.
+    """
+    import email_notify
+    monkeypatch.setenv("AIQE_MOCK", "1")
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    outdir = pathlib.Path(email_notify.MOCK_DIR)
+    before = set(outdir.glob("*.eml")) if outdir.is_dir() else set()
+    addr = "qa-lead-pin@example.com"
+    try:
+        ar.deliver("alert subject\nbody", channel="email",
+                   recipients=[addr], rule_name="r1")
+        made = (set(outdir.glob("*.eml")) if outdir.is_dir() else set()) - before
+        assert made, "the email adapter produced no mock mail at all"
+        text = "\n".join(f.read_text(encoding="utf-8", errors="replace") for f in made)
+        assert addr in text, (
+            "the per-rule recipient never reached the mail — the env var "
+            "alert_rules sets is not the one email_notify reads")
+    finally:
+        for f in (set(outdir.glob("*.eml")) if outdir.is_dir() else set()) - before:
+            f.unlink(missing_ok=True)
