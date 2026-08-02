@@ -20,9 +20,10 @@ import os, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import app_paths                      # R12: mutable paths resolve here
 import fs_lock
 
-CURATED_DIR = ROOT / "knowledge/curated"
+CURATED_DIR = app_paths.knowledge_dir("curated", ROOT)
 FILENAMES = ("AGENTS.md", "CLAUDE.md")
 # Same charset repo_admin enforces at add time — re-checked here as defense in
 # depth, because the name becomes a path segment (incl. drop()'s rmtree) and a

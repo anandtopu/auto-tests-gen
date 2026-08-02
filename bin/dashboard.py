@@ -13,6 +13,7 @@ import glob, html, json, pathlib, sys, time
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
+import app_paths                      # R12: mutable paths resolve here
 from registry import load_registry
 import review_state, test_health, work_queue
 
@@ -280,7 +281,7 @@ for key, r in latest_by_key.items():
     rev = review_of(key)
     release = rev.get("release", "")
     rstat = rev.get("status") or ""
-    plan = ROOT / f"testplans/{key}.md"
+    plan = app_paths.testplans_dir(ROOT) / f"{key}.md"
     art_keys_html += (
         f'<button class="art-key{" active" if first else ""}" data-art="{esc(key)}">'
         f'<span class="strong sm">{esc(key)}</span>'
@@ -323,7 +324,7 @@ for key, r in latest_by_key.items():
             f'<div class="scen"><code>{esc(s["id"])}</code> {esc(s["title"])} '
             f'<span class="chip chip-info sm">{esc(s["layer"])}</span>'
             f'<span class="muted sm">→ {esc(s["target_repo"])}</span></div>' for s in scen)
-    data_dir = ROOT / f"testdata/{key}"
+    data_dir = app_paths.testdata_dir(ROOT) / key
     if data_dir.exists():
         files = [p for p in sorted(data_dir.rglob("*")) if p.is_file()]
         left += "<h3>Test data</h3>" + "".join(

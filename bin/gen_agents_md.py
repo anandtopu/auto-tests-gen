@@ -12,6 +12,7 @@ import glob, json, pathlib, re, sys, time
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
+import app_paths                      # R12: mutable paths resolve here
 from registry import load_registry, load_org_config
 import coverage_gaps, repo_admin
 
@@ -195,7 +196,7 @@ L.append(f"- Catalog auto-accept ≥ {org['catalog']['auto_accept_confidence']};
          f"resolution clarify-below {org['resolution']['confidence_threshold']}.")
 L.append("")
 
-out = ROOT / "AGENTS.md"
+out = app_paths.agents_file(ROOT)
 out.write_text("\n".join(L) + "\n", encoding="utf-8", newline="\n")
 print(f"AGENTS.md written: {len(reg['source_repositories'])} app repos, "
       f"{len(reg['test_repositories'])} test repos, {len(catalog)} cataloged tests")

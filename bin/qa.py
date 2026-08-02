@@ -58,6 +58,7 @@ import argparse, csv, glob, json, pathlib, subprocess, sys
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
+import app_paths                      # R12: mutable paths resolve here
 from registry import load_registry
 import review_state
 
@@ -84,7 +85,7 @@ def regen_coverage():
     # races a dashboard/CLI repo mutation's own read-modify-write (repo_admin runs
     # the same script while holding this lock).
     import fs_lock
-    with fs_lock.lock(ROOT / "registry/repo-registry.yaml"):
+    with fs_lock.lock(app_paths.registry_file(ROOT)):
         subprocess.run([sys.executable, str(ROOT / "catalog/bootstrap/regen_coverage.py")],
                        cwd=ROOT, check=True)
     subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")],
@@ -243,7 +244,7 @@ def cmd_artifacts(args):
               f"overall={r['overall']}{rev_note} ===")
         contracts = {p["name"]: p["contract"] for p in r.get("phases", [])}
 
-        plan = ROOT / f"testplans/{key}.md"
+        plan = app_paths.testplans_dir(ROOT) / f"{key}.md"
         if plan.exists():
             print(f"\nTest plan: testplans/{key}.md")
             if args.full:
@@ -251,7 +252,7 @@ def cmd_artifacts(args):
         for s in contracts.get("testplan", {}).get("scenarios", []):
             print(f"  scenario {s['id']}: {s['title']}  [{s['layer']}] -> {s['target_repo']}")
 
-        data_dir = ROOT / f"testdata/{key}"
+        data_dir = app_paths.testdata_dir(ROOT) / key
         if data_dir.exists():
             print("\nTest data:")
             for p in sorted(data_dir.rglob("*")):

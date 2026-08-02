@@ -22,6 +22,7 @@ import math
 import pathlib
 import re
 import sys
+import app_paths                      # R12: mutable paths resolve here
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -39,7 +40,7 @@ def _tokens(text):
 def _plan_text(key):
     """Plan markdown + its contract's scenario titles — titles carry the intent."""
     parts = []
-    md = ROOT / f"testplans/{key}.md"
+    md = app_paths.testplans_dir(ROOT) / f"{key}.md"
     if md.exists():
         parts.append(md.read_text(encoding="utf-8", errors="replace"))
     import plan_state
@@ -56,8 +57,8 @@ def _plan_text(key):
 
 def corpus():
     """Every key with a plan on disk."""
-    return sorted(p.stem for p in (ROOT / "testplans").glob("*.md")) \
-        if (ROOT / "testplans").is_dir() else []
+    d = app_paths.testplans_dir(ROOT)
+    return sorted(p.stem for p in d.glob("*.md")) if d.is_dir() else []
 
 
 def _tf(tokens):
@@ -121,7 +122,7 @@ def suggest_for(key):
     for m in similar(text, exclude_key=key):
         entry = plan_state.get(m["key"])
         out.append({**m, "status": entry.get("status", ""),
-                    "text": (ROOT / f"testplans/{m['key']}.md").read_text(
+                    "text": (app_paths.testplans_dir(ROOT) / f"{m['key']}.md").read_text(
                         encoding="utf-8", errors="replace")[:20000]})
     return out
 

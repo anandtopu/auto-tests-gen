@@ -6,10 +6,11 @@ repo_admin / the dashboard Repositories view) — so a newly-mapped app repo
 routes to its test repo before any test evidence exists."""
 import glob, json, os, pathlib, sys, yaml
 sys.path.insert(0, "engine/lib")
-reg_path = pathlib.Path("registry/repo-registry.yaml")
+import app_paths                      # R12: mutable paths resolve here
+reg_path = app_paths.registry_file()
 reg = yaml.safe_load(reg_path.read_text(encoding="utf-8"))
 cov = {t["name"]: set() for t in reg["test_repositories"]}
-for f in glob.glob("catalog/*.jsonl"):
+for f in glob.glob(str(app_paths.catalog_dir() / "*.jsonl")):
     if pathlib.Path(f).name == "catalog.sample.jsonl":   # fixture, not evidence
         continue
     for l in open(f, encoding="utf-8"):

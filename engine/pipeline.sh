@@ -17,6 +17,14 @@ case "$MODE" in pr|jira|plan|tests|requirements) ;; *) echo "INVALID_MODE: $MODE
 if [ "$MODE" = "requirements" ]; then export AIQE_REQUIREMENTS_REAUTHOR=1; fi
 # The budget envelope (5.2) and degradation ladder (5.3) resolve per workflow.
 export AIQE_RUN_MODE="$MODE"
+# R12: mutable state may live outside the checkout (AIQE_STATE_DIR / per-path
+# knobs) so the root filesystem can be read-only. Resolve ONCE here — python is
+# the single source of truth for the precedence rules, bash never re-implements
+# them — and export so phases and the mock harness inherit the same answers.
+# With nothing configured every value is today's relative path, unchanged.
+eval "$(python3 engine/lib/app_paths.py --sh)"
+export AIQE_P_TESTPLANS AIQE_P_TESTDATA AIQE_P_SPECS AIQE_P_CATALOG
+export AIQE_P_KNOWLEDGE AIQE_P_AGENTS AIQE_P_REGISTRY AIQE_P_SKILLS
 # Config layers, lowest first: aiqe.properties < .env < explicit environment.
 # Both emitters print `export K='v'` lines ONLY for keys absent from the
 # environment, so an explicitly-exported variable always wins (the file can never
@@ -146,7 +154,7 @@ PHASE() {
     if python3 -c "import json,sys; c=json.load(open('out/${label}.contract.json')); sys.exit(0 if c.get('missing_context') else 1)" 2>/dev/null; then
       local args=() f swapped=0
       for f in "$@"; do
-        case "$f" in out/context-*.md) args+=("AGENTS.md"); swapped=1 ;;
+        case "$f" in out/context-*.md) args+=("$AIQE_P_AGENTS"); swapped=1 ;;
                      *) args+=("$f") ;; esac
       done
       if [ "$swapped" = "1" ]; then
@@ -179,7 +187,7 @@ CTX() {
      && [ -s "out/context-${phase}.md" ]; then
     echo "out/context-${phase}.md"
   else
-    echo "AGENTS.md"
+    echo "$AIQE_P_AGENTS"
   fi
 }
 
@@ -346,7 +354,7 @@ python3 bin/gen_agents_md.py > /dev/null || true
 python3 engine/lib/catalog_slice.py out/resolve.contract.json \
   > out/catalog-slice.jsonl 2>/dev/null || {
     : > out/catalog-slice.jsonl
-    for _cf in catalog/*.jsonl; do
+    for _cf in "$AIQE_P_CATALOG"/*.jsonl; do
       [ -f "$_cf" ] || continue
       [ "$(basename "$_cf")" = "catalog.sample.jsonl" ] && continue
       grep -h . "$_cf" >> out/catalog-slice.jsonl 2>/dev/null || true
@@ -389,9 +397,9 @@ elif [ "$MODE" = "tests" ]; then
   if python3 -c "import json,sys; c=json.load(open('out/testplan.contract.json')); sys.exit(0 if c.get('data_needs')=='none' else 1)" 2>/dev/null; then
     SKIP_PHASE testdata "plan declares data_needs: none"
   else
-    PHASE testdata jira-testdata.md "$(CTX testdata)" out/testplan.contract.json "testplans/${KEY}.md"
+    PHASE testdata jira-testdata.md "$(CTX testdata)" out/testplan.contract.json "$AIQE_P_TESTPLANS/${KEY}.md"
   fi
-  GENERATE "$(CTX generate)" out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "testplans/${KEY}.md" out/catalog-slice.jsonl out/repo-conventions.md
+  GENERATE "$(CTX generate)" out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "$AIQE_P_TESTPLANS/${KEY}.md" out/catalog-slice.jsonl out/repo-conventions.md
 else
   PHASE analyze  jira-analyze.md "$(CTX analyze)" out/issue-guidance.md out/ticket.json out/confluence.md
   # SDD (story 2.1): persist the EARS requirements spec the analyze contract
@@ -458,7 +466,7 @@ else
   elif python3 engine/lib/plan_adversary.py enabled; then
     ADV_RC=0
     PHASE planadversary jira-plan-adversary.md "$(CTX planadversary)" out/analyze.contract.json \
-      out/testplan.contract.json "testplans/${KEY}.md" out/coverage-gaps.md || ADV_RC=$?
+      out/testplan.contract.json "$AIQE_P_TESTPLANS/${KEY}.md" out/coverage-gaps.md || ADV_RC=$?
     if [ "$ADV_RC" -ne 0 ]; then
       echo "[plan-adversary] phase failed — the authored plan stands"
       rm -f out/planadversary.contract.json
@@ -466,7 +474,7 @@ else
       ARB_RC=0
       PHASE planarbiter jira-plan-arbitrate.md "$(CTX planarbiter)" out/analyze.contract.json \
         out/testplan.contract.json out/planadversary.contract.json \
-        "testplans/${KEY}.md" out/resolve.contract.json || ARB_RC=$?
+        "$AIQE_P_TESTPLANS/${KEY}.md" out/resolve.contract.json || ARB_RC=$?
       # The arbiter's contract REPLACES the plan contract only on success — a failed
       # arbitration must not hand testdata/generate a half-written scenario set.
       if [ "$ARB_RC" -eq 0 ] && [ -s out/planarbiter.contract.json ]; then
@@ -521,7 +529,7 @@ rm -f out/critic.contract.json
 if python3 -c "import json,sys; c=json.load(open('out/generate.contract.json')); sys.exit(1 if c.get('tests') else 0)" 2>/dev/null; then
   SKIP_PHASE critic "no generated tests to score"
 elif python3 engine/lib/critic.py enabled; then
-  CRITIC_CTX=(AGENTS.md out/generate.contract.json out/validate.contract.json)
+  CRITIC_CTX=("$AIQE_P_AGENTS" out/generate.contract.json out/validate.contract.json)
   for extra in out/testplan.contract.json out/catalog-slice.jsonl out/coverage-gaps.md; do
     if [ -f "$extra" ]; then CRITIC_CTX+=("$extra"); fi
   done

@@ -25,9 +25,10 @@ import pathlib, sys
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
+import app_paths                      # R12: mutable paths resolve here
 from registry import load_registry
 
-OUT_DIR = ROOT / ".agents/skills"
+OUT_DIR = app_paths.skills_dir(ROOT)
 SRC_DIR = ROOT / "skills"
 LAYERS = ("api", "ui")
 

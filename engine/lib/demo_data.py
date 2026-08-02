@@ -17,7 +17,22 @@ import contextlib, os, pathlib, shutil, stat, subprocess, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import app_paths                      # R12: mutable paths resolve here
 import fs_lock
+
+
+def _state(root, resolved, rel):
+    """Honour a caller-supplied root, but follow the state root for the real
+    checkout.
+
+    demo_data takes `root` as a parameter and tests pass a temp estate, so the
+    parameter must keep winning there — otherwise a test would clear the LIVE
+    registry instead of its fixture. For the real checkout the state-resolved
+    path wins, so a container that relocated state clears the copy actually in
+    use rather than the pristine one baked into the image."""
+    root = pathlib.Path(root)
+    return resolved if root == app_paths.ROOT else root / rel
+
 
 
 def _rmtree(d):
@@ -203,7 +218,7 @@ def clear(root=None, dry=False, force=False, factory=False):
                 if not dry:
                     f.unlink()
         if factory:
-            reg = root / "registry/repo-registry.yaml"
+            reg = _state(root, app_paths.registry_file(ROOT), "registry/repo-registry.yaml")
             if reg.exists():
                 removed += 1
                 targets.append("registry/repo-registry.yaml (emptied — all repositories removed)")
@@ -220,7 +235,7 @@ def clear(root=None, dry=False, force=False, factory=False):
                     f.unlink()
             # Curated guidance is user content tied to the (now removed) repos —
             # a factory reset deletes it; a plain clear deliberately KEEPS it.
-            curated = root / "knowledge/curated"
+            curated = _state(root, app_paths.knowledge_dir("curated", ROOT), "knowledge/curated")
             for d in sorted(curated.iterdir()) if curated.is_dir() else []:
                 if not d.is_dir():
                     continue
@@ -234,8 +249,9 @@ def clear(root=None, dry=False, force=False, factory=False):
         # coverage and the Repositories & mapping page still shows repos as
         # covered/mapped after a clear. Same registry lock as every other caller.
         regen = root / "catalog/bootstrap/regen_coverage.py"
-        if regen.exists() and (root / "registry/repo-registry.yaml").exists():
-            with fs_lock.lock(root / "registry/repo-registry.yaml"):
+        reg_p = _state(root, app_paths.registry_file(ROOT), "registry/repo-registry.yaml")
+        if regen.exists() and reg_p.exists():
+            with fs_lock.lock(reg_p):
                 subprocess.run([sys.executable, str(regen)], cwd=root,
                                capture_output=True, stdin=subprocess.DEVNULL)
         # The estate knowledge and path skills are DERIVED from the registry and

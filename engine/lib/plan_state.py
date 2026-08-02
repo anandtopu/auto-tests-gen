@@ -20,13 +20,14 @@ import json, os, pathlib, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import app_paths                      # R12: mutable paths resolve here
 import fs_lock
 
 # Path overrides let tests (and the CLI under test) run against a scratch store
 # instead of the real estate state — same pattern as AIQE_ENV_FILE / AIQE_HOOKS_SEEN.
 DIR = pathlib.Path(os.environ.get("AIQE_PLAN_DIR") or ROOT / "reports/plans")
 FILE = DIR / "state.json"
-PLAN_DIR = pathlib.Path(os.environ.get("AIQE_TESTPLAN_DIR") or ROOT / "testplans")
+PLAN_DIR = app_paths.testplans_dir(ROOT)   # AIQE_TESTPLAN_DIR > AIQE_STATE_DIR > ROOT
 VALID = ("draft", "in_review", "approved", "changes_requested")
 
 

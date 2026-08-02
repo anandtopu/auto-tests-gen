@@ -31,6 +31,7 @@ import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import app_paths                      # R12: mutable paths resolve here
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -77,7 +78,7 @@ def safe_key(key):
 
 
 def _write(path, text):
-    p = ROOT / path
+    p = app_paths.resolve_rel(path, ROOT)   # testplans/testdata follow the state root
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(text, encoding="utf-8", newline="\n")
     return p

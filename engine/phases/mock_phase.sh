@@ -7,6 +7,10 @@ PHASE=$1; KEY=$2; WORKDIR=$3
 # Fan-out calls label their output so per-repo contracts don't overwrite each other
 # (see run_phase.sh). The mock must use the same naming or the merge finds nothing.
 OUT="${AIQE_PHASE_LABEL:-$PHASE}"
+# Inherited from pipeline.sh (R12). Defaulted so a direct invocation — which the
+# tests do — still works without the parent having exported anything.
+: "${AIQE_P_TESTPLANS:=testplans}"
+: "${AIQE_P_TESTDATA:=testdata}"
 mkdir -p out
 case "$PHASE" in
   triage)
@@ -69,7 +73,7 @@ EOF
     ;;
   testplan)
     mkdir -p testplans
-    cat > "testplans/${KEY}.md" << EOF
+    cat > "$AIQE_P_TESTPLANS/${KEY}.md" << EOF
 # Test Plan — ${KEY}
 ## Existing Coverage (from catalog)
 - PROJ-88 discount happy path already covered in e2e-api-tests-1.
@@ -98,7 +102,7 @@ EOF
   planarbiter)
     # The arbiter: folds ACCEPTED gaps into the plan and re-emits the plan contract.
     mkdir -p testplans
-    cat > "testplans/${KEY}.md" << EOF
+    cat > "$AIQE_P_TESTPLANS/${KEY}.md" << EOF
 # Test Plan — ${KEY}
 ## Existing Coverage (from catalog)
 - PROJ-88 discount happy path already covered in e2e-api-tests-1.
@@ -120,8 +124,8 @@ EOF
 EOF
     ;;
   testdata)
-    mkdir -p "testdata/${KEY}"
-    echo '{"cases":[{"code":"MEGA","pct":95,"expect":400},{"code":"ZERO","pct":0,"expect":400}]}' > "testdata/${KEY}/discount-cases.json"
+    mkdir -p "$AIQE_P_TESTDATA/${KEY}"
+    echo '{"cases":[{"code":"MEGA","pct":95,"expect":400},{"code":"ZERO","pct":0,"expect":400}]}' > "$AIQE_P_TESTDATA/${KEY}/discount-cases.json"
     echo '{"fixtures":[{"canonical":"testdata/'"${KEY}"'/discount-cases.json","materialized":[]}],"strategy":"boundary+negative"}' > out/testdata.contract.json
     ;;
   validate)

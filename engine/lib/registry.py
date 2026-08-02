@@ -1,10 +1,11 @@
 """Registry loader shared by resolver, catalog, and eval."""
 import yaml, pathlib
+import app_paths                      # R12: mutable paths resolve here
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 def load_registry():
-    return yaml.safe_load((ROOT / "registry/repo-registry.yaml").read_text())
+    return yaml.safe_load(app_paths.registry_file(ROOT).read_text())
 
 def load_org_config():
     return yaml.safe_load((ROOT / "registry/org-config.yaml").read_text())

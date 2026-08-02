@@ -67,22 +67,39 @@ def test_empty_env_is_treated_as_unset(monkeypatch):
 def test_seeded_set_excludes_purely_generated_paths():
     """Seeding a generated path from the image would restore a stale AGENTS.md
     or an old plan over an empty volume and call it state."""
-    assert "catalog" in app_paths.SEEDED
+    joined = " ".join(app_paths.SEEDED)
+    assert "catalog/*.jsonl" in app_paths.SEEDED
     assert "registry/repo-registry.yaml" in app_paths.SEEDED
-    assert "knowledge" in app_paths.SEEDED
+    assert "knowledge/curated" in app_paths.SEEDED
+    # No generated path may be seeded — a stale plan restored over an empty
+    # volume would look like state.
     for generated in ("AGENTS.md", "testplans", "testdata", "specs"):
-        assert generated not in app_paths.SEEDED
+        assert generated not in joined, f"{generated} is generated, never seeded"
+    # And no CODE or CONFIG may be seeded: once the volume owns these, an image
+    # upgrade ships logic that never runs. This is why the entries are narrower
+    # than the directories that contain them.
+    for frozen in ("org-config.yaml", "bootstrap", "schema.json", "registry/tests"):
+        assert frozen not in joined, f"{frozen} is code/config and must ship in the image"
+    # Seeding whole `catalog/` or `registry/` would drag exactly those in.
+    assert "catalog" not in app_paths.SEEDED and "registry" not in app_paths.SEEDED
 
 
-def test_code_and_config_are_never_relocated():
-    """The whole reason state is relocated rather than volume-mounted: these
-    must travel with the IMAGE, so no resolver may point at them. If one ever
-    does, an upgrade ships logic that never runs."""
-    src = (ROOT / "engine" / "lib" / "app_paths.py").read_text(encoding="utf-8")
-    body = src.split('"""', 2)[-1]          # skip the module docstring
-    for frozen in ("org-config.yaml", "bootstrap", "schema.json"):
-        assert f'"{frozen}"' not in body and f"/{frozen}" not in body.replace(
-            "# ", ""), f"{frozen} is code/config and must not be state-relocated"
+def test_code_and_config_are_never_relocated(monkeypatch, tmp_path):
+    """Code and config must travel with the IMAGE, so no resolver may move them.
+    If one ever does, an image upgrade ships logic that never runs — silently.
+
+    Asserted BEHAVIOURALLY. The first version of this pin scanned the module
+    source for "bootstrap"/"org-config.yaml" and broke the moment a comment
+    *explaining* why those are excluded was added — a pin that fails on prose
+    while the code is correct teaches people to delete pins.
+    """
+    monkeypatch.setenv("AIQE_STATE_DIR", str(tmp_path))
+    for frozen in ("registry/org-config.yaml", "catalog/bootstrap/correlate.py",
+                   "catalog/schema.json", "registry/tests/test_routing_golden.py",
+                   "engine/lib/budget.py", "prompts/critic.md"):
+        got = app_paths.resolve_rel(frozen)
+        assert got == ROOT / frozen, (
+            f"{frozen} is code/config and must resolve inside the image, got {got}")
 
 
 def test_cli_emits_the_mapping():

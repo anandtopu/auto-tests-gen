@@ -37,10 +37,11 @@ sys.stdout.reconfigure(encoding="utf-8")
 sys.stderr.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
+import app_paths                      # R12: mutable paths resolve here
 import yaml
 from registry import load_registry
 
-REG_PATH = ROOT / "registry/repo-registry.yaml"
+REG_PATH = app_paths.registry_file(ROOT)
 CSV_FIELDS = {"domains": "domains", "testable-paths": "testable_paths",
               "consumes-services": "consumes_services"}
 STR_FIELDS = {"contract": "contract", "route-table": "route_table",

@@ -14,6 +14,7 @@ import glob, html, io, json, pathlib, re, sys, time, zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
+import app_paths                      # R12: mutable paths resolve here
 import review_state
 
 FORMATS = ("md", "html", "docx", "pdf")
@@ -40,19 +41,19 @@ def _latest_run(key):
 
 
 def available_plans():
-    return sorted(p.stem for p in (ROOT / "testplans").glob("*.md"))
+    return sorted(p.stem for p in app_paths.testplans_dir(ROOT).glob("*.md"))
 
 
 def build(key):
     """Collect everything for the export; raises SystemExit with a helpful message."""
-    plan_file = ROOT / f"testplans/{key}.md"
+    plan_file = app_paths.testplans_dir(ROOT) / f"{key}.md"
     if not plan_file.exists():
         sys.exit(f"no test plan for '{key}' (plans exist for: "
                  f"{', '.join(available_plans()) or 'none'})")
     run = _latest_run(key) or {}
     contracts = {p["name"]: p["contract"] for p in run.get("phases", [])}
     rev = review_state.load().get(key, {})
-    data_dir = ROOT / f"testdata/{key}"
+    data_dir = app_paths.testdata_dir(ROOT) / key
     return {
         "key": key,
         "plan_md": plan_file.read_text(encoding="utf-8").strip(),

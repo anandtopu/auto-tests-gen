@@ -39,6 +39,7 @@ RUN git config --system user.email "ai-qe@platform.local" \
     && git config --system user.name  "AI QE Platform" \
     && git config --system --add safe.directory '*' \
     && mkdir -p ${APP_HOME}/reports/runs ${APP_HOME}/workspace ${APP_HOME}/out \
+    && chmod +x ${APP_HOME}/bin/container-entrypoint.sh \
     && chgrp -R 0 ${APP_HOME} && chmod -R g=u ${APP_HOME}
 
 EXPOSE 4999 4998
@@ -46,5 +47,9 @@ USER 1001
 
 # Default command runs the dashboard; the receiver container overrides it (see the
 # compose file / k8s Deployment). tini reaps the pipeline subprocesses cleanly.
-ENTRYPOINT ["/usr/bin/tini", "--"]
+# The entrypoint seeds a relocated state root on first boot (R12). With no
+# AIQE_STATE_DIR set it exec's straight through, so `docker run` behaves
+# exactly as before — seeding only engages for a deployment that redirects
+# state in order to run with readOnlyRootFilesystem.
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/bin/container-entrypoint.sh"]
 CMD ["python3", "bin/dashboard_server.py"]

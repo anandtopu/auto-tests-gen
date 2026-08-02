@@ -37,6 +37,7 @@ import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import app_paths                      # R12: mutable paths resolve here
 import knowledge_chunks
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -120,7 +121,7 @@ def gather_signals(key=""):
         if p.exists():
             parts.append(p.read_text(encoding="utf-8", errors="ignore")[:20000])
     if key:
-        plan = ROOT / f"testplans/{key}.md"
+        plan = app_paths.testplans_dir(ROOT) / f"{key}.md"
         if plan.exists():
             parts.append(plan.read_text(encoding="utf-8", errors="ignore")[:20000])
     return "\n".join(parts)

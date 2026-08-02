@@ -28,6 +28,7 @@ import glob
 import json
 import pathlib
 import sys
+import app_paths                      # R12: mutable paths resolve here
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SAMPLE = "catalog.sample.jsonl"       # the committed example, excluded like every reader
@@ -35,7 +36,7 @@ SAMPLE = "catalog.sample.jsonl"       # the committed example, excluded like eve
 
 def load_rows(catalog_dir=None):
     """Every catalog row in the estate, as (row, source_file) pairs."""
-    d = pathlib.Path(catalog_dir) if catalog_dir else ROOT / "catalog"
+    d = pathlib.Path(catalog_dir) if catalog_dir else app_paths.catalog_dir(ROOT)
     out = []
     for f in sorted(glob.glob(str(d / "*.jsonl"))):
         if pathlib.Path(f).name == SAMPLE:

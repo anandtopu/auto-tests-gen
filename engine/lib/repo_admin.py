@@ -21,6 +21,7 @@ import functools, os, pathlib, re, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import app_paths                      # R12: mutable paths resolve here
 import yaml
 import fs_lock
 from registry import load_registry
@@ -35,7 +36,7 @@ def _locked(fn):
             return fn(*a, **k)
     return wrap
 
-REG_PATH = ROOT / "registry/repo-registry.yaml"
+REG_PATH = app_paths.registry_file(ROOT)
 NOTES_DIR = ROOT / "knowledge/repos"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,63}$")
 SCM_KINDS = ("github", "bitbucket", "stash")

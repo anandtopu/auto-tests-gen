@@ -39,6 +39,7 @@ import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import app_paths                      # R12: mutable paths resolve here
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "reports/knowledge-index/chunks.jsonl"
@@ -186,7 +187,7 @@ def build():
         import spec_store
     except Exception:
         spec_store = None
-    for p in sorted((ROOT / "testplans").glob("*.md")):
+    for p in sorted(app_paths.testplans_dir(ROOT).glob("*.md")):
         key = p.stem
         spec = spec_store.load(key) if spec_store else None
         if spec:
@@ -205,7 +206,7 @@ def build():
                                  f"testplans/{p.name}", text))
 
     # --- testdata: one per ticket with generated data ------------------------
-    td_root = ROOT / "testdata"
+    td_root = app_paths.testdata_dir(ROOT)
     if td_root.is_dir():
         for d in sorted(td_root.iterdir()):
             if not d.is_dir():

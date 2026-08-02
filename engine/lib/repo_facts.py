@@ -38,9 +38,10 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import app_paths                      # R12: mutable paths resolve here
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-FACTS_DIR = ROOT / "knowledge/facts"
+FACTS_DIR = app_paths.knowledge_dir("facts", ROOT)
 DERIVED_DIR = FACTS_DIR / "derived"
 SCHEMA = 1
 
@@ -153,7 +154,7 @@ def _surface_covered(repo):
     read from the catalog rather than re-derived, so it cannot disagree with
     the evidence the gate and the coverage report already use."""
     seen = []
-    for f in sorted((ROOT / "catalog").glob("*.jsonl")):
+    for f in sorted(app_paths.catalog_dir(ROOT).glob("*.jsonl")):
         if f.name == "catalog.sample.jsonl":
             continue
         try:

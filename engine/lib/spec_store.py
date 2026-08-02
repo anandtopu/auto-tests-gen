@@ -24,9 +24,10 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import app_paths                      # R12: mutable paths resolve here
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-SPEC_DIR = pathlib.Path(os.environ.get("AIQE_SPEC_DIR") or ROOT / "specs")
+SPEC_DIR = app_paths.specs_dir(ROOT)       # AIQE_SPEC_DIR > AIQE_STATE_DIR > ROOT
 SCHEMA = ROOT / "engine/phases/contracts/spec.schema.json"
 
 STRUCTURED_FIELDS = ("steps", "verification")

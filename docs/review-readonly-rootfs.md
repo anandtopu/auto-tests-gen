@@ -151,11 +151,27 @@ workspace paths.
 
 ## Status
 
-Shipped in this pass: the audit above, `app_paths.py` + its pins, and the two
-container fixes that need no rewiring (`PYTHONDONTWRITEBYTECODE=1`, a writable
-`/tmp` mount).
+**DONE.** `readOnlyRootFilesystem: true` is set on both containers and proven by
+running the image with `podman run --read-only` against an EMPTY state volume:
+the entrypoint seeded 8 data paths, `ensure_dirs` created the four generated
+ones, `jira PROJ-301` and `pr orders-api#201` both reached `GATE_STATUS=COMMITTED`,
+`touch /app/PROOF` was refused by the kernel, and a second start reported
+"already populated — nothing seeded" rather than clobbering the volume.
 
-Not yet shipped: rewiring the ~16 Python and ~20 shell call sites onto the
-resolver, the first-boot seed step, and the flag itself. `readOnlyRootFilesystem`
-stays OFF until that lands and a full `demo-pr` + `demo-jira` commits inside a
-`--read-only` container — the acceptance R12 sets, and the right bar.
+Two defects were found while wiring the seed step, both by pins rather than by
+reading the code:
+
+* `SEEDED` was directory-level, so seeding `catalog/` would have copied
+  `bootstrap/*.py` into the volume — the code-freeze described above,
+  reintroduced one level down. It is now data-only and narrower than the
+  directories that contain it.
+* `resolve_rel` relocated everything under a mutable directory, so
+  `catalog/bootstrap/correlate.py` and `specs/platform/constitution.yaml`
+  resolved into the state volume. `_FROZEN_SUBPATHS` now holds them in the
+  image, matched by path SEGMENT — `startswith` would have caught a sibling
+  `catalog/bootstrap-old/` too, which is R5's defect class.
+
+Also rewritten: the pin guarding this. It used to scan the module source for
+strings like "bootstrap" and broke the moment a comment explaining the exclusion
+was added. A pin that fails on prose while the code is correct teaches people to
+delete pins; it now asserts behaviour instead.

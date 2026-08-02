@@ -37,6 +37,9 @@ spec:
           ports:
             - name: ui
               containerPort: 4999
+          env:
+            # Mutable state lives here, never in the image tree (R12).
+            - { name: AIQE_STATE_DIR, value: /state }
           envFrom:
             - configMapRef:
                 name: ai-qe-config
@@ -56,17 +59,28 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }
+            # R12. Safe ONLY because every mutable path is relocated to /state
+            # (AIQE_STATE_DIR) instead of being written inside /app — see
+            # engine/lib/app_paths.py and docs/review-readonly-rootfs.md.
+            # Setting this without that relocation breaks every run: AGENTS.md
+            # is regenerated on each one and lives at the tree root, where no
+            # volume mount can reach it.
+            readOnlyRootFilesystem: true
           volumeMounts:
             - { name: reports,   mountPath: /app/reports }
             - { name: workspace, mountPath: /app/workspace }
             - { name: out,       mountPath: /app/out }
             - { name: tmp,       mountPath: /tmp }
+            - { name: state,     mountPath: /state }
         - name: receiver
           image: ai-qe-platform:latest
           command: ["python3", "bin/taskevent_receiver.py"]
           ports:
             - name: hook
               containerPort: 4998
+          env:
+            # Mutable state lives here, never in the image tree (R12).
+            - { name: AIQE_STATE_DIR, value: /state }
           envFrom:
             - configMapRef:
                 name: ai-qe-config
@@ -86,11 +100,19 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             capabilities: { drop: ["ALL"] }
+            # R12. Safe ONLY because every mutable path is relocated to /state
+            # (AIQE_STATE_DIR) instead of being written inside /app — see
+            # engine/lib/app_paths.py and docs/review-readonly-rootfs.md.
+            # Setting this without that relocation breaks every run: AGENTS.md
+            # is regenerated on each one and lives at the tree root, where no
+            # volume mount can reach it.
+            readOnlyRootFilesystem: true
           volumeMounts:
             - { name: reports,   mountPath: /app/reports }
             - { name: workspace, mountPath: /app/workspace }
             - { name: out,       mountPath: /app/out }
             - { name: tmp,       mountPath: /tmp }
+            - { name: state,     mountPath: /state }
       volumes:
         # `mktemp` in adapters/scm/{github,bitbucket,stash}.sh and bin/with-env.sh,
         # and tempfile in bin/taskevent_receiver.py, all need a writable /tmp.
@@ -100,6 +122,13 @@ spec:
         # See docs/review-readonly-rootfs.md (R12).
         - name: tmp
           emptyDir: {}
+        # Mutable application state: catalog mappings, the repo registry,
+        # knowledge, plans, specs, testdata, generated AGENTS.md. Persistent
+        # because it IS somebody's work — the same PVC as reports/, under a
+        # subPath, so a deployment still needs only one claim.
+        - name: state
+          persistentVolumeClaim:
+            claimName: ai-qe-reports
         - name: reports
           persistentVolumeClaim:
             claimName: ai-qe-reports

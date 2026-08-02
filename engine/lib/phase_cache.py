@@ -37,6 +37,7 @@ import pathlib
 import shutil
 import sys
 import time
+import app_paths                      # R12: mutable paths resolve here
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DIR = pathlib.Path(os.environ.get("AIQE_PHASE_CACHE_DIR") or ROOT / "reports/phase-cache")
@@ -93,7 +94,8 @@ def key(phase, model, prompt_file, context_files, extra=""):
 
 
 def _artifacts_for(phase, run_key):
-    return [ROOT / p.format(KEY=run_key) for p in CACHEABLE.get(phase, [])]
+    return [app_paths.resolve_rel(p.format(KEY=run_key), ROOT)
+            for p in CACHEABLE.get(phase, [])]
 
 
 def lookup(phase, out_label, model, prompt_file, context_files, run_key=""):
@@ -121,7 +123,7 @@ def lookup(phase, out_label, model, prompt_file, context_files, run_key=""):
         p = pathlib.Path(rel)
         if p.is_absolute() or ".." in p.parts:
             continue
-        dest = ROOT / p
+        dest = app_paths.resolve_rel(p, ROOT)
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(body, encoding="utf-8", newline="\n")
     entry["hits"] = entry.get("hits", 0) + 1
