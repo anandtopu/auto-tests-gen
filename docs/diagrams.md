@@ -559,3 +559,52 @@ Nothing in this chain errors when it is wrong. Tests get written, the gate
 commits them, the run reports success — into the wrong repo, or not at all, and
 the only symptom is coverage that quietly does not exist. `make test-routing-adv`
 (11 attacks) exists because that class of failure is invisible to ordinary tests.
+
+## 19. Observability: event → rule → channel (§5.17)
+
+Every transaction lands in one append-only log. Rules ask that log questions on
+the nightly tick; delivery goes through the Notify port. The dashed paths are
+the honesty guarantees — the states that must never be reported as "fine".
+
+```mermaid
+flowchart TD
+  subgraph SRC["emitters"]
+    UI["dashboard POST<br/>(one wrapper, 34 endpoints)"]
+    PIPE["pipeline lifecycle<br/>started / aborted / gate.*"]
+    CRON["maintain tick"]
+  end
+  UI --> RED["redact()<br/>key denylist + length ceiling"]
+  PIPE --> RED
+  CRON --> RED
+  RED --> LOG[("reports/events/&lt;date&gt;.jsonl<br/>append-only, one line per event")]
+  RED -.->|"write fails"| DEG["health.degraded = true<br/>reported ONCE, every drop counted"]
+
+  LOG --> VIEW["Activity view + /api/events<br/>filters, CSV (formula-defused)"]
+  LOG --> CLI["bin/qa.py events"]
+  LOG --> EVAL{"alert rule<br/>N hits in window?"}
+
+  EVAL -->|"threshold crossed"| FIRE["alert.fired"]
+  EVAL -->|"condition cleared"| RES["alert.resolved"]
+  EVAL -.->|"log unreadable<br/>or degraded"| UNEV["status = unevaluable<br/>NAMES what was lost — never 'ok'"]
+
+  FIRE --> CD{"inside cooldown?"}
+  CD -->|yes| HOLD["state kept, message suppressed<br/>(a flap notifies once)"]
+  CD -->|no| DIG{"digest rule?"}
+  RES --> DIG
+  DIG -->|yes| BATCH["one combined message per tick,<br/>grouped BY CHANNEL"]
+  DIG -->|no| SEND
+  BATCH --> SEND["Notify port<br/>adapters/notify/*.sh — no vendor import"]
+  SEND -->|"ok"| OKE["notify.sent"]
+  SEND -->|"after 2 retries"| FAILE["notify.failed<br/>'could not tell you' ≠ 'nothing happened'"]
+  OKE --> LOG
+  FAILE --> LOG
+  DEG --> UNEV
+
+  classDef honest stroke-dasharray: 4 3;
+  class DEG,UNEV,FAILE,HOLD honest;
+```
+
+**Test-fire skips the retry path entirely.** A human pressing Test wants to know
+whether the channel works right now; a retry that hides a transient failure
+defeats the purpose of testing.
+

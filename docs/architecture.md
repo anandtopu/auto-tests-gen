@@ -963,6 +963,58 @@ one and is **deliberately not built** — it needs a real CI feed, and shipping 
 empty tier that looks populated is worse than not having one. See
 [knowledge-base-proposal.md](knowledge-base-proposal.md).
 
+### 5.17 Observability: the transaction log, alerts and notifications (v2.5)
+
+Before this, the platform had plenty of data and almost no way to ask a question
+across it. Run records, the cost ledger, review state and plan history each knew
+their own domain; nothing joined them. Four gaps, each verified in source at the
+time: HTTP requests were discarded on purpose (`log_message` overridden with
+`pass`, while 34 POST endpoints mutated state), telemetry emitted once per run at
+the very end so aborts and gate refusals produced nothing, notifications were
+fire-and-forget with no record and no user control, and actor attribution existed
+in two modules and nowhere else.
+
+**One record shape for every transaction.** `reports/events/<date>.jsonl`,
+append-only, one line per event: id, ts, kind, actor (+ `actor_source`), source,
+target, run_id, outcome, redacted detail, duration. `kind` is a closed vocabulary
+so the UI can filter and rules can match without regex guesswork — closed *by
+test*, not at runtime, because `emit()` writing an unknown kind is recoverable
+while dropping the event is not.
+
+Three properties make it safe rather than a new liability, and each exists
+because of a specific way this feature could make the platform worse:
+
+- **It never breaks a caller.** A run that spent real money must not fail because
+  a log line could not be written. Emission returns `None`; degradation is
+  reported once per process and counted, so `health()` can say the log is
+  incomplete instead of a partial history reading as a complete one.
+- **It never records secrets.** Settings writes `.env`; the event records which
+  *keys* changed. Redaction is a key denylist plus a length ceiling, because the
+  next secret-shaped field will not be named `password`.
+- **The index is deferred, deliberately.** A SQLite query index was designed and
+  is not built: the corpus is one file per day capped by `retain_days`, scanned
+  newest-first. The trigger for building it is written down (a filtered query
+  over ~300 ms, or retention past 90 days) rather than left to taste.
+
+**Alert rules** ask the log a question on the nightly tick — N matching events
+inside a window. Firing is a STATE: a rule resolves when the condition clears,
+and a cooldown gates the *message* while the rule keeps tracking reality. Rules
+evaluate over the same log the Activity view shows, so anything that fires is
+something a user can go and inspect. A rule that cannot be evaluated reports
+`unevaluable` naming what was lost — never "ok", because silence from a broken
+evaluator is indistinguishable from silence from a healthy estate, and that is
+how monitoring lies. Delivery goes through the Notify port (no vendor import),
+retries twice with short backoff, records only the outcome, and records
+`notify.failed` so "we could not tell you" stays distinct from "nothing
+happened". Test-fire deliberately does **not** retry: a human is watching and
+wants the truth about the channel right now.
+
+Surfaces: the Activity view (filters + CSV export, defused against spreadsheet
+formula execution because `actor` comes from an SSO header we do not control),
+the Alerts view, Overview tiles that only exist when there is something to say,
+`bin/qa.py events` / `alerts`, and `tests/observability-adversarial.sh` in
+`make review`.
+
 ## 6. Scalability, Reliability, Efficiency, Maintainability — Deep Dive
 
 ### 6.1 Scalability

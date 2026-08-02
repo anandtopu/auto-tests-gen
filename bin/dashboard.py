@@ -174,6 +174,40 @@ try:
                           "cost", False))
 except Exception:
     pass
+
+# Observability 5.1 — firing alerts and recent activity on the Overview.
+# The tile only EXISTS when there is something to say: a permanent "0 alerts"
+# is furniture people stop reading, and this whole epic is about signals that
+# still mean something when they appear. Firing rules are marked `alert` so
+# they render as a warning; a rule that could not be evaluated gets its OWN
+# tile, because "unevaluable" is not "healthy".
+try:
+    import alert_rules as _ar
+    _st = _ar.evaluate(notify=False)          # never notifies from a render
+    _firing = [s for s in _st if s.get("status") == "firing"]
+    _unevaluable = [s for s in _st if s.get("status") == "unevaluable"]
+    if _firing:
+        tiles.append((str(len(_firing)), "alert rule(s) firing", "alerts", True))
+    if _unevaluable:
+        tiles.append((str(len(_unevaluable)),
+                      "alert rule(s) UNEVALUABLE — not the same as healthy",
+                      "alerts", True))
+except Exception:
+    pass
+try:
+    import event_log as _el
+    _ev, _corrupt = _el.read(limit=200)
+    if _ev:
+        _bad = len([e for e in _ev if e.get("outcome") in ("failed", "refused")])
+        tiles.append((str(len(_ev)), "recent transactions"
+                      + (f" ({_bad} failed/refused)" if _bad else ""),
+                      "activity", bool(_bad)))
+    if _el.health()["degraded"]:
+        tiles.append(("!", "transaction log INCOMPLETE — events were dropped",
+                      "activity", True))
+except Exception:
+    pass
+
 tiles_html = "".join(
     f'<button class="tile" data-go="{view}">'
     f'<span class="tile-v{" alert" if alert else ""}">{value}</span>'

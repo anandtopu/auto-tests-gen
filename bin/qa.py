@@ -698,6 +698,64 @@ def cmd_apply_review(args):
     print(f"applied {applied} decision(s); coverage map regenerated")
 
 
+def cmd_events(args):
+    """Recent transactions (observability 5.2).
+
+    CLI parity with the Activity view, because the people most likely to need
+    the audit trail — during an incident, over SSH — are the least likely to
+    have a browser pointed at the dashboard.
+    """
+    import event_log
+    kinds = [k for k in (args.kind or "").split(",") if k]
+    rows, corrupt = event_log.read(limit=args.n, kinds=kinds or None,
+                                   actor=args.actor or None,
+                                   target=args.target or None,
+                                   outcome=args.outcome or None,
+                                   run_id=args.run or None)
+    health = event_log.health()
+    if not rows:
+        print("no transactions match. The log starts when the platform next "
+              "does something — it is not backfilled.")
+    for r in rows:
+        dur = f"{r['duration_ms']}ms" if r.get("duration_ms") is not None else ""
+        print(f"{r['ts']}  {r['outcome']:8}  {r['kind']:26}  "
+              f"{(r.get('actor') or ''):12}  {(r.get('target') or '')[:44]:46}{dur}")
+    # Never let a partial history read as a complete one — the same rule the
+    # cost report follows about unmeasured spend.
+    if corrupt:
+        print(f"\n({corrupt} unreadable line(s) skipped)", file=sys.stderr)
+    if health["degraded"]:
+        print(f"\nWARNING: this process could not write {health['dropped']} "
+              f"event(s) — the list above is INCOMPLETE.", file=sys.stderr)
+
+
+def cmd_alerts(args):
+    """Alert rules and their current evaluation (observability 5.2).
+
+    `notify=False`: listing rules must never send anything. Running a read-only
+    report that pages people would be its own outage.
+    """
+    import alert_rules
+    status = alert_rules.evaluate(notify=False)
+    if not status:
+        print("no alert rules configured (add them in the dashboard's Alerts view, "
+              "or edit reports/alert-rules.json)")
+        return
+    for s in status:
+        line = f"{s['status']:12}  {s['name']}"
+        if s.get("hits") is not None:
+            line += f"   {s['hits']}/{s['threshold']} in window"
+        print(line)
+        if s.get("reason"):
+            print(f"              reason: {s['reason']}")
+        for p in s.get("problems") or []:
+            print(f"              problem: {p}")
+    bad = [s for s in status if s["status"] == "unevaluable"]
+    if bad:
+        print(f"\n{len(bad)} rule(s) could NOT be evaluated — that is not the "
+              f"same as healthy.", file=sys.stderr)
+
+
 def cmd_flaky(args):
     """Flaky tests from CI health (roadmap 1.2): sometimes-passing entries, worst
     first. Feeds the quarantine decision — which stays a HUMAN call."""
@@ -853,6 +911,16 @@ if __name__ == "__main__":
     s.set_defaults(fn=cmd_run_inline)
     s = sub.add_parser("review"); s.set_defaults(fn=cmd_review)
     s = sub.add_parser("apply-review"); s.add_argument("csv"); s.set_defaults(fn=cmd_apply_review)
+    s = sub.add_parser("events")
+    s.add_argument("-n", type=int, default=40)
+    s.add_argument("--kind", default="", help="comma-separated, e.g. gate.refused,run.aborted")
+    s.add_argument("--actor", default="")
+    s.add_argument("--target", default="")
+    s.add_argument("--outcome", default="", help="ok|refused|failed|degraded")
+    s.add_argument("--run", default="", help="correlate everything from one run")
+    s.set_defaults(fn=cmd_events)
+    s = sub.add_parser("alerts")
+    s.set_defaults(fn=cmd_alerts)
     s = sub.add_parser("flaky")
     s.set_defaults(fn=cmd_flaky)
     s = sub.add_parser("quarantine")

@@ -355,7 +355,7 @@ ls reports/<KEY>-<test_repo>.log         # the gate's own log
 | 8 | spec unsatisfied | an approved scenario is uncovered and unwaived |
 | 64 | invalid key | the KEY has characters that are not path-safe |
 | 65 | needs clarification | the ticket was ambiguous — answer and re-run |
-| 75 | pipeline busy | another run holds the lock |
+| 75 | pipeline busy / unwritable | `PIPELINE_BUSY` = another run holds the lock; `PIPELINE_UNWRITABLE` = the scratch dir is not writable (a volume or permissions problem, NOT contention) |
 | 77 | over budget | cost or wall-clock ceiling hit before the gate |
 
 **A run that seems stuck** is usually waiting on the run lock. A killed run
@@ -369,6 +369,62 @@ make check-integrations                  # read-only; posts, pushes and sends no
 ```
 
 ---
+
+## 12. Answer "who did this, and what happened because of it?"
+
+Every state-changing request and every pipeline transaction is recorded in one
+append-only log with an actor, a target, an outcome and a run id — so questions
+that used to mean reading four files are one filter.
+
+```bash
+bin/qa.py events --run 1785612364-10233
+```
+
+That is the whole story of one run: what queued it, which phases ran, what the
+gate decided per repo, and what was notified. Other angles:
+
+```bash
+bin/qa.py events --outcome refused          # everything the platform said no to
+bin/qa.py events --actor anand --kind plan.approved
+bin/qa.py events --target PROJ-301          # one ticket, end to end
+```
+
+The dashboard's **Activity** view is the same data with filters and a CSV
+export for auditors.
+
+**What is deliberately NOT recorded:** GET requests (browsing is not a
+transaction), request bodies, and any secret value. A Settings change records
+*which keys* changed, never what they were set to.
+
+**If the log could not be written**, the view and the CLI say so — the list is
+labelled INCOMPLETE rather than presented as a full history. A partial audit
+trail that looks complete is worse than an obviously broken one.
+
+## 13. Get told when something goes wrong, without being spammed
+
+Define rules over that log in the dashboard's **Alerts** view: a kind, an
+optional outcome/target filter, a threshold, a window, a channel. They are
+evaluated on the nightly `make maintain` tick.
+
+```bash
+bin/qa.py alerts            # every rule and its current state
+```
+
+Behaviour worth knowing before you rely on it:
+
+* **Firing is a state.** A rule resolves when the condition clears, so the same
+  problem recurring alerts you again.
+* **A cooldown stops flapping.** A condition that keeps crossing the threshold
+  sends one message, not one per tick.
+* **A rule that cannot be evaluated says `unevaluable`** and names why. It is
+  never reported as healthy — silence from a broken evaluator would otherwise
+  look exactly like a healthy estate.
+* **Test sends for real.** The Test button uses the actual channel and does not
+  retry, because the failure you are testing for is a misconfigured channel.
+* **Digest mode** collapses a tick's firings into one message per channel.
+
+Every delivery attempt is recorded, so `notify.failed` tells you the difference
+between "nothing happened" and "we could not reach you".
 
 ## What this platform will not do
 

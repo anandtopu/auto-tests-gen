@@ -250,3 +250,40 @@ def test_the_request_body_is_never_stored():
     src = (ROOT / "bin" / "dashboard_server.py").read_text(encoding="utf-8")
     wrapper = src.split("def do_POST(self):", 1)[1].split("def _handle_post", 1)[0]
     assert "body" not in wrapper, "the wrapper must not touch the request body"
+
+
+# --------------------------------------------------- surfacing (E5, 5.1/5.2)
+def test_cli_events_and_alerts_are_registered():
+    """CLI parity matters because the people most likely to need the audit
+    trail — mid-incident, over SSH — are the least likely to have a browser
+    pointed at the dashboard."""
+    src = (ROOT / "bin" / "qa.py").read_text(encoding="utf-8")
+    for cmd in ('sub.add_parser("events")', 'sub.add_parser("alerts")'):
+        assert cmd in src, f"{cmd} missing from qa.py"
+    assert "def cmd_events" in src and "def cmd_alerts" in src
+
+
+def test_listing_alerts_from_the_cli_never_notifies():
+    """A read-only report that pages people would be its own outage."""
+    src = (ROOT / "bin" / "qa.py").read_text(encoding="utf-8")
+    body = src.split("def cmd_alerts", 1)[1].split("\ndef ", 1)[0]
+    assert "notify=False" in body
+
+
+def test_overview_tiles_only_exist_when_there_is_something_to_say():
+    """A permanent '0 alerts' tile is furniture people stop reading, and this
+    epic is about signals that still mean something when they appear."""
+    src = (ROOT / "bin" / "dashboard.py").read_text(encoding="utf-8")
+    block = src.split("# Observability 5.1", 1)[1].split("tiles_html =", 1)[0]
+    assert "if _firing:" in block, "the firing tile must be conditional"
+    assert "if _unevaluable:" in block, "unevaluable needs its OWN tile — it is not healthy"
+    assert "notify=False" in block, "rendering the Overview must never notify"
+
+
+def test_the_docs_describe_what_is_not_recorded():
+    """The reassurance a reader actually needs: GETs, bodies and secret values
+    stay out of the log."""
+    uc = (ROOT / "docs" / "use-cases.md").read_text(encoding="utf-8")
+    assert "deliberately NOT recorded" in uc
+    for claim in ("GET request", "request bodies", "secret value"):
+        assert claim.split()[0].lower() in uc.lower(), claim
