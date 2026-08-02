@@ -130,6 +130,7 @@ _budget_guard() {
     local msg="AI-QE run ${RUN_ID:-?} for ${KEY:-?} ABORTED before phase '$1': $why"
     case "${MODE:-}" in jira|plan|tests) TRACKER comment "$KEY" "$msg" || true ;; esac
     NOTIFY post "$msg" || true
+    EV run.aborted "${KEY:-?}" failed "phase=$1 reason=budget"
     exit 77
   fi
 }
@@ -260,6 +261,16 @@ GENERATE() {
 }
 
 RUN_ID=$(date +%s)-$RANDOM
+# Observability slice 1 (story 1.2). Runs previously emitted telemetry ONCE, at
+# the very end, so an abort, a gate refusal or a mid-phase death produced
+# nothing — the stream systematically under-reported failure, which is the
+# opposite of what it is for. EV records every exit path. `|| true` on top of
+# event_log's own never-raise contract: two guards, because logging must never
+# change a run's exit code.
+EV() {
+  python3 engine/lib/event_log.py --emit "$@" >/dev/null 2>&1 || true
+}
+export RUN_ID
 if [ "$MODE" = "pr" ]; then
   REPO=$2; PR=$3; export KEY="PR-${REPO}-${PR}"
   case "$KEY" in *[!A-Za-z0-9._-]*) echo "INVALID_KEY: $KEY"; exit 64;; esac
@@ -581,12 +592,15 @@ for name in "${GATE_NAMES[@]}"; do
   SHA=$(echo "$GOUT" | grep -oE "GATE_STATUS=COMMITTED [0-9a-f]+" | awk '{print $2}' || true)
   if [ $GRC -eq 0 ] && echo "$GOUT" | grep -q "GATE_STATUS=COMMITTED"; then
     SUMMARY+=$'\n'"- ${name}: committed ✅"; ST=committed
+    EV gate.committed "$name" ok "key=$KEY sha=$SHA"
     # Archive the generated-test commit as a reviewable diff (workspace is ephemeral)
     git -C "$t" show HEAD > "reports/runs/${RUN_ID}-${name}.diff" 2>/dev/null || true
   elif [ $GRC -eq 0 ]; then
     SUMMARY+=$'\n'"- ${name}: no changes ➖"; ST=no_changes
+    EV gate.no_changes "$name" ok "key=$KEY"
   else
     SUMMARY+=$'\n'"- ${name}: quarantined ❌ (exit $GRC, see reports)"; ST=quarantined
+    EV gate.refused "$name" refused "key=$KEY exit=$GRC"
   fi
   printf '%s\t%s\t%s\t%s\n' "$name" "$ST" "$GRC" "$SHA" >> out/gate_results.tsv
 done

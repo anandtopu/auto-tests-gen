@@ -177,3 +177,9 @@ adapters:
   cicd: adapters/cicd/jenkins.sh
   notify: adapters/notify/slack.sh
   telemetry: adapters/telemetry/splunk.sh
+
+# Transaction log (observability epic). The log is append-only, so retention is
+# shipped WITH writing rather than later: an unbounded log is a disk-full
+# incident scheduled for a future date.
+observability:
+  retain_days: 30

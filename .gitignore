@@ -42,3 +42,8 @@ reports/phase-cache/
 
 # Derived per-repo facts (repo_facts.py rebuild) — authored facts ARE tracked
 knowledge/facts/derived/
+
+# Transaction log (observability slice 1) — runtime data, never committed.
+# Rebuilt by running; retention is `observability.retain_days` via `make maintain`.
+reports/events/
+reports/events.db

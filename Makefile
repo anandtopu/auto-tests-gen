@@ -111,6 +111,8 @@ smoke-openhands:
 trace-matrix:         # requirement traceability: key -> scenario -> spec -> gate -> CI ([KEY=..] [CSV=1])
 	python3 engine/lib/trace_matrix.py $(KEY) $(if $(CSV),--csv,)
 
+RETAIN_DAYS ?= $(shell python3 -c "import yaml;print((yaml.safe_load(open('registry/org-config.yaml')) or {}).get('observability',{}).get('retain_days',30))" 2>/dev/null || echo 30)
+
 maintain:             # nightly estate maintenance (call from cron / a K8s CronJob):
 	@echo "== guidance sync (best-effort) =="
 	-python3 engine/lib/guidance_sync.py sync-all
@@ -118,6 +120,8 @@ maintain:             # nightly estate maintenance (call from cron / a K8s CronJ
 	-python3 bin/qa.py prune --keep 200
 	@echo "== prune finished OpenHands conversations (24h window) =="
 	-python3 engine/lib/openhands_events.py prune
+	@echo "== prune the transaction log (observability.retain_days) =="
+	-python3 engine/lib/event_log.py prune $(RETAIN_DAYS)
 	@echo "== per-repo harvested facts =="
 	-python3 engine/lib/repo_facts.py rebuild
 	@echo "== knowledge chunk rebuild =="
