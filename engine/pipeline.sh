@@ -325,7 +325,11 @@ else
   FIXV=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('fix_versions',[])))")
   if [ -n "$FIXV" ]; then python3 engine/lib/review_state.py release "$KEY" "$FIXV" jira; fi
   # Knowledge port: pull linked Confluence pages (budgeted) as analyze context
-  if [ "${AIQE_MOCK:-0}" = "1" ]; then echo "## Linked PRD (mock): discounts must be 1-90%" > out/confluence.md; \
+  # $AIQE_MOCK_RESOLVED, not the raw variable. Reading it again here meant
+  # AIQE_MOCK=true selected mock adapters everywhere ELSE and a REAL Confluence
+  # fetch right here — one run, two adapter modes, and an external call in what
+  # the operator believed was a dry run.
+  if [ "$AIQE_MOCK_RESOLVED" = "1" ]; then echo "## Linked PRD (mock): discounts must be 1-90%" > out/confluence.md; \
   else bash adapters/knowledge/confluence.sh get_linked_docs out/ticket.json > out/confluence.md || true; fi
   # P0: issue-type-aware generation — bug fixes get regression guidance,
   # security fixes get negative/abuse-case guidance, stories the extend-first bias

@@ -18,7 +18,24 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if [ "${AIQE_MOCK:-1}" = "1" ] && [ "${AIQE_REAL_LLM:-0}" != "1" ]; then
+# Resolved, not compared to a literal. This guard is what stands between
+# `make cache-probe` and two REAL triage runs against a paid provider, and
+# `AIQE_MOCK=true` used to walk straight past it: the guard read "not 1" as
+# "real mode", which is backwards for someone typing a truthy word. Verified —
+# it proceeded and printed `input=0 cache_read=0`, zeros that look like a
+# measurement of a cache that was never exercised.
+_mock=1
+case "$(printf '%s' "${AIQE_MOCK-1}" | tr 'A-Z' 'a-z')" in
+  0|false|no|off) _mock=0 ;;
+  1|true|yes|on)  _mock=1 ;;
+  *) _mock=1; echo "WARNING: AIQE_MOCK='${AIQE_MOCK}' is not a recognized boolean" \
+       "- assuming mock, so nothing is billed." >&2 ;;
+esac
+_real=0
+case "$(printf '%s' "${AIQE_REAL_LLM-0}" | tr 'A-Z' 'a-z')" in
+  1|true|yes|on) _real=1 ;;
+esac
+if [ "$_mock" = "1" ] && [ "$_real" != "1" ]; then
   echo "cache-probe needs real phases: run with AIQE_MOCK=0 (or AIQE_MOCK=1 AIQE_REAL_LLM=1"
   echo "for parity mode against the demo estate). Nothing was measured."
   exit 2

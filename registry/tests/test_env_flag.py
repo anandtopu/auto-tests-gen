@@ -6,6 +6,7 @@ meant REAL adapters and real model spend. Somebody enabling mock mode by writing
 codebase fails safe, and this one failed toward spending money.
 """
 import inspect
+import os
 import pathlib
 import subprocess
 import sys
@@ -189,3 +190,45 @@ def test_ssl_verification_is_deliberately_left_strict():
         assert 'AIQE_SSL_VERIFY' in s
         assert 'env_flag' not in s.split("AIQE_SSL_VERIFY")[1][:200], \
             "{}: SSL verification must stay strict-by-literal-0".format(mod)
+
+
+def test_the_pipeline_resolves_adapter_mode_in_exactly_one_place():
+    """The first fix resolved AIQE_MOCK once at the top — and missed a second
+    read further down.
+
+    That left AIQE_MOCK=true selecting mock adapters everywhere except one
+    branch, which fetched Confluence for real: a single run in two adapter
+    modes, making an external call in what the operator believed was a dry run.
+    A partially-applied fix is worse than none, because the top of the file now
+    looks careful.
+    """
+    src = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
+    code = "\n".join(l for l in src.split("\n") if not l.strip().startswith("#"))
+    # One resolver, and every consumer reads its result.
+    assert code.count("${AIQE_MOCK-0}") == 1, "more than one place resolves AIQE_MOCK"
+    assert "${AIQE_MOCK:-0}" not in code, \
+        "a branch still compares the raw AIQE_MOCK against a literal"
+    assert code.count("$AIQE_MOCK_RESOLVED") >= 2, \
+        "the resolved value is computed but not consumed"
+
+
+def test_cache_probe_refuses_mock_mode_however_it_is_spelled():
+    """This guard is what stands between `make cache-probe` and two REAL triage
+    runs against a paid provider. `AIQE_MOCK=true` walked past it — the check
+    read "not 1" as "real mode" — and the probe then reported `input=0
+    cache_read=0`: zeros presented as a measurement of a cache never exercised.
+    """
+    import subprocess
+    import work_queue
+    src = (ROOT / "bin/cache-probe.sh").read_text(encoding="utf-8")
+    assert "1|true|yes|on)" in src and "${AIQE_MOCK-1}" in src
+    assert '"${AIQE_MOCK:-1}" = "1"' not in src
+
+    for spelling in ("1", "true", "YES", "on"):
+        r = subprocess.run([work_queue.bash_exe(), str(ROOT / "bin/cache-probe.sh")],
+                           capture_output=True, text=True, cwd=ROOT, timeout=120,
+                           stdin=subprocess.DEVNULL,
+                           env={**os.environ, "AIQE_MOCK": spelling,
+                                "AIQE_REAL_LLM": "0"})
+        assert r.returncode == 2, f"AIQE_MOCK={spelling} did not refuse (exit {r.returncode})"
+        assert "Nothing was measured" in r.stdout
