@@ -50,7 +50,15 @@ def _tests_for(key):
 
 
 def verify(key):
-    """{repo: {passed: bool, log: str}} — read-only throughout."""
+    """{repo: {passed, log}} — read-only throughout.
+
+    `passed` has THREE states, not two. True and False mean the tests ran and
+    said so; **None means we could not find out** — the clone failed, or the
+    mapped spec files are not in the repo. The first version recorded both of
+    those as `passed: False`, which reads as "these tests are broken" when the
+    truth is "we never ran them". That is the difference between a reviewer
+    investigating a regression and a reviewer fixing a mapping.
+    """
     mock = env_flag.mock()
     scm = ROOT / ("adapters/mock/scm.sh" if mock else "adapters/scm/github.sh")
     results = {}
@@ -61,7 +69,8 @@ def verify(key):
                            text=True, encoding="utf-8", errors="replace",
                            stdin=subprocess.DEVNULL)
         if r.returncode != 0 or not dest.is_dir():
-            results[repo] = {"passed": False,
+            # Not a test failure: nothing was executed.
+            results[repo] = {"passed": None, "unverifiable": True,
                              "log": f"clone_ro failed: {r.stderr.strip()[:200]}"}
             continue
         try:
@@ -73,8 +82,11 @@ def verify(key):
             test_cmd = "node --test"
         present = [f for f in files if (dest / f).exists()]
         if not present:
-            results[repo] = {"passed": False,
-                             "log": "no mapped spec files exist in the repo"}
+            # The catalog points at files this repo does not have — a mapping
+            # problem to fix, not a regression to investigate.
+            results[repo] = {"passed": None, "unverifiable": True,
+                             "log": "no mapped spec files exist in the repo "
+                                    "(stale catalog mapping, not a failure)"}
             continue
         # Same contract as the gate: run INSIDE the repo with TREPO_DIR="."
         # — with-env embeds the path in a python -c string, and a Windows
@@ -84,7 +96,7 @@ def verify(key):
              "bash", "-c", f"{test_cmd} {' '.join(present)}"],
             cwd=dest, capture_output=True, text=True, encoding="utf-8",
             errors="replace", stdin=subprocess.DEVNULL, timeout=600)
-        results[repo] = {"passed": run.returncode == 0,
+        results[repo] = {"passed": run.returncode == 0, "unverifiable": False,
                          "log": (run.stdout + run.stderr)[-400:]}
     # Attach to plan state — information for the reviewer, gating nothing.
     try:
@@ -93,10 +105,17 @@ def verify(key):
         with fs_lock.lock(plan_state.FILE):
             state = plan_state.load()
             e = state.get(key, {"history": []})
+            # An overall "passed" only when something actually ran AND
+            # everything that ran passed. If any repo was unverifiable the
+            # answer is None: reporting True would claim coverage nobody
+            # checked, and False would blame tests that never executed.
+            ran = [v for v in results.values() if v["passed"] is not None]
             e["verification_run"] = {
                 "ts": time.time(),
-                "passed": all(v["passed"] for v in results.values()) if results
-                else None,
+                "passed": (all(v["passed"] for v in ran)
+                           if ran and len(ran) == len(results) else None),
+                "unverifiable": [k for k, v in results.items()
+                                 if v["passed"] is None],
                 "repos": {k: v["passed"] for k, v in results.items()}}
             state[key] = e
             plan_state._save(state)
@@ -115,13 +134,24 @@ def main(argv):
     if not results:
         print(f"spec-verify {key}: no cataloged tests map to this key")
         return 1
-    ok = True
+    failed = unverified = False
     for repo, v in results.items():
-        print(f"{repo}: {'PASS' if v['passed'] else 'FAIL'}")
-        if not v["passed"]:
-            ok = False
+        # UNVERIFIED is its own word. Printing FAIL for a repo that never ran a
+        # test sends a reviewer hunting for a regression that does not exist.
+        state = ("UNVERIFIED" if v["passed"] is None
+                 else "PASS" if v["passed"] else "FAIL")
+        print(f"{repo}: {state}")
+        if v["passed"] is None:
+            unverified = True
+        elif not v["passed"]:
+            failed = True
+        if v["passed"] is not True:
             print("  " + v["log"].replace("\n", "\n  ")[:300])
-    return 0 if ok else 1
+    if failed:
+        return 1
+    # Exit 2 for "nothing was established" — distinct from a real failure, so a
+    # script can tell "the tests broke" from "we could not run them".
+    return 2 if unverified else 0
 
 
 if __name__ == "__main__":
