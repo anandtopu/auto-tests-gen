@@ -249,3 +249,64 @@ def test_the_server_survived_every_attack(live_server):
     base, _ = live_server
     status, _ = _request(f"{base}/api/items", headers=_auth())
     assert status == 200, "the server did not survive the attacks above"
+
+# ---- destructive request flags must not ride on Python truthiness -----------
+def _flag():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "_ds_flag", ROOT / "bin/dashboard_server.py")
+    # Importing the whole server module has side effects; read the function out
+    # of the source instead and exec just it.
+    src = (ROOT / "bin/dashboard_server.py").read_text(encoding="utf-8")
+    start = src.index("def _json_flag(")
+    end = src.index("def _classify_status(")
+    ns = {}
+    exec(src[start:end], ns)          # noqa: S102 - our own source, no input
+    return ns["_json_flag"]
+
+
+def test_a_string_false_never_triggers_a_destructive_flag():
+    """`p.get("factory")` used Python truthiness, so the STRING "false" — or
+    "no", or any spelling a caller might send MEANING the opposite — is truthy
+    and would have emptied the repo registry and team notes.
+
+    `dry` happens to fail safe under truthiness (any non-empty string means
+    "preview"), which is exactly why the inconsistency survived: the harmless
+    case looked like proof the pattern was fine.
+    """
+    f = _flag()
+    # `unusable=True` on the falsey spellings, `unusable=False` on the truthy
+    # ones: each spelling must be RECOGNIZED, not merely land on the right
+    # answer because the safe default happened to agree. Asserting with the
+    # default pointing the same way cannot tell those apart — a version that
+    # recognized only "0" passed that test.
+    for spelling in ("false", "False", "no", "off", "0", ""):
+        assert f(spelling, unusable=True) is False, spelling
+    for spelling in ("true", "TRUE", "yes", "on", "1"):
+        assert f(spelling, unusable=False) is True, spelling
+
+
+def test_real_booleans_and_absence_still_work():
+    f = _flag()
+    assert f(True, unusable=False) is True
+    assert f(False, unusable=True) is False, "an explicit false must be honoured"
+    assert f(None, unusable=True) is False, "absent means not asked for"
+    assert f(1, unusable=False) is True and f(0, unusable=True) is False
+
+
+def test_an_unreadable_value_resolves_per_flag():
+    """The safe side differs by flag: do not destroy on a value we cannot read,
+    but DO prefer the preview. Same rule as C13's env knobs — resolve toward
+    the outcome you can recover from by running it again."""
+    f = _flag()
+    weird = {"nested": "object"}
+    assert f(weird, unusable=False) is False, "destructive flag defaulted ON"
+    assert f(weird, unusable=True) is True, "dry-run flag defaulted OFF"
+
+
+def test_the_endpoint_wires_the_safe_side_to_each_flag():
+    src = (ROOT / "bin/dashboard_server.py").read_text(encoding="utf-8")
+    assert '_json_flag(p.get("factory"), unusable=False)' in src
+    assert '_json_flag(p.get("force"), unusable=False)' in src
+    assert '_json_flag(p.get("dry"), unusable=True)' in src
+    assert 'if p.get("factory"):' not in src, "raw truthiness is back"

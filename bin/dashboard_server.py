@@ -75,6 +75,36 @@ import spec_savings
 import env_flag                     # AIQE_MOCK means what it says
 
 
+def _json_flag(value, unusable):
+    """A JSON request flag, resolved strictly.
+
+    `p.get("factory")` used Python truthiness, so the STRING "false" — or "no",
+    or any other spelling a caller might send meaning the opposite — is truthy
+    and would have triggered a factory reset that empties the repo registry and
+    team notes. `dry` happens to fail safe under truthiness (any non-empty
+    string means "preview"), which is exactly why the inconsistency survived:
+    the harmless case looked like proof the pattern was fine.
+
+    `unusable` is the answer for a value we cannot read, and it differs per
+    flag: False for destructive ones (do not destroy on a value we do not
+    understand) and True for `dry` (prefer the preview). Same rule as C13's
+    knobs — resolve toward the outcome you can recover from.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False                       # absent means "not asked for"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return bool(value)
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("1", "true", "yes", "on"):
+            return True
+        if v in ("0", "false", "no", "off", ""):
+            return False
+    return unusable
+
+
 def _classify_status(code):
     """HTTP status -> (event kind, outcome).
 
@@ -1046,11 +1076,13 @@ class Handler(BaseHTTPRequestHandler):
             cmd = [sys.executable, str(ROOT / "engine/lib/demo_data.py"), "--json"]
             # Honor dry-run intent: silently ignoring {"dry": true} would turn a
             # caller's preview request into a REAL destructive clear.
-            if p.get("dry"):
+            # Destructive flags resolve toward NOT destroying; `dry` resolves
+            # toward the preview. See _json_flag.
+            if _json_flag(p.get("dry"), unusable=True):
                 cmd.append("--dry")
-            if p.get("force"):
+            if _json_flag(p.get("force"), unusable=False):
                 cmd.append("--force")
-            if p.get("factory"):
+            if _json_flag(p.get("factory"), unusable=False):
                 cmd.append("--factory")
             r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True,
                                encoding="utf-8", errors="replace",
