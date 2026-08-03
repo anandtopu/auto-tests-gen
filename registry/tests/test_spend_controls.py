@@ -252,3 +252,64 @@ def test_hit_rate_floor_flags_in_report(tmp_path, monkeypatch):
         assert "BELOW FLOOR" in md
     else:
         assert "BELOW FLOOR" not in md, "no floor configured -> no flag"
+
+
+# ---- an uncountable ledger must not read as a cheap run ---------------------
+def test_an_unreadable_ledger_makes_the_ceiling_unenforceable(tmp_path, monkeypatch):
+    """`record()` and `total()` both swallow OSError, so a ledger that cannot
+    be written reports $0.00 spent — and `enforceability()` answered "enforced"
+    while counting nothing.
+
+    Demonstrated before the fix: $25.00 of real spend against a $1.00 ceiling,
+    reported as enforced and within budget. Cost cannot be invented, so the
+    ceiling still cannot abort on spend it never saw — but the INABILITY to
+    enforce is no longer silent, which is the same remedy R1 applied to
+    unpriced providers.
+    """
+    import budget
+    res = tmp_path / "generate.json"
+    res.write_text(json.dumps({"total_cost_usd": 25.00, "num_turns": 8,
+                               "usage": {"input_tokens": 1000, "output_tokens": 500}}),
+                   encoding="utf-8")
+    monkeypatch.setenv("MAX_COST_USD_PER_RUN", "1.00")
+
+    bad = tmp_path / "cost.tsv"
+    bad.mkdir()                                  # a directory: writes raise
+    monkeypatch.setattr(budget, "LEDGER", bad)
+    budget.record("generate", str(res))           # silently drops the row
+    spent, metered, _ = budget.total()
+    assert (spent, metered) == (0.0, 0), "the swallow is what makes this dangerous"
+
+    state, msg = budget.enforceability()
+    assert state == "unenforceable", "a $0.00 total was reported as enforced"
+    assert "BUDGET_UNENFORCEABLE" in msg
+    assert "not measured" in msg, "the message must say what $0.00 means here"
+
+
+def test_a_healthy_and_a_missing_ledger_both_stay_enforced(tmp_path, monkeypatch):
+    """A MISSING ledger is normal — no phase has run yet — and must not raise a
+    false alarm, or the check gets ignored the way a permanent warning does."""
+    import budget
+    res = tmp_path / "generate.json"
+    res.write_text(json.dumps({"total_cost_usd": 0.50, "num_turns": 2,
+                               "usage": {"input_tokens": 10, "output_tokens": 5}}),
+                   encoding="utf-8")
+    monkeypatch.setenv("MAX_COST_USD_PER_RUN", "1.00")
+
+    monkeypatch.setattr(budget, "LEDGER", tmp_path / "ok" / "cost.tsv")
+    budget.record("generate", str(res))
+    assert budget.total()[1] == 1
+    assert budget.enforceability()[0] == "enforced"
+
+    monkeypatch.setattr(budget, "LEDGER", tmp_path / "never" / "cost.tsv")
+    assert budget.enforceability()[0] == "enforced"
+
+
+def test_the_countability_check_runs_before_the_pricing_check(tmp_path, monkeypatch):
+    """An uncountable ledger has no rows, so the unpriced-provider logic sees
+    nothing to complain about and would answer "enforced". Order matters."""
+    src = (ROOT / "engine/lib/budget.py").read_text(encoding="utf-8")
+    body = src[src.index("def enforceability("):]
+    body = body[:body.index("\ndef ", 1)]
+    assert body.index("ledger_problem()") < body.index("if metered:"), \
+        "the pricing verdict is reached before asking whether spend is countable"

@@ -269,6 +269,35 @@ def unpriced(ledger=None):
     return calls, sorted(provs)
 
 
+def ledger_problem():
+    """Why the ledger cannot be counted, or "" when it can.
+
+    `record()` and `total()` both swallow OSError, so an unwritable or
+    unreadable ledger silently reports $0.00 spent — and `enforceability()`
+    then answered "enforced" while counting nothing. Demonstrated: $25.00 of
+    real spend against a $1.00 ceiling reported as enforced and within budget.
+
+    Checked at VERDICT time rather than flagged at record time, because each
+    phase records in its own process and an in-memory flag would not survive to
+    the process that renders the verdict.
+
+    A MISSING ledger is normal — no phase has run yet — and is not a problem.
+    """
+    p = LEDGER
+    try:
+        if p.exists():
+            if not p.is_file():
+                return f"{p} exists but is not a regular file"
+            p.read_text(encoding="utf-8", errors="replace")
+            return ""
+        parent = p.parent
+        if parent.exists() and not os.access(parent, os.W_OK):
+            return f"{parent} is not writable, so no spend can be recorded"
+    except OSError as e:
+        return f"{p} cannot be read ({type(e).__name__})"
+    return ""
+
+
 def enforceability(ledger=None):
     """(state, message). state is 'enforced' | 'partial' | 'unenforceable'.
 
@@ -280,6 +309,14 @@ def enforceability(ledger=None):
     _, metered, _ = total(ledger)
     if cost_limit <= 0:
         return "unenforceable", "no cost limit configured (only wall-clock applies)"
+    # Before anything about prices: can the spend be COUNTED at all? An
+    # unreadable ledger makes every total $0.00, which reads as a cheap run.
+    broken = ledger_problem()
+    if broken:
+        return "unenforceable", (
+            f"BUDGET_UNENFORCEABLE: {broken}. Spend cannot be counted, so the "
+            f"${cost_limit:.2f} ceiling ({source}) is NOT being applied — a "
+            f"$0.00 total here means 'not measured', not 'nothing spent'.")
     if not calls:
         return "enforced", ""
     who = ", ".join(provs)
