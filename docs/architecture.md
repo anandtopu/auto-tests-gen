@@ -1094,11 +1094,16 @@ recording, because none of them looks wrong in isolation:
 
 | Where | What it reported | What was true |
 |---|---|---|
-| Waivers | a healthy waiver, "44d left" | the scenario id was not in the spec; it protected nothing |
-| `AIQE_SPEC_ENFORCE=stict` | enforcement `off` | the value was unusable; nobody chose off |
-| Coverage drift | baseline advanced, no growth next run | the alarm was never delivered |
-| `spec_verify` | `passed: False` | the clone failed; the tests never ran |
+| Waivers | a healthy waiver, "44d left" | the scenario id was not in the spec |
 | `AIQE_MOCK=true` | real adapters, real spend | somebody was asking FOR mock |
+| `budget`, unwritable ledger | `enforced`, `$0.00` | $25.00 spent, uncountable |
+| bare `os.replace` (9 sites) | the write succeeded | Windows discarded it |
+
+Four illustrations; **[diagram 21](diagrams.md) holds the complete list.** It is
+kept in one place on purpose — this section carried a second copy of the table
+for a while, the two drifted apart (13 rows against 14, both prose claiming
+"fourteen"), and a document disagreeing with itself about how often the system
+misreports things is a poor advertisement for the clause.
 
 The shape is always the same: **the system could not establish a fact, and said
 something false-but-plausible instead of saying so.** The safe-looking default —
@@ -1113,7 +1118,7 @@ alert rules and §5.12's cost bases had already arrived at this independently �
 `unevaluable` is never `ok`, `unknown` is never `$0` — which is the argument for
 promoting it from a local habit to a clause.
 
-**The count reached fourteen, and two sub-patterns account for most of them.**
+**Two sub-patterns account for most of them.**
 
 *Notify-then-persist* (four modules, three wrong). `coverage_drift`,
 `spec_drift` and `vector_index` each recorded "already reported" BEFORE

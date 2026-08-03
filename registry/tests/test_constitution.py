@@ -129,3 +129,46 @@ def test_no_python_file_carries_a_syntax_warning():
             except SyntaxError as e:
                 problems.append(f"{p.relative_to(ROOT)}: {e}")
     assert not problems, "python files with syntax warnings:\n  " + "\n  ".join(problems)
+
+
+def test_the_docs_do_not_contradict_themselves_about_their_own_size():
+    """CLAUDE.md claimed 20 Mermaid diagrams when there were 22, and the C13
+    table existed twice — 13 rows in architecture.md against 14 in diagrams.md,
+    with both prose blocks claiming "fourteen".
+
+    A document disagreeing with itself about how often the system misreports
+    things is a poor advertisement for the clause it is describing. The
+    duplicate table is gone (architecture keeps four illustrations and points
+    at diagram 21); this pins the counts that remain.
+    """
+    import yaml
+    diag = (ROOT / "docs/diagrams.md").read_text(encoding="utf-8")
+    claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    arch = (ROOT / "docs/architecture.md").read_text(encoding="utf-8")
+
+    real = diag.count("```mermaid")
+    m = re.search(r"(\d+) Mermaid diagrams", claude)
+    assert m and int(m.group(1)) == real, \
+        f"CLAUDE.md says {m and m.group(1)} diagrams; docs/diagrams.md has {real}"
+
+    con = yaml.safe_load((ROOT / "specs/platform/constitution.yaml")
+                         .read_text(encoding="utf-8"))
+    latest = max(int(c["id"][1:]) for c in con["clauses"])
+    assert f"C{latest}" in claude, \
+        f"CLAUDE.md's non-negotiables do not mention the newest clause C{latest}"
+
+    # The C13 list lives in ONE place. architecture may illustrate, not duplicate.
+    assert "diagrams.md) holds the complete list" in arch, \
+        "architecture.md no longer delegates the full list — the duplicate is back"
+    # Count rows in THAT table, not document-wide: a whole-file count is
+    # dominated by unrelated tables and cannot notice this one growing (the
+    # first version of this assertion missed exactly that, and a mutation
+    # adding three rows sailed past it).
+    head = "| Where | What it reported | What was true |"
+    assert head in arch
+    tbl = arch[arch.index(head):]
+    tbl = tbl[:tbl.index("\n\n")]
+    rows = [l for l in tbl.split("\n") if l.startswith("|")][2:]   # drop hd+sep
+    assert len(rows) <= 5, (
+        f"architecture.md's illustration table has grown to {len(rows)} rows — "
+        "it is becoming a second copy of the canonical list in diagrams.md")

@@ -662,7 +662,7 @@ this diagram exists partly to prevent recurring.
 
 ## 21. The failure this platform kept making (constitution C13)
 
-Eight defects found in one session were one defect. Each time, the system could
+The defects below, found in one session, were all one defect. Each time, the system could
 not establish a fact and returned a plausible answer instead of saying so — and
 the plausible answer was always the SAFE-LOOKING one, which is what made it
 invisible. `off`, `False`, "no growth" and `$0` all read as decisions somebody
@@ -690,7 +690,7 @@ flowchart TD
   class WRONG,HARM bad;
 ```
 
-**The fourteen, and what each said instead of "I don't know":**
+**Each one, and what it said instead of "I don't know":**
 
 | Where | Said | Truth |
 |---|---|---|
@@ -707,6 +707,8 @@ flowchart TD
 | `spec_drift`, channel down | "no drift" next run | the alarm was never delivered |
 | `vector_index._notify_once` | "notified today" | the send failed |
 | `budget`, unwritable ledger | `enforced`, `$0.00` spent | $25.00 spent, uncountable |
+| `tier.py` classifier output | no classifications at all | a bracketed aside broke the parse |
+| bare `os.replace` (9 sites) | the write succeeded | Windows discarded it |
 
 **The direction is the design decision, not the third state.** Both mock-mode
 knobs resolve an unusable value toward "wrote nothing" — but that means MOCK for
