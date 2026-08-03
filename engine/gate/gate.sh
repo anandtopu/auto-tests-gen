@@ -93,9 +93,24 @@ if [ -n "$FOUND" ]; then echo "SECRET_PATTERN"; exit 3; fi
 # OpenHands Stop hook so an agent is told its work would be rejected BEFORE it
 # declares the task done — without granting the agent commit authority. The gate
 # remains the only thing that ever commits or pushes.
-if [ "${AIQE_GATE_CHECK_ONLY:-0}" = "1" ]; then
-  echo "GATE_STATUS=WOULD_COMMIT"; exit 0
-fi
+# Only the literal `1` used to mean check-only, so AIQE_GATE_CHECK_ONLY=true
+# fell through and the gate COMMITTED AND PUSHED for an operator who asked for a
+# dry run. Here the safe direction is the opposite of AIQE_MOCK's: an
+# unrecognized value must mean check-only, because the two outcomes are "a run
+# that wrote nothing" and "a commit pushed to somebody's repository".
+# `-0` not `:-0`, so an EMPTY value is distinguishable from an unset one and
+# falls to the warning branch. Unset means commit (the gate's normal job), but
+# `AIQE_GATE_CHECK_ONLY=` is someone trying to say something; if they meant a
+# dry run, treating it as commit pushes to a real repository, while treating it
+# as check-only costs them a warning and a re-run.
+case "$(printf '%s' "${AIQE_GATE_CHECK_ONLY-0}" | tr 'A-Z' 'a-z')" in
+  0|false|no|off) ;;                                   # commit for real
+  1|true|yes|on)  echo "GATE_STATUS=WOULD_COMMIT"; exit 0 ;;
+  *) echo "WARNING: AIQE_GATE_CHECK_ONLY='${AIQE_GATE_CHECK_ONLY}' is not a" \
+          "recognized boolean (1/true/yes/on or 0/false/no/off) — treating as" \
+          "CHECK-ONLY. Nothing was committed or pushed." >&2
+     echo "GATE_STATUS=WOULD_COMMIT"; exit 0 ;;
+esac
 
 # 6. Commit & push (branch protection blocks main; token scoped to branches)
 git add -A

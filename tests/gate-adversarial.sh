@@ -52,4 +52,39 @@ printf 'const {test}=require("node:test");const a=require("node:assert");\ntest(
 echo '{"file":"suites/orders/failing.spec.js","mapping":{"status":"confirmed"}}' >> catalog/generated.jsonl
 run_gate ADV-FAILING; check 5 $? "failing-test blocked (not committed)"
 
+# A dry run that is not dry. AIQE_GATE_CHECK_ONLY was compared against the
+# literal "1", so `=true` fell through and the gate COMMITTED AND PUSHED for an
+# operator who asked it not to. Unlike AIQE_MOCK the safe direction here is
+# check-only: the two outcomes are "a run that wrote nothing" and "a commit in
+# somebody's repository".
+setup
+printf 'const {test}=require("node:test");
+test("ok", async()=>{});
+' > suites/orders/dry.spec.js
+echo '{"file":"suites/orders/dry.spec.js","mapping":{"status":"confirmed"}}' >> catalog/generated.jsonl
+before=$(git rev-parse HEAD)
+AIQE_GATE_CHECK_ONLY=true run_gate ADV-DRYRUN; rc=$?
+check 0 $rc "check-only honours 'true'"
+cd "$ROOT/workspace/tests/e2e-api-tests-1" 2>/dev/null || cd "$ROOT"
+after=$(git rev-parse HEAD 2>/dev/null || echo "$before")
+if [ "$before" = "$after" ]; then echo "PASS 'true' dry run committed nothing"
+else echo "FAIL 'true' dry run CREATED A COMMIT"; fail=1; fi
+grep -q "WOULD_COMMIT" /tmp/gate-adv.log && echo "PASS reported WOULD_COMMIT"   || { echo "FAIL did not report WOULD_COMMIT"; fail=1; }
+cd "$ROOT"
+
+# An unusable value must also refuse to write, and say why.
+setup
+printf 'const {test}=require("node:test");
+test("ok", async()=>{});
+' > suites/orders/dry2.spec.js
+echo '{"file":"suites/orders/dry2.spec.js","mapping":{"status":"confirmed"}}' >> catalog/generated.jsonl
+before=$(git rev-parse HEAD)
+AIQE_GATE_CHECK_ONLY=bogus run_gate ADV-DRYRUN2; rc=$?
+check 0 $rc "unusable check-only value refuses to commit"
+cd "$ROOT/workspace/tests/e2e-api-tests-1" 2>/dev/null || cd "$ROOT"
+after=$(git rev-parse HEAD 2>/dev/null || echo "$before")
+if [ "$before" = "$after" ]; then echo "PASS unusable value committed nothing"
+else echo "FAIL unusable value CREATED A COMMIT"; fail=1; fi
+cd "$ROOT"
+
 rm -rf workspace/tests; exit $fail
