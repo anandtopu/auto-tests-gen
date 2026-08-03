@@ -690,7 +690,7 @@ flowchart TD
   class WRONG,HARM bad;
 ```
 
-**The eight, and what each one said instead of "I don't know":**
+**The fourteen, and what each said instead of "I don't know":**
 
 | Where | Said | Truth |
 |---|---|---|
@@ -702,6 +702,11 @@ flowchart TD
 | Coverage drift, channel down | "no growth" next run | alarm never delivered |
 | `spec_verify`, clone failed | `passed: False` | nothing ran |
 | `AIQE_MOCK=true` / `AIQE_GATE_CHECK_ONLY=true` | real adapters / a real commit | somebody asked for the dry run |
+| `{"factory": "false"}` | a factory reset | a caller saying *not* to |
+| `run_record`, torn TSV line | the whole record lost | one line was partial |
+| `spec_drift`, channel down | "no drift" next run | the alarm was never delivered |
+| `vector_index._notify_once` | "notified today" | the send failed |
+| `budget`, unwritable ledger | `enforced`, `$0.00` spent | $25.00 spent, uncountable |
 
 **The direction is the design decision, not the third state.** Both mock-mode
 knobs resolve an unusable value toward "wrote nothing" — but that means MOCK for
@@ -712,3 +717,38 @@ outcome you can recover from by running it again*.
 **Where it was already right.** §5.17's alerting (`unevaluable` is never `ok`)
 and §5.12's cost bases (`unknown` is never `$0`) reached this independently,
 which is why C13 was promoted from a habit to a clause rather than invented.
+
+### The sub-pattern that produced four of them
+
+Four modules independently wrote "notify once per change", and three got it
+wrong the same way:
+
+```mermaid
+flowchart LR
+  D["a change worth reporting"] --> W
+
+  subgraph WRONG["what three of them did"]
+    W["record the change"] --> N1["send"] --> L["send fails —<br/>and the change is<br/>already recorded"]
+    L --> Q["next run sees NO change<br/>-> never retries"]
+  end
+
+  D --> R
+  subgraph RIGHT["what C13 requires"]
+    R["send"] --> OK{"delivered?"}
+    OK -->|yes| REC["record the change"]
+    OK -->|no| KEEP["leave the old state —<br/>next run reports it again"]
+  end
+
+  classDef bad stroke-dasharray: 4 3;
+  class W,N1,L,Q bad;
+```
+
+**The dedup key and the delivery receipt are not the same fact.** Recording the
+change is what stops a nightly job re-alarming forever; it is also what stops it
+retrying. They look identical until the channel is down, which is exactly when
+the alarm matters.
+
+`alert_rules` is the one that got it right, and the only one designed with this
+in mind: firing is a STATE that resolves, and it records `notify.sent` /
+`notify.failed` separately. The other three were each written as a one-line
+"have we already said this?" check.

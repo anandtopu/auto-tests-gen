@@ -1113,6 +1113,29 @@ alert rules and §5.12's cost bases had already arrived at this independently �
 `unevaluable` is never `ok`, `unknown` is never `$0` — which is the argument for
 promoting it from a local habit to a clause.
 
+**The count reached fourteen, and two sub-patterns account for most of them.**
+
+*Notify-then-persist* (four modules, three wrong). `coverage_drift`,
+`spec_drift` and `vector_index` each recorded "already reported" BEFORE
+delivering, so a channel outage lost the alarm permanently — the next run saw no
+change and never retried. The dedup key and the delivery receipt are not the
+same fact; they only look identical while the channel is up. `alert_rules`, the
+one module designed with this in mind, is the one that got it right.
+
+*Swallow-then-report-success.* `budget.record()` and `total()` both discard
+`OSError`, so an unwritable ledger reports `$0.00` and `enforceability()`
+answered `enforced` — measured: $25.00 of real spend against a $1.00 ceiling,
+reported as within budget. The remedy is the one R1 already applied to unpriced
+providers, and the check has to run BEFORE the pricing verdict, because an
+uncountable ledger has no rows for the pricing logic to object to.
+
+*Where the direction is not obvious.* The safe resolution for an unusable value
+is "the outcome you can recover from by running it again" — which is MOCK for
+`AIQE_MOCK` and CHECK-ONLY for `AIQE_GATE_CHECK_ONLY`, opposite literal values.
+`AIQE_SSL_VERIFY` is deliberately left strict-by-literal-`0` and pinned that
+way: loosening it would make turning TLS verification off easier, which is the
+wrong direction to improve.
+
 **C12 was also missing.** It had been cited in CLAUDE.md for a full release
 cycle while the constitution stopped at C11: a rule documented as enforced that
 did not exist. `test_every_pin_exists` catches the opposite direction — a clause
