@@ -87,16 +87,33 @@ def check(notify=False):
                 stale.append(s.get("id", "?"))
         entry = plan_state.get(key)
         prev = set(entry.get("stale_scenarios") or [])
-        if set(stale) != prev:
+        changed = set(stale) != prev
+        approved = entry.get("status") == "approved"
+
+        # Deliver BEFORE recording. `_record` used to persist the new stale set
+        # first, so the next run saw `changed == False` and never notified
+        # again: a channel outage lost the alarm permanently. Identical to the
+        # coverage-drift bug — "notify once per change" is only safe if the
+        # change is committed once the notification actually lands.
+        delivered = True
+        if notify and approved and changed and stale:
+            delivered = _notify(
+                f"[ai-qe] APPROVED spec for {key} went stale: "
+                f"scenarios {', '.join(stale)} reference surface that "
+                f"no longer exists — re-approve, edit, or waive")
+
+        # An undelivered alarm leaves the previous state in place so the next
+        # run reports it again. Resolution still records: `delivered` starts
+        # True and only the notify branch can clear it, and that branch needs a
+        # non-empty `stale` — so when drift clears there is nothing to have
+        # failed. (An earlier version spelled that out as `delivered or not
+        # stale`; the second clause is unreachable, and a condition that cannot
+        # be exercised is the kind of thing this codebase keeps finding.)
+        if changed and delivered:
             _record(key, stale)
         if stale:
-            results.append({"key": key, "stale": stale,
-                            "approved": entry.get("status") == "approved"})
-            if notify and entry.get("status") == "approved" \
-                    and set(stale) != prev:
-                _notify(f"[ai-qe] APPROVED spec for {key} went stale: "
-                        f"scenarios {', '.join(stale)} reference surface that "
-                        f"no longer exists — re-approve, edit, or waive")
+            results.append({"key": key, "stale": stale, "approved": approved,
+                            "delivered": delivered})
     return results
 
 
@@ -118,17 +135,22 @@ def _record(key, stale):
 
 
 def _notify(msg):
+    """Returns whether it was DELIVERED. Still best-effort — an unreachable
+    channel must not fail maintenance — but the caller now learns it failed
+    instead of the failure vanishing into a bare `except: pass`."""
     try:
         import work_queue
         adapter = ROOT / ("adapters/mock/notify.sh"
                           if env_flag.mock()
                           else "adapters/notify/slack.sh")
-        if adapter.exists():
-            subprocess.run([work_queue.bash_exe(), str(adapter), "post", msg],
+        if not adapter.exists():
+            return False
+        r = subprocess.run([work_queue.bash_exe(), str(adapter), "post", msg],
                            cwd=ROOT, capture_output=True,
                            stdin=subprocess.DEVNULL, timeout=30)
-    except Exception:
-        pass
+        return r.returncode == 0
+    except Exception:                      # noqa: BLE001
+        return False
 
 
 def main(argv):

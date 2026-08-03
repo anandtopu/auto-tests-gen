@@ -73,7 +73,11 @@ def test_approved_drift_notifies_once_per_change(estate, monkeypatch):
     monkeypatch.setattr(sd, "_current_surface",
                         lambda: {"orders-api": {"/v1/orders/*"}})
     sent = []
-    monkeypatch.setattr(sd, "_notify", lambda msg: sent.append(msg))
+    # Returns True: `_notify` now reports whether it DELIVERED, and a falsy
+    # answer deliberately means "not delivered, so do not advance the state".
+    # `list.append` returns None, so the original stub would read as a failed
+    # send and make this test's own scenario re-alarm.
+    monkeypatch.setattr(sd, "_notify", lambda msg: sent.append(msg) or True)
     sd.check(notify=True)
     assert len(sent) == 1 and "K-1-S2" in sent[0]
     sd.check(notify=True)                           # unchanged -> silent
@@ -102,3 +106,79 @@ def test_platform_dir_is_skipped(estate, monkeypatch):
 def test_maintain_wires_the_drift_step():
     src = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert "spec_drift.py check --notify" in src
+
+
+def test_an_undelivered_drift_alarm_is_retried_not_lost(estate, monkeypatch):
+    """`_record` persisted the new stale set BEFORE notifying, so the next run
+    saw no change and never notified again.
+
+    With the channel down that lost the alarm permanently — for a signal whose
+    entire job is to tell somebody an APPROVED spec no longer matches the code.
+    Same bug, same shape, as coverage_drift: "notify once per change" is only
+    safe when the change is committed once the notification actually lands.
+    """
+    seed, tmp = estate
+    seed([SC_GONE])
+    ps.set_status("K-1", "approved", "lead")
+    monkeypatch.setattr(sd, "_current_surface",
+                        lambda: {"orders-api": {"/v1/orders/*"}})
+
+    # Channel down.
+    monkeypatch.setattr(sd, "_notify", lambda msg: False)
+    r = sd.check(notify=True)
+    assert r and r[0]["delivered"] is False
+    assert "stale_scenarios" not in ps.get("K-1"), \
+        "state advanced past an alarm nobody received"
+
+    # Channel back: the SAME drift must be reported again.
+    sent = []
+    monkeypatch.setattr(sd, "_notify", lambda msg: sent.append(msg) or True)
+    sd.check(notify=True)
+    assert len(sent) == 1, "the alarm was lost"
+    assert ps.get("K-1")["stale_scenarios"] == ["K-1-S2"], \
+        "delivered, so the state must advance"
+
+    # And now it stays quiet.
+    sd.check(notify=True)
+    assert len(sent) == 1
+
+
+def test_resolution_is_recorded_even_though_nobody_is_notified(estate, monkeypatch):
+    """Good news needs no alarm, so `delivered` stays True and the cleared
+    state must still persist — otherwise a resolved drift would be re-detected
+    forever."""
+    seed, tmp = estate
+    seed([SC_GONE])
+    ps.set_status("K-1", "approved", "lead")
+    monkeypatch.setattr(sd, "_current_surface",
+                        lambda: {"orders-api": {"/v1/orders/*"}})
+    monkeypatch.setattr(sd, "_notify", lambda msg: True)
+    sd.check(notify=True)
+    assert ps.get("K-1")["stale_scenarios"] == ["K-1-S2"]
+
+    # Surface returns.
+    monkeypatch.setattr(sd, "_current_surface",
+                        lambda: {"orders-api": {"/v1/orders/*",
+                                                "/v1/legacy/rebates"}})
+    assert sd.check(notify=True) == []
+    assert "stale_scenarios" not in ps.get("K-1")
+
+
+def test_the_real_notify_reports_delivery(tmp_path, monkeypatch):
+    """Every other test here stubs `_notify`, so its return value — the thing
+    the retry logic depends on — was never exercised. A version that always
+    claimed success would pass all of them."""
+    monkeypatch.setattr(sd, "ROOT", tmp_path)
+    # No adapter on disk: nothing was sent, so it must not claim it was.
+    assert sd._notify("hello") is False
+
+    # A mock adapter that exits 0 is a delivery; one that exits 1 is not.
+    ad = tmp_path / "adapters" / "mock"
+    ad.mkdir(parents=True)
+    (ad / "notify.sh").write_text("#!/usr/bin/env bash\nexit 0\n",
+                                  encoding="utf-8", newline="\n")
+    monkeypatch.setenv("AIQE_MOCK", "1")
+    assert sd._notify("hello") is True
+    (ad / "notify.sh").write_text("#!/usr/bin/env bash\nexit 1\n",
+                                  encoding="utf-8", newline="\n")
+    assert sd._notify("hello") is False
