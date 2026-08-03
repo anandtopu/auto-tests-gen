@@ -11,6 +11,24 @@ sys.path.insert(0, str(ROOT / "engine/lib"))
 import integration_check as ic
 
 
+class _TestHTTPServer(http.server.HTTPServer):
+    """A throwaway server whose accept queue survives a loaded machine.
+
+    `socketserver` defaults `request_queue_size` to 5. Under a full `make
+    review` — parallel gates, a dashboard render, several suites — a client
+    connect to one of these fixtures gets its SYN dropped and Windows reports
+    "[WinError 10054] connection forcibly closed". That surfaced as a test
+    failure in code the test was not exercising, three times now (2026-07-28,
+    2026-07-30, and again here), each read as a transient.
+
+    Same root cause as the dashboard server's own backlog fix. The readiness
+    gate below solves a DIFFERENT race — the server not yet accepting — and
+    cannot help once the queue is full.
+    """
+    request_queue_size = 128
+    allow_reuse_address = True
+
+
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
     """No integration configured unless a test opts in."""
@@ -130,7 +148,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
 def _http_stub(code):
     h = type("H", (_Handler,), {"code": code})
-    srv = http.server.HTTPServer(("127.0.0.1", 0), h)
+    srv = _TestHTTPServer(("127.0.0.1", 0), h)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     return srv, srv.server_address[1]
 

@@ -5,6 +5,7 @@ Server tests run against a REAL dashboard process (same pattern as
 test_hooks_auth) so routing, auth defaults and content types are the ones a
 browser would see.
 """
+import http.server
 import json, os, pathlib, re, socket, subprocess, sys, time, urllib.error, urllib.request
 
 import pytest
@@ -16,6 +17,24 @@ import openhands_agents
 import pr_comment
 import repo_admin
 import work_queue
+
+
+class _TestHTTPServer(http.server.HTTPServer):
+    """A throwaway server whose accept queue survives a loaded machine.
+
+    `socketserver` defaults `request_queue_size` to 5. Under a full `make
+    review` — parallel gates, a dashboard render, several suites — a client
+    connect to one of these fixtures gets its SYN dropped and Windows reports
+    "[WinError 10054] connection forcibly closed". That surfaced as a test
+    failure in code the test was not exercising, three times now (2026-07-28,
+    2026-07-30, and again here), each read as a transient.
+
+    Same root cause as the dashboard server's own backlog fix. The readiness
+    gate below solves a DIFFERENT race — the server not yet accepting — and
+    cannot help once the queue is full.
+    """
+    request_queue_size = 128
+    allow_reuse_address = True
 
 
 # -------------------------------------------------------- curated guidance
@@ -506,7 +525,7 @@ def fake_openhands(monkeypatch):
 
         s = socket.socket(); s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]; s.close()
-        srv = http.server.HTTPServer(("127.0.0.1", port), H)
+        srv = _TestHTTPServer(("127.0.0.1", port), H)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         monkeypatch.setenv("OPENHANDS_URL", f"http://127.0.0.1:{port}")
         monkeypatch.setenv("OPENHANDS_API_KEY", "k")

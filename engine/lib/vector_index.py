@@ -199,9 +199,12 @@ def _notify_once(msg):
     marker = f"notified-{_day()}"
     if d.get(marker):
         return
-    d[marker] = True
-    SPEND.parent.mkdir(parents=True, exist_ok=True)
-    SPEND.write_text(json.dumps(d), encoding="utf-8", newline="\n")
+    # Deliver FIRST, then claim it was delivered. Writing the marker up front
+    # meant a failed send still counted as "notified today", so the message —
+    # that the embed budget stopped the index refreshing — was skipped for the
+    # rest of the day and retrieval quietly degraded to lexical with nobody
+    # told. Same shape as the coverage-drift and spec-drift alarms.
+    delivered = False
     try:
         import subprocess
         import work_queue
@@ -209,11 +212,18 @@ def _notify_once(msg):
                           if env_flag.mock()
                           else "adapters/notify/slack.sh")
         if adapter.exists():
-            subprocess.run([work_queue.bash_exe(), str(adapter), "post",
-                            f"[ai-qe] {msg}"], cwd=ROOT, capture_output=True,
-                           stdin=subprocess.DEVNULL, timeout=30)
-    except Exception:
-        pass
+            r = subprocess.run([work_queue.bash_exe(), str(adapter), "post",
+                                f"[ai-qe] {msg}"], cwd=ROOT,
+                               capture_output=True,
+                               stdin=subprocess.DEVNULL, timeout=30)
+            delivered = r.returncode == 0
+    except Exception:                      # noqa: BLE001
+        delivered = False                  # best-effort, but not a silent one
+    if not delivered:
+        return                             # no marker: the next run retries
+    d[marker] = True
+    SPEND.parent.mkdir(parents=True, exist_ok=True)
+    SPEND.write_text(json.dumps(d), encoding="utf-8", newline="\n")
 
 
 # ---------------------------------------------------------------- query

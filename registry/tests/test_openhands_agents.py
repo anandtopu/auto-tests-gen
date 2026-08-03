@@ -5,6 +5,7 @@ path-skill generator never clobbers the hand-authored skills; agent presets buil
 messages that point at sanctioned entry points only; the launcher stays out of
 the engine (standalone invariant) and works --dry with no network.
 """
+import http.server
 import os, pathlib, re, subprocess, sys
 
 import pytest
@@ -13,6 +14,24 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import openhands_agents
 import work_queue
+
+
+class _TestHTTPServer(http.server.HTTPServer):
+    """A throwaway server whose accept queue survives a loaded machine.
+
+    `socketserver` defaults `request_queue_size` to 5. Under a full `make
+    review` — parallel gates, a dashboard render, several suites — a client
+    connect to one of these fixtures gets its SYN dropped and Windows reports
+    "[WinError 10054] connection forcibly closed". That surfaced as a test
+    failure in code the test was not exercising, three times now (2026-07-28,
+    2026-07-30, and again here), each read as a transient.
+
+    Same root cause as the dashboard server's own backlog fix. The readiness
+    gate below solves a DIFFERENT race — the server not yet accepting — and
+    cannot help once the queue is full.
+    """
+    request_queue_size = 128
+    allow_reuse_address = True
 
 SKILLS_DIR = ROOT / ".agents/skills"
 GENERATED = {"e2e-api-conventions", "e2e-ui-conventions"}
@@ -187,7 +206,7 @@ def _fake_cloud(handler_map):
             handler_map.setdefault("gets", []).append(self.path)
             self._reply(handler_map["get"])
 
-    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    srv = _TestHTTPServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     # Readiness gate: under full-suite load the first client connect can race
     # the serve_forever thread's startup and fail transiently (seen twice —

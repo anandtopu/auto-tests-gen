@@ -156,3 +156,36 @@ def test_a_zero_vector_scores_zero_instead_of_dividing_by_zero():
     assert vi._cos([0, 0, 0], [1, 2, 3]) == 0.0
     assert vi._cos([1, 2, 3], [0, 0, 0]) == 0.0
     assert vi._cos([0, 0], [0, 0]) == 0.0
+
+
+def test_the_once_a_day_marker_is_only_set_after_delivery(tmp_path, monkeypatch):
+    """`_notify_once` wrote the `notified-<day>` marker BEFORE sending.
+
+    A failed send still counted as "notified today", so the message — that the
+    embed budget stopped the index refreshing — was skipped for the rest of the
+    day, and retrieval quietly degraded to lexical with nobody told. Fourth
+    module with this exact shape (coverage_drift, spec_drift, and here).
+    """
+    spend = tmp_path / "embed-spend.json"
+    monkeypatch.setattr(vi, "SPEND", spend)
+    monkeypatch.setattr(vi, "ROOT", tmp_path)
+
+    # No adapter on disk -> nothing delivered -> the day must NOT be marked.
+    vi._notify_once("budget stopped the refresh")
+    assert not spend.exists() or f"notified-{vi._day()}" not in json.loads(
+        spend.read_text(encoding="utf-8")), "a day was marked without a delivery"
+
+    # A working adapter marks the day, and the second call stays silent.
+    ad = tmp_path / "adapters" / "mock"
+    ad.mkdir(parents=True)
+    calls = tmp_path / "calls.txt"
+    (ad / "notify.sh").write_text(
+        f'#!/usr/bin/env bash\necho x >> "{calls.as_posix()}"\nexit 0\n',
+        encoding="utf-8", newline="\n")
+    monkeypatch.setenv("AIQE_MOCK", "1")
+    vi._notify_once("budget stopped the refresh")
+    assert calls.exists() and len(calls.read_text().split()) == 1
+    assert json.loads(spend.read_text(encoding="utf-8"))[f"notified-{vi._day()}"]
+
+    vi._notify_once("budget stopped the refresh")
+    assert len(calls.read_text().split()) == 1, "notified twice in one day"
