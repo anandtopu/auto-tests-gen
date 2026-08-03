@@ -25,6 +25,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import app_paths                      # R12: mutable paths resolve here
+import env_flag                     # one place decides what a toggle means
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SPEC_DIR = app_paths.specs_dir(ROOT)       # AIQE_SPEC_DIR > AIQE_STATE_DIR > ROOT
@@ -34,7 +35,7 @@ STRUCTURED_FIELDS = ("steps", "verification")
 
 
 def enabled():
-    return os.environ.get("AIQE_SPEC_MODE", "1") != "0"
+    return env_flag.flag("AIQE_SPEC_MODE", True)
 
 
 def spec_path(key):

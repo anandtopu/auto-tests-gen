@@ -38,6 +38,7 @@ import shutil
 import sys
 import time
 import app_paths                      # R12: mutable paths resolve here
+import env_flag                     # one place decides what a toggle means
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DIR = pathlib.Path(os.environ.get("AIQE_PHASE_CACHE_DIR") or ROOT / "reports/phase-cache")
@@ -56,7 +57,7 @@ CACHEABLE = {
 
 
 def enabled():
-    return os.environ.get("AIQE_PHASE_CACHE", "1").strip() not in ("0", "false", "no", "off")
+    return env_flag.flag("AIQE_PHASE_CACHE", True)
 
 
 def _digest(path):

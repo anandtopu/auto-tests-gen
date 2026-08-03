@@ -30,6 +30,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import app_paths                      # R12: mutable paths resolve here
 import plan_state
 import spec_store
+import env_flag                     # one place decides what a toggle means
 
 ROOT = app_paths.ROOT
 
@@ -86,7 +87,7 @@ def governance():
             "warn": "uncovered scenarios are reported; the gate still commits",
             "strict": "the gate REFUSES (exit 8) on an uncovered, unwaived scenario",
         }.get(enforce, f"unknown mode {enforce!r}"),
-        "spec_mode": os.environ.get("AIQE_SPEC_MODE", "1") != "0",
+        "spec_mode": env_flag.flag("AIQE_SPEC_MODE", True),
         # Non-empty when the configured value could not be used. Surfaced so a
         # typo never reads as a decision.
         "problems": complaints,

@@ -39,6 +39,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import app_paths                      # R12: mutable paths resolve here
 import knowledge_chunks
+import env_flag                     # one place decides what a toggle means
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -233,7 +234,7 @@ def main(argv):
         print("usage: context_scope.py assemble <phase>", file=sys.stderr)
         return 64
     phase = argv[2]
-    if os.environ.get("AIQE_CONTEXT_SCOPE", "1") == "0":
+    if not env_flag.flag("AIQE_CONTEXT_SCOPE", True):
         return 1                                    # caller falls back to AGENTS.md
     if not phase_enabled(phase):
         return 1

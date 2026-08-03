@@ -131,3 +131,61 @@ def test_every_python_caller_goes_through_the_resolver():
         if 'os.environ.get("AIQE_MOCK", "1") == "1"' in p.read_text(encoding="utf-8"):
             stale.append(p.name)
     assert not stale, "still resolving AIQE_MOCK inline: {}".format(stale)
+
+
+def test_the_feature_toggles_accept_the_word_off(monkeypatch):
+    """`AIQE_SPEC_MODE=false` used to leave the spec layer ON.
+
+    Every toggle was `!= "0"`, so the only way to turn anything off was the
+    literal zero and every other spelling silently left the feature running —
+    which for the LLM-spending ones means someone disabling a phase to save
+    money did not. `phase_cache` already handled this correctly on its own,
+    which is the tell that the inconsistency was real rather than a convention.
+    """
+    import spec_store
+    import phase_cache
+    for f, name in ((spec_store.enabled, "AIQE_SPEC_MODE"),
+                    (phase_cache.enabled, "AIQE_PHASE_CACHE")):
+        for v in ("0", "false", "off", "no"):
+            env_flag._warned.clear()
+            monkeypatch.setenv(name, v)
+            assert f() is False, "{}={} left the feature on".format(name, v)
+        for v in ("1", "true", "on"):
+            env_flag._warned.clear()
+            monkeypatch.setenv(name, v)
+            assert f() is True, "{}={}".format(name, v)
+        # A typo keeps the documented default and says so, rather than guessing.
+        env_flag._warned.clear()
+        said = []
+        monkeypatch.setenv(name, "flase")
+        assert env_flag.flag(name, True, warn=said.append) is True
+        assert said, "{} typo resolved silently".format(name)
+
+
+def test_no_toggle_is_left_comparing_to_a_bare_zero():
+    """Each inline comparison is another chance to get the direction wrong."""
+    stale = []
+    for p in (ROOT / "engine/lib").glob("*.py"):
+        if p.name in ("env_flag.py", "settings_store.py"):
+            continue                      # the resolver itself; the settings SPEC
+        s = p.read_text(encoding="utf-8")
+        for knob in ("AIQE_SPEC_MODE", "AIQE_CONTEXT_SCOPE", "AIQE_PHASE_CACHE"):
+            for pat in ('get("{}", "1") == "0"', 'get("{}", "1") != "0"'):
+                if pat.format(knob) in s:
+                    stale.append("{}:{}".format(p.name, knob))
+    assert not stale, "toggles still resolved inline: {}".format(stale)
+
+
+def test_ssl_verification_is_deliberately_left_strict():
+    """AIQE_SSL_VERIFY is NOT routed through the resolver, on purpose.
+
+    It already fails safe — only the literal `0` disables verification, so
+    `false` leaves TLS checking ON. Teaching it to accept more spellings would
+    make turning verification OFF easier, which is the wrong direction to
+    improve. Pinned so a later consistency pass does not "fix" it.
+    """
+    for mod in ("integration_check.py", "openhands_client.py"):
+        s = (ROOT / "engine/lib" / mod).read_text(encoding="utf-8")
+        assert 'AIQE_SSL_VERIFY' in s
+        assert 'env_flag' not in s.split("AIQE_SSL_VERIFY")[1][:200], \
+            "{}: SSL verification must stay strict-by-literal-0".format(mod)
