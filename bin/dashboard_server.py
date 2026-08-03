@@ -69,7 +69,7 @@ import alert_rules, demo_data, email_notify, event_log, export_plan, \
     guidance_sync, inline_ticket, integration_check, openhands_client, \
     openhands_events, openhands_mode, plan_state, pr_url, repo_admin, \
     repo_guidance_gen, review_state, settings_store, spec_workflow, \
-    team_report, work_queue
+    team_report, waiver_store, work_queue
 
 
 def _classify_status(code):
@@ -246,6 +246,14 @@ class Handler(BaseHTTPRequestHandler):
                            cwd=ROOT, capture_output=True, stdin=subprocess.DEVNULL)
             self._send(200, (ROOT / "reports/dashboard.html").read_bytes(),
                        "text/html; charset=utf-8")
+        elif url.path == "/api/waivers":
+            # SDD adoption S4. Expired waivers are INCLUDED — a lapsed exception
+            # is the most interesting row on the page, not one to hide.
+            key = (urllib.parse.parse_qs(url.query).get("key", [""])[0] or "").strip()
+            self._send(200, {"key": key,
+                             "waivers": waiver_store.list_for(key) if key else [],
+                             "attention": waiver_store.attention(),
+                             "max_days": waiver_store.MAX_DAYS})
         elif url.path == "/api/requirements":
             # SDD adoption S2. EARS statements + ambiguities for one ticket.
             # This is the step most likely to be skipped because it was
@@ -645,6 +653,32 @@ class Handler(BaseHTTPRequestHandler):
         elif not self._authed():
             return self._deny()
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0)
+        if self.path == "/api/waivers/save":
+            try:
+                p = json.loads(body or b"{}")
+            except ValueError:
+                return self._send(400, {"error": "invalid JSON"})
+            key = str(p.get("key") or "").strip()
+            if not key:
+                return self._send(400, {"error": "key required"})
+            actor = (self.headers.get(SSO_HEADER) if SSO_HEADER else None) or p.get("by") or ""
+            rec, problems = waiver_store.save(key, p.get("scenario"), p.get("reason"),
+                                              actor, p.get("expires"))
+            if problems:
+                # 422, and the problems are the POINT of the response: a refused
+                # waiver must say what would make it acceptable.
+                return self._send(422, {"error": "waiver refused", "problems": problems})
+            event_log.emit("settings.changed", actor=actor or None, source="ui",
+                           target=f"waiver:{key}:{rec['scenario']}", outcome="ok",
+                           detail={"expires": rec["expires"]})
+            return self._send(200, {"ok": True, "waiver": rec})
+        if self.path == "/api/waivers/remove":
+            try:
+                p = json.loads(body or b"{}")
+            except ValueError:
+                return self._send(400, {"error": "invalid JSON"})
+            gone = waiver_store.remove(str(p.get("key") or ""), str(p.get("scenario") or ""))
+            return self._send(200 if gone else 404, {"ok": gone})
         if self.path == "/api/requirements/status":
             # Approve (signs the yaml's sha) or send back to draft. The same
             # call `make requirements-approve` makes — the UI is a second door

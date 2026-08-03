@@ -194,6 +194,20 @@ try:
                       "alerts", True))
 except Exception:
     pass
+# S4: waivers needing attention. Conditional, like every other tile — a
+# permanent "0 waivers" teaches people to stop reading the row.
+try:
+    import waiver_store as _ws
+    _att = _ws.attention()
+    if _att["expired"]:
+        tiles.append((str(len(_att["expired"])),
+                      "EXPIRED waiver(s) — the gate will refuse these",
+                      "specflow", True))
+    if _att["expiring_soon"]:
+        tiles.append((str(len(_att["expiring_soon"])),
+                      "waiver(s) expiring soon", "specflow", True))
+except Exception:
+    pass
 try:
     import event_log as _el
     _ev, _corrupt = _el.read(limit=200)
@@ -1549,6 +1563,57 @@ async function refreshSpecFlow() {
 if ($('#sf-refresh')) $('#sf-refresh').addEventListener('click', refreshSpecFlow);
 refreshSpecFlow();
 
+// ---- waivers (SDD adoption S4)
+async function loadWaivers() {
+  const tb = document.querySelector('#wv-table tbody');
+  const key = ($('#rq-key') && $('#rq-key').value.trim()) || '';
+  if (!served || !tb || !key) return;
+  try {
+    const d = await api('/api/waivers?key=' + encodeURIComponent(key));
+    tb.innerHTML = d.waivers.length ? d.waivers.map(w => {
+      const state = w.expired ? '<span class="chip chip-danger">EXPIRED</span>'
+        : (w.expiring_soon ? '<span class="chip chip-warning">' + w.days_left + 'd left</span>'
+                           : '<span class="chip">' + w.days_left + 'd left</span>');
+      return '<tr><td class="mono sm">' + escHtml(w.scenario) + '</td>' +
+        '<td class="sm">' + escHtml(w.reason) + '</td>' +
+        '<td class="sm">' + escHtml(w.by) + '</td>' +
+        '<td class="mono sm">' + escHtml(w.expires) + '</td>' +
+        '<td>' + state + '</td>' +
+        '<td><button class="btn btn-sm wv-del" data-sid="' + escHtml(w.scenario) +
+          '">remove</button></td></tr>';
+    }).join('') : '<tr><td colspan="6" class="muted">No waivers — every approved ' +
+      'scenario is either covered or the gate will refuse it.</td></tr>';
+  } catch (e) { /* diagnostic panel — never break the view */ }
+}
+function wvMsg(t, bad) {
+  const m = $('#wv-msg'); if (!m) return;
+  m.textContent = t; m.style.display = t ? '' : 'none';
+  m.style.color = bad ? 'var(--sr-danger-fg)' : '';
+}
+if ($('#wv-load')) $('#wv-load').addEventListener('click', loadWaivers);
+if ($('#wv-add')) $('#wv-add').addEventListener('click', async () => {
+  const key = ($('#rq-key') && $('#rq-key').value.trim()) || '';
+  if (!key) { wvMsg('enter a ticket key in the Requirements panel first', true); return; }
+  try {
+    await api('/api/waivers/save', {
+      key: key, scenario: ($('#wv-sid') || {}).value, reason: ($('#wv-reason') || {}).value,
+      expires: ($('#wv-exp') || {}).value });
+    wvMsg('Waiver saved.'); loadWaivers();
+  } catch (e) {
+    // The refusal text IS the answer: it says what would make it acceptable.
+    wvMsg('Refused: ' + e.message, true);
+  }
+});
+document.addEventListener('click', async e => {
+  if (!e.target.classList.contains('wv-del')) return;
+  const key = ($('#rq-key') && $('#rq-key').value.trim()) || '';
+  try {
+    await api('/api/waivers/remove', { key: key, scenario: e.target.dataset.sid });
+    wvMsg('Waiver removed — the gate will refuse this scenario until it is covered.');
+    loadWaivers();
+  } catch (err) { wvMsg('Remove failed: ' + err.message, true); }
+});
+
 // ---- requirements review (SDD adoption S2)
 async function loadRequirements() {
   const key = ($('#rq-key') && $('#rq-key').value.trim()) || '';
@@ -2738,6 +2803,28 @@ page = f"""<!doctype html>
       </div>
       <div id="rq-msg" class="sub" style="display:none;padding:0 14px 8px"></div>
       <div id="rq-body" style="padding:0 14px 14px"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><div><h2>Waivers</h2>
+        <div class="sub">An approved scenario shipping without a test. Every
+        waiver needs a reason, an owner and an expiry — capped, so
+        "temporarily" cannot quietly become "forever". Expired ones stay
+        listed: a lapsed exception is the row worth reading.</div></div>
+        <span class="grow"></span>
+        <button class="btn btn-sm" id="wv-load">Load</button>
+      </div>
+      <div id="wv-msg" class="sub" style="display:none;padding:0 14px 8px"></div>
+      <div style="padding:0 14px 12px" class="card-h">
+        <label class="f">Scenario <input id="wv-sid" class="h32" placeholder="S-1" style="width:110px"></label>
+        <label class="f">Reason <input id="wv-reason" class="h32" placeholder="why is this shipping uncovered?" style="min-width:260px"></label>
+        <label class="f">Expires <input id="wv-exp" class="h32" type="date" style="width:150px"></label>
+        <button class="btn btn-sm" id="wv-add">Add waiver</button>
+      </div>
+      <div class="scroll"><table id="wv-table">
+        <thead><tr><th>scenario</th><th>reason</th><th>owner</th>
+          <th>expires</th><th>state</th><th></th></tr></thead>
+        <tbody></tbody></table></div>
     </section>
 
     <section class="card">

@@ -417,3 +417,68 @@ def test_governance_settings_state_their_consequence():
         for f in sec[0]["fields"])).lower()
     for consequence in ("refuse", "exit 65", "exit 8", "warn"):
         assert consequence in blob, f"the settings must say {consequence!r}"
+
+
+# ------------------------------------------------- SDD adoption S4: waivers
+def _ws():
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import waiver_store
+    return waiver_store
+
+
+def test_a_waiver_needs_a_reason_an_owner_and_an_expiry():
+    """A blank-reason bypass is indistinguishable from an accident six months
+    later, when the person who added it has forgotten."""
+    ws = _ws()
+    import datetime
+    ok = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
+    assert ws.validate("S1", "the upstream API is not on staging", "anand", ok)[1] == []
+    assert ws.validate("S1", "", "anand", ok)[1], "blank reason must be refused"
+    assert ws.validate("S1", "later", "anand", ok)[1], "a token reason must be refused"
+    assert ws.validate("S1", "a good long reason here", "", ok)[1], "owner required"
+    assert ws.validate("S1", "a good long reason here", "anand", "")[1], "expiry required"
+
+
+def test_an_unbounded_expiry_is_refused():
+    """`expires: 2099-01-01` passes every check the gate makes while meaning
+    'never'. The cap makes that lie impossible to tell in one step."""
+    ws = _ws()
+    import datetime
+    far = (datetime.date.today() + datetime.timedelta(days=ws.MAX_DAYS + 1)).isoformat()
+    _, problems = ws.validate("S1", "a perfectly good reason", "anand", far)
+    assert problems and str(ws.MAX_DAYS) in problems[0]
+    past = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    assert ws.validate("S1", "a perfectly good reason", "anand", past)[1]
+
+
+def test_nothing_is_written_when_a_waiver_is_refused(tmp_path, monkeypatch):
+    """A refused waiver that half-wrote would be worse than one that saved."""
+    ws = _ws()
+    monkeypatch.setenv("AIQE_SPEC_DIR", str(tmp_path / "specs"))
+    import importlib, spec_store
+    importlib.reload(spec_store); importlib.reload(ws)
+    _, problems = ws.save("K-1", "S1", "", "anand", "2099-01-01")
+    assert problems
+    assert not ws.path("K-1").exists(), "a refused waiver must write nothing"
+
+
+def test_expired_waivers_stay_listed(tmp_path, monkeypatch):
+    """Hiding a lapsed exception makes it look like it never existed, when it is
+    the most interesting row on the page."""
+    ws = _ws()
+    monkeypatch.setenv("AIQE_SPEC_DIR", str(tmp_path / "specs"))
+    import importlib, spec_store
+    importlib.reload(spec_store); importlib.reload(ws)
+    p = ws.path("K-1"); p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("waivers:\n- scenario: S1\n  reason: old\n  by: a\n"
+                 "  expires: '2020-01-01'\n", encoding="utf-8")
+    rows = ws.list_for("K-1")
+    assert len(rows) == 1 and rows[0]["expired"] is True
+
+
+def test_the_waiver_ui_refusal_returns_the_problems():
+    """A refused waiver must say what would make it acceptable — 'invalid' is
+    not a reason."""
+    src = (ROOT / "bin" / "dashboard_server.py").read_text(encoding="utf-8")
+    body = src.split('self.path == "/api/waivers/save"', 1)[1].split("if self.path ==", 1)[0]
+    assert "422" in body and "problems" in body
