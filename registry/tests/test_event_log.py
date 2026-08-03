@@ -482,3 +482,134 @@ def test_the_waiver_ui_refusal_returns_the_problems():
     src = (ROOT / "bin" / "dashboard_server.py").read_text(encoding="utf-8")
     body = src.split('self.path == "/api/waivers/save"', 1)[1].split("if self.path ==", 1)[0]
     assert "422" in body and "problems" in body
+
+
+# ------------------------------------- SDD adoption S6: generated governance
+def _gp():
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import governance_page
+    return governance_page
+
+
+def test_the_governance_page_is_generated_from_the_constitution():
+    """A hand-written governance doc is correct the day it is written and
+    slowly becomes fiction. This one is wrong only if the code is."""
+    gp = _gp()
+    d = gp.page()
+    assert d["clause_count"] > 0
+    assert "constitution.yaml" in d["source"]
+    md = gp.markdown()
+    for c in d["clauses"]:
+        assert c["id"] in md, f"{c['id']} missing from the rendered page"
+
+
+def test_a_clause_whose_pin_vanished_is_reported_as_undefended(monkeypatch, tmp_path):
+    """A clause is only as true as the test that holds it. A deleted pin turns
+    a rule into a hope, and the page must say so rather than print it as if it
+    still held."""
+    gp = _gp()
+    fake = tmp_path / "constitution.yaml"
+    fake.write_text(
+        "clauses:\n"
+        "- id: CX\n  statement: something important\n  category: safety\n"
+        "  pins:\n  - file: tests/this-was-deleted.sh\n", encoding="utf-8")
+    monkeypatch.setattr(gp, "CONSTITUTION", fake)
+    cls = gp.clauses()
+    assert cls[0]["pin_missing"] == ["tests/this-was-deleted.sh"]
+    assert "CX" in gp.page()["unpinned"]
+    assert "MISSING" in gp.markdown()
+
+
+def test_the_page_leads_with_whether_anything_is_enforced(monkeypatch):
+    """A governance page describing an aspiration while the gate is off is
+    worse than none: it teaches a rule nobody applies."""
+    gp = _gp()
+    import importlib, spec_workflow
+    monkeypatch.delenv("AIQE_SPEC_ENFORCE", raising=False)
+    monkeypatch.delenv("AIQE_REQUIREMENTS_GATE", raising=False)
+    importlib.reload(spec_workflow); importlib.reload(gp)
+    md = gp.markdown()
+    head = md.split("## Is any of this enforced right now?", 1)[1][:400]
+    assert "**No.**" in head or "**Yes.**" in head, "the answer must be stated plainly"
+    assert md.index("enforced right now") < md.index("## The rules"), \
+        "enforcement status must come BEFORE the rules it qualifies"
+
+
+# ------------------------------- SDD adoption S5: coverage subtraction (counts)
+def _ss():
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import spec_savings
+    return spec_savings
+
+
+def test_savings_refuses_to_invent_money():
+    """A savings figure is exactly the kind of number people repeat in a status
+    update. Pricing a skipped scenario needs a measured per-scenario cost, and
+    every run on this estate is simulated. 0 would read as 'no saving'; an
+    estimate would read as a measurement. Say which one it is."""
+    ss = _ss()
+    s = ss.savings(7)
+    assert s["avoided_scenarios"] == 7, "the COUNT is measured and must be reported"
+    assert s["usd"] is None, "money must not be invented"
+    assert s["basis"] == "unmeasured"
+    assert "parity" in s["why"], "the refusal must name what would fix it"
+
+
+def test_only_scenario_linked_tests_count_as_coverage():
+    """A test with no scenario_id may well cover the behaviour, but we cannot
+    prove which scenario. Counting it would silently drop coverage — the one
+    failure this platform cannot see."""
+    ss = _ss()
+    src = (ROOT / "engine/lib/spec_savings.py").read_text(encoding="utf-8")
+    code = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
+    assert "unlinked_tests" in code
+    assert "if sid and f:" in code, "coverage requires BOTH a scenario id and a file"
+
+
+def test_subtraction_is_advisory_not_automatic():
+    """Skipping authoring on a wrong join would silently drop coverage. The
+    join gets proven against real runs before it is allowed to remove work."""
+    ss = _ss()
+    plan = ss.authoring_plan("PROJ-301")
+    assert plan["advisory"] is True
+    # Nothing in the pipeline consumes to_author yet — assert that stays true.
+    for f in ("engine/pipeline.sh", "engine/phases/run_phase.sh"):
+        src = (ROOT / f).read_text(encoding="utf-8")
+        assert "spec_savings" not in src, \
+            f"{f} acts on coverage subtraction — it must be proven first"
+
+
+def test_counts_add_up():
+    ss = _ss()
+    p = ss.authoring_plan("PROJ-301")
+    assert p["already_covered"] + p["to_author"] == p["scenarios"]
+    assert len(p["already_covered_ids"]) == p["already_covered"]
+
+
+def test_savings_is_reachable_from_the_ui():
+    """A library nobody can see is not a feature (S5).
+
+    The whole point of this adoption thread is that the guidance is usable FROM
+    the interface, so the endpoint and its card are pinned together — wiring one
+    without the other ships a card that renders nothing, or an endpoint nobody
+    calls.
+    """
+    srv = (ROOT / "bin/dashboard_server.py").read_text(encoding="utf-8")
+    assert "/api/spec-savings" in srv
+    assert "import spec_savings" in srv
+    ui = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert "/api/spec-savings" in ui and 'id="sv-body"' in ui
+
+
+def test_ui_never_prints_a_zero_for_an_unmeasured_saving():
+    """The renderer must distinguish absent from zero.
+
+    `s.usd === null` and `=== undefined` are BOTH checked in the UI: a JSON
+    null arriving as undefined would fall through to the money branch and print
+    "~$undefined", or worse, a coerced 0 that reads as "no saving".
+    """
+    ui = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    i = ui.index("loadSavings")
+    block = ui[i:i + 2500]
+    assert "s.usd === null" in block and "s.usd === undefined" in block
+    assert "not measured" in block

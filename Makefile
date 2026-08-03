@@ -115,6 +115,9 @@ smoke-openhands:
 trace-matrix:         # requirement traceability: key -> scenario -> spec -> gate -> CI ([KEY=..] [CSV=1])
 	python3 engine/lib/trace_matrix.py $(KEY) $(if $(CSV),--csv,)
 
+spec-savings:         # work a signed spec makes unnecessary: covered vs to-author ([KEY=..])
+	python3 engine/lib/spec_savings.py $(KEY)
+
 RETAIN_DAYS ?= $(shell python3 -c "import yaml;print((yaml.safe_load(open('registry/org-config.yaml')) or {}).get('observability',{}).get('retain_days',30))" 2>/dev/null || echo 30)
 
 maintain:             # nightly estate maintenance (call from cron / a K8s CronJob):

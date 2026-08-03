@@ -1563,6 +1563,44 @@ async function refreshSpecFlow() {
 if ($('#sf-refresh')) $('#sf-refresh').addEventListener('click', refreshSpecFlow);
 refreshSpecFlow();
 
+// ---- coverage subtraction (SDD adoption S5)
+async function loadSavings() {
+  const el = $('#sv-body');
+  if (!served || !el) return;
+  try {
+    const d = await api('/api/spec-savings');
+    const s = d.savings || {};
+    if (!d.scenarios) {
+      el.innerHTML = '<div class="muted sm">No signed specs yet — nothing to ' +
+        'subtract. Approve a plan with structured scenarios to start.</div>';
+      return;
+    }
+    // The count is measured. The money is not, and says so in those words:
+    // a zero would read as "no saving", an estimate as a measurement.
+    const money = s.usd === null || s.usd === undefined
+      ? '<span class="chip chip-warning">value not measured</span> ' +
+        '<span class="muted sm">' + escHtml(s.why || '') + '</span>'
+      : '<span class="chip">~$' + escHtml(String(s.usd)) + ' (' + escHtml(s.basis) + ')</span>';
+    el.innerHTML =
+      '<div class="sub" style="padding-bottom:6px"><b>' + d.already_covered +
+      '</b> of <b>' + d.scenarios + '</b> approved scenario(s) already covered — ' +
+      '<b>' + d.to_author + '</b> would still need authoring.</div>' + money +
+      '<div class="scroll" style="padding-top:8px"><table>' +
+      '<thead><tr><th>ticket</th><th>covered</th><th>to author</th>' +
+      '<th>unlinked tests</th></tr></thead><tbody>' +
+      d.keys.map(p => '<tr><td class="mono sm">' + escHtml(p.key) + '</td>' +
+        '<td class="sm">' + p.already_covered + '/' + p.scenarios + '</td>' +
+        '<td class="sm">' + p.to_author + '</td>' +
+        '<td class="sm muted">' + (p.unlinked_tests || 0) + '</td></tr>').join('') +
+      '</tbody></table></div>' +
+      '<div class="muted sm" style="padding-top:6px">Advisory: nothing is ' +
+      'skipped automatically. A wrong join would silently drop coverage — the ' +
+      'one failure this platform cannot see.</div>';
+  } catch (e) { /* diagnostic card — never break the page it sits in */ }
+}
+if ($('#sv-load')) $('#sv-load').addEventListener('click', loadSavings);
+loadSavings();
+
 // ---- generated governance page (SDD adoption S6)
 async function loadGovernance() {
   const el = $('#gv-body');
@@ -2847,6 +2885,18 @@ page = f"""<!doctype html>
         <thead><tr><th>scenario</th><th>reason</th><th>owner</th>
           <th>expires</th><th>state</th><th></th></tr></thead>
         <tbody></tbody></table></div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><div><h2>Work this spec makes unnecessary</h2>
+        <div class="sub">An approved scenario a cataloged test already exercises
+        needs no authoring call. This counts them. It deliberately does NOT
+        price them: putting money on it needs a measured authoring cost, and an
+        invented figure is the one people repeat in a status update.</div></div>
+        <span class="grow"></span>
+        <button class="btn btn-sm" id="sv-load">Refresh</button>
+      </div>
+      <div id="sv-body" style="padding:0 14px 16px"></div>
     </section>
 
     <section class="card">

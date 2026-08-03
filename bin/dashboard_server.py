@@ -71,6 +71,7 @@ import alert_rules, demo_data, email_notify, event_log, export_plan, \
     repo_guidance_gen, review_state, settings_store, spec_workflow, \
     team_report, waiver_store, work_queue
 import governance_page
+import spec_savings
 
 
 def _classify_status(code):
@@ -303,6 +304,15 @@ class Handler(BaseHTTPRequestHandler):
                 "stale": bool(signed and current and signed != current),
                 "gate_on": spec_workflow.governance()["requirements_gate"],
             })
+        elif url.path == "/api/spec-savings":
+            # SDD adoption S5. Coverage subtraction: approved scenarios a
+            # cataloged test already exercises need no authoring call. COUNTS
+            # only — the money figure stays absent until a measured authoring
+            # cost exists, because a savings number is exactly the kind of
+            # figure people repeat in a status update.
+            k = urllib.parse.parse_qs(url.query).get("key", [""])[0].strip()
+            self._send(200, spec_savings.authoring_plan(k) if k
+                       else spec_savings.estate())
         elif url.path == "/api/spec-workflow":
             # SDD adoption S1. Read-only by construction: rendering a workflow
             # view must never advance a workflow. Every transition stays behind
