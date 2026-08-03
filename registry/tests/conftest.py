@@ -16,6 +16,7 @@ The sweep CLEANS AND SAYS SO. It deliberately does not run silently: a leak
 that a test itself caused is a bug worth seeing, and a printed line keeps it
 visible instead of making the suite quietly self-healing.
 """
+import os
 import pathlib
 import shutil
 import sys
@@ -23,6 +24,31 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
+
+# --- the transaction log is REDIRECTED for the whole suite ------------------
+#
+# `event_log` resolves its directory from AIQE_EVENTS_DIR at call time, and no
+# test set it — so every emit during a run landed in the estate's REAL audit
+# log, including the ~1400 refusals and failures the adversarial suites provoke
+# on purpose. A measured run left 2516 events there, 56% of them failures.
+#
+# Two things break as a result, and the second is the sharp one:
+#
+#   * The log stops being evidence. docs/observability-epic.md frames it as the
+#     record of what happened to this estate; an auditor reading it saw 41
+#     attempts to remove a repo and 44 factory-clears that no human ever made.
+#   * `make maintain` runs alert_rules.evaluate(), which counts matching events
+#     in a window and DELIVERS through the Notify port. So `make review` — the
+#     thing you run before claiming anything works — could page somebody with
+#     its own attack traffic.
+#
+# Set at import, not in a fixture: it must be in place before any module-level
+# code in a test file reads it, and subprocesses (the dashboard server, the
+# receiver) inherit it. An explicit AIQE_EVENTS_DIR from the caller still wins,
+# so a test that wants its own directory keeps it.
+TEST_EVENTS_DIR = ROOT / "out/test-events"
+if not (os.environ.get("AIQE_EVENTS_DIR") or "").strip():
+    os.environ["AIQE_EVENTS_DIR"] = str(TEST_EVENTS_DIR)
 
 # Throwaway repos registered by tests. Keep in sync with the tests that create
 # them; an unknown repo is NEVER removed — that would be this file quietly
@@ -77,9 +103,22 @@ def _sweep_registry(notes):
                      f"{', '.join(present)}: {e}")
 
 
+def _sweep_test_events(notes):
+    """Start each session with an empty redirected log, so a leak assertion is
+    about THIS run and a failed run's events stay inspectable until the next."""
+    if os.environ.get("AIQE_EVENTS_DIR") != str(TEST_EVENTS_DIR):
+        return                                  # a caller chose their own dir
+    if TEST_EVENTS_DIR.exists():
+        shutil.rmtree(TEST_EVENTS_DIR, ignore_errors=True)
+    TEST_EVENTS_DIR.mkdir(parents=True, exist_ok=True)
+    notes.append(f"transaction log redirected to {TEST_EVENTS_DIR.relative_to(ROOT)} "
+                 f"— the estate's real audit log is not written by tests")
+
+
 def pytest_sessionstart(session):
     notes = []
     _sweep_lock(notes)
     _sweep_registry(notes)
+    _sweep_test_events(notes)
     for n in notes:
         print(f"[conftest] {n}")

@@ -18,6 +18,15 @@
 # Run: make test-providers
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
+# The transaction log is REDIRECTED for this suite. Nothing set AIQE_EVENTS_DIR,
+# so every emit reached the estate's REAL audit log — the record an operator
+# reads to see what happened here, and the input `make maintain` feeds to
+# alert_rules.evaluate(), which counts events in a window and DELIVERS through
+# the Notify port. A test suite could page somebody with its own traffic.
+# Absolute + native: python resolves this variable, and a subprocess that has
+# cd'd into a workspace checkout must not create a stray log there.
+mkdir -p "$ROOT/out/test-events"
+export AIQE_EVENTS_DIR="$(cd "$ROOT/out/test-events" && pwd -W 2>/dev/null || pwd)"
 fail=0
 TMPD=$(mktemp -d); trap 'rm -rf "$TMPD"' EXIT
 check() { if [ "$1" = "$2" ]; then echo "PASS $3"; else echo "FAIL $3 ($2, want $1)"; fail=1; fi; }

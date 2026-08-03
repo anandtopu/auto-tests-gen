@@ -2,6 +2,15 @@
 # Adversarial gate regression (Review Pass 3, made permanent). Run: make test-gate
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"; fail=0
+# The transaction log is REDIRECTED for this suite. Nothing set AIQE_EVENTS_DIR,
+# so every emit reached the estate's REAL audit log — the record an operator
+# reads to see what happened here, and the input `make maintain` feeds to
+# alert_rules.evaluate(), which counts events in a window and DELIVERS through
+# the Notify port. A test suite could page somebody with its own traffic.
+# Absolute + native: python resolves this variable, and a subprocess that has
+# cd'd into a workspace checkout must not create a stray log there.
+mkdir -p "$ROOT/out/test-events"
+export AIQE_EVENTS_DIR="$(cd "$ROOT/out/test-events" && pwd -W 2>/dev/null || pwd)"
 # A FAILED setup must abort, never fall through: without the `||exit`s below a
 # failed clone or cd left the shell in $ROOT, so the attack files ("planted
 # secret", "out-of-scope src/") were written into THIS scaffold and the gate

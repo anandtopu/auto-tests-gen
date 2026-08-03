@@ -2,6 +2,15 @@
 # Adapter conformance: every adapter must fail cleanly on unknown verbs (exit 64)
 # and each port's required verbs must be handled. Extend with golden tests per tool.
 set -u
+# The transaction log is REDIRECTED. This suite invokes every adapter, and an
+# adapter that emits reaches the estate's REAL audit log — the record an
+# operator reads, and the input `make maintain` feeds to alert_rules.evaluate(),
+# which delivers through the Notify port. Nothing here is a transaction on this
+# estate. (Found by the review-chain invariant in test_audit_log_isolation.py,
+# not by enumerating suites by hand — which had missed this one.)
+_CONF_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+mkdir -p "$_CONF_ROOT/out/test-events"
+export AIQE_EVENTS_DIR="$(cd "$_CONF_ROOT/out/test-events" && pwd -W 2>/dev/null || pwd)"
 fail=0
 declare -A verbs=( [scm/github.sh]="clone_ro clone_rw changed_files diff comment set_status fetch_file"
                    [scm/bitbucket.sh]="clone_ro clone_rw changed_files diff comment set_status fetch_file"
