@@ -473,3 +473,62 @@ def test_clone_is_idempotent_over_an_existing_checkout():
     finally:
         import shutil
         shutil.rmtree(target, ignore_errors=True)
+
+
+# ---- Windows transient PermissionError on rename ----------------------------
+def test_atomic_replace_retries_a_transient_permission_error(tmp_path, monkeypatch):
+    """On Windows a rename fails with WinError 5 while ANY handle to the
+    destination is open — a reader, an AV scanner, a concurrent dashboard
+    render. It clears in milliseconds, but a bare os.replace turns it into a
+    LOST WRITE.
+
+    Observed mid-suite: "Access is denied: repo-registry.yaml.tmp ->
+    repo-registry.yaml" — which in production means a repo add or edit silently
+    not landing, on the file that routes every run. This module already
+    documents the `mkdir` half of the same hazard (a PENDING-DELETE lock dir
+    raises PermissionError, not FileExistsError).
+    """
+    import fs_lock
+    src, dest = tmp_path / "a.tmp", tmp_path / "a.txt"
+    src.write_text("payload", encoding="utf-8")
+
+    calls = {"n": 0}
+    real = os.replace
+
+    def flaky(a, b):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise PermissionError(5, "Access is denied")
+        return real(a, b)
+    monkeypatch.setattr(fs_lock.os, "replace", flaky)
+
+    fs_lock.replace_atomic(src, dest, attempts=6, pause=0.001)
+    assert dest.read_text(encoding="utf-8") == "payload"
+    assert calls["n"] == 3, "it gave up too early or did not retry"
+
+
+def test_a_permanent_permission_error_still_raises(tmp_path, monkeypatch):
+    """A write that never happened must not be reported as one — the retry is
+    for a transient handle, not a licence to swallow the failure."""
+    import fs_lock
+    src, dest = tmp_path / "a.tmp", tmp_path / "a.txt"
+    src.write_text("payload", encoding="utf-8")
+
+    def always(a, b):
+        raise PermissionError(5, "Access is denied")
+    monkeypatch.setattr(fs_lock.os, "replace", always)
+
+    with pytest.raises(PermissionError):
+        fs_lock.replace_atomic(src, dest, attempts=3, pause=0.001)
+
+
+def test_every_state_writer_goes_through_the_retrying_replace():
+    """The registry and the JSON state files are the two things whose loss is
+    unrecoverable — a human decision or a routing table."""
+    fl = (ROOT / "engine/lib/fs_lock.py").read_text(encoding="utf-8")
+    body = fl[fl.index("def write_json_atomic("):]
+    assert "replace_atomic(tmp, path)" in body[:800], \
+        "write_json_atomic still calls os.replace directly"
+    ra = (ROOT / "engine/lib/repo_admin.py").read_text(encoding="utf-8")
+    assert "fs_lock.replace_atomic(tmp, REG_PATH)" in ra
+    assert "os.replace(tmp, REG_PATH)" not in ra

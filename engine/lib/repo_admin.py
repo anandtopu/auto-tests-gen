@@ -90,7 +90,13 @@ def save_and_verify(reg, regen_cov=False):
     # Atomic write: never leave a half-dumped registry behind on crash
     tmp = REG_PATH.with_suffix(".yaml.tmp")
     tmp.write_text(yaml.safe_dump(reg, sort_keys=False), encoding="utf-8")
-    os.replace(tmp, REG_PATH)
+    # Retried: on Windows this rename fails with WinError 5 while any handle to
+    # the registry is open — a concurrent reader, a dashboard render, an AV
+    # scanner. Seen mid-suite as "Access is denied: repo-registry.yaml.tmp ->
+    # repo-registry.yaml", which in production means a repo add or edit
+    # silently not landing on the file that routes every run.
+    import fs_lock
+    fs_lock.replace_atomic(tmp, REG_PATH)
     if regen_cov:                          # covers = catalog evidence UNION scope
         subprocess.run([sys.executable, "catalog/bootstrap/regen_coverage.py"],
                        cwd=ROOT, check=True, capture_output=True,

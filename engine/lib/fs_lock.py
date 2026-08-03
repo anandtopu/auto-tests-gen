@@ -175,6 +175,36 @@ def _release(lockdir):
 # aside with a timestamp so the bytes survive for recovery and the event is
 # visible — instead of silently treating it as empty.
 
+def replace_atomic(tmp, dest, attempts=12, pause=0.05):
+    """os.replace(tmp, dest), retried past Windows' transient PermissionError.
+
+    On Windows a rename fails with WinError 5 while ANY handle to the
+    destination is open — another reader, an AV scanner, the indexer, or a
+    concurrent dashboard render that is reading the file this very moment. It
+    is transient and clears in milliseconds, but a bare os.replace turns it
+    into a lost write.
+
+    Observed here: `save_and_verify` failed mid-suite with
+    "Access is denied: repo-registry.yaml.tmp -> repo-registry.yaml", which
+    would mean a repo add or edit silently not landing — on the file that
+    routes every run. The same hazard is already documented for `mkdir` in this
+    module (a PENDING-DELETE lock dir raises PermissionError, not
+    FileExistsError); this is the rename half of it.
+
+    Raises if it never succeeds: a write that did not happen must not be
+    reported as one.
+    """
+    last = None
+    for i in range(attempts):
+        try:
+            os.replace(tmp, dest)
+            return
+        except PermissionError as e:       # Windows only; POSIX renames win
+            last = e
+            time.sleep(pause * (i + 1))    # brief, widening backoff
+    raise last
+
+
 def write_json_atomic(path, obj, **dump_kw):
     """Write JSON so a crash can never leave a truncated file."""
     import json
@@ -186,7 +216,7 @@ def write_json_atomic(path, obj, **dump_kw):
         with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
             json.dump(obj, fh, **dump_kw)
             fh.write("\n")
-        os.replace(tmp, path)
+        replace_atomic(tmp, path)
     finally:
         # A failure between write and replace must not litter tmp files that a
         # later glob or bundle export would sweep up.
@@ -216,7 +246,9 @@ def read_json_guarded(path, default):
         stamp = time.strftime("%Y%m%d-%H%M%S")
         quarantine = path.with_name(f"{path.name}.corrupt-{stamp}")
         try:
-            os.replace(path, quarantine)
+            # Retried too: the corrupt file is one somebody just failed to read,
+            # so a lingering handle is exactly the likely case here.
+            replace_atomic(path, quarantine)
             print(f"[fs_lock] {path.name} was corrupt (torn write?) — moved to "
                   f"{quarantine.name}; continuing from empty state. Recover by "
                   f"inspecting that file.", file=sys.stderr)
