@@ -168,6 +168,31 @@ def _err(e):
     return str(e)
 
 
+class _Server(ThreadingHTTPServer):
+    """The dashboard's HTTP server, with a listen backlog that matches how the
+    page actually behaves.
+
+    `socketserver` defaults `request_queue_size` to 5. One dashboard page load
+    fires roughly ten loaders at once (activity, alerts, spec workflow, savings,
+    governance, trace, cost, plans, queue, conversations), so the sixth
+    connection onward overflowed the accept queue and Windows answered with an
+    RST — the client saw a connection reset after ~19s of retrying.
+
+    The symptom was not an error anybody could read: the affected loader caught
+    its own failure and left an EMPTY TABLE, so the Activity view — the
+    transaction log — routinely rendered blank while the log was full. It looked
+    like "no transactions", which is the opposite of the truth. Measured before
+    the fix: 4 of 7 concurrent requests reset; after: 0 of 40.
+
+    `daemon_threads` keeps Ctrl-C from hanging on an in-flight request, and
+    `allow_reuse_address` avoids a TIME_WAIT bind failure on quick restarts —
+    both routine for a dev-facing server that gets restarted constantly.
+    """
+    request_queue_size = 128
+    daemon_threads = True
+    allow_reuse_address = True
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype="application/json"):
         # Remembered for the do_POST wrapper below, which needs the status to
@@ -1192,4 +1217,4 @@ if __name__ == "__main__":
     host = os.environ.get("AIQE_UI_HOST", "127.0.0.1")
     print(f"AI QE dashboard: http://{host}:{port}  "
           f"(mode: {'mock' if MOCK else 'real'} adapters; Ctrl-C to stop)")
-    ThreadingHTTPServer((host, port), Handler).serve_forever()
+    _Server((host, port), Handler).serve_forever()

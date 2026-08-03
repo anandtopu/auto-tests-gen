@@ -5,7 +5,7 @@ Server tests run against a REAL dashboard process (same pattern as
 test_hooks_auth) so routing, auth defaults and content types are the ones a
 browser would see.
 """
-import json, os, pathlib, socket, subprocess, sys, time, urllib.error, urllib.request
+import json, os, pathlib, re, socket, subprocess, sys, time, urllib.error, urllib.request
 
 import pytest
 
@@ -575,3 +575,55 @@ def test_an_explicit_path_is_respected_without_fallback(fake_openhands, monkeypa
         assert "rejected both" not in str(e.value)
     finally:
         srv.shutdown()
+
+
+# ---- journey review: the dashboard loaded data exactly once, and hid failures
+def _ui():
+    return (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+
+
+def test_entering_a_view_reloads_it():
+    """Every loader used to fire once at page load and never again.
+
+    Two failures came out of that. A loader that failed at load left its table
+    permanently empty (its catch swallowed the error), and views whose entire
+    purpose is "what is happening now" — the transaction log, alerts, the queue
+    — silently showed a page-load snapshot. A stale activity log is worse than
+    an empty one, because it looks current.
+    """
+    s = _ui()
+    assert "function runViewLoaders(view)" in s
+    assert "runViewLoaders(view);" in s, "go() must run the entering view's loaders"
+    # The views whose content is time-sensitive must all be registered.
+    for view in ("activity", "alerts", "queue", "plans", "trace", "cost", "specflow"):
+        assert f"onEnter('{view}'" in s, f"{view} does not reload on entry"
+
+
+def test_a_failed_loader_says_so_instead_of_rendering_an_empty_table():
+    """An empty table is indistinguishable from "there is genuinely nothing
+    here" — and on the activity and alert views those two readings lead to
+    opposite actions."""
+    s = _ui()
+    assert "function loadFailed(" in s
+    assert "display failure, not an empty result" in s
+    # Every selector it is called with must name a table that actually exists,
+    # or the message renders nowhere and we are back to a silent blank.
+    import re
+    sels = re.findall(r"loadFailed\('#([\w-]+) tbody'", s)
+    assert sels, "no loader routes its failure to a table"
+    for t in sels:
+        assert f'table id="{t}"' in s, f"loadFailed targets #{t}, which does not exist"
+
+
+def test_the_server_accepts_a_full_page_of_concurrent_loaders():
+    """One page load fires ~10 requests at once. `socketserver` defaults the
+    listen backlog to 5, so the rest overflowed the accept queue and Windows
+    reset them — which surfaced as a permanently blank Activity view, not as an
+    error anybody could read. Measured before the fix: 4 of 7 concurrent
+    requests reset."""
+    src = (ROOT / "bin/dashboard_server.py").read_text(encoding="utf-8")
+    assert "class _Server(ThreadingHTTPServer)" in src
+    m = re.search(r"request_queue_size\s*=\s*(\d+)", src)
+    assert m and int(m.group(1)) >= 64, \
+        "the backlog must comfortably exceed one page's worth of loaders"
+    assert "_Server((host, port), Handler)" in src, "the subclass must be the one served"

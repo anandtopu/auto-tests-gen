@@ -613,3 +613,62 @@ def test_ui_never_prints_a_zero_for_an_unmeasured_saving():
     block = ui[i:i + 2500]
     assert "s.usd === null" in block and "s.usd === undefined" in block
     assert "not measured" in block
+
+
+# ----- journey review: the board read two facts from the wrong place ---------
+def test_generated_is_read_from_the_key_plan_state_actually_writes():
+    """`mark_generated` writes `generated_run`; the board read `generated`.
+
+    Nothing ever set that key, so a ticket whose tests had been generated AND
+    committed sat at "plan approved; tests not generated" forever — the board's
+    single most visible claim, permanently wrong. Found by walking the journey
+    end to end rather than reading the code.
+    """
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import plan_state
+    import spec_workflow
+    src = (ROOT / "engine/lib/spec_workflow.py").read_text(encoding="utf-8")
+    assert 'entry.get("generated_run")' in src
+    assert 'entry.get("generated")' not in src, \
+        "reading a key mark_generated never writes"
+    # And the producer still writes it — a rename on either side breaks this.
+    import inspect
+    assert 'e["generated_run"]' in inspect.getsource(plan_state.mark_generated)
+    assert spec_workflow.STATES.index("tests") < spec_workflow.STATES.index("committed")
+
+
+def test_committed_means_the_gate_committed_not_that_a_pdf_was_attached():
+    """`linked` means "the plan is attached to the ticket". Reading it as a
+    commit made attaching a PDF advance the board to done, while a genuinely
+    committed run with no attachment reported "no gate commit recorded". The
+    gate's own result is the only thing that answers this question."""
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import spec_workflow
+    src = (ROOT / "engine/lib/spec_workflow.py").read_text(encoding="utf-8")
+    assert "_gate_committed(key)" in src
+    assert 'entry.get("linked") or entry.get("committed")' not in src
+    # A COMMITTED gate in a run record for the key is what makes it true.
+    assert spec_workflow._gate_committed("no-such-key-ever") is False
+
+
+def test_the_board_survives_a_torn_run_record(tmp_path, monkeypatch):
+    """One unreadable file must not take out the other twenty tickets' rows."""
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import spec_workflow
+    runs = tmp_path / "reports" / "runs"
+    runs.mkdir(parents=True)
+    # Named so the TORN file is globbed FIRST. With the good record sorting
+    # first the scan short-circuits on it and never opens the bad one — the
+    # test passed against a version that let a torn record raise, which is
+    # exactly the decorative pin this suite is not allowed to contain.
+    (runs / "aaa-torn.json").write_text('{"trigger": {"key": "K-1"', encoding="utf-8")
+    (runs / "zzz-good.json").write_text(
+        '{"trigger": {"key": "K-1"}, "gates": [{"status": "COMMITTED"}]}',
+        encoding="utf-8")
+    monkeypatch.setattr(spec_workflow, "ROOT", tmp_path)
+    assert spec_workflow._gate_committed("K-1") is True
+    # And a record whose gate did NOT commit must not read as committed.
+    (runs / "zzz-good.json").write_text(
+        '{"trigger": {"key": "K-2"}, "gates": [{"status": "NO_CHANGES"}]}',
+        encoding="utf-8")
+    assert spec_workflow._gate_committed("K-2") is False

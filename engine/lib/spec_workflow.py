@@ -130,8 +130,19 @@ def status(key):
         except Exception:                      # noqa: BLE001
             scenarios = []
 
-    generated = bool(entry.get("generated"))
-    committed = bool(entry.get("linked") or entry.get("committed"))
+    # Both of these read the fact from where it is actually RECORDED, which
+    # cost two bugs to learn:
+    #   * `plan_state.mark_generated` writes `generated_run` (the run id). The
+    #     first version read `entry["generated"]`, a key nothing ever sets, so
+    #     a ticket whose tests had been generated and committed sat at "tests
+    #     not generated" forever — the board's most visible claim, always wrong.
+    #   * `linked` means "the plan is ATTACHED to the ticket", not "the gate
+    #     committed". Reading it as a commit meant attaching a PDF advanced the
+    #     board to done, while a genuinely committed run with no attachment
+    #     reported "no gate commit recorded". Two different facts, and the one
+    #     that matters is the gate's, so it comes from the run record.
+    generated = bool(entry.get("generated_run"))
+    committed = _gate_committed(key)
 
     # --- decide the state, blocker and next action -------------------------
     # Ordered so the FIRST unmet condition is the one reported. Reporting the
@@ -193,6 +204,37 @@ def _row(key, state, gov, blocker="", action="", owner="", soft=False, detail=No
         "requirements_status": d.get("req_status") or "",
         "governance": gov,
     }
+
+
+def _gate_committed(key):
+    """Did a gate actually COMMIT tests for this key?
+
+    The truth lives in the run record, because the gate is the only thing that
+    can commit and the run record is where its per-repo result is written. Any
+    proxy for this — a plan-state flag, a ticket attachment — answers a
+    different question and eventually answers it wrongly.
+
+    Total by construction: a torn or unreadable record is skipped rather than
+    raised on. A board that crashes on one bad file tells nobody anything about
+    the other twenty tickets.
+    """
+    import glob
+    import json
+    for f in glob.glob(str(ROOT / "reports/runs/*.json")):
+        if pathlib.Path(f).name in ("reviews.json", "queue.json", "hooks-seen.json"):
+            continue
+        try:
+            r = json.load(open(f, encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+            continue
+        if not isinstance(r, dict):
+            continue
+        if (r.get("trigger") or {}).get("key") != key:
+            continue
+        for g in r.get("gates") or []:
+            if isinstance(g, dict) and str(g.get("status", "")).upper() == "COMMITTED":
+                return True
+    return False
 
 
 def board():

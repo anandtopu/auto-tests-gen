@@ -1061,6 +1061,26 @@ const TITLES = { overview: 'Overview', wizard: 'Guided run — PR or JIRA, step 
   artifacts: 'Generated artifacts',
   catalog: 'Test knowledge catalog', repos: 'Repositories & mapping',
   settings: 'Settings & integrations' };
+// Loaders register themselves here; `go` runs the entering view's on ARRIVAL.
+// Before this existed, every loader fired exactly once at page load and never
+// again, which broke two different ways:
+//   * a loader that failed at load (server still starting, one transient error)
+//     left its table permanently empty — and its catch swallowed the error, so
+//     the user saw a blank table with no explanation and no way to retry
+//     except a full reload;
+//   * views whose whole purpose is "what is happening NOW" — the transaction
+//     log, alerts, the run queue — silently showed a page-load snapshot. A
+//     stale activity log is worse than an empty one: it looks current.
+// Registration is deferred (loaders are defined further down) and `go` is
+// called once before any of them exist, so the lookup must tolerate a miss.
+const VIEW_LOAD = {};
+function onEnter(view, fn) { (VIEW_LOAD[view] = VIEW_LOAD[view] || []).push(fn); }
+function runViewLoaders(view) {
+  (VIEW_LOAD[view] || []).forEach(fn => {
+    // One failing loader must not stop its neighbours on the same view.
+    try { Promise.resolve(fn()).catch(() => {}); } catch (e) { /* keep going */ }
+  });
+}
 function go(view) {
   $$('[data-view]').forEach(v => v.classList.toggle('on', v.dataset.view === view));
   $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.go === view));
@@ -1069,6 +1089,7 @@ function go(view) {
   // saves and clears finish with location.reload(), and without this every
   // reload dumped the user back on Overview instead of the view they were in.
   try { history.replaceState(null, '', '#' + view); } catch (e) { /* file:// */ }
+  runViewLoaders(view);
 }
 // Restore the view a mutation-reload came from (deep links work too).
 (function () {
@@ -1081,6 +1102,18 @@ document.addEventListener('click', e => {
 });
 if (!served) { $('#static-pill').style.display = ''; }
 else { $('#server-dot').classList.add('on'); $('#server-label').textContent = 'Server connected · ' + location.host; }
+
+// A loader that fails must SAY so. Swallowing the error left an empty table
+// that is indistinguishable from "there is genuinely nothing here" — and on the
+// activity and alert views those two readings lead to opposite actions.
+function loadFailed(sel, cols, err) {
+  const tb = document.querySelector(sel);
+  if (!tb) return;
+  tb.innerHTML = '<tr><td colspan="' + cols + '" class="muted">Could not load ' +
+    'this — ' + escHtml(String((err && err.message) || err || 'request failed')) +
+    '. This is a display failure, not an empty result: use Refresh, and check ' +
+    'the server is still running.</td></tr>';
+}
 
 // ---- runs filters
 function applyRunFilters() {
@@ -1444,6 +1477,7 @@ $('#inl-plan-oh').addEventListener('click', async () => {
   } catch (err) { toast(err.message); }
 });
 refreshQueue();
+onEnter('queue', refreshQueue);
 
 // ---- plan authoring (Test plans view)
 if ($('#plan-author')) {
@@ -1514,6 +1548,7 @@ async function refreshOpenHands() {
   } catch (err) { /* advisory panel — never block the view it sits in */ }
 }
 refreshOpenHands();
+onEnter('runs', refreshOpenHands);
 
 // ---- spec workflow (SDD adoption S1)
 async function refreshSpecFlow() {
@@ -1558,10 +1593,11 @@ async function refreshSpecFlow() {
         '<td class="sm">' + escHtml(r.owner || '—') + '</td>' +
         '<td class="sm mono">' + escHtml(r.action || '—') + '</td></tr>';
     }).join('');
-  } catch (e) { /* diagnostic view — never break the page it sits in */ }
+  } catch (e) { loadFailed('#sf-table tbody', 5, e); }
 }
 if ($('#sf-refresh')) $('#sf-refresh').addEventListener('click', refreshSpecFlow);
 refreshSpecFlow();
+onEnter('specflow', refreshSpecFlow);
 
 // ---- coverage subtraction (SDD adoption S5)
 async function loadSavings() {
@@ -1596,10 +1632,13 @@ async function loadSavings() {
       '<div class="muted sm" style="padding-top:6px">Advisory: nothing is ' +
       'skipped automatically. A wrong join would silently drop coverage — the ' +
       'one failure this platform cannot see.</div>';
-  } catch (e) { /* diagnostic card — never break the page it sits in */ }
+  } catch (e) { el.innerHTML = '<div class="muted sm">Could not load the '
+      + 'subtraction — ' + escHtml(String(e && e.message || e)) + '. This is a '
+      + 'display failure, not a zero.</div>'; }
 }
 if ($('#sv-load')) $('#sv-load').addEventListener('click', loadSavings);
 loadSavings();
+onEnter('specflow', loadSavings);
 
 // ---- generated governance page (SDD adoption S6)
 async function loadGovernance() {
@@ -1622,6 +1661,7 @@ async function loadGovernance() {
   } catch (e) { /* the static rules below still render */ }
 }
 loadGovernance();
+onEnter('specflow', loadGovernance);
 
 // ---- waivers (SDD adoption S4)
 async function loadWaivers() {
@@ -1799,7 +1839,7 @@ async function refreshAlerts() {
     tb.innerHTML = AL_RULES.length
       ? AL_RULES.map(r => alRow(r, byId[r.id])).join('')
       : '<tr><td colspan="12" class="muted">No rules yet — "Add rule" creates one.</td></tr>';
-  } catch (e) { /* diagnostic view — never break the page */ }
+  } catch (e) { loadFailed('#al-table tbody', 7, e); }
 }
 function alMsg(t, bad) {
   const m = $('#al-msg'); if (!m) return;
@@ -1845,6 +1885,7 @@ document.addEventListener('click', async e => {
   }
 });
 refreshAlerts();
+onEnter('alerts', refreshAlerts);
 
 // ---- activity: the transaction log (observability 2.1-2.3)
 async function refreshActivity() {
@@ -1892,13 +1933,14 @@ async function refreshActivity() {
         '<td class="num sm">' + (r.duration_ms == null ? '—' : escHtml(String(r.duration_ms))) + '</td>' +
         '<td class="mono sm muted">' + escHtml(r.run_id || '—') + '</td></tr>';
     }).join('');
-  } catch (err) { /* diagnostic view — never break the page it sits in */ }
+  } catch (err) { loadFailed('#ev-table tbody', 7, err); }
 }
 ['#ev-refresh', '#ev-kind', '#ev-actor', '#ev-target', '#ev-outcome'].forEach(sel => {
   const el = $(sel);
   if (el) el.addEventListener(el.tagName === 'BUTTON' ? 'click' : 'change', refreshActivity);
 });
 refreshActivity();
+onEnter('activity', refreshActivity);
 
 // ---- traceability matrix (roadmap 3.1)
 async function refreshTraceMatrix() {
@@ -1927,6 +1969,7 @@ async function refreshTraceMatrix() {
   } catch (err) { /* advisory table — never block the Trace view */ }
 }
 refreshTraceMatrix();
+onEnter('trace', refreshTraceMatrix);
 
 // ---- Cost view (cost-reduction 6.1): one payload, three cards. Measured vs
 // simulated is labelled on every number — the iron rule made visible.
@@ -1992,6 +2035,7 @@ async function refreshCost() {
   } catch (err) { /* advisory view — never block the dashboard */ }
 }
 refreshCost();
+onEnter('cost', refreshCost);
 
 // ---- batch review (roadmap 4.3): clear a filtered set in one confirmed pass
 const batchBtn = document.getElementById('approve-filtered');
@@ -2224,6 +2268,7 @@ document.addEventListener('click', async e => {
     'Queued test generation from the approved plan — press Run queue');
 });
 refreshPlans();
+onEnter('plans', refreshPlans);
 
 // ---- repositories & mapping
 async function repoPost(path, payload, okMsg) {
