@@ -1563,6 +1563,28 @@ async function refreshSpecFlow() {
 if ($('#sf-refresh')) $('#sf-refresh').addEventListener('click', refreshSpecFlow);
 refreshSpecFlow();
 
+// ---- generated governance page (SDD adoption S6)
+async function loadGovernance() {
+  const el = $('#gv-body');
+  if (!served || !el) return;
+  try {
+    const d = await api('/api/governance');
+    // The honest headline first: a reader who takes these rules as enforced,
+    // when they are not, has been misled by this page.
+    const head = d.enforced
+      ? '<div class="chip">ENFORCED — ' + escHtml(d.governance.spec_enforce_effect) + '</div>'
+      : '<div class="chip chip-warning">NOT ENFORCED — every rule below is ' +
+        'advisory in this estate; the platform will not stop a run that skips it</div>';
+    const warn = d.unpinned.length
+      ? '<div class="chip chip-danger">clause(s) with no live pin: ' +
+        escHtml(d.unpinned.join(', ')) + ' — rules nothing currently defends</div>'
+      : '';
+    el.innerHTML = head + warn + '<div class="sub" style="padding-top:6px">' +
+      d.clause_count + ' clauses, read from ' + escHtml(d.source) + '</div>';
+  } catch (e) { /* the static rules below still render */ }
+}
+loadGovernance();
+
 // ---- waivers (SDD adoption S4)
 async function loadWaivers() {
   const tb = document.querySelector('#wv-table tbody');
@@ -2829,9 +2851,13 @@ page = f"""<!doctype html>
 
     <section class="card">
       <div class="card-h"><div><h2>The rules</h2>
-        <div class="sub">These already hold in code. They are written here
-        because a rule you cannot see is a rule you cannot follow.</div></div>
+        <div class="sub">Generated from <code>specs/platform/constitution.yaml</code>
+        — each rule shows the test that holds it, so this page cannot drift from
+        what the platform enforces.</div></div>
+        <span class="grow"></span>
+        <a class="btn btn-sm" href="/api/governance?format=md" download="governance.md">Download</a>
       </div>
+      <div id="gv-body" style="padding:0 14px 8px"></div>
       <div style="padding:4px 14px 16px" class="sm">
         <p><b>1. A spec is signed, not just saved.</b> Approving binds to a
         content hash. Editing an approved plan revokes the approval — so

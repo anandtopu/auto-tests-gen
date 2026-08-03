@@ -70,6 +70,7 @@ import alert_rules, demo_data, email_notify, event_log, export_plan, \
     openhands_events, openhands_mode, plan_state, pr_url, repo_admin, \
     repo_guidance_gen, review_state, settings_store, spec_workflow, \
     team_report, waiver_store, work_queue
+import governance_page
 
 
 def _classify_status(code):
@@ -246,6 +247,14 @@ class Handler(BaseHTTPRequestHandler):
                            cwd=ROOT, capture_output=True, stdin=subprocess.DEVNULL)
             self._send(200, (ROOT / "reports/dashboard.html").read_bytes(),
                        "text/html; charset=utf-8")
+        elif url.path == "/api/governance":
+            # SDD adoption S6. Generated from the constitution + live config, so
+            # it cannot drift from what the platform actually enforces.
+            # `format=md` serves the shareable document.
+            if urllib.parse.parse_qs(url.query).get("format", [""])[0] == "md":
+                return self._send(200, governance_page.markdown().encode("utf-8"),
+                                  "text/markdown; charset=utf-8")
+            self._send(200, governance_page.page())
         elif url.path == "/api/waivers":
             # SDD adoption S4. Expired waivers are INCLUDED — a lapsed exception
             # is the most interesting row on the page, not one to hide.
