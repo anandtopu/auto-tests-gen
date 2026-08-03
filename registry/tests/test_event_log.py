@@ -800,3 +800,41 @@ def test_committed_keys_and_the_single_key_lookup_agree(tmp_path, monkeypatch):
     # And a caller passing the set must get the same answer as one that doesn't.
     assert spec_workflow.status("K-1", committed=ck)["state"] == \
         spec_workflow.status("K-1")["state"]
+
+
+def test_the_savings_sweep_builds_the_trace_matrix_once():
+    """`estate()` called `authoring_plan()` per ticket, and each call built the
+    WHOLE trace matrix twice — once through covered_scenarios and once for the
+    unlinked count. A 20-ticket estate rebuilt it 40 times, each rebuild
+    re-globbing and re-parsing every run record.
+
+    Same shape as the workflow board's per-key rescan, in code written the same
+    day — which is the argument for counting the builds rather than trusting
+    that the next one will be written differently.
+    """
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import spec_savings
+    import trace_matrix
+    calls = []
+    real = trace_matrix.build
+    try:
+        trace_matrix.build = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+        spec_savings.estate()
+        assert len(calls) == 1, f"estate() built the matrix {len(calls)}x"
+        calls.clear()
+        spec_savings.authoring_plan("PROJ-301")
+        assert len(calls) == 1, f"authoring_plan() built the matrix {len(calls)}x"
+    finally:
+        trace_matrix.build = real
+
+
+def test_the_savings_numbers_are_unchanged_by_the_sharing():
+    """Threading a shared row list through must not change any answer — a
+    faster wrong number is worse than a slow right one."""
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import spec_savings
+    rows = spec_savings._matrix_rows()
+    for key in ("PROJ-301", "no-such-key"):
+        shared = spec_savings.authoring_plan(key, rows=rows)
+        alone = spec_savings.authoring_plan(key)
+        assert shared == alone, key

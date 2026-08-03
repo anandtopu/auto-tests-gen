@@ -47,7 +47,7 @@ def _matrix_rows():
         return []
 
 
-def covered_scenarios(key=None):
+def covered_scenarios(key=None, rows=None):
     """{scenario_id: [files]} for scenarios that already have a cataloged test.
 
     Only rows carrying BOTH a scenario_id and a file count. A row with a file
@@ -56,7 +56,7 @@ def covered_scenarios(key=None):
     coverage silently disappears.
     """
     out = {}
-    for r in _matrix_rows():
+    for r in (_matrix_rows() if rows is None else rows):
         if key and r.get("key") != key:
             continue
         sid, f = (r.get("scenario_id") or "").strip(), (r.get("file") or "").strip()
@@ -65,13 +65,21 @@ def covered_scenarios(key=None):
     return out
 
 
-def authoring_plan(key):
+def authoring_plan(key, rows=None):
     """What a run for `key` would need to author, and what it would not.
 
     Returns counts only. `unlinked_tests` is reported separately and NOT counted
     as coverage: those are tests whose scenario is unknown, and treating them as
     covering something would be exactly the wrong kind of optimism.
     """
+    # Built ONCE per call (and once per estate() sweep). The first version
+    # called `_matrix_rows()` twice here — once through covered_scenarios and
+    # once for the unlinked count — and `estate()` called this per ticket, so a
+    # 20-ticket estate rebuilt the whole trace matrix 40 times, each rebuild
+    # re-globbing and re-parsing every run record. Exactly the shape just fixed
+    # in the workflow board, in code written the same day.
+    if rows is None:
+        rows = _matrix_rows()
     scenarios = []
     try:
         doc = spec_store.load(key) or {}
@@ -79,12 +87,12 @@ def authoring_plan(key):
     except Exception:                          # noqa: BLE001
         scenarios = []
 
-    covered = covered_scenarios(key)
+    covered = covered_scenarios(key, rows=rows)
     ids = [str(s.get("id") or "").strip() for s in scenarios]
     ids = [i for i in ids if i]
     already = [i for i in ids if i in covered]
     to_author = [i for i in ids if i not in covered]
-    unlinked = len([r for r in _matrix_rows()
+    unlinked = len([r for r in rows
                     if r.get("key") == key and r.get("file")
                     and not (r.get("scenario_id") or "").strip()])
     return {
@@ -105,7 +113,8 @@ def estate():
     d = app_paths.specs_dir()
     keys = ([p.name for p in d.iterdir() if p.is_dir() and p.name != "platform"]
             if d.is_dir() else [])
-    plans = [authoring_plan(k) for k in sorted(keys)]
+    shared = _matrix_rows()          # one build for the whole estate
+    plans = [authoring_plan(k, rows=shared) for k in sorted(keys)]
     plans = [p for p in plans if p["scenarios"]]
     return {
         "keys": plans,
