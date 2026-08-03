@@ -216,3 +216,59 @@ def test_attention_counts_an_unmatched_waiver_independently_of_expiry():
     j = src.index('if w["expired"]:', i - 400 if i > 400 else 0)
     assert i < j, "unmatched must be checked before (and separately from) expiry"
     assert '"unmatched": inert' in src
+
+
+# ---- an unusable enforcement value must never read as a decision ------------
+def test_an_invalid_enforcement_value_is_never_silently_off(monkeypatch):
+    """`AIQE_SPEC_ENFORCE=stict` resolved to `off` with no output anywhere.
+
+    That is the worst shape this failure takes: the operator believes the gate
+    is enforcing, the gate is not, and both agree on the reported answer because
+    both read the same unusable value. The fallback stays `off` — a gate must
+    not refuse commits because its own setting is misspelled — but it is no
+    longer silent.
+    """
+    sys.path.insert(0, str(ROOT / "engine" / "gate"))
+    import spec_check
+    said = []
+    monkeypatch.setenv("AIQE_SPEC_ENFORCE", "stict")
+    assert spec_check.mode(warn=said.append) == "off"
+    assert said and "stict" in said[0] and "not one of" in said[0]
+    assert "nothing here is enforcing" in said[0].lower()
+
+    said.clear()
+    monkeypatch.setenv("AIQE_SPEC_ENFORCE", "strict")
+    assert spec_check.mode(warn=said.append) == "strict"
+    assert said == [], "a valid value must not complain"
+
+
+def test_yaml_turns_a_bare_off_into_a_boolean(monkeypatch):
+    """`spec.enforce: off` is the DOCUMENTED value and YAML 1.1 parses it as the
+    boolean False, so it never arrives as a string. The old code fell through to
+    "off" and was accidentally right. `on` is not a mode at all — it looks like
+    it enables enforcement and silently would not, so it is called out."""
+    sys.path.insert(0, str(ROOT / "engine" / "gate"))
+    import spec_check
+    monkeypatch.delenv("AIQE_SPEC_ENFORCE", raising=False)
+    said = []
+    # The shipped config uses the bare `off`; it must not trip the checker.
+    assert spec_check.mode(warn=said.append) == "off"
+    assert said == [], f"the shipped org-config trips its own checker: {said}"
+
+
+def test_the_view_asks_the_gate_rather_than_re_deriving_the_mode():
+    """A second implementation is how this view once reported "off" while the
+    gate was refusing commits — and it is the only way to learn that a value
+    was unusable rather than chosen."""
+    src = (ROOT / "engine/lib/spec_workflow.py").read_text(encoding="utf-8")
+    assert "spec_check.mode(warn=" in src
+    assert 'os.environ.get("AIQE_SPEC_ENFORCE"' not in src, \
+        "the view re-derives the mode instead of asking the gate"
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import spec_workflow
+    assert "problems" in spec_workflow.governance()
+    # Both surfaces must SAY it, or detecting it changes nothing.
+    ui = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert "CONFIGURATION IGNORED" in ui
+    gp = (ROOT / "engine/lib/governance_page.py").read_text(encoding="utf-8")
+    assert "Configuration ignored" in gp

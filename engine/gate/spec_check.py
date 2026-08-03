@@ -30,16 +30,57 @@ sys.path.insert(0, str(ROOT / "engine/lib"))
 EXIT_SPEC = 8
 
 
-def mode():
-    env = os.environ.get("AIQE_SPEC_ENFORCE", "").strip().lower()
-    if env in ("off", "warn", "strict"):
+VALID_MODES = ("off", "warn", "strict")
+
+
+def mode(warn=None):
+    """The enforcement mode, and a COMPLAINT when the configured value was not
+    one of the three.
+
+    The fallback stays `off` — a gate must not refuse commits because its own
+    setting is misspelled. But it can no longer be silent about it. `stict` used
+    to resolve to `off` with no output anywhere, which is the worst shape this
+    failure can take: the operator believes the gate is enforcing, the gate
+    isn't, and both agree on the reported answer because both read the same
+    unusable value.
+
+    `warn` is the sink for the complaint (print, log) so this stays importable
+    and testable without a side effect.
+    """
+    say = warn if warn is not None else (lambda m: print(m, file=sys.stderr))
+    raw_env = os.environ.get("AIQE_SPEC_ENFORCE", "").strip()
+    env = raw_env.lower()
+    if env in VALID_MODES:
         return env
+    if raw_env:
+        say(f"[spec-check] AIQE_SPEC_ENFORCE={raw_env!r} is not one of "
+            f"{list(VALID_MODES)} — IGNORING it and falling back to org-config. "
+            f"If you meant to enforce, nothing here is enforcing.")
     try:
         import yaml
         cfg = yaml.safe_load(open(ROOT / "registry/org-config.yaml",
                                   encoding="utf-8")) or {}
-        v = str((cfg.get("spec") or {}).get("enforce", "off")).lower()
-        return v if v in ("warn", "strict") else "off"
+        raw = (cfg.get("spec") or {}).get("enforce", "off")
+        # YAML 1.1 turns a bare `off` into the BOOLEAN False (and `on` into
+        # True), so the documented value `spec.enforce: off` never arrives as a
+        # string. The old code fell through to "off" and was accidentally
+        # right; anything that compared to the string would not have been.
+        # False is the documented off. True is not a mode at all — `on` looks
+        # like it should enable enforcement and silently would not.
+        if raw is False:
+            return "off"
+        if raw is True:
+            say("[spec-check] spec.enforce: on is not a mode (YAML reads it as "
+                "true). Use 'warn' or 'strict' — QUOTED, or YAML will convert "
+                "it. Treating as 'off': NOTHING is being enforced.")
+            return "off"
+        v = str(raw).lower()
+        if v in VALID_MODES:
+            return v
+        say(f"[spec-check] spec.enforce={raw!r} in registry/org-config.yaml is "
+            f"not one of {list(VALID_MODES)} — treating as 'off'. NOTHING is "
+            f"being enforced.")
+        return "off"
     except Exception:
         return "off"
 

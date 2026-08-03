@@ -90,6 +90,11 @@ def markdown():
          "constitution or the configuration, and this follows.*", ""]
     L.append("## Is any of this enforced right now?")
     L.append("")
+    # Before the answer, not after it: a reader who takes "No" as a choice when
+    # it was a typo has been told the wrong thing about their own estate.
+    for prob in g.get("problems") or []:
+        L.append(f"> **Configuration ignored.** {prob}")
+        L.append("")
     if d["enforced"]:
         L.append(f"**Yes.** Requirements gate: `{g['requirements_gate']}` — "
                  f"{g['requirements_gate_effect']}.")

@@ -60,12 +60,21 @@ def governance():
     # workflow view that contradicts the enforcement it describes is worse than
     # no view. Both knobs are env-overridable now (plan_state and spec_check).
     import plan_state as _ps
-    spec = (_org().get("spec") or {})
     gate = _ps._requirements_gate_on()
-    enforce = (os.environ.get("AIQE_SPEC_ENFORCE", "").strip().lower()
-               or str(spec.get("enforce") or "off"))
-    if enforce not in ("off", "warn", "strict"):
+    # Ask the GATE's own resolver rather than re-deriving the mode. A second
+    # implementation is how this view once reported "off" while the gate was
+    # refusing commits, and it is also the only way to learn that a configured
+    # value was UNUSABLE — `stict` resolves to `off`, and reporting a plain
+    # "off" would tell someone their typo is a deliberate setting.
+    complaints = []
+    try:
+        sys.path.insert(0, str(ROOT / "engine" / "gate"))
+        import spec_check
+        enforce = spec_check.mode(warn=complaints.append)
+    except Exception:                          # noqa: BLE001
         enforce = "off"
+        complaints.append("could not read the enforcement setting — reporting "
+                          "'off', which is what the gate falls back to")
     return {
         "requirements_gate": bool(gate),
         "requirements_gate_effect": (
@@ -78,6 +87,9 @@ def governance():
             "strict": "the gate REFUSES (exit 8) on an uncovered, unwaived scenario",
         }.get(enforce, f"unknown mode {enforce!r}"),
         "spec_mode": os.environ.get("AIQE_SPEC_MODE", "1") != "0",
+        # Non-empty when the configured value could not be used. Surfaced so a
+        # typo never reads as a decision.
+        "problems": complaints,
     }
 
 

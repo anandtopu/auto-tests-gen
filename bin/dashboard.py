@@ -1568,14 +1568,21 @@ async function refreshSpecFlow() {
     // applying — the adoption gap this whole view exists to close.
     const gov = $('#sf-gov');
     if (gov) {
-      gov.innerHTML = d.enforced
+      // A configured value the gate could not use is reported ABOVE the
+      // enforcement answer. Without it the page says a bare "off", which reads
+      // as a decision somebody made rather than a typo silently ignored.
+      const probs = (g.problems || []).length
+        ? '<div class="chip chip-danger">CONFIGURATION IGNORED — ' +
+          escHtml((g.problems || []).join(' · ')) + '</div>'
+        : '';
+      gov.innerHTML = probs + (d.enforced
         ? '<b>Enforced.</b> requirements gate: <code>' +
           escHtml(String(g.requirements_gate)) + '</code> · spec enforce: <code>' +
           escHtml(g.spec_enforce) + '</code><br>' + escHtml(g.spec_enforce_effect)
         : '<b>Nothing below is enforced yet.</b> requirements gate is off and ' +
           'spec enforce is <code>off</code>, so every step is advisory — the ' +
           'platform will not stop a run that skips it. Turn them on in Settings ' +
-          'when the signal looks clean (start with <code>warn</code>).';
+          'when the signal looks clean (start with <code>warn</code>).');
     }
     if (!d.rows.length) {
       tb.innerHTML = '<tr><td colspan="5" class="muted">No tickets in the ' +
