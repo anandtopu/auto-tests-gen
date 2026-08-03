@@ -75,7 +75,8 @@ def governance():
 def _keys():
     """Every ticket with any workflow artifact. Union, not intersection: a key
     with requirements but no plan is exactly the case this view exists to show."""
-    keys = set(plan_state.load().get("plans", {}) or {})
+    # plan_state is keyed at the TOP level — there is no "plans" wrapper.
+    keys = set(plan_state.load() or {})
     d = app_paths.specs_dir()
     if d.is_dir():
         keys |= {p.name for p in d.iterdir()
@@ -91,8 +92,10 @@ def status(key):
     gov = governance()
     entry = plan_state.get(key) or {}
     plan_status = entry.get("status") or ""
-    req = (entry.get("requirements") or {})
-    req_status = req.get("status") or ""
+    # Flat fields, not a nested dict: `requirements_status` and
+    # `requirements_sha`. Reading entry["requirements"] returned None
+    # forever, so approval never registered. Found while building S2.
+    req_status = entry.get("requirements_status") or ""
 
     has_plan = app_paths.testplans_dir().joinpath(f"{key}.md").exists()
     spec_p = spec_store.spec_path(key) if hasattr(spec_store, "spec_path") else None

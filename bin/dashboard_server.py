@@ -246,6 +246,46 @@ class Handler(BaseHTTPRequestHandler):
                            cwd=ROOT, capture_output=True, stdin=subprocess.DEVNULL)
             self._send(200, (ROOT / "reports/dashboard.html").read_bytes(),
                        "text/html; charset=utf-8")
+        elif url.path == "/api/requirements":
+            # SDD adoption S2. EARS statements + ambiguities for one ticket.
+            # This is the step most likely to be skipped because it was
+            # CLI-only, and the one that prevents the expensive failure: a test
+            # that faithfully encodes a misunderstanding.
+            key = (urllib.parse.parse_qs(url.query).get("key", [""])[0] or "").strip()
+            if not key:
+                return self._send(400, {"error": "key required"})
+            import spec_store
+            doc = spec_store.load_requirements(key) or {}
+            amb = spec_store.ambiguities(key) or []
+            entry = plan_state.get(key) or {}
+            # Flat fields on the entry — plan_state stores `requirements_status`
+            # and `requirements_sha`, not a nested dict.
+            signed = entry.get("requirements_sha") or ""
+            # Compare LIKE WITH LIKE. The first version compared this against
+            # spec_store.sha(key), which hashes specs/<KEY>/testplan.yaml with a
+            # different (truncated) function — a different file AND a different
+            # hash, so every approved requirement reported as stale. plan_state
+            # signs sha256 of requirements.yaml; recompute exactly that.
+            import hashlib
+            rp = pathlib.Path(spec_store.requirements_path(key))
+            current = (hashlib.sha256(rp.read_bytes()).hexdigest()
+                       if rp.exists() else "")
+            self._send(200, {
+                "key": key,
+                "requirements": doc.get("requirements") or [],
+                "ambiguities": amb,
+                "blocking": [a for a in amb if isinstance(a, dict) and a.get("blocking")],
+                "status": entry.get("requirements_status") or "",
+                "by": next((h.get("by", "") for h in reversed(entry.get("history") or [])
+                            if h.get("requirements")), ""),
+                "signed_sha": signed,
+                "current_sha": current,
+                # A signed sha that no longer matches means the file changed
+                # AFTER approval. Silence here would let a stale approval look
+                # live — the same trap plan approval already guards against.
+                "stale": bool(signed and current and signed != current),
+                "gate_on": spec_workflow.governance()["requirements_gate"],
+            })
         elif url.path == "/api/spec-workflow":
             # SDD adoption S1. Read-only by construction: rendering a workflow
             # view must never advance a workflow. Every transition stays behind
@@ -605,6 +645,41 @@ class Handler(BaseHTTPRequestHandler):
         elif not self._authed():
             return self._deny()
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0)
+        if self.path == "/api/requirements/status":
+            # Approve (signs the yaml's sha) or send back to draft. The same
+            # call `make requirements-approve` makes — the UI is a second door
+            # onto one mechanism, not a second mechanism.
+            try:
+                p = json.loads(body or b"{}")
+            except ValueError:
+                return self._send(400, {"error": "invalid JSON"})
+            key = str(p.get("key") or "").strip()
+            status = str(p.get("status") or "").strip()
+            if not key or status not in ("draft", "approved"):
+                return self._send(400, {"error": "key and status(draft|approved) required"})
+            # Refuse to approve over an unanswered BLOCKING ambiguity. The whole
+            # point of the state is that the ticket does not yet say what should
+            # happen; approving anyway launders a guess into a signed artifact.
+            if status == "approved":
+                import spec_store
+                blocking = [a for a in (spec_store.ambiguities(key) or [])
+                            if isinstance(a, dict) and a.get("blocking")]
+                if blocking:
+                    return self._send(409, {
+                        "error": "cannot approve: unanswered blocking ambiguity",
+                        "blocking": blocking,
+                        "hint": "answer it on the ticket and re-run "
+                                f"`make requirements KEY={key}`"})
+            actor = (self.headers.get(SSO_HEADER) if SSO_HEADER else None) or \
+                p.get("by") or ""
+            try:
+                plan_state.set_requirements_status(key, status, by=actor)
+            except SystemExit as e:
+                return self._send(400, {"error": str(e)})
+            event_log.emit("spec.requirements_approved" if status == "approved"
+                           else "plan.revoked", actor=actor or None, source="ui",
+                           target=key, outcome="ok", detail={"status": status})
+            return self._send(200, {"ok": True, "key": key, "status": status})
         if self.path == "/api/alerts/save":
             # Story 3.1/3.2: define and enable rules without editing a file.
             # normalize() decides the shape and returns PROBLEMS rather than

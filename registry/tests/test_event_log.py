@@ -328,3 +328,43 @@ def test_an_unenforced_step_is_labelled_advisory(monkeypatch):
             if r["state"] == "requirements" and "not approved" in r["blocker"]]
     for r in rows:
         assert r["advisory"] is True, "an unenforced step must say so"
+
+
+# ------------------------------------------- SDD adoption S2: requirements UI
+def test_approval_is_refused_over_a_blocking_ambiguity():
+    """The whole point of the state is that the ticket does not yet say what
+    should happen. Approving anyway launders a guess into a signed artifact."""
+    src = (ROOT / "bin" / "dashboard_server.py").read_text(encoding="utf-8")
+    body = src.split('self.path == "/api/requirements/status"', 1)[1].split("if self.path ==", 1)[0]
+    assert "blocking" in body and "409" in body, \
+        "approval must refuse while a blocking ambiguity is unanswered"
+
+
+def test_staleness_compares_like_with_like():
+    """The first version compared requirements_sha (sha256 of requirements.yaml)
+    against spec_store.sha() — a DIFFERENT file hashed with a DIFFERENT,
+    truncated function. Every approved requirement reported as stale."""
+    src = (ROOT / "bin" / "dashboard_server.py").read_text(encoding="utf-8")
+    body = src.split('url.path == "/api/requirements"', 1)[1].split("elif url.path", 1)[0]
+    # Strip comments first. The previous version tripped on the COMMENT that
+    # explains why spec_store.sha is wrong — a pin that fails on prose while the
+    # code is correct teaches people to delete pins. (Second time in this
+    # codebase; the app_paths pin had the same shape.)
+    code = "\n".join(l for l in body.splitlines()
+                     if not l.strip().startswith("#"))
+    assert "requirements_path" in code and "sha256" in code, \
+        "current sha must be sha256 of requirements.yaml, matching what plan_state signs"
+    assert "spec_store.sha(" not in code, \
+        "that hashes the testplan, not the requirements"
+
+
+def test_the_requirements_state_field_is_the_flat_one():
+    """plan_state stores `requirements_status` at the top level of the entry;
+    there is no nested `requirements` dict and no `plans` wrapper. Reading the
+    wrong shape made approval never register — it shipped in S1 and was found
+    while building S2."""
+    for f in ("engine/lib/spec_workflow.py", "bin/dashboard_server.py"):
+        src = (ROOT / f).read_text(encoding="utf-8")
+        assert 'get("requirements_status")' in src or "requirements_status" in src, f
+    wf = (ROOT / "engine/lib/spec_workflow.py").read_text(encoding="utf-8")
+    assert 'load().get("plans"' not in wf, "plan_state has no 'plans' wrapper"

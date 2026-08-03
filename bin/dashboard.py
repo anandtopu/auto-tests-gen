@@ -1549,6 +1549,61 @@ async function refreshSpecFlow() {
 if ($('#sf-refresh')) $('#sf-refresh').addEventListener('click', refreshSpecFlow);
 refreshSpecFlow();
 
+// ---- requirements review (SDD adoption S2)
+async function loadRequirements() {
+  const key = ($('#rq-key') && $('#rq-key').value.trim()) || '';
+  const body = $('#rq-body');
+  if (!served || !body || !key) return;
+  try {
+    const d = await api('/api/requirements?key=' + encodeURIComponent(key));
+    const rows = (d.requirements || []).map(r =>
+      '<tr><td class="mono sm">' + escHtml(r.id || '') + '</td>' +
+      '<td class="sm">' + escHtml(r.ears || '') + '</td>' +
+      '<td class="sm muted">' + escHtml(r.source || '') + '</td></tr>').join('');
+    // Blocking ambiguities lead, because they are the reason not to approve.
+    const amb = (d.ambiguities || []).map(a =>
+      '<li class="sm">' + (a.blocking ? '<span class="chip chip-danger">blocking</span> ' : '') +
+      '<b>' + escHtml(a.id || '') + '</b> — ' + escHtml(a.question || '') + '</li>').join('');
+    let banner = '';
+    if (d.stale) {
+      banner = '<div class="chip chip-warning">requirements changed AFTER approval — ' +
+               're-approve or the signature refers to text nobody read</div>';
+    } else if (d.status === 'approved') {
+      banner = '<div class="chip">approved' + (d.by ? ' by ' + escHtml(d.by) : '') + '</div>';
+    } else {
+      banner = '<div class="chip chip-warning">not approved' +
+               (d.gate_on ? ' — planning will REFUSE until it is'
+                          : ' — advisory: the gate is off, planning proceeds anyway') + '</div>';
+    }
+    body.innerHTML = banner +
+      (amb ? '<h3 class="sm">What the ticket does not say</h3><ul>' + amb + '</ul>' : '') +
+      '<div class="scroll"><table><thead><tr><th>id</th><th>EARS statement</th>' +
+      '<th>source</th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="3" class="muted">no requirements yet — run ' +
+               '<code>make requirements KEY=' + escHtml(key) + '</code></td></tr>') +
+      '</tbody></table></div>';
+  } catch (e) { body.innerHTML = '<div class="muted sm">could not load: ' + escHtml(e.message) + '</div>'; }
+}
+function rqMsg(t, bad) {
+  const m = $('#rq-msg'); if (!m) return;
+  m.textContent = t; m.style.display = t ? '' : 'none';
+  m.style.color = bad ? 'var(--sr-danger-fg)' : '';
+}
+if ($('#rq-load')) $('#rq-load').addEventListener('click', loadRequirements);
+if ($('#rq-approve')) $('#rq-approve').addEventListener('click', async () => {
+  const key = ($('#rq-key') && $('#rq-key').value.trim()) || '';
+  if (!key) { rqMsg('enter a ticket key first', true); return; }
+  try {
+    const r = await api('/api/requirements/status', { key: key, status: 'approved' });
+    rqMsg('Approved — the requirements hash is now signed.');
+    loadRequirements(); refreshSpecFlow();
+  } catch (e) {
+    // A refusal is a RESULT worth reading, not an error to swallow: it names
+    // the unanswered question that makes approval premature.
+    rqMsg('Not approved: ' + e.message, true);
+  }
+});
+
 // ---- alert rules (observability 3.1-3.4)
 let AL_RULES = [], AL_META = { kinds: [], channels: ['slack', 'email', 'both'] };
 function alRow(r, st) {
@@ -2669,6 +2724,20 @@ page = f"""<!doctype html>
         <thead><tr><th>ticket</th><th>state</th><th>what is blocking</th>
           <th>who</th><th>next step</th></tr></thead>
         <tbody></tbody></table></div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><div><h2>Requirements</h2>
+        <div class="sub">EARS statements formalized from the ticket, plus what
+        the ticket does NOT say. Approving signs the file's hash — the cheapest
+        place to fix a misunderstanding is here, before anything is generated.</div></div>
+        <span class="grow"></span>
+        <label class="f">Ticket <input id="rq-key" class="h32" placeholder="PROJ-301" style="width:130px"></label>
+        <button class="btn btn-sm" id="rq-load">Load</button>
+        <button class="btn btn-primary btn-sm" id="rq-approve">Approve</button>
+      </div>
+      <div id="rq-msg" class="sub" style="display:none;padding:0 14px 8px"></div>
+      <div id="rq-body" style="padding:0 14px 14px"></div>
     </section>
 
     <section class="card">
