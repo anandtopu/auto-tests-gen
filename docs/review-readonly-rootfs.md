@@ -158,6 +158,35 @@ ones, `jira PROJ-301` and `pr orders-api#201` both reached `GATE_STATUS=COMMITTE
 `touch /app/PROOF` was refused by the kernel, and a second start reported
 "already populated — nothing seeded" rather than clobbering the volume.
 
+### What the first EXECUTION of the entrypoint found (later pass)
+
+The verification above ran the image; nothing ever ran the entrypoint *as a unit*
+against a controlled state root, and `bin/container-entrypoint.sh` turned out to
+be the only entry point in the repo that nothing referenced — no test, not the
+Makefile, only the Dockerfile's `ENTRYPOINT`. The first such run seeded **zero**
+files into an empty state root and printed *"state root already populated —
+nothing seeded"* about a directory it had just created. Three causes:
+
+* `< <(python3 … --seeded)` discards the producer's exit status, so a crashing
+  `app_paths` was indistinguishable from "there is nothing to seed". It is a
+  command substitution now, and failure is fatal — booting bare is worse than
+  not booting, because a bare deployment routes nothing and looks healthy.
+* python emits CRLF on some hosts, so `$ROOT/catalog/*.jsonl<CR>` matched no
+  file and every path was skipped while the boot still claimed success.
+* "we copied nothing" and "the volume already had it" shared one branch. The
+  state root's pre-existing content is now sampled *before* seeding, so an empty
+  root that received nothing warns instead of reporting a normal boot (C13).
+
+And the seeding loop expanded globs and copied whole **directories** in bash, so
+`catalog/review` carried `export_review_queue.py` plus its `__pycache__`, and
+`knowledge/facts` carried the gitignored `derived/` tier — the very code-freeze
+this document argues against, one level further down, with the pin on the other
+side of the boundary asserting only that the `SEEDED` *strings* looked right.
+`state_bundle` had already paid for this exact file once. Expansion and
+exclusion now live in `app_paths.seed_plan()`; the entrypoint copies what it is
+handed and decides nothing. `tests/entrypoint-smoke.sh` (17 checks, in
+`make review`) pins all of it.
+
 Two defects were found while wiring the seed step, both by pins rather than by
 reading the code:
 

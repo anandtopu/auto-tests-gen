@@ -713,6 +713,7 @@ flowchart TD
 | `repo_admin`, relocated catalog | "0 cataloged tests" → removal allowed | the catalog was elsewhere |
 | Stage 0b, empty `workspace/src/x` | a usable checkout, clone skipped | the directory was empty |
 | `slack.sh`, no webhook configured | `SLACK_WEBHOOK_URL: unbound variable` | Slack is simply not configured |
+| First boot, empty state root | "already populated - nothing seeded" | it had just created it, empty |
 
 **The direction is the design decision, not the third state.** Both mock-mode
 knobs resolve an unusable value toward "wrote nothing" — but that means MOCK for

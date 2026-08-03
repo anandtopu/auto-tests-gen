@@ -84,6 +84,42 @@ def test_seeded_set_excludes_purely_generated_paths():
     assert "catalog" not in app_paths.SEEDED and "registry" not in app_paths.SEEDED
 
 
+def test_the_seed_plan_carries_data_only():
+    """The assertion above reads the SEEDED STRINGS, and they looked right —
+    but `catalog/review` and `knowledge/facts` are DIRECTORIES whose contents
+    are not uniformly data. A real first boot copied
+    `catalog/review/export_review_queue.py`, its `__pycache__/*.pyc`, and the
+    whole `knowledge/facts/derived/` tier into the state volume: code and
+    regenerated data, both forbidden by the rule the strings appeared to obey.
+
+    `state_bundle` already paid for this exact file once — CLAUDE.md records
+    that excluding by directory missed `catalog/review/export_review_queue.py`.
+    So this pins what a boot actually COPIES, not how the list reads.
+    """
+    plan = app_paths.seed_plan()
+    assert plan, "the seed plan is empty; a first boot would seed nothing"
+    bad = [r for r in plan
+           if r.endswith((".py", ".pyc", ".pyo", ".sh"))
+           or "__pycache__" in r or "/derived/" in r]
+    assert not bad, f"code or regenerated data in the seed plan: {bad}"
+    # The data that MUST arrive, or the deployment routes nothing.
+    assert "registry/repo-registry.yaml" in plan
+    assert any(r.startswith("catalog/") and r.endswith(".jsonl") for r in plan)
+    # And nothing generated, whatever the SEEDED list grows to later.
+    for gen in ("testplans/", "testdata/", "specs/", "AGENTS.md"):
+        assert not any(r.startswith(gen) for r in plan), \
+            f"{gen} is generated — seeding it restores stale output as state"
+
+
+def test_the_seed_plan_never_leaves_the_image_root(tmp_path):
+    """Every entry is repo-relative and stays inside the root: the entrypoint
+    interpolates them straight into `$STATE/$rel`, so an absolute path or a
+    `..` would write outside the state volume."""
+    for rel in app_paths.seed_plan():
+        assert not rel.startswith(("/", "\\")) and ".." not in rel.split("/"), rel
+        assert ":" not in rel, f"{rel} looks absolute on Windows"
+
+
 def test_code_and_config_are_never_relocated(monkeypatch, tmp_path):
     """Code and config must travel with the IMAGE, so no resolver may move them.
     If one ever does, an image upgrade ships logic that never runs — silently.

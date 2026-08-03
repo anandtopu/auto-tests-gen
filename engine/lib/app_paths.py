@@ -198,6 +198,58 @@ _FROZEN_SUBPATHS = (
 )
 
 
+# Content that lives INSIDE a seeded directory but must never be copied into a
+# state volume. SEEDED names directories (`catalog/review`, `knowledge/facts`)
+# whose contents are not uniformly data:
+#
+#   * `export_review_queue.py` is CODE. The design rule is "seed data only";
+#     `state_bundle` already learned this exact lesson — excluding by directory
+#     missed this same file — and a `.pyc` beside it is worse.
+#   * `knowledge/facts/derived/` is the HARVESTED tier: gitignored, rebuilt by
+#     `make repo-facts`, and deliberately excluded from the state bundle
+#     because it regenerates. Seeded, it plants stale harvested facts in a
+#     fresh volume where they are indistinguishable from a team's assertions.
+#
+# The old pin asserted the SEEDED strings looked right; nothing checked what a
+# boot actually copied, and a boot copied all three.
+SEED_EXCLUDE_SEGMENTS = ("__pycache__", "derived")
+SEED_EXCLUDE_SUFFIXES = (".py", ".pyc", ".pyo", ".sh")
+
+
+def _seed_excluded(rel):
+    parts = rel.split("/")
+    if _is_frozen(parts):
+        return True
+    if any(p in SEED_EXCLUDE_SEGMENTS for p in parts):
+        return True
+    return rel.endswith(SEED_EXCLUDE_SUFFIXES)
+
+
+def seed_plan(root=None):
+    """Repo-relative FILES a first boot should copy into an empty state root.
+
+    Expansion and exclusion happen HERE, not in the entrypoint: bash deciding
+    policy is how `catalog/review` came to seed a `.py` and a `__pycache__`
+    while a Python-side pin asserted no code was seeded. The entrypoint copies
+    what this returns and decides nothing.
+    """
+    import glob as _glob
+    base = pathlib.Path(root) if root else ROOT
+    out = []
+    for pat in SEEDED:
+        for m in sorted(_glob.glob(str(base / pat))):
+            p = pathlib.Path(m)
+            if p.is_dir():
+                files = sorted(q for q in p.rglob("*") if q.is_file())
+            else:
+                files = [p]
+            for q in files:
+                rel = q.relative_to(base).as_posix()
+                if not _seed_excluded(rel):
+                    out.append(rel)
+    return sorted(set(out))
+
+
 def _is_frozen(parts):
     """Segment comparison, never a string prefix — `startswith` would treat
     `catalog/bootstrap-old/` as frozen and, worse, is the same defect class as
@@ -296,6 +348,9 @@ if __name__ == "__main__":
     if "--sh" in sys.argv:
         ensure_dirs()
         print(sh_exports())
+    elif "--seed-plan" in sys.argv:
+        for rel in seed_plan():
+            print(rel)
     elif "--seeded" in sys.argv:
         for rel in SEEDED:
             print(rel)

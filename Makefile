@@ -9,7 +9,7 @@ SHELL := /bin/bash
         demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config \
         cost-report index-rebuild cache-probe cost-baseline \
         requirements demo-requirements requirements-approve spec-verify \
-        test-providers test-state test-routing-adv test-observability test-bootstrap \
+        test-providers test-state test-routing-adv test-observability test-bootstrap test-entrypoint \
         parity-compare repo-facts
 
 deps:
@@ -62,6 +62,13 @@ test-observability:
 test-bootstrap:
 	bash tests/bootstrap-smoke.sh
 
+# Adversarial UAT for FIRST-BOOT STATE SEEDING (R12). The entrypoint decides
+# whether a new deployment has an estate at all; it was the only entry point in
+# the repo that nothing referenced, and it seeded nothing while reporting
+# success.
+test-entrypoint:
+	bash tests/entrypoint-smoke.sh
+
 demo-bootstrap:
 	bash bin/demo-bootstrap.sh e2e-api-tests-1 && bash bin/demo-bootstrap.sh e2e-ui-tests-1
 
@@ -87,7 +94,7 @@ parity-compare:
 	python3 engine/lib/parity_compare.py $(DAYS)
 
 review:
-	python3 -m pytest registry/tests -q && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash tests/provider-adversarial.sh && bash tests/state-adversarial.sh && bash tests/routing-adversarial.sh && bash tests/observability-adversarial.sh && bash tests/bootstrap-smoke.sh && bash eval/replay.sh && python3 eval/context_check.py && python3 eval/scorecard.py
+	python3 -m pytest registry/tests -q && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash tests/provider-adversarial.sh && bash tests/state-adversarial.sh && bash tests/routing-adversarial.sh && bash tests/observability-adversarial.sh && bash tests/bootstrap-smoke.sh && bash tests/entrypoint-smoke.sh && bash eval/replay.sh && python3 eval/context_check.py && python3 eval/scorecard.py
 
 # --- QA monitoring & mapping management ---
 status:

@@ -168,6 +168,14 @@ over.
 - `bin/container-entrypoint.sh` seeds an empty state root once, DATA ONLY, and
   never overwrites: the volume holds a human's confirmed mappings and curated
   guidance, so re-seeding on restart would silently revert their work.
+  *(Later correction: "DATA ONLY" was an intention, not a fact. The loop copied
+  whole directories, so `catalog/review` carried `export_review_queue.py` and a
+  `__pycache__`, and `knowledge/facts` carried the gitignored `derived/` tier —
+  while the pin checked only that the `SEEDED` strings looked right. Expansion
+  and exclusion moved to `app_paths.seed_plan()`, and `tests/entrypoint-smoke.sh`
+  now asserts against what a boot actually copies. The same run found the
+  entrypoint seeding **nothing** into an empty root while reporting "already
+  populated" — see `docs/review-readonly-rootfs.md`.)*
 - `PYTHONDONTWRITEBYTECODE=1`, a `/tmp` emptyDir, a `/state` volume, and
   `readOnlyRootFilesystem: true` on both containers.
 - **A real bug the container exposed:** `pipeline.sh` took its lock with
