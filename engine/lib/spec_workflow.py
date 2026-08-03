@@ -109,8 +109,12 @@ def _keys():
     return sorted(keys)
 
 
-def status(key):
-    """One ticket's position, blocker and next action."""
+def status(key, committed=None):
+    """One ticket's position, blocker and next action.
+
+    `committed` is the precomputed set from `committed_keys()`. Passing it is
+    what keeps `board()` linear; omitting it stays correct for a single lookup.
+    """
     gov = governance()
     entry = plan_state.get(key) or {}
     plan_status = entry.get("status") or ""
@@ -155,7 +159,8 @@ def status(key):
     #     reported "no gate commit recorded". Two different facts, and the one
     #     that matters is the gate's, so it comes from the run record.
     generated = bool(entry.get("generated_run"))
-    committed = _gate_committed(key)
+    committed = (key in committed if committed is not None
+                 else _gate_committed(key))
 
     # --- decide the state, blocker and next action -------------------------
     # Ordered so the FIRST unmet condition is the one reported. Reporting the
@@ -219,13 +224,20 @@ def _row(key, state, gov, blocker="", action="", owner="", soft=False, detail=No
     }
 
 
-def _gate_committed(key):
-    """Did a gate actually COMMIT tests for this key?
+def committed_keys():
+    """Every key whose gate COMMITTED, from ONE pass over the run records.
 
     The truth lives in the run record, because the gate is the only thing that
     can commit and the run record is where its per-repo result is written. Any
     proxy for this — a plan-state flag, a ticket attachment — answers a
     different question and eventually answers it wrongly.
+
+    A SET, not a per-key search, because `board()` asks this question once per
+    ticket. The first version re-globbed and re-parsed every record for every
+    key, which is O(keys x records): measured at 200 records, 1 key took 1 ms
+    and 20 keys took 250 ms. The dashboard makes that worse than it sounds —
+    entering the Spec workflow view re-runs its loaders, so the cost is paid on
+    every navigation rather than once per page load.
 
     Total by construction: a torn or unreadable record is skipped rather than
     raised on. A board that crashes on one bad file tells nobody anything about
@@ -233,6 +245,7 @@ def _gate_committed(key):
     """
     import glob
     import json
+    out = set()
     for f in glob.glob(str(ROOT / "reports/runs/*.json")):
         if pathlib.Path(f).name in ("reviews.json", "queue.json", "hooks-seen.json"):
             continue
@@ -242,17 +255,27 @@ def _gate_committed(key):
             continue
         if not isinstance(r, dict):
             continue
-        if (r.get("trigger") or {}).get("key") != key:
+        k = (r.get("trigger") or {}).get("key")
+        if not k or k in out:
             continue
         for g in r.get("gates") or []:
             if isinstance(g, dict) and str(g.get("status", "")).upper() == "COMMITTED":
-                return True
-    return False
+                out.add(k)
+                break
+    return out
+
+
+def _gate_committed(key):
+    """One key's answer. Kept for callers that ask about a single ticket; the
+    board passes a precomputed set instead so it scans once."""
+    return key in committed_keys()
 
 
 def board():
     """Every ticket's position, plus the governance that produced it."""
-    rows = [status(k) for k in _keys()]
+    # Scanned ONCE for the whole board, not once per ticket.
+    done = committed_keys()
+    rows = [status(k, committed=done) for k in _keys()]
     gov = governance()
     return {
         "states": list(STATES),

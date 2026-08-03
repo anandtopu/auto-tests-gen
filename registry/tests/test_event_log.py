@@ -739,3 +739,64 @@ def test_the_ui_guide_states_the_rules_it_claims_the_ui_follows():
     import alert_rules
     assert "nothing will be delivered" in (ROOT / "engine/lib/alert_rules.py").read_text(
         encoding="utf-8")
+
+
+def test_the_board_scans_the_run_records_once_not_once_per_ticket(tmp_path, monkeypatch):
+    """`board()` asked "did this commit?" per ticket, and each answer re-globbed
+    and re-parsed EVERY run record — O(keys x records).
+
+    Measured at 200 records: 1 key took 1 ms, 20 keys took 250 ms. The dashboard
+    makes that worse than it sounds, because entering the Spec workflow view
+    re-runs its loaders, so the cost lands on every navigation rather than once
+    per page load.
+
+    Pinned by COUNTING the scans, not by timing: a timing assertion is flaky on
+    a loaded machine and says nothing about why it got slow.
+    """
+    import glob as glob_mod
+    import json
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import spec_workflow
+
+    runs = tmp_path / "reports" / "runs"
+    runs.mkdir(parents=True)
+    for i in range(12):
+        (runs / f"r{i}.json").write_text(json.dumps({
+            "trigger": {"key": f"K-{i}"},
+            "gates": [{"test_repo": "e2e-api-tests-1", "status": "committed"}],
+        }), encoding="utf-8")
+    monkeypatch.setattr(spec_workflow, "ROOT", tmp_path)
+    monkeypatch.setattr(spec_workflow, "_keys", lambda: [f"K-{i}" for i in range(12)])
+
+    scans = []
+    real_glob = glob_mod.glob
+    monkeypatch.setattr(glob_mod, "glob",
+                        lambda p, *a, **k: (scans.append(p), real_glob(p, *a, **k))[1])
+    board = spec_workflow.board()
+    run_scans = [p for p in scans if "reports" in p and "runs" in p]
+    assert len(run_scans) == 1, \
+        f"{len(run_scans)} scans of the run records for 12 tickets"
+    assert len(board["rows"]) == 12
+
+
+def test_committed_keys_and_the_single_key_lookup_agree(tmp_path, monkeypatch):
+    """Two ways to ask the same question must not drift; the single-key helper
+    is now defined in terms of the set so they cannot."""
+    import json
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import spec_workflow
+    runs = tmp_path / "reports" / "runs"
+    runs.mkdir(parents=True)
+    (runs / "yes.json").write_text(json.dumps({
+        "trigger": {"key": "K-1"}, "gates": [{"status": "committed"}]}), encoding="utf-8")
+    (runs / "no.json").write_text(json.dumps({
+        "trigger": {"key": "K-2"}, "gates": [{"status": "no_changes"}]}), encoding="utf-8")
+    monkeypatch.setattr(spec_workflow, "ROOT", tmp_path)
+
+    ck = spec_workflow.committed_keys()
+    assert ck == {"K-1"}
+    for k in ("K-1", "K-2", "never-ran"):
+        assert spec_workflow._gate_committed(k) == (k in ck), k
+    # And a caller passing the set must get the same answer as one that doesn't.
+    assert spec_workflow.status("K-1", committed=ck)["state"] == \
+        spec_workflow.status("K-1")["state"]
