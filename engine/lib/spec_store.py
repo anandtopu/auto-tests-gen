@@ -26,6 +26,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import app_paths                      # R12: mutable paths resolve here
 import env_flag                     # one place decides what a toggle means
+import fs_lock                     # retrying replace: Windows WinError 5
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SPEC_DIR = app_paths.specs_dir(ROOT)       # AIQE_SPEC_DIR > AIQE_STATE_DIR > ROOT
@@ -107,7 +108,7 @@ def write_from_contract(key, contract):
         tmp.write_text(yaml.safe_dump(spec, sort_keys=True,
                                       allow_unicode=True),
                        encoding="utf-8", newline="\n")
-        os.replace(tmp, p)
+        fs_lock.replace_atomic(tmp, p)
         return p
     except Exception:
         return None
@@ -265,7 +266,7 @@ def write_requirements_from_contract(key, contract):
         tmp.write_text(yaml.safe_dump(spec, sort_keys=True,
                                       allow_unicode=True),
                        encoding="utf-8", newline="\n")
-        os.replace(tmp, p)
+        fs_lock.replace_atomic(tmp, p)
         return p
     except Exception:
         return None
@@ -356,7 +357,7 @@ def merge_fold(original_path, folded_path):
     p = pathlib.Path(original_path)
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(folded, indent=1), encoding="utf-8", newline="\n")
-    os.replace(tmp, p)
+    fs_lock.replace_atomic(tmp, p)
     return p
 
 

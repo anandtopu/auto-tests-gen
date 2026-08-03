@@ -13,7 +13,7 @@
   - run_bootstrap: a failed clone aborts WITHOUT truncating an existing catalog
   - with-env: the per-invocation app log is removed on teardown
 """
-import http.server, json, os, pathlib, socket, subprocess, sys, threading, time
+import http.server, json, os, pathlib, re, socket, subprocess, sys, threading, time
 
 import pytest
 
@@ -522,13 +522,42 @@ def test_a_permanent_permission_error_still_raises(tmp_path, monkeypatch):
         fs_lock.replace_atomic(src, dest, attempts=3, pause=0.001)
 
 
-def test_every_state_writer_goes_through_the_retrying_replace():
-    """The registry and the JSON state files are the two things whose loss is
-    unrecoverable — a human decision or a routing table."""
+def test_no_durable_state_writer_calls_os_replace_directly():
+    r"""The INVARIANT, not the list of sites that happened to be known.
+
+    The first version of this pin named two files. There were NINE — the signed
+    specs (approval binds to their hash), the registry written from two separate
+    scripts, alert rules, curated guidance. Each is a place where a transient
+    Windows PermissionError silently discards somebody else's decision.
+
+    Asserting the invariant is what makes the next writer added to this codebase
+    fail loudly instead of quietly inheriting the bug. `fs_lock` is exempt: the
+    retry itself has to call the syscall.
+    """
+    offenders = []
+    for root in ("engine", "bin", "catalog"):
+        d = ROOT / root
+        if not d.is_dir():
+            continue
+        for f in d.rglob("*.py"):
+            if "__pycache__" in str(f) or f.name == "fs_lock.py":
+                continue
+            src = f.read_text(encoding="utf-8")
+            for m in re.finditer(r"^\s*os\.replace\(", src, re.M):
+                offenders.append(
+                    f"{f.relative_to(ROOT)}:{src[:m.start()].count(chr(10)) + 1}")
+    assert not offenders, (
+        "durable state written with a bare os.replace — a Windows WinError 5 "
+        "silently loses the write: " + ", ".join(offenders))
+
+
+def test_fs_lock_calls_os_replace_only_inside_the_retry():
+    """And beside it, never instead of it."""
     fl = (ROOT / "engine/lib/fs_lock.py").read_text(encoding="utf-8")
-    body = fl[fl.index("def write_json_atomic("):]
-    assert "replace_atomic(tmp, path)" in body[:800], \
-        "write_json_atomic still calls os.replace directly"
-    ra = (ROOT / "engine/lib/repo_admin.py").read_text(encoding="utf-8")
-    assert "fs_lock.replace_atomic(tmp, REG_PATH)" in ra
-    assert "os.replace(tmp, REG_PATH)" not in ra
+    start = fl.index("def replace_atomic(")
+    body = fl[start:]
+    body = body[:body.index("\ndef ", 1)]
+    assert "os.replace(tmp, dest)" in body
+    after = fl[start + len(body):]
+    assert "os.replace(" not in after, \
+        "a call site outside replace_atomic reintroduced the bare rename"

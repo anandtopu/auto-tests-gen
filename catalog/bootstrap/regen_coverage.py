@@ -7,6 +7,7 @@ routes to its test repo before any test evidence exists."""
 import glob, json, os, pathlib, sys, yaml
 sys.path.insert(0, "engine/lib")
 import app_paths                      # R12: mutable paths resolve here
+import fs_lock                     # retrying replace: Windows WinError 5
 reg_path = app_paths.registry_file()
 reg = yaml.safe_load(reg_path.read_text(encoding="utf-8"))
 cov = {t["name"]: set() for t in reg["test_repositories"]}
@@ -28,5 +29,5 @@ for t in reg["test_repositories"]:
 # script; locking here would deadlock against the parent's own lock).
 tmp = reg_path.with_suffix(".yaml.tmp")
 tmp.write_text(yaml.safe_dump(reg, sort_keys=False), encoding="utf-8")
-os.replace(tmp, reg_path)
+fs_lock.replace_atomic(tmp, reg_path)
 print("coverage maps regenerated:", {k: sorted(v) for k, v in cov.items()})

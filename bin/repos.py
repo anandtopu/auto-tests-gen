@@ -56,7 +56,7 @@ def save_and_verify(reg, skip_tests=False):
     with fs_lock.lock(REG_PATH):
         tmp = REG_PATH.with_suffix(".yaml.tmp")
         tmp.write_text(yaml.safe_dump(reg, sort_keys=False), encoding="utf-8")
-        os.replace(tmp, REG_PATH)
+        fs_lock.replace_atomic(tmp, REG_PATH)
     # Never re-run pytest when invoked FROM pytest (recursive test explosion), and
     # skip it when pytest isn't installed at all (the runtime container) rather than
     # reporting the change as broken.

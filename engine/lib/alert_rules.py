@@ -75,7 +75,7 @@ def save(doc):
     with fs_lock.lock(p):
         tmp = p.with_suffix(".tmp")
         tmp.write_text(json.dumps(doc, indent=1), encoding="utf-8", newline="\n")
-        os.replace(tmp, p)
+        fs_lock.replace_atomic(tmp, p)
     return doc
 
 

@@ -82,7 +82,7 @@ def save(name, filename, content):
         p.parent.mkdir(parents=True, exist_ok=True)
         tmp = p.with_suffix(p.suffix + ".tmp")
         tmp.write_text(content, encoding="utf-8", newline="\n")
-        os.replace(tmp, p)
+        fs_lock.replace_atomic(tmp, p)
     return {"repo": name, "file": filename,
             "path": p.relative_to(ROOT).as_posix(), "bytes": len(content)}
 
