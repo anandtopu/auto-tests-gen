@@ -206,6 +206,12 @@ try:
     if _att["expiring_soon"]:
         tiles.append((str(len(_att["expiring_soon"])),
                       "waiver(s) expiring soon", "specflow", True))
+    if _att.get("unmatched"):
+        # Worse than expired: an expired waiver did its job once. This one
+        # never has, and looks healthy while the gate refuses the release.
+        tiles.append((str(len(_att["unmatched"])),
+                      "waiver(s) matching NO scenario — protecting nothing",
+                      "specflow", True))
 except Exception:
     pass
 try:
@@ -1671,9 +1677,16 @@ async function loadWaivers() {
   try {
     const d = await api('/api/waivers?key=' + encodeURIComponent(key));
     tb.innerHTML = d.waivers.length ? d.waivers.map(w => {
-      const state = w.expired ? '<span class="chip chip-danger">EXPIRED</span>'
+      // MATCHES NOTHING outranks the expiry chip: a waiver whose scenario id
+      // is not in the signed spec is inert whether or not it has time left,
+      // and showing "44d left" on it is the reassuring half of the truth.
+      const state = w.unmatched
+        ? '<span class="chip chip-danger" title="This scenario id is not in the ' +
+          'signed spec — the gate will keep refusing whatever you meant to ' +
+          'waive">MATCHES NOTHING</span>'
+        : (w.expired ? '<span class="chip chip-danger">EXPIRED</span>'
         : (w.expiring_soon ? '<span class="chip chip-warning">' + w.days_left + 'd left</span>'
-                           : '<span class="chip">' + w.days_left + 'd left</span>');
+                           : '<span class="chip">' + w.days_left + 'd left</span>'));
       return '<tr><td class="mono sm">' + escHtml(w.scenario) + '</td>' +
         '<td class="sm">' + escHtml(w.reason) + '</td>' +
         '<td class="sm">' + escHtml(w.by) + '</td>' +
@@ -1695,10 +1708,15 @@ if ($('#wv-add')) $('#wv-add').addEventListener('click', async () => {
   const key = ($('#rq-key') && $('#rq-key').value.trim()) || '';
   if (!key) { wvMsg('enter a ticket key in the Requirements panel first', true); return; }
   try {
-    await api('/api/waivers/save', {
+    const r = await api('/api/waivers/save', {
       key: key, scenario: ($('#wv-sid') || {}).value, reason: ($('#wv-reason') || {}).value,
       expires: ($('#wv-exp') || {}).value });
-    wvMsg('Waiver saved.'); loadWaivers();
+    // Saved, but possibly inert. Reported at the moment of saving, not only in
+    // the row: the person who just typed the id is the one who can fix it, and
+    // "Waiver saved." alone reads as "you are covered".
+    wvMsg(r && r.warning ? 'Saved, but it protects nothing: ' + r.warning
+                         : 'Waiver saved.', !!(r && r.warning));
+    loadWaivers();
   } catch (e) {
     // The refusal text IS the answer: it says what would make it acceptable.
     wvMsg('Refused: ' + e.message, true);

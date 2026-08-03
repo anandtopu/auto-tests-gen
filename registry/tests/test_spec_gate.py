@@ -143,3 +143,76 @@ def test_gate_wires_the_check_with_exit_8():
     assert "spec_check.py" in src and "exit 8" in src
     assert src.index("UNMAPPED_TEST") < src.index("spec_check.py"), \
         "ordered after born-mapped"
+
+
+# ---- journey review: a waiver can name a scenario that does not exist -------
+def test_a_waiver_naming_no_real_scenario_is_reported_not_silently_accepted(tmp_path, monkeypatch):
+    """A typo'd scenario id produced a waiver that looked perfectly healthy —
+    saved `ok`, rendered with days remaining — and protected nothing. The gate
+    kept refusing the scenario the author meant to waive.
+
+    This is the same failure the alert rules already guard against by reporting
+    unknown kinds: configured-looking and inert. It is worse here, because what
+    it silently fails to do is let a release through.
+
+    Reported, NOT refused: waiving before the plan is authored is legitimate, so
+    a waiver written when no spec exists yet must stay valid.
+    """
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import waiver_store
+
+    monkeypatch.setattr(waiver_store, "spec_scenarios",
+                        lambda key: {"K-1-S1", "K-1-S2"})
+    assert waiver_store.unmatched("K-1", "K-1-S9") is True
+    assert waiver_store.unmatched("K-1", "K-1-S1") is False
+
+    # No spec yet -> nothing is unmatched, because nothing can be checked.
+    monkeypatch.setattr(waiver_store, "spec_scenarios", lambda key: None)
+    assert waiver_store.unmatched("K-1", "anything-at-all") is False
+
+
+
+def test_a_scenario_less_spec_is_indistinguishable_from_no_spec(monkeypatch):
+    """The REAL resolver, with nothing about it monkeypatched.
+
+    The test above stubs `spec_scenarios` to exercise `unmatched`, which means
+    it cannot check the resolver itself — an earlier version asserted on the
+    stub and passed against a broken resolver. A missing key returns early, so
+    the only case that exercises the empty-set branch is a spec that exists and
+    declares no scenarios: an empty set is falsy, but it would make `unmatched`
+    answer "a spec exists and your id is not in it" about a spec that lists
+    nothing, marking every waiver on a not-yet-authored plan as inert.
+    """
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import spec_store
+    import waiver_store
+    monkeypatch.setattr(spec_store, "load", lambda k: {"scenarios": []})
+    assert waiver_store.spec_scenarios("K-1") is None
+    assert waiver_store.unmatched("K-1", "K-1-S1") is False
+
+
+def test_the_unmatched_state_reaches_every_surface_that_shows_waivers():
+    """Detecting it in the library and not saying so is the same bug again."""
+    srv = (ROOT / "bin/dashboard_server.py").read_text(encoding="utf-8")
+    assert "waiver_store.unmatched(" in srv, "the save endpoint does not check"
+    assert '"warning": warn' in srv, "the warning is computed but never returned"
+    ui = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert "MATCHES NOTHING" in ui, "the row does not show the inert state"
+    assert "w.unmatched" in ui
+    assert "protecting nothing" in ui, "the Overview does not surface it"
+    assert "r.warning" in ui, "the save handler swallows the warning"
+    # And it must be the FIRST branch of the state ternary, not merely mentioned
+    # before the others: an index comparison still passes when the branch has
+    # been disabled (`false && w.unmatched`), which is how this pin was
+    # decorative when first written.
+    assert "const state = w.unmatched" in ui,         "the inert state is not the first branch of the row's state ternary"
+
+
+def test_attention_counts_an_unmatched_waiver_independently_of_expiry():
+    """An unmatched waiver is broken whether or not it has time left. Folding it
+    into the expiry buckets would report the wrong reason to fix."""
+    src = (ROOT / "engine/lib/waiver_store.py").read_text(encoding="utf-8")
+    i = src.index('if w.get("unmatched"):')
+    j = src.index('if w["expired"]:', i - 400 if i > 400 else 0)
+    assert i < j, "unmatched must be checked before (and separately from) expiry"
+    assert '"unmatched": inert' in src

@@ -728,10 +728,20 @@ class Handler(BaseHTTPRequestHandler):
                 # 422, and the problems are the POINT of the response: a refused
                 # waiver must say what would make it acceptable.
                 return self._send(422, {"error": "waiver refused", "problems": problems})
+            # Saved, but say so if it protects nothing: the scenario id is
+            # not in this ticket's signed spec, so the gate will keep refusing
+            # whatever the author meant to waive. A warning, not a refusal —
+            # waiving before the plan is authored is legitimate.
+            warn = ("this scenario id is not in the signed spec for "
+                    f"{key} — the waiver will not match anything. Check the id "
+                    "in the plan (or approve the plan first)."
+                    if waiver_store.unmatched(key, rec["scenario"]) else "")
             event_log.emit("settings.changed", actor=actor or None, source="ui",
                            target=f"waiver:{key}:{rec['scenario']}", outcome="ok",
                            detail={"expires": rec["expires"]})
-            return self._send(200, {"ok": True, "waiver": rec})
+            return self._send(200, {"ok": True, "waiver": rec,
+                                    "warning": warn} if warn
+                              else {"ok": True, "waiver": rec})
         if self.path == "/api/waivers/remove":
             try:
                 p = json.loads(body or b"{}")

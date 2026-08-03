@@ -21,6 +21,10 @@
       "scenarios_final": 3
     },
     "by": "pipeline",
+    "commented": {
+      "result": "[mock-jira] PROJ-301 <- AI-QE summary for PROJ-301:\n- Test plan: testplans/PROJ-301.md \u2014 draft\n- Plan review: adversarial review: 2 gap(s) raised, 2 high-severity, 2 accepted, 3 scenario(s) in the final plan",
+      "ts": 1785730364.0793557
+    },
     "generated_run": null,
     "history": [
       {
@@ -28,10 +32,16 @@
         "note": "test plan authored",
         "status": "draft",
         "ts": 1785530037.113078
+      },
+      {
+        "by": "pipeline",
+        "note": "test plan authored",
+        "status": "draft",
+        "ts": 1785730326.9401107
       }
     ],
     "note": "test plan authored",
     "status": "draft",
-    "updated": 1785530037.1084137
+    "updated": 1785730326.9377277
   }
 }

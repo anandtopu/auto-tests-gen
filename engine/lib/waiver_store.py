@@ -75,8 +75,47 @@ def list_for(key):
             "expired": bool(w.get("expired")),
             "days_left": days,
             "expiring_soon": days is not None and 0 <= days <= EXPIRING_SOON_DAYS,
+            # Inert: a spec exists for this key and has no such scenario.
+            "unmatched": unmatched(key, sid),
         })
     return sorted(out, key=lambda r: (not r["expired"], r["expires"] or "9999"))
+
+
+def spec_scenarios(key):
+    """Scenario ids in the ticket's SIGNED spec, or None when there is no spec.
+
+    None and empty-set mean different things and must not be conflated: no spec
+    yet is normal (waiving during planning is legitimate), while a spec with no
+    matching id means the waiver protects nothing.
+    """
+    try:
+        doc = spec_store.load(key) or {}
+    except Exception:                          # noqa: BLE001
+        return None
+    if not doc:
+        return None
+    ids = {str(sc.get("id") or "").strip()
+           for sc in (doc.get("scenarios") or []) if isinstance(sc, dict)}
+    ids.discard("")
+    return ids or None
+
+
+def unmatched(key, scenario):
+    """True when a spec exists for `key` and `scenario` is not in it.
+
+    A waiver whose scenario id matches nothing is INERT: the gate keeps refusing
+    the scenario the author meant to waive, while the UI shows a healthy waiver
+    with days remaining. That is the same failure the alert rules already guard
+    against by reporting unknown kinds — configured-looking and doing nothing —
+    and it is worse here, because the thing it silently fails to do is let a
+    release through.
+
+    Deliberately NOT a refusal. A waiver may legitimately be written before the
+    plan is authored, and refusing would block that. It is reported instead, and
+    surfaced everywhere the expired state is.
+    """
+    ids = spec_scenarios(key)
+    return bool(ids) and str(scenario or "").strip() not in ids
 
 
 def validate(scenario, reason, by, expires):
@@ -175,18 +214,23 @@ def attention():
     """
     d = app_paths.specs_dir()
     if not d.is_dir():
-        return {"expired": [], "expiring_soon": []}
-    expired, soon = [], []
+        return {"expired": [], "expiring_soon": [], "unmatched": []}
+    expired, soon, inert = [], [], []
     for sub in d.iterdir():
         if not sub.is_dir() or sub.name == "platform":
             continue
         for w in list_for(sub.name):
             row = dict(w, key=sub.name)
+            # Checked FIRST and independently of expiry: an unmatched waiver is
+            # broken whether or not it has time left, and reporting only the
+            # expiry would hide the reason it never worked.
+            if w.get("unmatched"):
+                inert.append(row)
             if w["expired"]:
                 expired.append(row)
             elif w["expiring_soon"]:
                 soon.append(row)
-    return {"expired": expired, "expiring_soon": soon}
+    return {"expired": expired, "expiring_soon": soon, "unmatched": inert}
 
 
 if __name__ == "__main__":
