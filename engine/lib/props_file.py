@@ -208,6 +208,16 @@ if __name__ == "__main__":
         import settings_store
         _emit_defaults(settings_store.load().items())
     else:
+        # Org-config phase keys, checked here because `make config` is where an
+        # operator comes to ask "what is my configuration doing?". A typo in a
+        # phase-keyed map is read by nothing and, in `models:`, silently moves
+        # that phase onto the AUTHORING tier — visible only on the bill.
+        try:
+            import llm_runner
+            for w in llm_runner.check_phase_keys():
+                print(f"WARNING  {w}")
+        except Exception:                      # noqa: BLE001
+            pass                               # never break `make config`
         s = status()
         if not s["path"]:
             print("no properties file found. Searched:")

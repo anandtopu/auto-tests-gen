@@ -1452,3 +1452,53 @@ def test_every_prompt_taking_external_text_frames_it_as_data():
         if not pat.search(txt):
             unframed.append(p.name)
     assert not unframed, f"prompts missing the data framing: {unframed}"
+
+
+# ---- org-config maps keyed by phase name were never checked -----------------
+def test_a_typo_in_a_phase_keyed_map_is_reported():
+    """`models:`, `context_scope:` and `llm.phase_providers:` are keyed by phase
+    and nothing validated those keys. A typo is read by nothing — and in
+    `models:` it also leaves the real phase unlisted, which falls back to the
+    `generate` tier: the AUTHORING model. So a mistyped `triage` quietly moves
+    that phase from haiku to sonnet on every run, evidenced only by the bill.
+    """
+    import llm_runner
+    w = llm_runner.check_phase_keys({"models": {"trage": "haiku", "generate": "s"}})
+    assert any("'trage' is not a phase" in x for x in w)
+    assert any("no tier for" in x and "triage" in x for x in w), \
+        "the costly half — an unlisted phase on the authoring tier — is unreported"
+    for m, bad in (("context_scope", {"context_scope": {"testplann": True}}),
+                   ("llm.phase_providers",
+                    {"llm": {"phase_providers": {"genrate": "ollama"}}})):
+        assert any(m in x for x in llm_runner.check_phase_keys(bad)), m
+
+
+def test_the_checker_reads_the_whole_org_config_not_the_llm_block():
+    """The first version defaulted to `_cfg()`, which is deliberately only the
+    `llm:` sub-section. It therefore read `models:` off a dict that has no
+    `models` key, found nothing, and pronounced a typo'd config clean — while
+    the hand-built dicts in the test above passed, because they were written in
+    the shape the code assumed rather than the shape on disk.
+    """
+    import llm_runner
+    assert llm_runner._cfg() is not None
+    org = llm_runner._org_cfg()
+    assert "models" in org, "_org_cfg must return the document root"
+    assert "provider" not in org, "_org_cfg returned the llm: block, not the root"
+    src = (ROOT / "engine/lib/llm_runner.py").read_text(encoding="utf-8")
+    i = src.index("def check_phase_keys")
+    body = src[i:i + 2200]
+    assert "_org_cfg()" in body and "else _cfg()" not in body
+
+
+def test_the_shipped_org_config_is_clean():
+    """A checker nobody can trust because the repo's own config trips it gets
+    ignored. This also catches a phase being added to ALL_PHASES without a tier."""
+    import llm_runner
+    assert llm_runner.check_phase_keys() == []
+
+
+def test_make_config_surfaces_it():
+    """`make config` is where an operator asks what their configuration does."""
+    src = (ROOT / "engine/lib/props_file.py").read_text(encoding="utf-8")
+    assert "check_phase_keys()" in src and "WARNING" in src

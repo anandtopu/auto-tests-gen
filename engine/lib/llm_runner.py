@@ -167,6 +167,71 @@ def check_model_mapping(phase, provider, cfg=None):
     return None
 
 
+def _org_cfg():
+    """The WHOLE org-config document.
+
+    Deliberately separate from `_cfg()`, which returns only the `llm:` block —
+    conflating them is how the first version of `check_phase_keys` read
+    `models:` off the llm sub-section, found nothing, and reported a clean
+    config while a typo sat in the file.
+    """
+    try:
+        import yaml
+        return yaml.safe_load(open(ROOT / "registry/org-config.yaml",
+                                   encoding="utf-8")) or {}
+    except Exception:                          # noqa: BLE001
+        return {}
+
+
+def check_phase_keys(cfg=None):
+    """Warnings about org-config maps keyed by PHASE NAME.
+
+    `models:`, `context_scope:` and `llm.phase_providers:` are all keyed by
+    phase, and nothing checked those keys. Both failure modes are silent and
+    both cost money in the same direction:
+
+    * a TYPO (`trage:`) creates a key nothing reads, and leaves the real phase
+      unlisted;
+    * an UNLISTED phase in `models:` falls back to the `generate` tier — the
+      AUTHORING model. So a mistyped `triage` quietly moves that phase from
+      haiku to sonnet on every run, and the only evidence is the bill.
+
+    That fallback already bit this platform once (8 of 10 phases silently on the
+    authoring tier). It was fixed by listing every phase, which fixes the
+    symptom; this reports the cause, so the next typo is visible immediately.
+
+    WARNINGS, not errors. An org-config may legitimately carry a key for a phase
+    that does not exist yet (or no longer does), and refusing to run over a
+    stale config line would be worse than the cost it is guarding.
+    """
+    cfg = cfg if cfg is not None else _org_cfg()   # the whole doc, not llm:
+    warnings = []
+    known = set(ALL_PHASES)
+    maps = {
+        "models": cfg.get("models") or {},
+        "context_scope": cfg.get("context_scope") or {},
+        "llm.phase_providers": (cfg.get("llm") or {}).get("phase_providers") or {},
+    }
+    for name, m in maps.items():
+        if not isinstance(m, dict):
+            continue
+        for k in sorted(m):
+            if str(k) not in known:
+                warnings.append(
+                    f"{name}: '{k}' is not a phase — this line is read by "
+                    f"nothing. Phases are: {', '.join(sorted(known))}")
+    # Only `models:` has a costly fallback, so only it is checked for gaps.
+    models = maps["models"]
+    if isinstance(models, dict) and models:
+        missing = sorted(known - set(map(str, models)))
+        if missing:
+            warnings.append(
+                "models: no tier for " + ", ".join(missing) +
+                " — each falls back to the `generate` tier, which is the "
+                "AUTHORING model. Name a tier for each, or accept the cost.")
+    return warnings
+
+
 def validate(cfg=None):
     """Every phase's assignment checked. Returns [errors]."""
     cfg = cfg if cfg is not None else _cfg()
