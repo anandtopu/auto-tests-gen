@@ -112,3 +112,34 @@ clauses:
         test: test_approval_signs_the_spec
       - file: registry/tests/test_spec_store.py
         test: test_freeform_edit_supersedes_the_spec
+  - id: C12
+    statement: >-
+      A provider switch is explicit configuration - there is NO silent fallback
+      when a provider is unreachable, refusing or unconfigured, and no adapter
+      widens a read-only tool policy.
+    category: safety
+    pins:
+      - file: registry/tests/test_llm_runner.py
+        test: test_ollama_never_falls_back_silently
+      - file: registry/tests/test_llm_runner.py
+        test: test_agentic_phase_on_a_completion_provider_is_refused
+      - file: registry/tests/test_llm_runner.py
+        test: test_codex_maps_tool_policy_onto_a_sandbox
+  - id: C13
+    statement: >-
+      An inability to establish a fact is never reported as an established
+      negative. Not-checked, not-delivered and not-measured each have their own
+      state, distinct from checked-and-false - because a reader acts on the
+      difference.
+    category: honesty
+    pins:
+      - file: registry/tests/test_spec_verify.py
+        test: test_a_failed_clone_is_unverified_not_failed
+      - file: registry/tests/test_spec_verify.py
+        test: test_the_overall_verdict_refuses_to_claim_coverage_nobody_checked
+      - file: registry/tests/test_coverage_drift.py
+        test: test_a_failed_notification_does_not_lose_the_alarm
+      - file: registry/tests/test_spec_gate.py
+        test: test_an_invalid_enforcement_value_is_never_silently_off
+      - file: registry/tests/test_env_flag.py
+        test: test_an_unusable_value_lands_on_the_safe_side_and_says_so

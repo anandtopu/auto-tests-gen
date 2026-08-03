@@ -70,3 +70,28 @@ def test_claude_md_names_the_rendering_relationship():
     text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     assert "constitution" in text.lower(), \
         "CLAUDE.md must point at specs/platform/constitution.yaml"
+
+
+def test_every_clause_id_cited_in_claude_md_actually_exists():
+    """CLAUDE.md cited C12 for a full release cycle while the constitution
+    stopped at C11.
+
+    `test_every_pin_exists` catches the opposite direction — a clause whose pin
+    was deleted — so an undefended rule is loud. Nothing checked a rule that was
+    only ever WRITTEN DOWN as enforced. That is the same failure this codebase
+    keeps finding elsewhere, applied to its own rulebook: documentation
+    asserting a guarantee nothing provides.
+    """
+    import re
+    import yaml
+    doc = yaml.safe_load((ROOT / "specs/platform/constitution.yaml")
+                         .read_text(encoding="utf-8")) or {}
+    have = {c["id"] for c in doc.get("clauses") or []}
+    text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    # Only clause-shaped citations, e.g. "clause C12" or "constitution C7" —
+    # not every capital-C token in prose.
+    cited = set(re.findall(r"(?:clause|constitution)\s+(C\d+)", text, re.I))
+    missing = sorted(cited - have, key=lambda c: int(c[1:]))
+    assert not missing, (
+        f"CLAUDE.md cites {missing} but the constitution defines {sorted(have)} "
+        "— a rule documented as enforced that does not exist")

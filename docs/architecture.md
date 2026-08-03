@@ -1,7 +1,7 @@
 # Solution Architecture Document
 ## AI-Driven Test Engineering Workflow PoC — OpenHands + Claude Code
 
-**Version:** 2.6 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md). **v2.5** adds §5.17 (the transaction log, alert rules and notifications). **v2.6** adds §5.18 (spec-driven adoption — the workflow as a state machine, a generated governance page, coverage subtraction that counts but refuses to price, and two UI-layer defects found by driving the served page)
+**Version:** 2.7 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md). **v2.5** adds §5.17 (the transaction log, alert rules and notifications). **v2.6** adds §5.18 (spec-driven adoption — the workflow as a state machine, a generated governance page, coverage subtraction that counts but refuses to price, and two UI-layer defects found by driving the served page). **v2.7** adds §5.19 (the dominant defect class — an inability to establish a fact reported as an established negative — promoted to constitution clause C13)
 **Author:** QA / AI Quality Engineering Team
 **Scope:** Proof of Concept — Agentic SDLC test generation workflow across a **multi-repository estate**: multiple UI repos, multiple backend/API repos, and **6 existing E2E test repositories (3 API, 3 UI) whose tests are currently unmapped to any application repository or feature**. v2.0 adds the **Test Catalog & Mapping subsystem** (bootstrap + continuous mapping of existing tests) and a **pluggable Integration & Extensibility layer** (Jira, Bitbucket, GitHub, Slack, Splunk, and future tools), and restructures the solution as a reusable, customizable platform. v2.1 extends the integration layer with **Confluence (knowledge source + publishing)**, **Jenkins (CI/CD trigger, execution, and results feedback)**, and a documented onboarding pattern for any additional SDLC tool.
 
@@ -1085,6 +1085,39 @@ rather than reading it:
   symptom was not an error anybody could read: the Activity view rendered blank
   while the log held 300 events. Measured 4 of 7 concurrent requests reset
   before, 0 across a full page load after.
+
+### 5.19 The dominant defect class, and the clause that now names it (v2.7)
+
+Five defects found in a single session by walking the product rather than
+reading it turned out to be one defect wearing five costumes. Each is worth
+recording, because none of them looks wrong in isolation:
+
+| Where | What it reported | What was true |
+|---|---|---|
+| Waivers | a healthy waiver, "44d left" | the scenario id was not in the spec; it protected nothing |
+| `AIQE_SPEC_ENFORCE=stict` | enforcement `off` | the value was unusable; nobody chose off |
+| Coverage drift | baseline advanced, no growth next run | the alarm was never delivered |
+| `spec_verify` | `passed: False` | the clone failed; the tests never ran |
+| `AIQE_MOCK=true` | real adapters, real spend | somebody was asking FOR mock |
+
+The shape is always the same: **the system could not establish a fact, and said
+something false-but-plausible instead of saying so.** The safe-looking default —
+`off`, `False`, "no growth" — is exactly what makes it invisible, because it
+reads as a decision somebody made.
+
+This is now **constitution clause C13**, with pins across `test_spec_verify`,
+`test_coverage_drift`, `test_spec_gate` and `test_env_flag`. The remedy is
+uniform: a third state (`None`, `unverifiable`, `unevaluable`, `unmeasured`)
+that is distinct from checked-and-false, plus a message naming the fix. §5.17's
+alert rules and §5.12's cost bases had already arrived at this independently —
+`unevaluable` is never `ok`, `unknown` is never `$0` — which is the argument for
+promoting it from a local habit to a clause.
+
+**C12 was also missing.** It had been cited in CLAUDE.md for a full release
+cycle while the constitution stopped at C11: a rule documented as enforced that
+did not exist. `test_every_pin_exists` catches the opposite direction — a clause
+whose pin was deleted — so an *undefended* rule was already loud, while a
+*fictional* one was silent. Both directions are now pinned.
 
 ## 6. Scalability, Reliability, Efficiency, Maintainability — Deep Dive
 
