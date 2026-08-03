@@ -26,8 +26,18 @@ def jira_keys(text):
                    if m.group(1) not in NOT_PROJECTS})
 
 
-def norm(p):  # /v1/orders/123/discounts -> /v1/orders/{id}/discounts
-    return re.sub(r"/\d+", "/{id}", p)
+def norm(p):
+    """/v1/orders/123/discounts -> /v1/orders/{id}/discounts
+
+    Whole segments only. `/\\d+` alone matched the digits at the START of a
+    segment, so `/api/2fa/verify` became `/api/{id}fa/verify` and
+    `/a/1b/c` became `/a/{id}b/c` — paths that then match nothing in the
+    contract index, silently costing the test its attribution. It fails in the
+    conservative direction (no mapping rather than a wrong one), which is
+    precisely why it could sit here unnoticed: the test just quietly lands in
+    the review queue looking like something the correlator had no opinion on.
+    """
+    return re.sub(r"/\d+(?=/|$)", "/{id}", p)
 
 for e in entries:
     repos, methods = set(), []
