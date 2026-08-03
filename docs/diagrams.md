@@ -659,3 +659,56 @@ because turning on `strict` first just teaches people to bypass the gate.
 own per-repo result in the run record. Nothing else is evidence: the plan being
 attached to the ticket is a different fact, and reading it as a commit is a bug
 this diagram exists partly to prevent recurring.
+
+## 21. The failure this platform kept making (constitution C13)
+
+Eight defects found in one session were one defect. Each time, the system could
+not establish a fact and returned a plausible answer instead of saying so — and
+the plausible answer was always the SAFE-LOOKING one, which is what made it
+invisible. `off`, `False`, "no growth" and `$0` all read as decisions somebody
+made rather than as questions nobody answered.
+
+```mermaid
+flowchart TD
+  Q["a question with a real answer<br/>did the tests pass? · is enforcement on?<br/>· was the alarm delivered? · what did it cost?"]
+
+  Q --> TRY{"could we<br/>establish it?"}
+
+  TRY -->|yes| REAL["report what is true<br/>passed / failed · on / off · $12.40"]
+
+  TRY -->|"no — clone failed, channel down,<br/>value unparsable, nothing metered"| WRONG
+  TRY -->|"no"| RIGHT
+
+  WRONG["<b>WHAT IT DID</b><br/>pick the safe-LOOKING answer<br/>False · off · no growth · $0"]
+  RIGHT["<b>WHAT C13 REQUIRES</b><br/>a THIRD state, plus the fix<br/>None · unverifiable · unevaluable · unknown"]
+
+  WRONG --> HARM["reader acts on a fact<br/>nobody established<br/><br/>hunts a regression in tests that never ran ·<br/>believes the gate is enforcing · reads silence<br/>as health · repeats a $0 that was never measured"]
+
+  RIGHT --> GOOD["reader learns what is MISSING<br/>and what to do about it<br/><br/>'clone_ro failed' · 'stict is not a mode' ·<br/>'baseline NOT advanced' · 'run make parity-jira'"]
+
+  classDef bad stroke-dasharray: 4 3;
+  class WRONG,HARM bad;
+```
+
+**The eight, and what each one said instead of "I don't know":**
+
+| Where | Said | Truth |
+|---|---|---|
+| Waiver on a missing scenario | "44d left" | matched nothing |
+| `AIQE_SPEC_ENFORCE=stict` | `off` | value unusable |
+| `spec.enforce: off` (YAML) | boolean `False` | not the string it looks like |
+| `AIQE_REQUIREMENTS_GATE=enabled` | gate off | value unusable |
+| `NOTIFY_KIND=emails` | delivered via slack | channel not the one configured |
+| Coverage drift, channel down | "no growth" next run | alarm never delivered |
+| `spec_verify`, clone failed | `passed: False` | nothing ran |
+| `AIQE_MOCK=true` / `AIQE_GATE_CHECK_ONLY=true` | real adapters / a real commit | somebody asked for the dry run |
+
+**The direction is the design decision, not the third state.** Both mock-mode
+knobs resolve an unusable value toward "wrote nothing" — but that means MOCK for
+`AIQE_MOCK` and CHECK-ONLY for `AIQE_GATE_CHECK_ONLY`, which are opposite
+literal values. The rule is not "default to false"; it is *default to the
+outcome you can recover from by running it again*.
+
+**Where it was already right.** §5.17's alerting (`unevaluable` is never `ok`)
+and §5.12's cost bases (`unknown` is never `$0`) reached this independently,
+which is why C13 was promoted from a habit to a clause rather than invented.

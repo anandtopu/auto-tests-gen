@@ -124,3 +124,35 @@ def test_query_filters_by_kind_and_repo(index):
     assert only_ex and all(r["kind"] == "exemplar" for r in only_ex)
     only_r1 = vi_.query("rules", repo="r1")
     assert only_r1 and all(r["repo"] == "r1" for r in only_r1)
+
+
+# ---- the numeric core: wrong here degrades every ranking and breaks nothing --
+def test_a_vector_survives_the_round_trip():
+    """float32 packing is lossy against Python floats, so the pin is on the
+    ROUND TRIP rather than on equality with the input — and on re-packing being
+    byte-identical, or the store drifts a little on every refresh."""
+    vec = [0.1, -0.5, 0.0, 1.0, 1e-7]
+    blob = vi._pack(vec)
+    got = list(vi._unpack(blob, len(vec)))
+    assert len(got) == len(vec)
+    for a, b in zip(vec, got):
+        assert abs(a - b) < 1e-6, (a, b)
+    assert vi._pack(got) == blob
+
+
+def test_cosine_similarity_is_actually_cosine():
+    assert vi._cos([1, 0], [1, 0]) == pytest.approx(1.0)
+    assert vi._cos([1, 0], [0, 1]) == pytest.approx(0.0)
+    assert vi._cos([1, 0], [-1, 0]) == pytest.approx(-1.0)
+    # Magnitude must not matter — only direction.
+    assert vi._cos([3, 4], [30, 40]) == pytest.approx(1.0)
+
+
+def test_a_zero_vector_scores_zero_instead_of_dividing_by_zero():
+    """An all-zero embedding is what a misconfigured or truncating provider
+    returns. Dividing by its norm raises, and a raise here turns "retrieval
+    degrades to lexical" into "the query crashes" — the fallback this whole
+    subsystem is built around stops working exactly when it is needed."""
+    assert vi._cos([0, 0, 0], [1, 2, 3]) == 0.0
+    assert vi._cos([1, 2, 3], [0, 0, 0]) == 0.0
+    assert vi._cos([0, 0], [0, 0]) == 0.0
