@@ -368,3 +368,52 @@ def test_the_requirements_state_field_is_the_flat_one():
         assert 'get("requirements_status")' in src or "requirements_status" in src, f
     wf = (ROOT / "engine/lib/spec_workflow.py").read_text(encoding="utf-8")
     assert 'load().get("plans"' not in wf, "plan_state has no 'plans' wrapper"
+
+
+# ---------------------------------------- SDD adoption S3: governance settings
+def test_the_workflow_view_cannot_contradict_the_engine(monkeypatch):
+    """The first version read only org-config, so with AIQE_SPEC_ENFORCE set the
+    view reported 'off' while the gate was actually refusing commits. A workflow
+    view that contradicts the enforcement it describes is worse than none."""
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import importlib
+    import spec_workflow
+    monkeypatch.setenv("AIQE_SPEC_ENFORCE", "strict")
+    monkeypatch.setenv("AIQE_REQUIREMENTS_GATE", "1")
+    importlib.reload(spec_workflow)
+    g = spec_workflow.governance()
+    assert g["spec_enforce"] == "strict", "the view must see the env override"
+    assert g["requirements_gate"] is True
+    # ...and the ENGINE must agree, or the view is describing a fiction.
+    import plan_state
+    assert plan_state._requirements_gate_on() is True
+    spec = importlib.util.spec_from_file_location(
+        "sc_pin", ROOT / "engine" / "gate" / "spec_check.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    assert m.mode() == "strict"
+
+
+def test_both_governance_knobs_are_env_overridable():
+    """They were asymmetric: the gate honoured AIQE_SPEC_ENFORCE, the
+    requirements gate honoured nothing. org-config.yaml ships INSIDE the image
+    and cannot be written under readOnlyRootFilesystem, so a deployed estate had
+    no way to turn spec governance on at all."""
+    ps = (ROOT / "engine/lib/plan_state.py").read_text(encoding="utf-8")
+    sc = (ROOT / "engine/gate/spec_check.py").read_text(encoding="utf-8")
+    assert "AIQE_REQUIREMENTS_GATE" in ps
+    assert "AIQE_SPEC_ENFORCE" in sc
+
+
+def test_governance_settings_state_their_consequence():
+    """Someone deciding whether to enable this needs to know what starts
+    FAILING, not which YAML key moves."""
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import settings_store as ss
+    sec = [s for s in ss.SPEC if s["section"] == "Spec-driven governance"]
+    assert sec, "the governance section must exist in the Settings SPEC"
+    blob = (sec[0]["hint"] + " ".join(
+        f.get("help", "") + " ".join(o[1] for o in f.get("options", []))
+        for f in sec[0]["fields"])).lower()
+    for consequence in ("refuse", "exit 65", "exit 8", "warn"):
+        assert consequence in blob, f"the settings must say {consequence!r}"

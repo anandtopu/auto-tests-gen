@@ -321,6 +321,20 @@ def mark_generated(key, run_id):
 
 # ------------------------------------------------------------------ SDD 2.2
 def _requirements_gate_on():
+    """env AIQE_REQUIREMENTS_GATE > org-config `spec.requirements_gate`.
+
+    The env override exists for parity with the gate's own `AIQE_SPEC_ENFORCE`
+    (engine/gate/spec_check.mode). Without it the two governance knobs behaved
+    differently — one settable per run and per deployment, the other only by
+    editing a file that ships INSIDE the image and cannot be written at all
+    under readOnlyRootFilesystem (R12). That asymmetry is also what let the
+    Settings page offer one and not the other.
+    """
+    env = os.environ.get("AIQE_REQUIREMENTS_GATE", "").strip().lower()
+    if env in ("1", "on", "yes", "true"):
+        return True
+    if env in ("0", "off", "no", "false"):
+        return False
     try:
         import yaml
         cfg = yaml.safe_load(open(ROOT / "registry/org-config.yaml",

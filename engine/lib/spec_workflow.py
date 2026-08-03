@@ -54,9 +54,18 @@ def governance():
     different configuration, and a reader deserves to know which they are
     looking at.
     """
+    # Ask the SAME resolvers the engine uses, rather than re-reading org-config.
+    # The first version read only org-config, so with AIQE_SPEC_ENFORCE set the
+    # view reported "off" while the gate was actually refusing commits — a
+    # workflow view that contradicts the enforcement it describes is worse than
+    # no view. Both knobs are env-overridable now (plan_state and spec_check).
+    import plan_state as _ps
     spec = (_org().get("spec") or {})
-    gate = spec.get("requirements_gate")
-    enforce = str(spec.get("enforce") or "off")
+    gate = _ps._requirements_gate_on()
+    enforce = (os.environ.get("AIQE_SPEC_ENFORCE", "").strip().lower()
+               or str(spec.get("enforce") or "off"))
+    if enforce not in ("off", "warn", "strict"):
+        enforce = "off"
     return {
         "requirements_gate": bool(gate),
         "requirements_gate_effect": (

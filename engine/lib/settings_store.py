@@ -211,6 +211,36 @@ SPEC = [
          "default": "4.00"},
         {"env": "MAX_WALLCLOCK_MIN", "label": "Max wall-clock (min)", "default": "25"},
      ]},
+    # SDD adoption S3 (gap G1). These knobs existed only in org-config.yaml — a
+    # file that ships INSIDE the image and cannot be written under
+    # readOnlyRootFilesystem, so a deployed estate had no way to turn
+    # spec-driven governance on at all. As env settings they land in .env,
+    # which the Settings page already writes and R12 already relocates.
+    #
+    # The hint states the CONSEQUENCE, not the mechanism: someone deciding
+    # whether to enable this needs to know what starts FAILING, not which YAML
+    # key moves. Empty means "use org-config".
+    {"section": "Spec-driven governance",
+     "hint": "Off by default. Turning these on changes what the platform "
+             "REFUSES. Roll out in two steps — warn until the signal is clean, "
+             "then strict; enabling strict first only teaches people to route "
+             "around the gate. Current state is shown in the Spec workflow view.",
+     "fields": [
+        {"env": "AIQE_REQUIREMENTS_GATE", "label": "Requirements gate",
+         "options": [["", "use org-config (default: off)"],
+                     ["0", "off — planning proceeds without approved requirements"],
+                     ["1", "on — planning REFUSES until requirements are approved"]],
+         "help": "When on, plan/jira runs stop with exit 65 until a human has "
+                 "approved the EARS requirements for that ticket."},
+        {"env": "AIQE_SPEC_ENFORCE", "label": "Spec satisfaction (gate)",
+         "options": [["", "use org-config (default: off)"],
+                     ["off", "off — the gate ignores uncovered scenarios"],
+                     ["warn", "warn — uncovered scenarios reported, commit proceeds"],
+                     ["strict", "strict — the gate REFUSES (exit 8) on an "
+                                "uncovered, unwaived scenario"]],
+         "help": "Start at warn. Strict blocks a commit when an approved "
+                 "scenario has no test and no unexpired waiver."},
+     ]},
 ]
 
 ALL_KEYS = {f["env"]: f for s in SPEC for f in s["fields"]}
