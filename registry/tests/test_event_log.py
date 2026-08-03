@@ -287,3 +287,44 @@ def test_the_docs_describe_what_is_not_recorded():
     assert "deliberately NOT recorded" in uc
     for claim in ("GET request", "request bodies", "secret value"):
         assert claim.split()[0].lower() in uc.lower(), claim
+
+
+# ------------------------------------------------- SDD adoption S1: workflow
+def test_the_workflow_view_never_mutates():
+    """Rendering a workflow must not advance it. Every transition stays behind
+    the approve/edit commands, which sign and record an actor."""
+    src = (ROOT / "engine" / "lib" / "spec_workflow.py").read_text(encoding="utf-8")
+    for mutator in ("set_status(", "save_plan(", "approve(", "write_", ".unlink(",
+                    "mkdir(", "os.replace"):
+        assert mutator not in src, f"spec_workflow calls {mutator} — it must be read-only"
+
+
+def test_every_row_reports_the_governance_that_produced_it():
+    """'Blocked' means different things under different configuration. A view
+    that hides which one it is teaches a rule the platform is not enforcing."""
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import spec_workflow
+    b = spec_workflow.board()
+    assert set(b) >= {"states", "governance", "rows", "summary", "enforced"}
+    g = b["governance"]
+    assert "requirements_gate_effect" in g and "spec_enforce_effect" in g, \
+        "the EFFECT must be stated, not just the flag"
+    for r in b["rows"]:
+        assert "governance" in r and "advisory" in r
+
+
+def test_an_unenforced_step_is_labelled_advisory(monkeypatch):
+    """With the gate off, 'requirements not approved' does not actually stop
+    anything — saying otherwise would be a lie the UI repeats."""
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import spec_workflow
+    monkeypatch.setattr(spec_workflow, "governance",
+                        lambda: {"requirements_gate": False,
+                                 "requirements_gate_effect": "advisory",
+                                 "spec_enforce": "off",
+                                 "spec_enforce_effect": "ignored",
+                                 "spec_mode": True})
+    rows = [r for r in spec_workflow.board()["rows"]
+            if r["state"] == "requirements" and "not approved" in r["blocker"]]
+    for r in rows:
+        assert r["advisory"] is True, "an unenforced step must say so"

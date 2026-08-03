@@ -664,7 +664,7 @@ gen_ts = time.strftime("%Y-%m-%d %H:%M")
 
 NAV = [("overview", "◧", "Overview"), ("wizard", "✦", "Guided run"),
        ("queue", "⇥", "Intake & queue"),
-       ("plans", "✎", "Test plans"),
+       ("plans", "✎", "Test plans"), ("specflow", "✓", "Spec workflow"),
        ("runs", "▶", "Runs & reviews"), ("activity", "⚡", "Activity"), ("alerts", "△", "Alerts"),
        ("trace", "⇢", "Trace"),
        ("cost", "◔", "Cost"),
@@ -674,6 +674,7 @@ NAV = [("overview", "◧", "Overview"), ("wizard", "✦", "Guided run"),
 TITLES = {"overview": "Overview", "wizard": "Guided run — PR or JIRA, step by step",
           "queue": "Intake & work queue",
           "plans": "Test plans — review & approval",
+          "specflow": "Spec workflow — how an E2E test gets built here",
           "runs": "Runs & team reviews",
           "activity": "Activity — every transaction, who did it and what happened",
           "alerts": "Alerts — rules over the transaction log",
@@ -1037,6 +1038,7 @@ async function api(path, opts) {
 const TITLES = { overview: 'Overview', wizard: 'Guided run — PR or JIRA, step by step',
   queue: 'Intake & work queue',
   plans: 'Test plans — review & approval',
+  specflow: 'Spec workflow — how an E2E test gets built here',
   runs: 'Runs & team reviews',
   activity: 'Activity — every transaction, who did it and what happened',
   alerts: 'Alerts — rules over the transaction log',
@@ -1498,6 +1500,54 @@ async function refreshOpenHands() {
   } catch (err) { /* advisory panel — never block the view it sits in */ }
 }
 refreshOpenHands();
+
+// ---- spec workflow (SDD adoption S1)
+async function refreshSpecFlow() {
+  const tb = document.querySelector('#sf-table tbody');
+  if (!served || !tb) return;
+  try {
+    const d = await api('/api/spec-workflow');
+    const g = d.governance || {};
+    // Say plainly whether any of this is ENFORCED. A workflow view that
+    // silently reflects configuration teaches a rule the platform is not
+    // applying — the adoption gap this whole view exists to close.
+    const gov = $('#sf-gov');
+    if (gov) {
+      gov.innerHTML = d.enforced
+        ? '<b>Enforced.</b> requirements gate: <code>' +
+          escHtml(String(g.requirements_gate)) + '</code> · spec enforce: <code>' +
+          escHtml(g.spec_enforce) + '</code><br>' + escHtml(g.spec_enforce_effect)
+        : '<b>Nothing below is enforced yet.</b> requirements gate is off and ' +
+          'spec enforce is <code>off</code>, so every step is advisory — the ' +
+          'platform will not stop a run that skips it. Turn them on in Settings ' +
+          'when the signal looks clean (start with <code>warn</code>).';
+    }
+    if (!d.rows.length) {
+      tb.innerHTML = '<tr><td colspan="5" class="muted">No tickets in the ' +
+        'workflow yet — run <code>make requirements KEY=..</code> or ' +
+        '<code>make plan KEY=..</code> to start one.</td></tr>';
+      return;
+    }
+    tb.innerHTML = d.rows.map(r => {
+      const done = !r.blocker;
+      const cls = done ? '' : (r.advisory ? 'chip-warning' : 'chip-danger');
+      // The progress trail makes "how far along" readable at a glance.
+      const trail = d.states.map((s, i) =>
+        '<span class="' + (i < r.state_index ? '' : (i === r.state_index ? 'chip ' + cls : 'muted')) +
+        '" title="' + escHtml(s) + '">' + (i < r.state_index ? '●' : (i === r.state_index ? '◉' : '○')) +
+        '</span>').join(' ');
+      return '<tr><td class="mono sm">' + escHtml(r.key) + '</td>' +
+        '<td class="sm">' + trail + '<div class="muted sm">' + escHtml(r.state) +
+          (r.advisory ? ' (advisory)' : '') + '</div></td>' +
+        '<td class="sm">' + (done ? '<span class="chip">complete</span>'
+                                  : escHtml(r.blocker)) + '</td>' +
+        '<td class="sm">' + escHtml(r.owner || '—') + '</td>' +
+        '<td class="sm mono">' + escHtml(r.action || '—') + '</td></tr>';
+    }).join('');
+  } catch (e) { /* diagnostic view — never break the page it sits in */ }
+}
+if ($('#sf-refresh')) $('#sf-refresh').addEventListener('click', refreshSpecFlow);
+refreshSpecFlow();
 
 // ---- alert rules (observability 3.1-3.4)
 let AL_RULES = [], AL_META = { kinds: [], channels: ['slack', 'email', 'both'] };
@@ -2602,6 +2652,49 @@ page = f"""<!doctype html>
           <th>release</th><th style="min-width:280px">gate results per test repo</th>
           <th>team review</th></tr></thead>
         <tbody>{runs_rows}</tbody></table></div>
+    </section>
+  </div>
+
+  <div data-view="specflow">
+    <section class="card">
+      <div class="card-h"><div><h2>How an E2E test gets built here</h2>
+        <div class="sub">Six states, one owner each. The platform authors; a
+        human decides. Every transition below is a command — this view never
+        advances a workflow, it only shows you where things are.</div></div>
+        <span class="grow"></span>
+        <button class="btn btn-sm" id="sf-refresh">Refresh</button>
+      </div>
+      <div id="sf-gov" class="sub" style="padding:0 14px 10px"></div>
+      <div class="scroll"><table id="sf-table">
+        <thead><tr><th>ticket</th><th>state</th><th>what is blocking</th>
+          <th>who</th><th>next step</th></tr></thead>
+        <tbody></tbody></table></div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><div><h2>The rules</h2>
+        <div class="sub">These already hold in code. They are written here
+        because a rule you cannot see is a rule you cannot follow.</div></div>
+      </div>
+      <div style="padding:4px 14px 16px" class="sm">
+        <p><b>1. A spec is signed, not just saved.</b> Approving binds to a
+        content hash. Editing an approved plan revokes the approval — so
+        "approved" always refers to the text somebody actually read.</p>
+        <p><b>2. Prose a human wrote wins.</b> A free-form edit that diverges
+        from the structured spec supersedes it; the old spec is kept for
+        forensics, never silently discarded.</p>
+        <p><b>3. An approved scenario is covered, waived, or refused.</b>
+        Waivers carry a reason, an owner and an <b>expiry</b> — so
+        "temporarily" cannot quietly become "forever".</p>
+        <p><b>4. Enforcement rolls out in two steps.</b> <code>warn</code> until
+        the signal is clean, then <code>strict</code>. Turning on strict first
+        just teaches people to bypass the gate.</p>
+        <p><b>5. The plan adversary is read-only.</b> It may only ADD scenarios.
+        An opponent that can edit the plan is just a second author.</p>
+        <p><b>6. Ambiguity stops the line.</b> A blocking ambiguity halts
+        planning with a question on the ticket rather than a guess — the
+        cheapest artifact to change is a sentence, not a committed test.</p>
+      </div>
     </section>
   </div>
 

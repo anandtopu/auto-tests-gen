@@ -68,7 +68,8 @@ sys.path.insert(0, str(ROOT / "engine/lib"))
 import alert_rules, demo_data, email_notify, event_log, export_plan, \
     guidance_sync, inline_ticket, integration_check, openhands_client, \
     openhands_events, openhands_mode, plan_state, pr_url, repo_admin, \
-    repo_guidance_gen, review_state, settings_store, team_report, work_queue
+    repo_guidance_gen, review_state, settings_store, spec_workflow, \
+    team_report, work_queue
 
 
 def _classify_status(code):
@@ -245,6 +246,11 @@ class Handler(BaseHTTPRequestHandler):
                            cwd=ROOT, capture_output=True, stdin=subprocess.DEVNULL)
             self._send(200, (ROOT / "reports/dashboard.html").read_bytes(),
                        "text/html; charset=utf-8")
+        elif url.path == "/api/spec-workflow":
+            # SDD adoption S1. Read-only by construction: rendering a workflow
+            # view must never advance a workflow. Every transition stays behind
+            # the approve/edit commands, which sign and record an actor.
+            self._send(200, spec_workflow.board())
         elif url.path == "/api/alerts":
             # Rules plus their CURRENT evaluation (observability 3.1-3.4).
             # notify=False: rendering a page must never send a notification —
