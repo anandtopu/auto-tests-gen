@@ -190,7 +190,12 @@ def test_derived_writes_materializes_testdata_from_inlined_content(tmp_path,
         {"canonical": "../escape.json", "content": "x"},
         {"canonical": "/abs/escape.json", "content": "x"}]}
     written, problems = dw.materialize("testdata", "K-1", contract)
-    assert written == ["testdata\K-1\cases.json".replace("\\", os.sep)]
+    # os.path.join, not a literal with backslashes: "testdata\K-1\cases.json"
+    # relies on Python preserving \K and \c as unknown escapes — a
+    # SyntaxWarning today and a hard error in a future release — and its
+    # .replace("\\", os.sep) was a no-op on Windows and a fixup on POSIX, so
+    # the test was platform-adaptive by accident rather than by intent.
+    assert written == [os.path.join("testdata", "K-1", "cases.json")]
     assert (tmp_path / "testdata/K-1/cases.json").read_text() == '{"a":1}'
     assert any("no `content`" in p for p in problems)
     assert sum("refused" in p for p in problems) == 2, \

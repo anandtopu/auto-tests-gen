@@ -95,3 +95,37 @@ def test_every_clause_id_cited_in_claude_md_actually_exists():
     assert not missing, (
         f"CLAUDE.md cites {missing} but the constitution defines {sorted(have)} "
         "— a rule documented as enforced that does not exist")
+
+
+def test_no_python_file_carries_a_syntax_warning():
+    r"""`"testdata\K-1\cases.json"` sat in the suite relying on Python
+    preserving `\K` and `\c` as unknown escapes.
+
+    That is a SyntaxWarning today and a hard error in a future release, so the
+    suite had a scheduled break in it. Worse, the line's `.replace("\\\\", os.sep)`
+    was a no-op on Windows and a fixup on POSIX — the test passed on both
+    platforms by accident rather than by intent, which is the kind of thing that
+    looks deliberate until the day it stops working.
+
+    Compiling every file with the warning promoted to an error costs about a
+    second and catches the whole class.
+    """
+    import warnings
+    roots = ("engine", "bin", "registry", "catalog", "eval", "triggers")
+    problems = []
+    for root in roots:
+        d = ROOT / root
+        if not d.is_dir():
+            continue
+        for p in d.rglob("*.py"):
+            if "__pycache__" in str(p):
+                continue
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("error", SyntaxWarning)
+                    compile(p.read_text(encoding="utf-8"), str(p), "exec")
+            except SyntaxWarning as w:
+                problems.append(f"{p.relative_to(ROOT)}: {w}")
+            except SyntaxError as e:
+                problems.append(f"{p.relative_to(ROOT)}: {e}")
+    assert not problems, "python files with syntax warnings:\n  " + "\n  ".join(problems)
