@@ -60,13 +60,28 @@ for f in sorted(glob.glob("out/*.contract.json")):
     phases.append(entry)
 
 gates = []
+malformed_gate_lines = 0
 if os.path.exists("out/gate_results.tsv"):
     for line in open("out/gate_results.tsv", encoding="utf-8"):
         if not line.strip():
             continue
         repo, status, exit_code, sha = (line.rstrip("\n").split("\t") + ["", "", "", ""])[:4]
+        # A torn line must not cost the whole record. `int("")` raised here, and
+        # because this script assembles the ONLY durable copy of a run, one
+        # partial write threw away every gate result in the file — including
+        # repos that had committed successfully. The work happened and the
+        # evidence went missing, which is the worst trade this file can make.
+        if not repo or not status:
+            malformed_gate_lines += 1
+            continue
+        try:
+            exit_code = int(exit_code)
+        except ValueError:
+            # Recorded as UNKNOWN rather than 0: a missing exit code is not a
+            # successful one, and `exit_code: 0` here would read as a clean run.
+            exit_code = None
         diff = f"reports/runs/{run_id}-{repo}.diff"
-        gates.append({"test_repo": repo, "status": status, "exit_code": int(exit_code),
+        gates.append({"test_repo": repo, "status": status, "exit_code": exit_code,
                       "commit": sha or None,
                       "log": f"reports/{key}-{repo}.log",
                       "diff": diff if os.path.exists(diff) else None})
@@ -81,6 +96,11 @@ overall = ("quarantined" if any(g["status"] in ("quarantined", "clone_failed")
 record = {"run_id": run_id, "trigger": {"type": mode, "key": key},
           "ts": time.time(), "overall": overall,
           "gates": gates, "phases": phases}
+if malformed_gate_lines:
+    # Present only when something was lost, and never inferred away: a record
+    # showing three gates when the file held four must SAY that it is short,
+    # or "gates: [...]" reads as the complete set.
+    record["malformed_gate_lines"] = malformed_gate_lines
 # Context-scope retries (cost-reduction 2.3): phases that reported missing
 # context and re-ran on the full estate — the tuning signal for the scoping
 # policy, and an honest marker that this run paid the retry.
