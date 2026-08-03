@@ -65,9 +65,7 @@ import review_state
 
 def load_catalog():
     entries = []
-    for f in sorted(glob.glob(str(ROOT / "catalog/*.jsonl"))):
-        if pathlib.Path(f).name == "catalog.sample.jsonl":
-            continue
+    for f in app_paths.catalog_files(ROOT):
         for line in open(f, encoding="utf-8"):
             if line.strip():
                 entries.append((f, json.loads(line)))

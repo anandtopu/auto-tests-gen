@@ -35,6 +35,7 @@ CLI:
   repo_guidance_gen.py <repo> --print       render to stdout, write nothing
 """
 import os, pathlib, sys, time
+import app_paths
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -86,9 +87,7 @@ def _harvest(entry):
 def _catalog():
     import glob, json
     out = []
-    for f in sorted(glob.glob(str(ROOT / "catalog/*.jsonl"))):
-        if pathlib.Path(f).name == "catalog.sample.jsonl":
-            continue
+    for f in app_paths.catalog_files(ROOT):
         for line in open(f, encoding="utf-8"):
             if line.strip():
                 try:

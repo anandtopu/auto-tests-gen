@@ -31,7 +31,6 @@ registry/tests/test_knowledge_chunks.py.
 Rebuilt wherever AGENTS.md is regenerated (gen_agents_md.py calls rebuild()
 best-effort) and by `make maintain`; removed by clear-demo.
 """
-import glob
 import hashlib
 import json
 import pathlib
@@ -156,9 +155,7 @@ def build():
 
     # --- catalog: one per app repo with mapped tests -------------------------
     catalog = []
-    for f in sorted(glob.glob(str(ROOT / "catalog/*.jsonl"))):
-        if pathlib.Path(f).name == "catalog.sample.jsonl":
-            continue
+    for f in app_paths.catalog_files(ROOT):
         for line in open(f, encoding="utf-8"):
             if line.strip():
                 try:
@@ -179,7 +176,8 @@ def build():
                          + (f"  routes: {', '.join(ev['ui_routes'])}"
                             if ev.get("ui_routes") else ""))
         chunks.append(_chunk("catalog", app, "mapped",
-                             "catalog/*.jsonl", "\n".join(lines)))
+                             "catalog/*.jsonl",  # not-a-path: provenance LABEL, not a directory read; chunk bytes are pinned byte-deterministic across machines so this cannot carry a resolved directory
+                             "\n".join(lines)))
 
     # --- scenario: per SCENARIO when a structured spec exists (SDD 6.3 —
     # sharper retrieval/reuse granularity), else one per plan (legacy).

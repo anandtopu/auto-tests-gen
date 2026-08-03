@@ -4,16 +4,14 @@ Only confirmed/auto mappings feed routing (ADR: never route on needs_review).
 covers = catalog evidence UNION the repo's declared `scope` (hand-managed via
 repo_admin / the dashboard Repositories view) — so a newly-mapped app repo
 routes to its test repo before any test evidence exists."""
-import glob, json, os, pathlib, sys, yaml
+import json, os, pathlib, sys, yaml
 sys.path.insert(0, "engine/lib")
 import app_paths                      # R12: mutable paths resolve here
 import fs_lock                     # retrying replace: Windows WinError 5
 reg_path = app_paths.registry_file()
 reg = yaml.safe_load(reg_path.read_text(encoding="utf-8"))
 cov = {t["name"]: set() for t in reg["test_repositories"]}
-for f in glob.glob(str(app_paths.catalog_dir() / "*.jsonl")):
-    if pathlib.Path(f).name == "catalog.sample.jsonl":   # fixture, not evidence
-        continue
+for f in app_paths.catalog_files():
     for l in open(f, encoding="utf-8"):
         if not l.strip():                                # tolerate trailing blanks
             continue

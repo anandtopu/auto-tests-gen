@@ -30,7 +30,13 @@ python3 catalog/bootstrap/harvest_facts.py > "$WS/app-facts.json"
 python3 catalog/bootstrap/extract.py "$WS/repo" "$TREPO" > "$WS/extracted.jsonl"
 python3 catalog/bootstrap/correlate.py "$WS/extracted.jsonl" "$WS/app-facts.json" > "$WS/correlated.jsonl"
 python3 catalog/bootstrap/split_residue.py "$WS/correlated.jsonl" "$WS"
-python3 catalog/bootstrap/tier.py "$WS" > "catalog/${TREPO}.jsonl"
+# Write-then-move, matching run_bootstrap.sh. `> catalog/x.jsonl` truncates
+# BEFORE tier.py runs, so a tier crash empties an existing catalog and silently
+# unroutes the repo. The real chain fixed this and carries a comment explaining
+# why; this copy kept the bug, because a fix cannot travel to a file nobody
+# knows is a duplicate.
+python3 catalog/bootstrap/tier.py "$WS" > "$WS/tiered.jsonl"
+mv "$WS/tiered.jsonl" "catalog/${TREPO}.jsonl"
 python3 catalog/review/export_review_queue.py "catalog/${TREPO}.jsonl" > "catalog/review/${TREPO}-queue.csv"
 python3 catalog/bootstrap/regen_coverage.py
 python3 bin/gen_agents_md.py

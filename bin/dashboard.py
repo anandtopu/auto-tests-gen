@@ -31,9 +31,7 @@ for f in glob.glob(str(ROOT / "reports/runs/*.json")):
 runs.sort(key=lambda r: r.get("ts", 0), reverse=True)
 
 catalog = []
-for f in sorted(glob.glob(str(ROOT / "catalog/*.jsonl"))):
-    if pathlib.Path(f).name == "catalog.sample.jsonl":
-        continue
+for f in app_paths.catalog_files(ROOT):
     for line in open(f, encoding="utf-8"):
         if line.strip():
             catalog.append(json.loads(line))

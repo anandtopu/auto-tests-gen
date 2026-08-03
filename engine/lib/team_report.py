@@ -10,6 +10,7 @@ reuse export_plan's generic renderers. Filters: --days N (rolling window),
 CLI: bin/qa.py report / make report. Served: GET /api/report on the dashboard.
 """
 import glob, json, pathlib, sys, time
+import app_paths
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -36,9 +37,7 @@ def _runs():
 
 def _catalog():
     out = []
-    for f in sorted(glob.glob(str(ROOT / "catalog/*.jsonl"))):
-        if pathlib.Path(f).name == "catalog.sample.jsonl":
-            continue
+    for f in app_paths.catalog_files(ROOT):
         for line in open(f, encoding="utf-8"):
             if line.strip():
                 out.append(json.loads(line))

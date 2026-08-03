@@ -78,6 +78,42 @@ def catalog_dir(root=None):
     return _p("AIQE_CATALOG_DIR", "catalog", root)
 
 
+# The catalog is READ by twelve modules and each had copy-pasted the same three
+# lines against a hardcoded `catalog/`; exactly one (regen_coverage) resolved it
+# through catalog_dir(). So under AIQE_CATALOG_DIR the bootstrap wrote to the
+# relocated directory and routing regenerated from it, while AGENTS.md, the
+# query index and every report still read the image path — the estate knowledge
+# injected into every LLM phase silently described a catalog nobody was writing
+# to. `catalog/*.jsonl` was in SEEDED all along, and the pin asserted the string
+# was listed, not that any reader honoured it.
+SAMPLE_CATALOG = "catalog.sample.jsonl"
+
+
+def catalog_files(root=None):
+    """Every catalog mapping file, sorted, documentation fixture excluded.
+
+    The one place that decides what "the catalog" means. Returns [] when the
+    directory is absent — a fresh checkout before bootstrap, which every caller
+    already handled as "no evidence yet".
+    """
+    import glob as _glob
+    return [pathlib.Path(f)
+            for f in sorted(_glob.glob(str(catalog_dir(root) / "*.jsonl")))
+            if pathlib.Path(f).name != SAMPLE_CATALOG]
+
+
+def catalog_health(root=None):
+    """CI-derived flake/health data. Follows the catalog when it is relocated —
+    an explicit AIQE_HEALTH_FILE still wins, but leaving health.json behind in
+    the image path while the mappings moved would split one dataset in two."""
+    v = (os.environ.get("AIQE_HEALTH_FILE") or "").strip()
+    return pathlib.Path(v) if v else catalog_dir(root) / "health.json"
+
+
+def catalog_review_dir(root=None):
+    return catalog_dir(root) / "review"
+
+
 def registry_file(root=None):
     """The estate. Edited by the Settings UI; `org-config.yaml` is NOT here
     because it is configuration that must upgrade with the image."""

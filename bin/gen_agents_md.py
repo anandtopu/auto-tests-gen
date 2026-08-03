@@ -7,7 +7,7 @@ harvested contracts/route tables (workspace/src/ first, demo/ fallback), org-con
 Regenerated automatically by: pipeline runs, bin/onboard.sh, bin/repos.py,
 bin/qa.py mapping edits, and catalog bootstrap. Manual: make agents.
 """
-import glob, json, pathlib, re, sys, time
+import json, pathlib, re, sys, time
 
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -31,9 +31,7 @@ reg = load_registry()
 org = load_org_config()
 
 catalog = []
-for f in sorted(glob.glob(str(ROOT / "catalog/*.jsonl"))):
-    if pathlib.Path(f).name == "catalog.sample.jsonl":
-        continue
+for f in app_paths.catalog_files(ROOT):
     for line in open(f, encoding="utf-8"):
         if line.strip():
             catalog.append(json.loads(line))

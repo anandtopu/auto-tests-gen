@@ -7,15 +7,22 @@ deterministic, regenerable index for fast ad-hoc queries at estate scale
 Rebuilt by: catalog bootstrap, bin/qa.py mapping edits, make catalog-db.
 Query it: bin/qa.py sql "SELECT ..." (read-only).
 """
-import glob, json, pathlib, sqlite3, sys
+import json, os, pathlib, sqlite3, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-DB = ROOT / "reports/catalog.db"
+sys.path.insert(0, str(ROOT / "engine/lib"))
+import app_paths                      # R12: mutable paths resolve here
+# Derived data, rebuilt from the JSONL source of truth. The knob exists so a
+# test can rebuild an index without overwriting the working estate's — an index
+# must describe the catalog it was built from, and a smoke test pointed at a
+# temp catalog would otherwise leave the real one describing a fixture.
+DB = pathlib.Path((os.environ.get("AIQE_CATALOG_DB") or "").strip()
+                  or ROOT / "reports/catalog.db")
 
 
 def rebuild():
     health = {}
-    hf = ROOT / "catalog/health.json"
+    hf = app_paths.catalog_health(ROOT)
     if hf.exists():
         health = json.load(open(hf, encoding="utf-8"))
     DB.parent.mkdir(parents=True, exist_ok=True)
@@ -34,9 +41,7 @@ def rebuild():
         CREATE INDEX idx_tests_status ON tests(status);
     """)
     n = 0
-    for f in sorted(glob.glob(str(ROOT / "catalog/*.jsonl"))):
-        if pathlib.Path(f).name == "catalog.sample.jsonl":
-            continue
+    for f in app_paths.catalog_files(ROOT):
         for line in open(f, encoding="utf-8"):
             if not line.strip():
                 continue

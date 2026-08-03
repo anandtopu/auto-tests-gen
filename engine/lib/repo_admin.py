@@ -363,12 +363,16 @@ def set_scope(test_repo, apps):
 
 @_locked
 def remove_test(name, force=False):
-    import glob, json
+    import json
     reg = load_registry()
     if not _entry(reg, name, "test_repositories"):
         _fail(f"not registered: {name}")
-    cataloged = sum(1 for f in glob.glob(str(ROOT / "catalog/*.jsonl"))
-                    if pathlib.Path(f).name != "catalog.sample.jsonl"
+    # Via app_paths: this is the guard that refuses to remove a repo that still
+    # owns cataloged tests. Reading a hardcoded `catalog/` under a relocated
+    # AIQE_CATALOG_DIR found nothing and reported "0 cataloged" — an inability
+    # to see the catalog rendered as an empty catalog, which is exactly the
+    # answer that lets the removal through (constitution C13).
+    cataloged = sum(1 for f in app_paths.catalog_files(ROOT)
                     for l in open(f, encoding="utf-8") if l.strip()
                     and json.loads(l)["test_repo"] == name)
     if cataloged and not force:

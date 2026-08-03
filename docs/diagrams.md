@@ -709,6 +709,10 @@ flowchart TD
 | `budget`, unwritable ledger | `enforced`, `$0.00` spent | $25.00 spent, uncountable |
 | `tier.py` classifier output | no classifications at all | a bracketed aside broke the parse |
 | bare `os.replace` (9 sites) | the write succeeded | Windows discarded it |
+| `harvest_facts`, no app repos | every test `orphan`, `covers: []` | no contract was ever read |
+| `repo_admin`, relocated catalog | "0 cataloged tests" → removal allowed | the catalog was elsewhere |
+| Stage 0b, empty `workspace/src/x` | a usable checkout, clone skipped | the directory was empty |
+| `slack.sh`, no webhook configured | `SLACK_WEBHOOK_URL: unbound variable` | Slack is simply not configured |
 
 **The direction is the design decision, not the third state.** Both mock-mode
 knobs resolve an unusable value toward "wrote nothing" — but that means MOCK for

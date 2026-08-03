@@ -6,6 +6,7 @@ last_status, flaky, updated}}. Health feeds the validate phase's "test wrong vs
 env flaky" call and surfaces deprecation candidates.
 """
 import json, os, pathlib, sys, time
+import app_paths
 import xml.etree.ElementTree as ET
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -14,7 +15,7 @@ import fs_lock
 
 # Env override so tests (and the CI-ingest endpoint's tests in particular) can
 # exercise a live server without touching the real estate's health data.
-FILE = pathlib.Path(os.environ.get("AIQE_HEALTH_FILE") or ROOT / "catalog/health.json")
+FILE = app_paths.catalog_health(ROOT)
 FLAKY_BAND = (0.05, 0.95)      # sometimes-passing => flaky
 
 
@@ -88,9 +89,7 @@ def parse_jenkins_json(path):
 def catalog_titles():
     import glob
     out = {}
-    for f in sorted(glob.glob(str(ROOT / "catalog/*.jsonl"))):
-        if pathlib.Path(f).name == "catalog.sample.jsonl":
-            continue
+    for f in app_paths.catalog_files(ROOT):
         for line in open(f, encoding="utf-8"):
             if line.strip():
                 e = json.loads(line)

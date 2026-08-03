@@ -8,7 +8,8 @@ estate-specific add-on; see docs).
 Consumers: bin/qa.py gaps, the pipeline (out/coverage-gaps.md phase context),
 and bin/gen_agents_md.py (annotates uncovered surface in AGENTS.md).
 """
-import glob, json, pathlib, re, sys
+import json, pathlib, re, sys
+import app_paths
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
@@ -39,9 +40,7 @@ def catalog_evidence():
     """All normalized endpoints/routes exercised by confirmed/auto-mapped tests,
     grouped per app repo."""
     per_repo = {}
-    for f in sorted(glob.glob(str(ROOT / "catalog/*.jsonl"))):
-        if pathlib.Path(f).name == "catalog.sample.jsonl":
-            continue
+    for f in app_paths.catalog_files(ROOT):
         for line in open(f, encoding="utf-8"):
             if not line.strip():
                 continue

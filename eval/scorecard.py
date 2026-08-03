@@ -6,6 +6,7 @@ import glob, json, pathlib, sys
 sys.stdout.reconfigure(encoding="utf-8")   # Windows consoles default to cp1252
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
+import app_paths                      # R12: mutable paths resolve here
 import review_state
 
 
@@ -97,7 +98,7 @@ else:
     print("Acceptance rate: n/a — no team review decisions yet (bin/qa.py mark ...)")
 
 # --- flakiness (post-merge results ingest) --------------------------------------
-health_file = ROOT / "catalog/health.json"
+health_file = app_paths.catalog_health(ROOT)
 if health_file.exists():
     health = json.load(open(health_file, encoding="utf-8"))
     flaky = [t for t, h in health.items() if h.get("flaky")]

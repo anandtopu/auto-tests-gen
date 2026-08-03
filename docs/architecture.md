@@ -708,6 +708,22 @@ Expected outcome pattern from comparable estates: 60–75% of tests map determin
 
 **Optional Stage 2.5 — runtime tracing (high precision, more setup):** run each suite against an instrumented environment and capture actual HTTP traffic (proxy/APM; Splunk if services already log there), yielding ground-truth service mappings. Recommended for the residue in repos where static extraction is weak (heavily abstracted API clients). Kept optional for the PoC.
 
+##### Stage 0b — the app repos, and why this chain is now tested
+
+Stage 2's joins are only as good as the **app-repo facts** they join against, and those come from contracts and route tables under `workspace/src/<repo>`. `catalog/bootstrap/run_bootstrap.sh` never put them there. Only the *other* copy of the chain — `bin/demo-bootstrap.sh`, a reimplementation for the demo estate — did, by copying `demo/`. So the real chain harvested an empty fact set on every run: Stage 2 attributed nothing, Stage 4 tiered every test `orphan`, Stage 5 regenerated `covers: []`, and the chain printed *Bootstrap complete* and exited 0.
+
+Nothing detected it, for three compounding reasons:
+
+1. **An all-orphan catalog is a legitimate outcome.** §5.9.2 explicitly expects "a real orphan tail — which is itself a valuable finding". The failure is indistinguishable from the success it mimics.
+2. **`covers:` is generated from the catalog and decides routing** (§5.15), so the damage is *silent unrouting* — work stops arriving rather than arriving wrong. There is no error to see.
+3. **The chain existed twice and only the copy that worked was ever executed.** A fix to one could not travel to the other; the truncate-before-tier bug lived on in the demo copy for exactly as long, complete with the real copy's comment explaining why it had been fixed.
+
+Stage 0b now clones the app repos through the Scm port before harvesting. A single unreadable repo is reported and tolerated (an estate may hold repos a credential cannot see, and the tests covering the rest still deserve cataloging); reading **none** of the repos that declare an artifact is a harvest failure, and `harvest_facts.py` exits 3 `HARVEST_FAILED` naming the fix rather than emitting a fact set whose emptiness would be read as a finding about the tests — constitution C13, §5.19.
+
+The reuse check asks for the **artifact**, not the directory: `[ -d workspace/src/<repo> ]` treated an empty or partially-deleted directory as a usable checkout, which on Windows is the ordinary residue of a delete against an open handle.
+
+`make test-bootstrap` (`tests/bootstrap-smoke.sh`, in `make review`) runs the **real** chain against the demo estate under `AIQE_CATALOG_DIR`, asserts the working estate is byte-unchanged, asserts attribution actually happened rather than merely that rows exist, and pins the two copies to the same stage sequence so the next divergence is loud.
+
 #### 5.9.3 Continuous Mapping (keeping it true)
 
 - **Born-mapped:** every agent-generated test carries catalog metadata at creation (scenario ID, JIRA key, app repos) — written in the same commit.

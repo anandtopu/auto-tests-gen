@@ -15,7 +15,7 @@ change":
 
 CLI / make spec-verify KEY=..
 """
-import glob
+import app_paths
 import json
 import os
 
@@ -34,9 +34,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 def _tests_for(key):
     """{test_repo: [spec files]} from catalog evidence (feature == key)."""
     out = {}
-    for f in sorted(glob.glob(str(ROOT / "catalog/*.jsonl"))):
-        if pathlib.Path(f).name == "catalog.sample.jsonl":
-            continue
+    for f in app_paths.catalog_files(ROOT):
         for line in open(f, encoding="utf-8"):
             if not line.strip():
                 continue
