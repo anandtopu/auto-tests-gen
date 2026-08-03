@@ -19,6 +19,7 @@ CLI:
 import os, pathlib, smtplib, ssl, sys, time
 from email.message import EmailMessage
 from email.utils import formatdate, make_msgid
+import env_flag                     # AIQE_MOCK means what it says
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -77,7 +78,7 @@ def send(subject, text, html=None, to=None):
         raise SystemExit("no recipients: pass --to or set SMTP_TO")
     msg = _build(subject, text, html, cfg["from"], rcpts)
 
-    mock = os.environ.get("AIQE_MOCK", "1") == "1" or not cfg["host"]
+    mock = env_flag.mock() or not cfg["host"]
     if mock:
         MOCK_DIR.mkdir(parents=True, exist_ok=True)
         safe = "".join(c if c.isalnum() or c in "-_." else "-" for c in subject)[:60]
@@ -88,7 +89,7 @@ def send(subject, text, html=None, to=None):
         while p.exists():
             p = MOCK_DIR / f"{stamp}-{safe}-{i}.eml"; i += 1
         p.write_bytes(bytes(msg))
-        reason = "AIQE_MOCK=1" if os.environ.get("AIQE_MOCK", "1") == "1" else "no SMTP_HOST"
+        reason = "AIQE_MOCK=1" if env_flag.mock() else "no SMTP_HOST"
         try:
             shown = p.relative_to(ROOT).as_posix()
         except ValueError:

@@ -72,6 +72,7 @@ import alert_rules, demo_data, email_notify, event_log, export_plan, \
     team_report, waiver_store, work_queue
 import governance_page
 import spec_savings
+import env_flag                     # AIQE_MOCK means what it says
 
 
 def _classify_status(code):
@@ -115,7 +116,7 @@ def _csv_cell(v):
 # The Settings view writes .env; honor it here too (explicit env still wins) so
 # adapter mode and credentials configured in the UI actually reach this server.
 settings_store.load_env_into()
-MOCK = os.environ.get("AIQE_MOCK", "1") == "1"
+MOCK = env_flag.mock()
 TRACKER = ROOT / ("adapters/mock/tracker.sh" if MOCK else "adapters/tracker/jira.sh")
 UI_TOKEN = os.environ.get("AIQE_UI_TOKEN", "")   # empty = auth off (localhost-only dev)
 run_lock = threading.Lock()

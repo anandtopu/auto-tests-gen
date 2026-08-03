@@ -17,10 +17,12 @@ Run by `make maintain`. Total: unreadable anything = skipped, never fatal.
 CLI: spec_drift.py check [--notify]
 """
 import os
+
 import pathlib
 import re
 import subprocess
 import sys
+import env_flag                     # AIQE_MOCK means what it says
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -119,7 +121,7 @@ def _notify(msg):
     try:
         import work_queue
         adapter = ROOT / ("adapters/mock/notify.sh"
-                          if os.environ.get("AIQE_MOCK", "1") == "1"
+                          if env_flag.mock()
                           else "adapters/notify/slack.sh")
         if adapter.exists():
             subprocess.run([work_queue.bash_exe(), str(adapter), "post", msg],

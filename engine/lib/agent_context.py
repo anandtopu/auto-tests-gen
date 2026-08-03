@@ -33,8 +33,10 @@ button press. So when a plan exists the context says so, names its status, and t
 the agent to show and refine it rather than re-author blindly.
 """
 import os
+
 import pathlib
 import sys
+import env_flag                     # AIQE_MOCK means what it says
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -179,7 +181,7 @@ def fetch_ticket(key):
         import settings_store
         import work_queue
         settings_store.load_env_into()
-        mock = os.environ.get("AIQE_MOCK", "1") == "1"
+        mock = env_flag.mock()
         adapter = ROOT / ("adapters/mock/tracker.sh" if mock
                           else "adapters/tracker/jira.sh")
         # `get_item` is the Tracker port's verb (adapters/*/tracker.sh) — an unknown

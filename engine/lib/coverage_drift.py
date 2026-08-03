@@ -15,6 +15,7 @@ State: reports/coverage-drift.json (atomic, quarantining — fs_lock helpers).
 """
 import json
 import os
+
 import pathlib
 import subprocess
 import sys
@@ -23,6 +24,7 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import fs_lock
+import env_flag                     # AIQE_MOCK means what it says
 
 FILE = pathlib.Path(os.environ.get("AIQE_DRIFT_FILE")
                     or ROOT / "reports/coverage-drift.json")
@@ -68,7 +70,7 @@ def _notify(msg):
     """Through the Notify port, mock-aware, best-effort — an unreachable channel
     must not fail maintenance."""
     import work_queue
-    mock = os.environ.get("AIQE_MOCK", "1") == "1"
+    mock = env_flag.mock()
     adapter = ROOT / ("adapters/mock/notify.sh" if mock else "adapters/notify/slack.sh")
     try:
         subprocess.run([work_queue.bash_exe(), str(adapter), "post", msg],

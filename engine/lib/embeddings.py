@@ -13,18 +13,20 @@ never crash or degrade loudly (pinned in test_vector_index.py).
 """
 import json
 import os
+
 import pathlib
 import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import work_queue  # bash_exe(): plain "bash" resolves to WSL's stub on Windows
+import env_flag                     # AIQE_MOCK means what it says
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _mock():
-    return os.environ.get("AIQE_MOCK", "1") == "1"
+    return env_flag.mock()
 
 
 def _adapter():

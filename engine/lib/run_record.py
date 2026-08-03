@@ -6,13 +6,14 @@ import glob, json, os, pathlib, sys, time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import critic as critic_lib
+import env_flag                     # AIQE_MOCK means what it says
 
 run_id, mode, key = sys.argv[1:4]
 
 # Per-phase spend from the budget ledger (cost-reduction 1.1). Keyed by the ledger
 # label, which for fan-out calls is the AIQE_PHASE_LABEL (generate-<repo>) — the
 # same name the contract file carries, so the join below is exact.
-_simulated_run = (os.environ.get("AIQE_MOCK", "1") == "1"
+_simulated_run = (env_flag.mock()
                   or bool(os.environ.get("AIQE_MOCK_PHASE_COST", "").strip()))
 spend_by_phase = {}
 try:

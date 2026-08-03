@@ -18,6 +18,7 @@ CLI / make spec-verify KEY=..
 import glob
 import json
 import os
+
 import pathlib
 import subprocess
 import sys
@@ -25,6 +26,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import work_queue
+import env_flag                     # AIQE_MOCK means what it says
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
@@ -49,7 +51,7 @@ def _tests_for(key):
 
 def verify(key):
     """{repo: {passed: bool, log: str}} — read-only throughout."""
-    mock = os.environ.get("AIQE_MOCK", "1") == "1"
+    mock = env_flag.mock()
     scm = ROOT / ("adapters/mock/scm.sh" if mock else "adapters/scm/github.sh")
     results = {}
     for repo, files in _tests_for(key).items():

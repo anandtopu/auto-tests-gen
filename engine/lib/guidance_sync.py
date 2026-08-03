@@ -23,6 +23,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import fs_lock, work_queue
 from registry import load_registry
+import env_flag                     # AIQE_MOCK means what it says
 
 SYNC_DIR = pathlib.Path(os.environ.get("AIQE_SYNC_DIR") or ROOT / "knowledge/synced")
 STATE = SYNC_DIR / "state.json"
@@ -40,7 +41,7 @@ def _scm_adapter():
         settings_store.load_env_into()
     except Exception:
         pass
-    if os.environ.get("AIQE_MOCK", "1") == "1":
+    if env_flag.mock():
         return ROOT / "adapters/mock/scm.sh"
     kind = os.environ.get("SCM_KIND", "github")
     import yaml
@@ -112,7 +113,7 @@ def sync_repo(repo, ref=None):
         s = load_state()
         s[repo] = {"files": found, "missing": missing, "ref": ref or "default",
                    "synced_at": time.time(),
-                   "source": "mock" if os.environ.get("AIQE_MOCK", "1") == "1" else "scm"}
+                   "source": "mock" if env_flag.mock() else "scm"}
         _save_state(s)
     return {"repo": repo, "files": found, "missing": missing}
 

@@ -16,6 +16,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import app_paths                      # R12: mutable paths resolve here
 import review_state
+import env_flag                     # AIQE_MOCK means what it says
 
 FORMATS = ("md", "html", "docx", "pdf")
 CONTENT_TYPES = {
@@ -237,7 +238,7 @@ def publish_to_confluence(key, space=None, title=None):
     tmp.write_text(body, encoding="utf-8", newline="\n")
     import settings_store
     settings_store.load_env_into()               # .env-configured mode/credentials
-    mock = os.environ.get("AIQE_MOCK", "1") == "1"
+    mock = env_flag.mock()
     adapter = ROOT / ("adapters/mock/knowledge.sh" if mock
                       else "adapters/knowledge/confluence.sh")
     space = space or os.environ.get("CONFLUENCE_SPACE", "QA")
@@ -270,7 +271,7 @@ def attach_to_jira(key, fmt="pdf", by=""):
     path = export(key, fmt)                       # reports/exports/<KEY>-testplan.<fmt>
     import settings_store
     settings_store.load_env_into()               # .env-configured mode/credentials
-    mock = os.environ.get("AIQE_MOCK", "1") == "1"
+    mock = env_flag.mock()
     adapter = ROOT / ("adapters/mock/tracker.sh" if mock else "adapters/tracker/jira.sh")
     r = subprocess.run([work_queue.bash_exe(), str(adapter), "attach", key, str(path)],
                        cwd=ROOT, capture_output=True, text=True,

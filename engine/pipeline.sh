@@ -73,7 +73,28 @@ for i in $(seq 1 120); do
   sleep 1
 done
 if [ "$ACQUIRED" != "1" ]; then echo "PIPELINE_BUSY: another run holds $LOCK"; exit 75; fi
-if [ "${AIQE_MOCK:-0}" = "1" ]; then
+# An unrecognized NOTIFY_KIND used to fall through the `*)` arm to slack, so a
+# typo'd `emails` delivered nothing to the address it was configured for and
+# said nothing about it. A notification channel that silently is not the one you
+# chose is worse than one that is down: silence reads as "nothing happened".
+case "${NOTIFY_KIND:-slack}" in
+  slack|email|both) ;;
+  *) echo "WARNING: NOTIFY_KIND='${NOTIFY_KIND}' is not slack|email|both -"" falling back to slack. Notifications are NOT going where you configured them." >&2 ;;
+esac
+# AIQE_MOCK, resolved once. UNSET still means REAL — `make run-pr` depends on it
+# and that default is not changing here. What changes is a value that is SET and
+# unrecognized: `true`, `yes`, an empty string from a bare key in .env. Those all
+# used to fall through the `= "1"` test to REAL adapters and real model spend,
+# which is the wrong direction to guess in — somebody writing AIQE_MOCK=true is
+# asking FOR mock, and was getting pushes to real repositories instead.
+AIQE_MOCK_RESOLVED=0
+case "$(printf '%s' "${AIQE_MOCK-0}" | tr 'A-Z' 'a-z')" in
+  1|true|yes|on)  AIQE_MOCK_RESOLVED=1 ;;
+  0|false|no|off) AIQE_MOCK_RESOLVED=0 ;;
+  *) AIQE_MOCK_RESOLVED=1
+     echo "WARNING: AIQE_MOCK='${AIQE_MOCK}' is not a recognized boolean"           "(1/true/yes/on or 0/false/no/off) - using MOCK adapters."           "Nothing will be pushed and no model will be billed." >&2 ;;
+esac
+if [ "$AIQE_MOCK_RESOLVED" = "1" ]; then
   SCM() { bash adapters/mock/scm.sh "$@"; }
   TRACKER() { bash adapters/mock/tracker.sh "$@"; }
   # Mock Slack by default; NOTIFY_KIND=email|both demos the email path (the email

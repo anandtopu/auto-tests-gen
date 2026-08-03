@@ -22,6 +22,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import app_paths                      # R12: mutable paths resolve here
 import fs_lock
+import env_flag                     # AIQE_MOCK means what it says
 
 # Path overrides let tests (and the CLI under test) run against a scratch store
 # instead of the real estate state — same pattern as AIQE_ENV_FILE / AIQE_HOOKS_SEEN.
@@ -335,6 +336,14 @@ def _requirements_gate_on():
         return True
     if env in ("0", "off", "no", "false"):
         return False
+    if env:
+        # Same rule as the enforcement mode: an unrecognized value must not
+        # quietly mean "off". `AIQE_REQUIREMENTS_GATE=enabled` reads as an
+        # instruction to turn the gate ON and used to turn it off in silence.
+        print(f"[requirements-gate] AIQE_REQUIREMENTS_GATE={env!r} is not a "
+              f"recognized value (1/on/yes/true, 0/off/no/false) — IGNORING it "
+              f"and falling back to org-config. If you meant to gate planning, "
+              f"it is NOT gated.", file=sys.stderr)
     try:
         import yaml
         cfg = yaml.safe_load(open(ROOT / "registry/org-config.yaml",
@@ -540,7 +549,7 @@ def post_ticket_comment(key):
     import settings_store, work_queue
     text = ticket_comment(key)
     settings_store.load_env_into()
-    mock = os.environ.get("AIQE_MOCK", "1") == "1"
+    mock = env_flag.mock()
     adapter = ROOT / ("adapters/mock/tracker.sh" if mock
                       else "adapters/tracker/jira.sh")
     r = subprocess.run([work_queue.bash_exe(), str(adapter), "comment", key, text],

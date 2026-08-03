@@ -29,6 +29,7 @@ from "we failed to tell you" — which was finding F3.
 import datetime
 import json
 import os
+
 import pathlib
 import subprocess
 import sys
@@ -37,6 +38,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import app_paths                      # R12: mutable paths resolve here
 import event_log
 import fs_lock
+import env_flag                     # AIQE_MOCK means what it says
 
 ROOT = app_paths.ROOT
 
@@ -275,7 +277,7 @@ def deliver(msg, channel="slack", recipients=(), rule_name="", retries=None):
     """
     import time
     import work_queue
-    mock = os.environ.get("AIQE_MOCK", "1") == "1"
+    mock = env_flag.mock()
     targets = []
     if channel in ("slack", "both"):
         targets.append(ROOT / ("adapters/mock/notify.sh" if mock

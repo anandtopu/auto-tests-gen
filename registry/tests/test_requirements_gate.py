@@ -113,3 +113,37 @@ def test_pipeline_wires_the_stage_and_the_stops():
     # and both precede the testplan phase.
     assert src.index("REQUIREMENTS_STATUS=DRAFT") < src.index("exit 65") \
         < src.index("PHASE testplan")
+
+
+# ---- an unrecognized knob value must never be silently the safe default -----
+def test_an_unrecognized_requirements_gate_value_says_so(monkeypatch, capsys):
+    """`AIQE_REQUIREMENTS_GATE=enabled` reads as an instruction to turn the gate
+    ON, and used to turn it OFF in silence. Same rule as the enforcement mode:
+    the safe fallback stays, the silence does not."""
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import plan_state
+    monkeypatch.setenv("AIQE_REQUIREMENTS_GATE", "enabled")
+    assert plan_state._requirements_gate_on() is False
+    err = capsys.readouterr().err
+    assert "not a recognized value" in err and "enabled" in err
+    assert "NOT gated" in err
+
+    # A recognized value must stay quiet, or the warning becomes noise.
+    monkeypatch.setenv("AIQE_REQUIREMENTS_GATE", "1")
+    assert plan_state._requirements_gate_on() is True
+    assert capsys.readouterr().err == ""
+
+
+def test_an_unrecognized_notify_kind_says_so():
+    """A typo'd `emails` fell through to slack, so a channel configured for
+    email delivered nothing to that address and said nothing about it. A
+    notification channel that silently is not the one you chose is worse than
+    one that is down: silence reads as 'nothing happened'."""
+    src = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
+    i = src.index("slack|email|both) ;;")
+    block = src[i - 600:i + 400]
+    assert "WARNING: NOTIFY_KIND=" in block
+    assert "NOT going where you configured them" in block
+    # It must be validated ONCE, before the adapter functions are defined —
+    # putting it inside NOTIFY() would warn on every notification instead.
+    assert src.index("slack|email|both) ;;") < src.index('SCM() { bash adapters/mock/scm.sh')

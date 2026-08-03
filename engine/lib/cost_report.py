@@ -23,6 +23,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import fs_lock
+import env_flag                     # AIQE_MOCK means what it says
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 RUNS = ROOT / "reports/runs"
@@ -347,7 +348,7 @@ def main(argv):
             import subprocess
             import work_queue
             adapter = ROOT / ("adapters/mock/notify.sh"
-                              if os.environ.get("AIQE_MOCK", "1") == "1"
+                              if env_flag.mock()
                               else "adapters/notify/slack.sh")
             subprocess.run([work_queue.bash_exe(), str(adapter), "post",
                             "[ai-qe] " + "; ".join(regs)[:500]],

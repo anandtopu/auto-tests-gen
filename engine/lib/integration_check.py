@@ -33,6 +33,7 @@ import json, os, pathlib, socket, ssl, subprocess, sys, urllib.error, urllib.req
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import work_queue
+import env_flag                     # AIQE_MOCK means what it says
 
 TIMEOUT = 8
 
@@ -497,7 +498,7 @@ def run(names=None):
     summary = {s: sum(1 for r in results if r["status"] == s)
                for s in ("ok", "fail", "degraded", "skipped")}
     return {"results": results, "summary": summary,
-            "mock_mode": os.environ.get("AIQE_MOCK", "1") == "1"}
+            "mock_mode": env_flag.mock()}
 
 
 if __name__ == "__main__":
