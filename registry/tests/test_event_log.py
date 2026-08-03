@@ -672,3 +672,30 @@ def test_the_board_survives_a_torn_run_record(tmp_path, monkeypatch):
         '{"trigger": {"key": "K-2"}, "gates": [{"status": "NO_CHANGES"}]}',
         encoding="utf-8")
     assert spec_workflow._gate_committed("K-2") is False
+
+
+def test_an_email_alert_can_actually_be_addressed_from_the_ui():
+    """`alCollect` hard-coded `recipients: []` and the row had no field for it.
+
+    The backend has always honoured per-rule recipients — they set SMTP_TO for
+    the delivery — so the effect was an email rule built in the UI that could
+    never deliver, whose only feedback was its own "nothing will be delivered"
+    warning with nothing the user could do about it. A configured alert that
+    silently reaches no one is worse than no alert: it is believed.
+    """
+    ui = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert 'data-f="recipients"' in ui, "no recipients field in the rule row"
+    assert "recipients: []" not in ui, "recipients are hard-coded empty again"
+    assert "recipients: g('recipients')" in ui, "the field is not collected"
+    # The table's three column counts must agree, or rows misalign under the
+    # header the moment a column is added.
+    import re
+    head = ui[ui.index('table id="al-table"'):]
+    head = head[:head.index("</thead>")]
+    cols = len(re.findall(r"<th[ >]", head))
+    row = ui[ui.index("function alRow"):]
+    row = row[:row.index("\nfunction ")]
+    assert row.count("'<td") == cols, \
+        f"row renders {row.count(chr(39) + '<td')} cells for {cols} headers"
+    m = re.search(r'colspan="(\d+)" class="muted">No rules yet', ui)
+    assert m and int(m.group(1)) == cols, "empty-state colspan does not span the table"

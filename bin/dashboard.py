@@ -1802,6 +1802,14 @@ function alRow(r, st) {
     '<td><select class="h32 al-f" data-f="channel">' +
       AL_META.channels.map(c => '<option' + (r.channel === c ? ' selected' : '') + '>' +
         escHtml(c) + '</option>').join('') + '</select></td>' +
+    // Per-rule recipients. The backend has always honoured these (they set
+    // SMTP_TO for the delivery), but the row had no field and alCollect sent
+    // recipients:[] unconditionally — so an email rule built in this UI could
+    // never deliver, and the only feedback was the rule's own "nothing will be
+    // delivered" warning with nothing the user could do about it.
+    '<td><input class="h32 al-f" data-f="recipients" style="width:150px" ' +
+      'placeholder="qa@example.com" value="' +
+      escHtml((r.recipients || []).join(', ')) + '"></td>' +
     '<td><input type="checkbox" class="al-f" data-f="digest"' +
       (r.digest ? ' checked' : '') + '></td>' +
     '<td><input type="checkbox" class="al-f" data-f="enabled"' +
@@ -1823,7 +1831,8 @@ function alCollect() {
       threshold: Number(g('threshold') || 1),
       window_minutes: Number(g('window_minutes') || 60),
       cooldown_minutes: Number(g('cooldown_minutes') || 60),
-      channel: g('channel') || 'slack', recipients: [],
+      channel: g('channel') || 'slack',
+      recipients: g('recipients').split(',').map(x => x.trim()).filter(Boolean),
       digest: dig ? dig.checked : false
     };
   });
@@ -1838,8 +1847,8 @@ async function refreshAlerts() {
     (d.status || []).forEach(s => { byId[s.id] = s; });
     tb.innerHTML = AL_RULES.length
       ? AL_RULES.map(r => alRow(r, byId[r.id])).join('')
-      : '<tr><td colspan="12" class="muted">No rules yet — "Add rule" creates one.</td></tr>';
-  } catch (e) { loadFailed('#al-table tbody', 7, e); }
+      : '<tr><td colspan="13" class="muted">No rules yet — "Add rule" creates one.</td></tr>';
+  } catch (e) { loadFailed('#al-table tbody', 13, e); }
 }
 function alMsg(t, bad) {
   const m = $('#al-msg'); if (!m) return;
@@ -2991,6 +3000,7 @@ page = f"""<!doctype html>
       <div class="scroll"><table id="al-table">
         <thead><tr><th>name</th><th>kinds</th><th>outcome</th><th>target has</th>
           <th>N</th><th>window (m)</th><th>cooldown (m)</th><th>channel</th>
+          <th title="Comma-separated. Email/both rules deliver NOWHERE without this">to</th>
           <th title="One combined message per tick instead of one per rule">digest</th>
           <th>on</th><th>status</th><th></th></tr></thead>
         <tbody></tbody></table></div>
