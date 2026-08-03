@@ -627,3 +627,22 @@ def test_the_server_accepts_a_full_page_of_concurrent_loaders():
     assert m and int(m.group(1)) >= 64, \
         "the backlog must comfortably exceed one page's worth of loaders"
     assert "_Server((host, port), Handler)" in src, "the subclass must be the one served"
+
+
+def test_two_dashboards_cannot_quietly_share_a_port():
+    """`HTTPServer` sets `allow_reuse_address = True`; the base `TCPServer` does
+    not. On Linux that only shortens TIME_WAIT, but on Windows SO_REUSEADDR lets
+    a second process bind an address already in LISTEN — so a second
+    `make serve` appears to start and connections are split between the two,
+    one of them running whatever code was on disk when it started.
+
+    That failure reads as caching, not as two servers: this session lost time to
+    it twice (a page served with an old column set, API routes 404ing that
+    plainly existed). The UI_SCHEMA guard cannot catch it either, because the
+    stale process answers the version probe too.
+    """
+    src = (ROOT / "bin/dashboard_server.py").read_text(encoding="utf-8")
+    assert 'allow_reuse_address = sys.platform != "win32"' in src, \
+        "the dashboard may bind a port another server already holds"
+    # And the bind failure must be actionable rather than a raw WinError.
+    assert "cannot bind" in src and "AIQE_UI_PORT" in src

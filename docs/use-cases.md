@@ -426,6 +426,71 @@ Behaviour worth knowing before you rely on it:
 Every delivery attempt is recorded, so `notify.failed` tells you the difference
 between "nothing happened" and "we could not reach you".
 
+## 14. Adopt the spec-driven workflow without breaking anyone's build
+
+**You want** the team to write requirements before tests, and coverage to be
+provable — but not at the cost of a gate that starts refusing commits on Monday.
+
+Open **Spec workflow**. The header states, in plain words, whether anything is
+enforced in your estate. Out of the box the answer is no: every step is advisory
+and the platform will not stop a run that skips one. That is deliberate — the
+process is visible before it is mandatory.
+
+```bash
+make requirements KEY=PROJ-301
+```
+
+This formalizes the ticket into EARS statements and stops for validation. If the
+ticket does not say what should happen, planning halts with exit 65 and a
+question on the ticket rather than a guess — the cheapest artifact to change is a
+sentence, not a committed test.
+
+Approve them (`make requirements-approve KEY=PROJ-301`, or the Requirements
+card), then plan and approve as usual. Approval **signs** the spec; editing an
+approved plan revokes the approval.
+
+When the signal looks clean, turn enforcement on in Settings — **`warn` first**.
+`warn` reports uncovered scenarios and still commits; `strict` makes the gate
+refuse with exit 8. Turning on `strict` first just teaches people to bypass the
+gate. Anything genuinely shipping uncovered needs a waiver with a reason, an
+owner and an expiry — capped at 90 days, so "temporarily" cannot become
+"forever".
+
+`GET /api/governance?format=md` downloads the whole thing as one document,
+generated from the constitution, for people who will never open the dashboard.
+
+## 15. Find out how much authoring a spec makes unnecessary
+
+**You want** to know whether the spec-driven route is actually cheaper.
+
+```bash
+make spec-savings
+```
+
+On a fresh estate every scenario reads uncovered, because nothing has been
+generated yet. After a run that commits tests (`make demo-jira`, or a real one):
+
+```
+scenarios 3  already covered 1  would author 2
+  saving: 1 authoring call(s) avoided — value NOT MEASURED (no measured
+  authoring cost on this estate — every run here is simulated. Run
+  `make parity-jira` (needs Claude CLI auth) to produce a measured baseline.)
+```
+
+Read what that says and what it does not. **One authoring call avoided** is a
+measured fact: an approved scenario already exercised by a cataloged test, joined
+through the `scenario_id` stamped on every generated test. **The value is
+absent** because pricing it needs a measured per-scenario cost, and every run on
+this estate is simulated — a zero would read as "no saving" and an estimate would
+be read as a measurement.
+
+It is advisory: nothing skips authoring automatically. A wrong join would
+silently drop coverage, which is the one failure this platform cannot see, so the
+join gets proven against real runs before it is allowed to remove work.
+
+Same numbers in the UI under **Spec workflow → Work this spec makes
+unnecessary**.
+
 ## What this platform will not do
 
 Worth knowing up front, because each is a deliberate design decision:

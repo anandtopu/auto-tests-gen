@@ -177,3 +177,57 @@ user interface", and they convert an unused capability into an adopted one.
 Do **S5 after** the parity harness can measure it. The cost story is real, but
 this codebase has a standing rule that unmeasured figures are never presented as
 measured, and a savings claim is exactly the kind of number people repeat.
+
+---
+
+## Part 6 — What shipped (verified, August 2026)
+
+All six slices are built. Each links its enforcing pins; `make review` runs them.
+
+| Slice | Shipped as | Pinned by |
+|---|---|---|
+| **S1** Workflow visible | `engine/lib/spec_workflow.py`, `GET /api/spec-workflow`, the Spec workflow view with a per-ticket progress trail, blocker and next command | `test_event_log.py` — read-only by construction; every row carries the governance that produced it |
+| **S2** Requirements + ambiguities in the UI | `GET/POST /api/requirements`, the Requirements card, ambiguity chips in the plan editor, `make requirements` / `requirements-approve` | `test_requirements_gate.py` |
+| **S3** Governance with consequences shown | Both knobs in Settings, each stating what will start failing rather than naming a mode; `AIQE_REQUIREMENTS_GATE` added for parity with `AIQE_SPEC_ENFORCE` | `test_requirements_gate.py`, `test_settings.py` |
+| **S4** Waivers as an object | `engine/lib/waiver_store.py`, the Waivers card, `GET/POST /api/waivers*` — reason ≥ 10 chars, owner, expiry capped at 90 days, expired ones stay listed | `test_spec_gate.py` |
+| **S5** Cost reduction | `engine/lib/spec_savings.py`, `make spec-savings`, `GET /api/spec-savings`, the "Work this spec makes unnecessary" card | `test_event_log.py` — refuses to invent money; advisory, never automatic |
+| **S6** One generated governance page | `engine/lib/governance_page.py`, `GET /api/governance` (+`?format=md`), the rules card header | `test_event_log.py` — clauses annotated with whether their pins still exist |
+
+### The one deviation from the recommendation, and why
+
+Part 5 said to ship **S5 after** `parity-*` could measure it. It shipped before,
+with the claim split in two:
+
+- **The mechanism** — subtracting scenarios a cataloged test already covers — is
+  correct by construction and verifiable today. Verified against a real run
+  rather than a fixture: after `make demo-jira`, PROJ-301 reports 1 of 3
+  scenarios covered, driven by a generated spec carrying `PROJ-301-S1`; before
+  the run it reported 0. The number tracks the estate, which is the only way a
+  subtraction can be trusted.
+- **The savings figure** is what needed parity, and it is absent — `usd` is
+  `None` with basis `unmeasured`, and both the CLI and the card name the command
+  that would produce a baseline. The rule Part 5 was protecting is intact: no
+  number was invented. What changed is that the *count* is now available while
+  the *price* waits.
+
+### What the adoption work found
+
+The gaps in Part 2 were real, and closing them exposed four more that only
+appear when someone walks the flow:
+
+1. The workflow board read `entry["generated"]` — a key nothing writes — so a
+   ticket whose tests were generated and committed reported "tests not
+   generated" permanently. Its most visible claim, always wrong.
+2. "Committed" was read from `linked`, which means *attached to the ticket*.
+   Attaching a PDF advanced the board to done; a real commit without an
+   attachment reported none.
+3. Every dashboard loader ran once at page load, so any transient failure left a
+   view permanently blank — and views showing "what is happening now" served a
+   snapshot.
+4. The server's listen backlog (5, the stdlib default) was smaller than one page
+   load's ~10 concurrent requests, which is what made the Activity view render
+   blank while the transaction log held 300 events.
+
+None of these were visible to the test suite, and all four were visible within
+minutes of using the product. That is the argument for Part 4's framing: the
+workflow has to be *walked*, not just covered.

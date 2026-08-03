@@ -1,7 +1,7 @@
 # Solution Architecture Document
 ## AI-Driven Test Engineering Workflow PoC — OpenHands + Claude Code
 
-**Version:** 2.4 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md)
+**Version:** 2.6 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md). **v2.5** adds §5.17 (the transaction log, alert rules and notifications). **v2.6** adds §5.18 (spec-driven adoption — the workflow as a state machine, a generated governance page, coverage subtraction that counts but refuses to price, and two UI-layer defects found by driving the served page)
 **Author:** QA / AI Quality Engineering Team
 **Scope:** Proof of Concept — Agentic SDLC test generation workflow across a **multi-repository estate**: multiple UI repos, multiple backend/API repos, and **6 existing E2E test repositories (3 API, 3 UI) whose tests are currently unmapped to any application repository or feature**. v2.0 adds the **Test Catalog & Mapping subsystem** (bootstrap + continuous mapping of existing tests) and a **pluggable Integration & Extensibility layer** (Jira, Bitbucket, GitHub, Slack, Splunk, and future tools), and restructures the solution as a reusable, customizable platform. v2.1 extends the integration layer with **Confluence (knowledge source + publishing)**, **Jenkins (CI/CD trigger, execution, and results feedback)**, and a documented onboarding pattern for any additional SDLC tool.
 
@@ -1014,6 +1014,77 @@ formula execution because `actor` comes from an SSO header we do not control),
 the Alerts view, Overview tiles that only exist when there is something to say,
 `bin/qa.py events` / `alerts`, and `tests/observability-adversarial.sh` in
 `make review`.
+
+### 5.18 Spec-driven adoption: making the process visible (v2.6)
+
+§5.13 and the spec store gave this platform a spec-driven workflow — EARS
+requirements, signed specs, waivers, drift, a gate check. `sdd-for-e2e-adoption.md`
+then found the gap that mattered: **all of it was CLI-only and off by default.**
+A process nobody can see is a process nobody follows, and an off-by-default
+feature with no discoverability is indistinguishable from an unbuilt one.
+
+This section is the adoption layer. It adds no new engine capability on purpose;
+it makes the existing one usable and honest about its own configuration.
+
+**The workflow as a state machine** (`engine/lib/spec_workflow.py`). Six states —
+requirements → plan → approved → tests → committed → live — computed per ticket
+with the *specific* blocker, the next command, and its owner. It **computes and
+never mutates**: rendering a workflow view must not advance a workflow, so every
+transition stays behind the approve/edit commands that already sign and record an
+actor (pinned by asserting the module calls no mutator).
+
+Two facts on that board are read from where they are actually recorded, which
+cost two bugs to learn. `mark_generated` writes `generated_run`; reading a
+`generated` key nothing sets left committed tickets reporting "tests not
+generated" forever. And `linked` means *the plan is attached to the ticket*, not
+*the gate committed* — so the commit state comes from the gate's own per-repo
+result in the run record, totally, skipping torn records rather than taking the
+board down over one bad file.
+
+**Governance is reported, never assumed.** `requirements_gate` and `spec.enforce`
+ship OFF, so the same ticket is "blocked on approval" in one estate and "free to
+proceed" in another. Every row carries the setting that produced its answer, and
+`governance()` asks the *same resolvers the engine uses* rather than re-reading
+org-config — an earlier version read only the file, so with `AIQE_SPEC_ENFORCE`
+set the view reported "off" while the gate was refusing commits. A workflow view
+that contradicts the enforcement it describes is worse than no view.
+
+**One governance page, generated** (`engine/lib/governance_page.py`). Every fact
+comes from the thing that enforces it — the constitution's clauses and their
+pins, plus live configuration — so the page is wrong only if the code is. Each
+clause is annotated with whether its pins still **exist**: a clause whose pin was
+deleted is reported as undefended rather than printed as though it still held,
+because a clause is only as true as the test that holds it. The enforcement
+answer is stated *first*, in plain words, including when the answer is "nothing
+here is enforced".
+
+**Coverage subtraction** (`engine/lib/spec_savings.py`). The largest saving on a
+mature estate is not authoring tests faster — it is not authoring the ones that
+already exist. An approved scenario already exercised by a cataloged test needs
+no LLM call, joined through the `scenario_id` stamped on every generated test.
+It reports **counts**, which are measured, and refuses to report **money**, which
+is not: pricing a skipped scenario needs a measured per-scenario authoring cost,
+and every run on this estate is simulated while `parity-*` is blocked. `usd` is
+`None` with basis `unmeasured`, and both CLI and UI name the command that would
+fix it. It is also **advisory** — nothing skips authoring automatically, pinned
+by asserting `spec_savings` appears in neither `pipeline.sh` nor `run_phase.sh`,
+because a wrong join would silently drop coverage, the one failure this platform
+cannot see.
+
+**Two UI-layer defects worth recording**, both found by driving the served page
+rather than reading it:
+
+- Every dashboard loader fired once at page load and never again — `go(view)`
+  only toggled CSS. A loader that failed at load left a permanently empty table
+  (its catch swallowed the error), and views whose purpose is "what is happening
+  NOW" served a page-load snapshot. A stale activity log is worse than an empty
+  one because it looks current. Loaders now register per view and re-run on
+  entry, and a failed load says so instead of rendering a blank table.
+- The server inherited `socketserver`'s listen backlog of **5** while one page
+  load fires ~10 concurrent requests, so the overflow was reset by the OS. The
+  symptom was not an error anybody could read: the Activity view rendered blank
+  while the log held 300 events. Measured 4 of 7 concurrent requests reset
+  before, 0 across a full page load after.
 
 ## 6. Scalability, Reliability, Efficiency, Maintainability — Deep Dive
 

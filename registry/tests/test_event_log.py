@@ -699,3 +699,43 @@ def test_an_email_alert_can_actually_be_addressed_from_the_ui():
         f"row renders {row.count(chr(39) + '<td')} cells for {cols} headers"
     m = re.search(r'colspan="(\d+)" class="muted">No rules yet', ui)
     assert m and int(m.group(1)) == cols, "empty-state colspan does not span the table"
+
+
+# ---- the UI guide is checked against the UI, not written from memory --------
+def test_the_ui_guide_covers_every_view_the_dashboard_has():
+    """A view-by-view guide that silently misses a view is worse than none —
+    the reader concludes the view does not exist, or that the guide is stale
+    and stops trusting the rest of it."""
+    import re
+    ui = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    views = set(re.findall(r'data-view="([a-z-]+)"', ui))
+    guide = (ROOT / "docs/ui-guide.md").read_text(encoding="utf-8").lower()
+    # Headings are prose ("Runs & team reviews"), so match on the words the
+    # dashboard's own nav uses for each view.
+    NAMES = {"overview": "overview", "wizard": "guided run", "queue": "queue",
+             "plans": "test plans", "specflow": "spec workflow", "runs": "runs",
+             "activity": "activity", "alerts": "alerts", "trace": "trace",
+             "cost": "cost", "artifacts": "artifacts", "catalog": "catalog",
+             "repos": "repositories", "settings": "settings"}
+    assert views == set(NAMES), f"views changed: {views ^ set(NAMES)}"
+    for view, heading in NAMES.items():
+        assert f"## {heading}" in guide, f"docs/ui-guide.md does not document '{view}'"
+
+
+def test_the_ui_guide_states_the_rules_it_claims_the_ui_follows():
+    """Each of these is a promise the guide makes to a reader who will act on
+    it, and each is enforced somewhere in the code."""
+    guide = (ROOT / "docs/ui-guide.md").read_text(encoding="utf-8")
+    # Waiver cap, quoted as a number — it must match the enforced constant.
+    sys.path.insert(0, str(ROOT / "engine" / "lib"))
+    import waiver_store
+    assert f"{waiver_store.MAX_DAYS} days" in guide, "the stated waiver cap is not the enforced one"
+    # The strict-mode consequence, quoted as an exit code.
+    assert "exit 8" in guide
+    src = (ROOT / "engine/gate/spec_check.py").read_text(encoding="utf-8")
+    assert "8" in src, "spec_check no longer exits 8; the guide says it does"
+    # The alert-recipients warning the guide tells people to act on.
+    assert "delivers nowhere" in guide
+    import alert_rules
+    assert "nothing will be delivered" in (ROOT / "engine/lib/alert_rules.py").read_text(
+        encoding="utf-8")

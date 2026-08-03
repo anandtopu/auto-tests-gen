@@ -93,6 +93,17 @@ code is emitted at all.
 Non-zero exits quarantine the run for human inspection; they are never auto-retried.
 The adversarial suite (`make test-gate`) permanently regression-tests codes 2–5.
 
+### 2a. The dashboard, view by view
+
+`make serve` opens fourteen views. **[ui-guide.md](ui-guide.md)** documents each
+one: what it answers, what you can do in it, and what it deliberately refuses to
+tell you (an unmeasured cost is never rendered as a measured one, and a view
+that could not load says so rather than showing an empty table).
+
+Start there if you are new. The two views most people miss are **Spec workflow**
+— where each ticket is in the six-state process and what is blocking it — and
+**Activity**, the transaction log of who did what.
+
 ## 3. Configuration reference
 
 Three layers, each overriding the previous (§5.10): platform defaults → org config →

@@ -608,3 +608,54 @@ flowchart TD
 whether the channel works right now; a retry that hides a transient failure
 defeats the purpose of testing.
 
+
+## 20. The spec-driven workflow, and what actually enforces it (§5.18)
+
+Six states per ticket. The dashed edges are the ones that only exist when
+governance is turned **on** — which it is not by default. That is the whole
+point of drawing it this way: with the gates off, every "refuses" below is
+really "proceeds anyway, advisory", and a diagram that hid the difference would
+teach a process the platform is not applying.
+
+```mermaid
+flowchart TD
+  T["JIRA ticket"] --> REQ["requirements<br/>EARS statements + ambiguities<br/>specs/KEY/requirements.yaml"]
+
+  REQ --> AMB{"blocking<br/>ambiguity?"}
+  AMB -->|yes| STOP["exit 65 NEEDS_CLARIFICATION<br/>question posted on the ticket<br/><b>ask, never guess</b>"]
+  AMB -->|no| RA{"requirements<br/>approved?"}
+
+  RA -.->|"gate ON: refuses"| WAITR["planning blocked<br/>make requirements-approve"]
+  RA ==>|"gate OFF (default):<br/>proceeds, advisory"| PLAN
+
+  PLAN["plan<br/>testplan phase + read-only adversary<br/>-> specs/KEY/testplan.yaml"]
+  PLAN --> APPR["approved<br/>approval SIGNS the spec (spec_sha)<br/>editing revokes it"]
+  APPR --> TESTS["tests<br/>testdata -> generate -> validate<br/>each test stamped scenario_id"]
+  TESTS --> GATE["gate<br/>the ONLY commit/push path"]
+
+  GATE --> SC{"spec_check<br/>every approved scenario<br/>covered or waived?"}
+  SC -.->|"enforce=strict: exit 8"| REFUSE["commit REFUSED<br/>names the uncovered scenario"]
+  SC -.->|"enforce=warn"| WARN["reported, commit proceeds"]
+  SC ==>|"enforce=off (default)"| COMMIT
+  WARN --> COMMIT
+
+  COMMIT["committed<br/>gate result in the run record —<br/>the only thing that proves this"] --> LIVE["live<br/>CI health joins back<br/>via the trace matrix"]
+
+  WV["waiver<br/>reason + owner + expiry<br/>capped at 90 days"] -.->|"satisfies a scenario<br/>until it EXPIRES"| SC
+
+  SUB["coverage subtraction<br/>scenarios a cataloged test<br/>already covers"] -.->|"advisory only —<br/>never skips authoring"| TESTS
+
+  classDef off stroke-dasharray: 4 3;
+  class RA,SC,WAITR,REFUSE,WARN,WV,SUB off;
+```
+
+**Read the two double arrows.** They are the default path: requirements approval
+is not enforced and the spec check is off, so a ticket walks straight from
+requirements to a commit without either gate having an opinion. Turning them on
+is a two-step rollout — `warn` until the signal is clean, then `strict` —
+because turning on `strict` first just teaches people to bypass the gate.
+
+**Only one box proves a commit happened.** `committed` is read from the gate's
+own per-repo result in the run record. Nothing else is evidence: the plan being
+attached to the ticket is a different fact, and reading it as a commit is a bug
+this diagram exists partly to prevent recurring.

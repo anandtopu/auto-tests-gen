@@ -85,6 +85,62 @@ label=api-only) flows through **analyze** (with a mock linked-Confluence PRD) �
 correctly restricts routing to the API test repo, and the summary is posted back to the
 (mock) JIRA ticket and Slack.
 
+### The spec-driven demo (the full governed journey)
+
+`make demo-jira` runs the pipeline end to end in one shot. This variant walks the
+same ticket through the **governed** route, stopping where a human is meant to
+decide. It is the demo to give when the question is "how do we control this?"
+rather than "does it work?".
+
+```bash
+make requirements KEY=PROJ-301        # formalize the ticket into EARS statements, then STOP
+make requirements-approve KEY=PROJ-301
+make demo-plan KEY=PROJ-301           # author the plan (+ adversarial review), then STOP
+make plan-show KEY=PROJ-301
+make plan-approve KEY=PROJ-301
+make demo-plan-tests KEY=PROJ-301     # resume: testdata -> generate -> validate -> gate
+```
+
+What each stop is for:
+
+- **`make requirements`** writes `specs/PROJ-301/requirements.yaml` and comments on
+  the ticket. If the ticket does not say what should happen, this is where you
+  find out — a *blocking* ambiguity halts with exit 65 and a question rather
+  than a guess. The cheapest artifact to change is a sentence.
+- **`make demo-plan`** authors the plan and runs a **read-only adversary** against
+  it before you are asked to approve. On the fixture ticket it reports
+  `2 gap(s) raised, 2 high-severity, 2 accepted, 3 scenario(s) in the final plan`
+  — the adversary may only ADD scenarios, so it changes what you approve, never
+  whether you are asked.
+- **`make plan-approve`** *signs* the plan against a content hash. Editing an
+  approved plan revokes the approval, so "approved" always names text somebody
+  read.
+
+Then see the result three ways:
+
+```bash
+python3 engine/lib/spec_workflow.py   # where the ticket is, and what is enforcing it
+make trace-matrix KEY=PROJ-301        # ticket -> scenario -> spec -> gate commit -> CI
+make spec-savings                     # scenarios a cataloged test already covers
+```
+
+The workflow board prints `live` once the gate has committed — and prints the
+governance line above it, which on a default estate reads:
+
+```
+requirements gate: off  ·  spec enforce: off
+  NOTE: nothing here is enforced — every step below is advisory.
+```
+
+That is the honest answer, and it is the point of the demo: the process is
+**visible** before it is **mandatory**. Turn it on in Settings when the signal
+looks clean — `warn` first, `strict` after. The trace matrix will show two of the
+three scenarios with no test, which is exactly what `strict` would refuse to
+commit.
+
+All of this is in the UI too, under **Spec workflow** — see
+[ui-guide.md](ui-guide.md).
+
 ### After the demos: monitor, query, manage
 
 ```bash

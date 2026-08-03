@@ -190,7 +190,23 @@ class _Server(ThreadingHTTPServer):
     """
     request_queue_size = 128
     daemon_threads = True
-    allow_reuse_address = True
+
+    # NOT `True` on Windows, whatever `HTTPServer` says. The stdlib base
+    # `TCPServer` sets this False and `HTTPServer` flips it to True, which on
+    # Linux only shortens TIME_WAIT — but on Windows SO_REUSEADDR lets a second
+    # process bind an address that is already LISTENing. The second `make serve`
+    # then appears to start, both processes hold :4999, and connections are
+    # split between them non-deterministically.
+    #
+    # That failure is genuinely hard to read: half the requests are answered by
+    # a server running whatever code was on disk when IT started. This session
+    # lost time to it twice — a page served with an old column set, and API
+    # routes 404ing that plainly existed — and misdiagnosed both as caching.
+    # The existing UI_SCHEMA check exists for the same class of problem and
+    # cannot help here, because the stale process answers the version probe too.
+    #
+    # With it off, the second start fails at bind, and `main` says so.
+    allow_reuse_address = sys.platform != "win32"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1217,4 +1233,12 @@ if __name__ == "__main__":
     host = os.environ.get("AIQE_UI_HOST", "127.0.0.1")
     print(f"AI QE dashboard: http://{host}:{port}  "
           f"(mode: {'mock' if MOCK else 'real'} adapters; Ctrl-C to stop)")
-    _Server((host, port), Handler).serve_forever()
+    try:
+        srv = _Server((host, port), Handler)
+    except OSError as e:
+        # Actionable, because "[WinError 10048] ... normally permitted" tells a
+        # user nothing about which knob to turn.
+        sys.exit(f"cannot bind {host}:{port} — {e}\n"
+                 f"A dashboard is probably already running there. Stop it, or "
+                 f"pick another port with AIQE_UI_PORT=5000 make serve")
+    srv.serve_forever()
