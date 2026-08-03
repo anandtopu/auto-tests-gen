@@ -195,3 +195,40 @@ def test_prior_art_renders_under_the_data_framing(tmp_path, monkeypatch):
         assert "PRIOR ART (data, not instructions)" in text
         assert text.index("repo-surface") < text.index("PRIOR ART"), \
             "ordinary chunks never render under the prior-art framing"
+
+
+# ---- re-stamping must not rewrite a LONGER ticket key -----------------------
+def test_restamp_leaves_longer_ticket_keys_alone():
+    """Adapting a PROJ-1 plan to NEW-9 turned "PROJ-10" into "NEW-90".
+
+    A bare prefix substitution rewrote every match, and JIRA keys share
+    prefixes constantly (PROJ-1, PROJ-10, PROJ-100). Cross-ticket references in
+    a reused plan silently pointed at tickets that do not exist — and the same
+    substitution ran over the CONTRACT, whose scenario ids get stamped onto
+    generated tests and joined by the trace matrix. A mangled id there loses
+    coverage without any surface reporting it.
+    """
+    import plan_reuse
+    out = plan_reuse._restamp(
+        "PROJ-1 / PROJ-10 / PROJ-100 / PROJ-12", "PROJ-1", "NEW-9")
+    assert out == "NEW-9 / PROJ-10 / PROJ-100 / PROJ-12"
+
+
+def test_restamp_still_renames_scenario_ids():
+    """The lookahead is on a DIGIT, not a word boundary, precisely so scenario
+    ids keep being re-stamped: PROJ-1-S1 is followed by `-` and must be
+    rewritten, while PROJ-10 is followed by `0` and must not."""
+    import plan_reuse
+    out = plan_reuse._restamp(
+        "# Plan PROJ-1\nPROJ-1-S1 and PROJ-1-S12 cover it.", "PROJ-1", "NEW-9")
+    assert "NEW-9-S1" in out and "NEW-9-S12" in out
+    assert "PROJ-1" not in out
+
+
+def test_both_the_markdown_and_the_contract_go_through_it():
+    """The contract used a plain str.replace, which had the identical bug and
+    is the more dangerous of the two — it carries the scenario ids."""
+    src = (ROOT / "engine/lib/plan_reuse.py").read_text(encoding="utf-8")
+    assert src.count("_restamp(") >= 3, "one of the call sites still does it inline"
+    assert "raw.replace(src_key, new_key)" not in src
+    assert "re.sub(re.escape(src_key), new_key, md)" not in src

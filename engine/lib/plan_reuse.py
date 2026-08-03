@@ -112,10 +112,27 @@ def candidate(new_key):
     return None
 
 
+def _restamp(text, src_key, new_key):
+    """Replace `src_key` with `new_key`, but never inside a LONGER ticket key.
+
+    A bare `re.sub(re.escape(src_key), ...)` rewrote every prefix match, and
+    JIRA keys share prefixes constantly. Adapting a PROJ-1 plan to NEW-9 turned
+    "PROJ-10" into "NEW-90" and "PROJ-12" into "NEW-92" — cross-ticket
+    references silently pointed at tickets that do not exist, and the same
+    substitution ran over the CONTRACT, whose scenario ids get stamped onto
+    generated tests and joined by the trace matrix.
+
+    The negative lookahead is on a DIGIT, not a word boundary, because scenario
+    ids must still be re-stamped: `PROJ-1-S1` is followed by `-` and is
+    rewritten, while `PROJ-10` is followed by `0` and is left alone.
+    """
+    return re.sub(re.escape(src_key) + r"(?!\d)", new_key, text)
+
+
 def adapt(src_key, new_key):
     """(markdown, contract) re-stamped for the new key. Pure text surgery."""
     md = plan_state.plan_path(src_key).read_text(encoding="utf-8")
-    md = re.sub(re.escape(src_key), new_key, md)
+    md = _restamp(md, src_key, new_key)
     md = md.rstrip("\n") + f"""
 
 ## VERIFY FOR THIS TICKET (reused draft)
@@ -131,7 +148,7 @@ mechanically — no model re-authored it. Before approving, verify:
     if src_contract.exists():
         try:
             raw = src_contract.read_text(encoding="utf-8")
-            contract = json.loads(raw.replace(src_key, new_key))
+            contract = json.loads(_restamp(raw, src_key, new_key))
         except (json.JSONDecodeError, OSError):
             contract = None
     return md, contract
