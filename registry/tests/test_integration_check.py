@@ -2,7 +2,7 @@
 (engine/lib/integration_check.py). Checks must be read-only, never leak secrets,
 and degrade to `skipped` rather than failing when a system isn't configured."""
 import http.server
-import pathlib, socket, subprocess, sys, threading
+import os, pathlib, socket, subprocess, sys, threading
 
 import pytest
 
@@ -246,3 +246,68 @@ def test_cli_runs_and_reports(tmp_path):
     import json
     out = json.loads(r.stdout)
     assert "results" in out and "summary" in out and "mock_mode" in out
+
+
+def test_a_failing_required_system_exits_non_zero(tmp_path):
+    """`make check-integrations` is the pre-flight before switching to real
+    mode, and the natural thing to put in a CI job. Its EXIT CODE is what a
+    script reads.
+
+    The zero cases were pinned on both sides — nothing configured
+    (test_nothing_configured_is_all_skipped_and_exit_zero) and an optional
+    system down (test_standalone.py::test_check_integrations_exits_zero_when_
+    only_openhands_is_down). The non-zero case was not, so a regression to
+    always-exit-0 would let a CI gate pass over a completely broken estate
+    while the human-readable output still said [FAIL]. That is the C13 shape at
+    the exit-code layer: unreachable reported as success to the only consumer
+    that is a machine.
+
+    Port 9 (discard) is closed on a normal host, matching the unreachable
+    fixtures already used in this suite.
+    """
+    env = {**os.environ, "SPLUNK_HEC_URL": "http://127.0.0.1:9",
+           "JENKINS_URL": "http://127.0.0.1:9"}
+    env.pop("AIQE_SSO_HEADER", None)
+    r = subprocess.run([sys.executable, str(ROOT / "engine/lib/integration_check.py")],
+                       cwd=ROOT, capture_output=True, text=True, env=env,
+                       stdin=subprocess.DEVNULL, timeout=180)
+    assert r.returncode != 0, \
+        "a configured, unreachable system exited 0 — a CI gate would pass:\n" + r.stdout[-600:]
+    assert "[FAIL]" in r.stdout
+    # Every failure must NAME its fix, not just the error. Asserted for BOTH
+    # configured systems: an `or` here passed with one hint deleted.
+    assert "check SPLUNK_HEC_URL" in r.stdout, "the Splunk failure names no fix"
+    assert "check JENKINS_URL" in r.stdout, "the Jenkins failure names no fix"
+
+
+def test_the_json_path_carries_the_same_exit_contract(tmp_path):
+    """`--json` has its own `sys.exit`, and the source comment beside it states
+    the contract: "a CI job consuming the JSON goes green on broken
+    credentials". Nothing enforced it — mutating that line to `sys.exit(0)`
+    left the whole suite green, because the text-path test above exercises a
+    different branch. A machine-readable output is the one MOST likely to be
+    wired into a gate.
+    """
+    import json as _json
+    env = {**os.environ, "SPLUNK_HEC_URL": "http://127.0.0.1:9"}
+    r = subprocess.run([sys.executable, str(ROOT / "engine/lib/integration_check.py"),
+                        "--json"], cwd=ROOT, capture_output=True, text=True, env=env,
+                       stdin=subprocess.DEVNULL, timeout=180)
+    payload = _json.loads(r.stdout)
+    assert payload["summary"]["fail"] >= 1, "the fixture did not produce a failure"
+    assert r.returncode != 0, \
+        "--json reported a failure in the body but exited 0 — a CI gate reading " \
+        "the exit code passes over broken credentials"
+
+
+def test_an_optional_system_down_does_not_change_the_exit_code(tmp_path):
+    """The other half of the pair, asserted HERE too so the contract is legible
+    in one place: optional degradation must never fail the pre-flight, or teams
+    running without OpenHands cannot use this command at all."""
+    env = {**os.environ, "OPENHANDS_URL": "http://127.0.0.1:9"}
+    r = subprocess.run([sys.executable, str(ROOT / "engine/lib/integration_check.py")],
+                       cwd=ROOT, capture_output=True, text=True, env=env,
+                       stdin=subprocess.DEVNULL, timeout=180)
+    assert r.returncode == 0, \
+        "an optional system being down failed the pre-flight:\n" + r.stdout[-600:]
+    assert "degraded" in r.stdout
