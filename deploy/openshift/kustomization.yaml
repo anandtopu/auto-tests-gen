@@ -13,5 +13,7 @@ resources:
   - configmap.yaml
   - pvc.yaml
   - deployment.yaml
+  - cronjob.yaml             # nightly maintenance INCLUDING the state-bundle
+                             # snapshot; without it a deployment runs no backups
   - service.yaml
   - route.yaml               # OpenShift; swap for ingress.yaml on vanilla Kubernetes

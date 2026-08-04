@@ -1,0 +1,84 @@
+# Nightly estate maintenance.
+#
+# docs/deployment.md told operators to "run `make maintain` nightly" and there
+# was no manifest to do it, so a by-the-book deployment ran no maintenance at
+# all: no guidance sync, no run-record prune, no drift checks, and — the one
+# that matters on the day you need it — no state-bundle snapshot. The platform
+# kept working, which is exactly why nobody would notice.
+#
+# This is worth wiring only because `make maintain` now has a MEANINGFUL exit
+# code. It used to ignore every step failure and exit 0 unconditionally, so a
+# CronJob would have reported Success every night no matter what happened
+# (measured: two sabotaged steps, including the backup, printed "maintenance
+# complete" and exited 0). engine/lib/maintenance.py keeps the steps
+# independent and best-effort but exits 1 when a LOCAL step fails, which is
+# what makes `restartPolicy: OnFailure` and a failed-job history worth having.
+#
+# A step that depends on an external system (SCM reachability, the embedding
+# endpoint) is reported `DEGRADED` and does NOT fail the job — a nightly job
+# that goes red on somebody else's outage is a job whose red gets ignored.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ai-qe-maintain
+spec:
+  schedule: "17 2 * * *"          # 02:17 daily, off the top of the hour
+  timeZone: "Etc/UTC"             # state the zone; a cluster default is not a decision
+  concurrencyPolicy: Forbid       # maintenance takes the same locks a run does
+  startingDeadlineSeconds: 3600   # a controller outage should still run the backup
+  # Keep BOTH histories: a successful job proves the backup ran, and the failed
+  # ones are the only durable record of which step broke and when.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      backoffLimit: 0             # steps are independent; a blind re-run repeats
+                                  # the ones that already succeeded
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: maintain
+              image: ai-qe-platform:latest
+              command: ["make", "maintain"]
+              env:
+                # Mutable state lives here, never in the image tree (R12).
+                - { name: AIQE_STATE_DIR, value: /state }
+              envFrom:
+                - configMapRef:
+                    name: ai-qe-config
+                - secretRef:
+                    name: ai-qe-secrets
+              resources:
+                requests: { cpu: "100m", memory: "256Mi" }
+                limits:   { cpu: "1",    memory: "1Gi" }
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities: { drop: ["ALL"] }
+                # Same R12 argument as the Deployment: safe only because every
+                # mutable path is relocated to /state.
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                # The SAME claims the Deployment uses — this job prunes and
+                # snapshots the running estate's state, so a separate volume
+                # would back up an empty one and report success.
+                - { name: reports,   mountPath: /app/reports }
+                - { name: workspace, mountPath: /app/workspace }
+                - { name: out,       mountPath: /app/out }
+                - { name: tmp,       mountPath: /tmp }
+                - { name: state,     mountPath: /state }
+          volumes:
+            - name: reports
+              persistentVolumeClaim: { claimName: ai-qe-reports }
+            - name: state
+              # The Deployment points BOTH volumes at ai-qe-reports (it is the
+              # only claim pvc.yaml defines). Matching it exactly is the point:
+              # a claim name invented here would leave the job unschedulable,
+              # which is a silent no-backup with extra steps.
+              persistentVolumeClaim: { claimName: ai-qe-reports }
+            - name: workspace
+              emptyDir: {}
+            - name: out
+              emptyDir: {}
+            - name: tmp
+              emptyDir: {}

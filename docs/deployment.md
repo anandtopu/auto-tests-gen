@@ -228,7 +228,16 @@ Validate credentials before a real run with the staged smoke test
   it to preserve run history, the review board, and the work queue.
 - **Retention** — `make prune KEEP=200` trims old run records/diffs; run it
   periodically (e.g. an OpenShift `CronJob` invoking `python3 bin/qa.py prune`),
-  or run `make maintain` nightly — it also rebuilds the retrieval substrate
+  or run `make maintain` nightly — it also rebuilds the retrieval substrate.
+  On OpenShift/Kubernetes this is `deploy/openshift/cronjob.yaml` (applied by
+  `oc apply -k .`), which did not exist until 2026-08-04: the docs said to run
+  maintenance nightly and nothing did, so a by-the-book deployment took NO
+  state-bundle snapshots. Its exit code is meaningful — `make maintain` now
+  exits 1 when a LOCAL step fails and names it, where it previously ignored
+  every step failure and exited 0 under an unconditional "maintenance
+  complete". A step that depends on an external system (SCM, the embedding
+  endpoint) reports `DEGRADED` and keeps the job green, so a red CronJob means
+  something on this side is actually broken
   (`reports/knowledge-index/`, derived data that a fresh deployment restores
   with `make index-rebuild`) and runs the cost regression alarm.
 - **Upgrades** — rebuild the image and re-run `deploy.sh`; the PVC (state) survives the

@@ -145,31 +145,12 @@ spec-savings:         # work a signed spec makes unnecessary: covered vs to-auth
 RETAIN_DAYS ?= $(shell python3 -c "import yaml;print((yaml.safe_load(open('registry/org-config.yaml')) or {}).get('observability',{}).get('retain_days',30))" 2>/dev/null || echo 30)
 
 maintain:             # nightly estate maintenance (call from cron / a K8s CronJob):
-	@echo "== guidance sync (best-effort) =="
-	-python3 engine/lib/guidance_sync.py sync-all
-	@echo "== prune run records (keep 200) =="
-	-python3 bin/qa.py prune --keep 200
-	@echo "== prune finished OpenHands conversations (24h window) =="
-	-python3 engine/lib/openhands_events.py prune
-	@echo "== prune the transaction log (observability.retain_days) =="
-	-python3 engine/lib/event_log.py prune $(RETAIN_DAYS)
-	@echo "== evaluate alert rules (fires/resolves + notifies) =="
-	-python3 engine/lib/alert_rules.py
-	@echo "== per-repo harvested facts =="
-	-python3 engine/lib/repo_facts.py rebuild
-	@echo "== knowledge chunk rebuild =="
-	-python3 engine/lib/knowledge_chunks.py rebuild
-	@echo "== vector index refresh (sha-skip; capped) =="
-	-python3 engine/lib/vector_index.py refresh
-	@echo "== cost regression check (needs an armed baseline) =="
-	-python3 engine/lib/cost_report.py check-regression
-	@echo "== spec drift check (SDD 4.1) =="
-	-python3 engine/lib/spec_drift.py check --notify
-	@echo "== coverage drift check =="
-	-python3 engine/lib/coverage_drift.py --notify
-	@echo "== state-bundle snapshot =="
-	-python3 engine/lib/state_bundle.py export
-	@echo "== maintenance complete =="
+	@# Steps stay best-effort and INDEPENDENT — a network blip in guidance sync
+	@# must not skip the backup that runs after it. What the `-` prefixes used to
+	@# hide is which ones failed: measured, two sabotaged steps (including the
+	@# state-bundle snapshot) printed "maintenance complete" and exited 0, which a
+	@# CronJob reads as success. The runner keeps the tolerance and adds the report.
+	python3 engine/lib/maintenance.py $(RETAIN_DAYS)
 
 state-export:         # portable bundle of all durable state -> reports/exports/
 	python3 engine/lib/state_bundle.py export $(OUT)

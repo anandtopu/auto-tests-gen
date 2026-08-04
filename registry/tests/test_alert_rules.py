@@ -139,10 +139,14 @@ def test_the_module_never_imports_a_vendor():
 
 # ------------------------------------------------- server + schedule wiring
 def test_rules_are_evaluated_on_the_nightly_tick():
-    """A rule engine nothing calls is a rule engine that never fires."""
-    mk = (ROOT / "Makefile").read_text(encoding="utf-8")
-    tick = mk.split("maintain:", 1)[1].split("\nstate-export:", 1)[0]
-    assert "alert_rules.py" in tick, "maintain must evaluate rules"
+    """A rule engine nothing calls is a rule engine that never fires.
+
+    The nightly steps moved out of the Makefile into maintenance.STEPS when the
+    target stopped ignoring each step's failure, so this asks the list that now
+    DEFINES them rather than the file that used to."""
+    import maintenance
+    commands = " ".join(" ".join(argv) for _, argv, _ in maintenance.STEPS)
+    assert "alert_rules.py" in commands, "maintain must evaluate rules"
 
 
 def test_rendering_a_page_never_sends_a_notification():

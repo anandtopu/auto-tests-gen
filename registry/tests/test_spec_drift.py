@@ -104,8 +104,12 @@ def test_platform_dir_is_skipped(estate, monkeypatch):
 
 
 def test_maintain_wires_the_drift_step():
-    src = (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert "spec_drift.py check --notify" in src
+    """Asks maintenance.STEPS, which is where the nightly steps live now that
+    the Makefile delegates instead of ignoring each step's failure."""
+    import maintenance
+    commands = [" ".join(argv) for _, argv, _ in maintenance.STEPS]
+    assert any(c.endswith("spec_drift.py check --notify") for c in commands), \
+        f"the drift step is not in the nightly run: {commands}"
 
 
 def test_an_undelivered_drift_alarm_is_retried_not_lost(estate, monkeypatch):

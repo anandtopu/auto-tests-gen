@@ -298,10 +298,25 @@ def snapshot_baseline():
     return phases
 
 
+def armed():
+    """Is there a baseline to compare against at all?
+
+    This exists because `check_regression()` returning [] meant two different
+    things — "every phase is within threshold" and "nothing was compared" — and
+    the nightly log printed `healthy (or no baseline armed)` for both. The
+    parenthetical was an admission, not a distinction: an operator scanning a
+    nightly job reads the first word. An estate that never ran `make
+    cost-baseline` would see "healthy" every night forever while no cost alarm
+    could possibly fire. Constitution C13: not-checked gets its own state.
+    """
+    base = fs_lock.read_json_guarded(BASELINE, None)
+    return bool(base and isinstance(base.get("phases"), dict) and base["phases"])
+
+
 def check_regression(threshold=None, days=7):
     """Trailing-window medians vs the baseline (story 1.4). Returns a list of
-    regression strings (empty = healthy). No baseline file -> [] silently —
-    the alarm needs an armed baseline, not a guess."""
+    regression strings (empty = healthy). Callers that need to tell "healthy"
+    from "nothing to check against" must ask armed() — see its docstring."""
     base = fs_lock.read_json_guarded(BASELINE, None)
     if not base or not isinstance(base.get("phases"), dict):
         return []
@@ -336,9 +351,20 @@ def main(argv):
         print(f"cost baseline frozen: {len(phases)} phase(s) -> {BASELINE}")
         return 0
     if argv and argv[0] == "check-regression":
+        # Three outcomes, not two. "Nothing was compared" exits 0 like a healthy
+        # check — an unarmed estate is not a failure — but it must never PRINT
+        # like one, or a nightly log reads "healthy" forever while no cost alarm
+        # can fire at all.
+        if not armed():
+            print("cost regression check: NOT CHECKED - no baseline is armed, so "
+                  "no cost regression can be detected on this estate.")
+            print("  Arm one with: make cost-baseline   (it refuses an "
+                  "all-simulated estate, which is why this can stay unarmed)")
+            return 0
         regs = check_regression()
         if not regs:
-            print("cost regression check: healthy (or no baseline armed)")
+            print("cost regression check: healthy - every phase is within "
+                  "threshold of its armed baseline")
             return 0
         for r in regs:
             print(f"COST REGRESSION: {r}")
