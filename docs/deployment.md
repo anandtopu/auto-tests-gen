@@ -126,6 +126,18 @@ IMAGE=quay.io/acme/ai-qe:1.0 ./deploy.sh -n ai-qe
 oc delete pvc ai-qe-reports -n ai-qe   # also drop persisted state
 ```
 
+That first line is enforced, not merely intended. It used to run `oc delete -k .`,
+and `pvc.yaml` is one of the kustomization's resources — so the teardown deleted the
+PVC holding every run record, plan, approval and audit event while printing
+"PVC ai-qe-reports left in place". The doc above and the script's own message both
+promised preservation; only the command disagreed. It now deletes the manifests by
+file, and `test_deploy_manifests.py` pins BOTH directions: the PVC is never in that
+list, and every other kustomization resource always is — so a new resource cannot be
+added to the deploy and silently survive the teardown.
+
+```bash
+```
+
 ---
 
 ## 3. Vanilla Kubernetes

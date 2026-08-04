@@ -39,9 +39,25 @@ CUR_NS=${NS:-$($K config view --minify -o jsonpath='{..namespace}' 2>/dev/null |
 
 if [ "$ACTION" = "delete" ]; then
   echo "==> Deleting AI QE resources in namespace: $CUR_NS"
-  $K delete $NSARG -k . --ignore-not-found
+  # NOT `delete -k .`. pvc.yaml is one of the kustomization's resources, so that
+  # command deleted the PersistentVolumeClaim — every run record, plan, approval,
+  # exported bundle and audit event on the volume — while the line below told the
+  # operator it had been left in place. A destructive command that reports the
+  # opposite of what it did is the worst kind, because the person who trusted it
+  # finds out later and has nothing to restore from.
+  #
+  # Delete the manifests BY FILE instead, which is exactly what apply created,
+  # minus pvc.yaml. The list is pinned against kustomization.yaml by
+  # test_deploy_manifests.py, so a new resource cannot be added to the deploy and
+  # silently survive the teardown.
+  for f in configmap.yaml deployment.yaml cronjob.yaml service.yaml route.yaml; do
+    [ -f "$f" ] || continue
+    $K delete $NSARG -f "$f" --ignore-not-found 2>/dev/null ||       echo "    (skipped $f — that kind is not available on this cluster)"
+  done
   $K delete $NSARG secret ai-qe-secrets --ignore-not-found
-  echo "    (PVC ai-qe-reports left in place — delete it manually to drop run history)"
+  echo "    PVC ai-qe-reports left in place — it holds run history, plans and"
+  echo "    approvals. Drop it deliberately with:"
+  echo "      $K delete $NSARG pvc ai-qe-reports"
   exit 0
 fi
 
