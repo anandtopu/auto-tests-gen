@@ -71,6 +71,7 @@ import alert_rules, demo_data, email_notify, event_log, export_plan, \
     repo_guidance_gen, review_state, settings_store, spec_workflow, \
     team_report, waiver_store, work_queue
 import governance_page
+import http_body
 import spec_savings
 import env_flag                     # AIQE_MOCK means what it says
 
@@ -241,6 +242,10 @@ class _Server(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
+    # A read deadline, so a client that declares more than it sends cannot
+    # hold a worker thread open indefinitely.
+    timeout = 30
+
     def _send(self, code, body, ctype="application/json"):
         # Remembered for the do_POST wrapper below, which needs the status to
         # classify the transaction. Recorded HERE because every branch of the
@@ -789,7 +794,18 @@ class Handler(BaseHTTPRequestHandler):
                                                  "send it as X-AIQE-Token or Bearer"})
         elif not self._authed():
             return self._deny()
-        body = self.rfile.read(int(self.headers.get("Content-Length", 0)) or 0)
+        # Same guard as the receiver: a malformed Content-Length used to raise
+        # ValueError out of the handler, and a lying one blocked a thread.
+        # NOT named `_err`: this function's except handlers call the module-level
+        # `_err(e)` helper, and a local of that name shadows it for the WHOLE
+        # function — every caught error in all 34 branches then crashed inside
+        # its own handler and escaped as an unhandled exception. Caught by
+        # test_api_adversarial, which is why it runs.
+        body, body_err = http_body.read_body(self, 2 * 1024 * 1024)
+        if body_err:
+            return self._send(*body_err)
+        if body is None:
+            return
         if self.path == "/api/waivers/save":
             try:
                 p = json.loads(body or b"{}")

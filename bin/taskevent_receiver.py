@@ -32,7 +32,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import fs_lock, openhands_events, work_queue
+import fs_lock, http_body, openhands_events, work_queue
 
 TOKEN = os.environ.get("AIQE_HOOK_TOKEN", "")
 AUTORUN = os.environ.get("AIQE_HOOK_AUTORUN", "0") == "1"
@@ -116,6 +116,12 @@ def start_drain():
 
 
 class Handler(BaseHTTPRequestHandler):
+    # Without this the socket has NO read deadline, and a client that declares a
+    # large Content-Length then sends nothing holds a worker thread forever.
+    # Measured on this endpoint: no response, connection kept open. A handful of
+    # those stop the trigger ingress accepting PR and JIRA events at all.
+    timeout = 30
+
     def log_message(self, fmt, *a):
         pass
 
@@ -156,7 +162,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(401, {"error": "missing or wrong credentials: send "
                                              "X-AIQE-Token or Authorization: Bearer"})
         path = self.path.split("?")[0].rstrip("/")
-        raw = self.rfile.read(int(self.headers.get("Content-Length", 0) or 0))
+        # Route FIRST, then read with that route's limit: the 5 MB results cap
+        # used to be checked after the whole body was already in memory, which
+        # is not a cap. Everything else is a small JSON envelope.
+        limit = (5 * 1024 * 1024 if path == "/hooks/ci/results"
+                 else http_body.DEFAULT_MAX)
+        raw, err = http_body.read_body(self, limit)
+        if err:
+            return self._send(*err)
+        if raw is None:
+            return                      # peer gone; nobody left to answer
 
         # --- CI results ingest (roadmap 1.1) --------------------------------------
         # Raw JUnit XML (or Jenkins JSON), NOT JSON-wrapped — so a CI job can post
@@ -165,8 +180,6 @@ class Handler(BaseHTTPRequestHandler):
         # Feeds catalog/health.json, which the scorecard's "Test health", the
         # critic's context and flake detection all read.
         if path == "/hooks/ci/results":
-            if len(raw) > 5 * 1024 * 1024:
-                return self._send(413, {"error": "results payload over 5 MB"})
             if not raw.strip():
                 return self._send(400, {"error": "empty body — post JUnit XML or "
                                                  "Jenkins JSON as the request body"})

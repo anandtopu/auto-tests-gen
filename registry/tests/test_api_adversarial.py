@@ -328,3 +328,37 @@ def test_run_progress_rejects_a_key_with_path_characters(live_server):
         status, _ = _request(
             f"{base}/api/run-progress?key={urllib.parse.quote(bad)}", headers=_auth())
         assert status == 400, f"{bad!r} was accepted"
+
+
+# ---------------------------------------------- 6. shadowing the error path
+def test_no_handler_local_shadows_a_module_level_helper_it_calls():
+    """A local named like a module-level function disables it for the WHOLE
+    function, including the except handlers at the bottom.
+
+    Measured: adding `body, _err = http_body.read_body(...)` to `_handle_post`
+    shadowed the module-level `_err(e)` used by that function's own except
+    handlers. Every caught error across 34 endpoints then failed inside its
+    handler and escaped unhandled — a clean 400 became a dropped connection with
+    no response. The symptom appears in an unrelated endpoint, which is what
+    makes this worth a static pin rather than trusting review.
+    """
+    import ast
+    import pathlib as _pl
+    root = _pl.Path(__file__).resolve().parents[2]
+    for rel in ("bin/dashboard_server.py", "bin/taskevent_receiver.py"):
+        tree = ast.parse((root / rel).read_text(encoding="utf-8"))
+        helpers = {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            assigned = {t.id for node in ast.walk(fn)
+                        if isinstance(node, (ast.Assign, ast.AugAssign))
+                        for t in (node.targets if isinstance(node, ast.Assign)
+                                  else [node.target])
+                        for t in ast.walk(t) if isinstance(t, ast.Name)}
+            called = {c.func.id for c in ast.walk(fn)
+                      if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+            clash = assigned & called & helpers
+            assert not clash, (
+                f"{rel}:{fn.name} assigns {sorted(clash)}, shadowing the "
+                f"module-level helper(s) of the same name that it also calls")
