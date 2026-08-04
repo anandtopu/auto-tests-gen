@@ -310,3 +310,21 @@ def test_the_endpoint_wires_the_safe_side_to_each_flag():
     assert '_json_flag(p.get("force"), unusable=False)' in src
     assert '_json_flag(p.get("dry"), unusable=True)' in src
     assert 'if p.get("factory"):' not in src, "raw truthiness is back"
+
+
+def test_run_progress_refuses_a_request_that_names_nothing(live_server):
+    """GET /api/run-progress with neither key nor run must 400. Returning 200
+    with whatever ran last in this checkout would answer a question the caller
+    did not ask — and on a shared estate that is somebody else's run."""
+    base, _ = live_server
+    status, body = _request(f"{base}/api/run-progress", headers=_auth())
+    assert status == 400, f"expected 400, got {status}: {body[:200]}"
+    assert "required" in body
+
+
+def test_run_progress_rejects_a_key_with_path_characters(live_server):
+    base, _ = live_server
+    for bad in ("../../etc/passwd", "a/b", "a b"):
+        status, _ = _request(
+            f"{base}/api/run-progress?key={urllib.parse.quote(bad)}", headers=_auth())
+        assert status == 400, f"{bad!r} was accepted"

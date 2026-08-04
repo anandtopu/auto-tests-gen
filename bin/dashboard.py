@@ -681,6 +681,7 @@ nav_badges = {
 gen_ts = time.strftime("%Y-%m-%d %H:%M")
 
 NAV = [("overview", "◧", "Overview"), ("wizard", "✦", "Guided run"),
+       ("progress", "◉", "Run progress"),
        ("queue", "⇥", "Intake & queue"),
        ("plans", "✎", "Test plans"), ("specflow", "✓", "Spec workflow"),
        ("runs", "▶", "Runs & reviews"), ("activity", "⚡", "Activity"), ("alerts", "△", "Alerts"),
@@ -690,6 +691,7 @@ NAV = [("overview", "◧", "Overview"), ("wizard", "✦", "Guided run"),
        ("catalog", "☰", "Test catalog"), ("repos", "⛁", "Repositories"),
        ("settings", "⚙", "Settings")]
 TITLES = {"overview": "Overview", "wizard": "Guided run — PR or JIRA, step by step",
+          "progress": "Run progress — where a request is, and why it failed",
           "queue": "Intake & work queue",
           "plans": "Test plans — review & approval",
           "specflow": "Spec workflow — how an E2E test gets built here",
@@ -995,6 +997,24 @@ pre { margin:0; background:var(--sr-bg-muted); border:1px solid var(--sr-border)
   .art-list { position:static; }
   .art-grid { grid-template-columns:1fr; }
 }
+
+.rp-steps{list-style:none;padding:0;margin:12px 0 0}
+.rp-s{display:flex;gap:10px;padding:9px 0;border-top:1px solid var(--sr-border)}
+.rp-m{width:26px;text-align:center;font-weight:700;font-family:var(--sr-font-mono);font-size:12px}
+.rp-l{font-weight:600}
+.rp-st{margin-left:8px;font-weight:400;font-size:11px;text-transform:uppercase;
+  letter-spacing:.04em;color:var(--sr-fg-muted)}
+.rp-w{font-size:12px;color:var(--sr-fg-muted);margin-top:2px}
+.rp-d{font-size:12px;margin-top:3px}
+.rp-done .rp-m{color:var(--sr-success-fg)}
+.rp-running .rp-m{color:var(--sr-info-fg)}
+.rp-failed .rp-m{color:var(--sr-danger-fg)}
+.rp-unknown .rp-m{color:var(--sr-warning-fg)}
+.rp-pending .rp-m,.rp-skipped .rp-m{color:var(--sr-fg-muted);opacity:.6}
+.rp-bad{margin-top:10px;border-left:3px solid var(--sr-danger-fg)}
+.rp-log{background:var(--sr-bg-muted);padding:8px;border-radius:6px;font-size:11px;
+  max-height:220px;overflow:auto;white-space:pre-wrap;font-family:var(--sr-font-mono)}
+
 """
 
 # ---------------------------------------------------------------- client JS
@@ -1054,6 +1074,7 @@ async function api(path, opts) {
   return r.json();
 }
 const TITLES = { overview: 'Overview', wizard: 'Guided run — PR or JIRA, step by step',
+  progress: 'Run progress — where a request is, and why it failed',
   queue: 'Intake & work queue',
   plans: 'Test plans — review & approval',
   specflow: 'Spec workflow — how an E2E test gets built here',
@@ -2725,6 +2746,103 @@ $('#clear-demo').addEventListener('click', async () => {
   b.disabled = false;
 });
 loadSettings();
+
+// ---------------------------------------------------------------- run progress
+// The step ladder for ONE run. The Guided run view answers the JOURNEY question
+// and collapses the run into a single step; this is the inside of that step —
+// what a user needs while waiting, and what they need when it failed.
+//
+// `unknown` renders DISTINCTLY from pending and done on purpose: it means the
+// backend could not observe the step (a dead lock holder, a run that vanished).
+// Showing it as pending would read as "starting soon" about something that has
+// already stopped.
+const RP_MARK = { done: 'ok', running: '>>', failed: 'X', skipped: '-',
+                  pending: '.', unknown: '?' };
+let rpTimer = null;
+
+function rpRender(p) {
+  const src = document.querySelector('#rp-src');
+  src.textContent = p.source === 'live' ? 'live'
+    : p.source === 'record' ? 'finished run ' + (p.run_id || '') : 'no run';
+  const body = document.querySelector('#rp-body');
+  if (p.source === 'none') {
+    body.textContent = p.detail || 'No run recorded for that key.';
+    document.querySelector('#rp-steps').innerHTML = '';
+    document.querySelector('#rp-fail').innerHTML = '';
+    return;
+  }
+  body.textContent = (p.key || '') + ' - mode ' + (p.mode || '?')
+    + ' - overall ' + p.overall
+    + (p.lock === 'stale' ? ' - the run holding this checkout is gone' : '');
+  document.querySelector('#rp-steps').innerHTML = (p.steps || []).map(function (st) {
+    const detail = st.detail
+      ? '<div class="rp-d">' + escHtml(st.detail) + '</div>' : '';
+    return '<li class="rp-s rp-' + st.state + '">'
+      + '<span class="rp-m">' + (RP_MARK[st.state] || '.') + '</span>'
+      + '<div><div class="rp-l">' + escHtml(st.label)
+      + '<span class="rp-st">' + escHtml(st.state) + '</span></div>'
+      + '<div class="rp-w">' + escHtml(st.why || '') + '</div>' + detail + '</div></li>';
+  }).join('');
+  // Failure panel: the debugging half. Only the repos that actually failed.
+  const gate = (p.steps || []).find(function (x) { return x.id === 'gate' && x.repos; });
+  const bad = gate ? gate.repos.filter(function (r) {
+    return r.status !== 'committed' && r.status !== 'no_changes'; }) : [];
+  document.querySelector('#rp-fail').innerHTML = bad.map(function (r) {
+    const tail = r.log_tail === null
+      ? '<div class="sub">The log could not be read - that is not the same as an '
+        + 'empty log.</div>'
+      : '<pre class="rp-log">' + escHtml(r.log_tail || '(empty)') + '</pre>';
+    return '<div class="card rp-bad">'
+      + '<b>' + escHtml(r.test_repo) + '</b> - ' + escHtml(r.status)
+      + ' (exit ' + escHtml(String(r.exit_code)) + ': <b>' + escHtml(r.meaning) + '</b>)'
+      + '<div class="sub" style="margin:6px 0">' + escHtml(r.why || '') + '</div>'
+      + '<div class="sub">log: <code>' + escHtml(r.log || '') + '</code></div>'
+      + tail + '</div>';
+  }).join('');
+}
+
+let rpSeq = 0;
+async function rpLoad(polling) {
+  const el = document.querySelector('#rp-key');
+  const key = ((el && el.value) || '').trim();
+  if (!key) return;
+  // Responses can arrive out of order: entering the view fires the loader for
+  // whatever key is already in the box, and a user who then types a new key and
+  // hits Track has two requests in flight. Without this token the SLOWER,
+  // EARLIER response wins and the page shows one key's steps under another
+  // key's name - which is the view confidently describing a run nobody asked
+  // about. Observed while driving the page, not in review.
+  const mine = ++rpSeq;
+  try {
+    const p = await api('/api/run-progress?key=' + encodeURIComponent(key));
+    if (mine !== rpSeq) return;          // a newer request has superseded this one
+    rpRender(p);
+    if (rpTimer) { clearTimeout(rpTimer); rpTimer = null; }
+    // Poll only while a LIVE holder owns the lock. A stale lock reports
+    // busy=false, so a dead run stops the poll instead of spinning forever.
+    if (p.busy) rpTimer = setTimeout(function () { rpLoad(true); }, 4000);
+  } catch (e) {
+    // loadFailed writes a table row and this view has no table, so say it here.
+    // An unchanged ladder would look like the run simply had not moved.
+    if (!polling && mine === rpSeq) {
+      document.querySelector('#rp-body').textContent =
+        'Could not load run progress - ' + String((e && e.message) || e)
+        + '. This is a display failure, not an empty result: retry, and check the '
+        + 'server is still running.';
+    }
+  }
+}
+document.addEventListener('click', function (ev) {
+  if (ev.target && ev.target.id === 'rp-go') rpLoad(false);
+});
+document.addEventListener('keydown', function (ev) {
+  if (ev.key === 'Enter' && ev.target && ev.target.id === 'rp-key') rpLoad(false);
+});
+onEnter('progress', function () {
+  const el = document.querySelector('#rp-key');
+  if (el && el.value.trim()) rpLoad(false);
+});
+
 """
 
 # ---------------------------------------------------------------- page assembly
@@ -2788,6 +2906,25 @@ page = f"""<!doctype html>
       <div class="scroll"><table>
         <thead><tr><th>app repo</th>{matrix_head}<th>status</th></tr></thead>
         <tbody>{matrix_rows}</tbody></table></div>
+    </section>
+  </div>
+
+  <div data-view="progress">
+    <section class="card">
+      <div class="card-h"><div><h2>Run progress</h2>
+        <div class="sub">Where a submitted request is right now, step by step — and
+        when a step failed, what its exit code means plus the tail of that step's own
+        log. Enter a PR key (PR-&lt;repo&gt;-&lt;number&gt;) or a ticket key. While a run
+        is live this polls every few seconds; once it finishes the run record is the
+        source of truth.</div></div></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <input id="rp-key" placeholder="PR-orders-api-201 or PROJ-301" style="min-width:260px">
+        <button class="btn" id="rp-go">Track</button>
+        <span id="rp-src" class="pill"></span>
+      </div>
+      <div id="rp-body" class="sub">Enter a key to trace a run.</div>
+      <ol id="rp-steps" class="rp-steps"></ol>
+      <div id="rp-fail"></div>
     </section>
   </div>
 

@@ -612,6 +612,26 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, {"key": key, "run_id": recs[-1].get("run_id", ""),
                              "markdown": md})
+        elif url.path == "/api/run-progress":
+            # Per-RUN progress: which pipeline step a submitted request is on,
+            # and — when it failed — which step, what the exit code means, and
+            # the tail of that step's own log. /api/wizard/status answers the
+            # journey question and collapses the run into one step; this is the
+            # inside of that step.
+            import run_progress
+            q = urllib.parse.parse_qs(url.query)
+            key = q.get("key", [""])[0]
+            run = q.get("run", [""])[0]
+            if key and not re.fullmatch(r"[\w.-]+", key):
+                self._send(400, {"error": "key must be word characters, . or -"})
+                return
+            if run and not re.fullmatch(r"[\w.-]+", run):
+                self._send(400, {"error": "run must be word characters, . or -"})
+                return
+            if not key and not run:
+                self._send(400, {"error": "key or run required"})
+                return
+            self._send(200, run_progress.progress(key=key or None, run_id=run or None))
         elif url.path == "/api/wizard/status":
             # ONE aggregated progress answer for the guided flows (async by
             # nature: queued runs take minutes). Read-only — the wizard's

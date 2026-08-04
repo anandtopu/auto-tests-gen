@@ -712,7 +712,8 @@ def test_the_ui_guide_covers_every_view_the_dashboard_has():
     guide = (ROOT / "docs/ui-guide.md").read_text(encoding="utf-8").lower()
     # Headings are prose ("Runs & team reviews"), so match on the words the
     # dashboard's own nav uses for each view.
-    NAMES = {"overview": "overview", "wizard": "guided run", "queue": "queue",
+    NAMES = {"overview": "overview", "wizard": "guided run",
+             "progress": "run progress", "queue": "queue",
              "plans": "test plans", "specflow": "spec workflow", "runs": "runs",
              "activity": "activity", "alerts": "alerts", "trace": "trace",
              "cost": "cost", "artifacts": "artifacts", "catalog": "catalog",

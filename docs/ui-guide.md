@@ -47,6 +47,36 @@ A failing step shows the run's actual error, not just "run failed" — the queue
 runner is a background process whose console nobody reads, so the reason is
 captured and surfaced here.
 
+## Run progress
+
+**Answers:** where is my request right now, and if it failed — which step, why,
+and where do I look?
+
+Guided run answers the *journey* question and deliberately collapses the run
+itself into one step ("the agent is analyzing and writing tests"). That is the
+right grain for a wizard and useless for tracing a failure. This view is the
+inside of that step: the pipeline's actual stages, each with what it is FOR, in
+the order the engine runs them for that mode.
+
+While a run is live the view polls; once it finishes the run record is the
+source of truth. Entering a key that never ran says so, rather than showing a
+ladder of pending steps that reads as "queued and starting soon".
+
+**What it refuses to tell you.** It will not claim a step succeeded that it
+could not observe. A step shows `unknown` — visually distinct from pending and
+done — when the run holding this checkout is gone (a lock older than 90 minutes
+is presumed dead), or when a finished record has no contract for a phase and no
+skip reason. A record with no gate block does not report the gate as passed: a
+run aborted on budget never reached it, and saying "done" there would tell you
+tests were committed when nothing was.
+
+**Debugging a failure.** A failed gate names the repo, the exit code AND what
+that code means in words, the log path, and the tail of that log. An exit code
+this pipeline does not document is labelled `UNRECOGNIZED` rather than given an
+invented meaning — a wrong explanation sends you somewhere that is not the
+problem. A log that could not be read says so; that is not the same as a log
+that was empty.
+
 ## Queue
 
 **Answers:** what work is pending, and how do I add some?

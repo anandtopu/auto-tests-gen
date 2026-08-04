@@ -348,6 +348,16 @@ else
   cp "$GUID" out/issue-guidance.md
 fi
 
+# Who owns this checkout right now. The lock is an empty directory released with
+# `rmdir`, so the identity cannot live inside it without breaking release — it
+# goes beside it. This is what lets the UI attribute LIVE progress to the
+# request a user submitted; without it a run started from the CLI (make demo-pr)
+# is visible as "something is running" but not as "your ticket is on step 3".
+# Left in place after the run: combined with the lock's absence it distinguishes
+# "finished" from "still going", and the next run overwrites it.
+printf '{"run_id":"%s","mode":"%s","key":"%s","started_ts":%s}\n' \
+  "$RUN_ID" "$MODE" "$KEY" "$(date +%s)" > out/run-context.json 2>/dev/null || true
+
 if [ "$(python3 -c "import json;print(json.load(open('out/resolve.contract.json')).get('needs_clarification', False))")" = "True" ]; then
   MSG="AI-QE cannot confidently route ${KEY}. Candidates: $(cat out/resolve.contract.json). Reply with '@openhands use <repos>'."
   case "$MODE" in jira|plan|tests) TRACKER comment "$KEY" "$MSG" || true ;; esac
