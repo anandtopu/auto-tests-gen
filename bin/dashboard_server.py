@@ -970,6 +970,51 @@ class Handler(BaseHTTPRequestHandler):
             except (KeyError, json.JSONDecodeError) as e:
                 self._send(400, {"error": _err(e)})
             except SystemExit as e:          # library rejections (wrong status, unknown id)
+                msg = _err(e)
+                # A rate-limited retry is 429, not 409: a caller that retries on
+                # 409 (a conflict it might resolve) would hammer the very limit
+                # that just refused it. The message already carries the wait.
+                self._send(429 if "RETRY_RATE_LIMITED" in msg else 409, {"error": msg})
+        elif self.path == "/api/runs/retry":
+            # Retry a FAILED RUN, not just a queue item. A run started from the
+            # CLI or a webhook has no queue entry, so before this the only way
+            # to re-run it was to know the CLI invocation — the UI could show
+            # you a quarantined run and offer nothing to do about it.
+            try:
+                p = json.loads(body or b"{}")
+                key = (p.get("key") or "").strip()
+                if not re.fullmatch(r"[\w.-]+", key):
+                    self._send(400, {"error": "key must be word characters, . or -"})
+                    return
+                import retry_policy
+                verdict = retry_policy.check(key)
+                if not verdict["allowed"] and not p.get("force"):
+                    self._send(429, {"error": verdict["reason"], "retry": verdict})
+                    return
+                import run_progress
+                prog = run_progress.progress(key=key)
+                if prog["source"] == "none":
+                    self._send(404, {"error": f"no run recorded for '{key}' — there "
+                                              f"is nothing to retry"})
+                    return
+                if prog.get("busy"):
+                    self._send(409, {"error": f"{key} is running right now; wait for "
+                                              f"it to finish before retrying"})
+                    return
+                mode = "jira" if str(key).upper().startswith(("PROJ", "TICKET"))                     or not key.startswith("PR-") else "pr"
+                if mode == "pr":
+                    parts = key.split("-")
+                    repo, num = "-".join(parts[1:-1]), parts[-1]
+                    item, fresh = work_queue.add("pr", repo, pr=num,
+                                                 requested_by="retry")
+                else:
+                    item, fresh = work_queue.add("jira", key, requested_by="retry")
+                retry_policy.record(key)
+                self._send(200, {"ok": True, "item": item, "queued": fresh,
+                                 "retry": retry_policy.check(key)})
+            except (KeyError, json.JSONDecodeError) as e:
+                self._send(400, {"error": _err(e)})
+            except SystemExit as e:
                 self._send(409, {"error": _err(e)})
         elif self.path.startswith("/api/repos/"):
             try:

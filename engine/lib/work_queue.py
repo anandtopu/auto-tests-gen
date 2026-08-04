@@ -218,10 +218,23 @@ def failure_reason(exit_code, stdout="", stderr="", limit=400):
     return f"exit {exit_code} — no output captured"
 
 
-def requeue(item_id):
-    """Put a failed item back in the queue (fresh attempt, previous result
-    cleared). Also the recovery path for an item stranded in `running` by a
-    crashed worker — nothing else can transition it."""
+def requeue(item_id, force=False):
+    """Put a failed item back in the queue. Also the recovery path for an item
+    stranded in `running` by a crashed worker — nothing else can transition it.
+
+    RATE LIMITED. A retry is a full pipeline run: clones, an LLM call per phase,
+    possibly a commit. Unbounded, one stuck UI or one impatient loop spends real
+    money re-running a request that fails the same way every time. The refusal
+    names which limit it hit and when the next attempt is allowed
+    (engine/lib/retry_policy.py).
+
+    THE PREVIOUS FAILURE IS KEPT. This used to clear exit_code and finished, so
+    the third attempt looked exactly like the first and nothing recorded that it
+    had failed before — which also made any limit unenforceable. `attempts` and
+    `last_error` now survive the retry, because "this has failed twice already"
+    is the single most useful thing to know before pressing it again.
+    """
+    import retry_policy
     with fs_lock.lock(FILE):
         items = load()
         item = next((i for i in items if i["id"] == item_id), None)
@@ -230,7 +243,20 @@ def requeue(item_id):
         if item["status"] not in ("failed", "running"):
             sys.exit(f"only failed (or stranded running) items can be re-queued "
                      f"({item_id} is {item['status']})")
-        _mark(items, item, status="queued", finished=None, exit_code=None, ts=time.time())
+        key = key_of(item)
+        if not force:
+            verdict = retry_policy.check(key)
+            if not verdict["allowed"]:
+                sys.exit(f"RETRY_RATE_LIMITED: {verdict['reason']}")
+        prev_error = item.get("error")
+        prev_code = item.get("exit_code")
+        _mark(items, item, status="queued", finished=None, exit_code=None,
+              ts=time.time(),
+              attempts=int(item.get("attempts") or 1) + 1,
+              last_error=prev_error or item.get("last_error"),
+              last_exit_code=prev_code if prev_code is not None
+              else item.get("last_exit_code"))
+    retry_policy.record(key)
     return item
 
 

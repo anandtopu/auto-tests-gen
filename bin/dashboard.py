@@ -2906,6 +2906,14 @@ function rpRender(p) {
   const gate = (p.steps || []).find(function (x) { return x.id === 'gate' && x.repos; });
   const bad = gate ? gate.repos.filter(function (r) {
     return r.status !== 'committed' && r.status !== 'no_changes'; }) : [];
+  // Offer a retry when the run did not commit. The button is only useful next
+  // to the failure it would re-run, which is why it lives here and not on a
+  // separate screen.
+  const rt = document.querySelector('#rp-retry');
+  if (p.source === 'record' && p.overall && p.overall !== 'committed') {
+    rt.innerHTML = '<button class="btn" id="rp-retry-go">Retry this run</button>'
+      + '<span class="sub" id="rp-retry-msg" style="margin-left:10px"></span>';
+  } else { rt.innerHTML = ''; }
   document.querySelector('#rp-fail').innerHTML = bad.map(function (r) {
     const tail = r.log_tail === null
       ? '<div class="sub">The log could not be read - that is not the same as an '
@@ -3013,6 +3021,37 @@ async function rpWhy(key) {
   }
 }
 
+
+// A retry is a full pipeline run, so the server rate-limits it. A 429 comes
+// back with the limit that refused and the wait — render it verbatim rather
+// than a generic "failed", because "try again in 47s" is actionable and
+// "error" is not.
+document.addEventListener('click', async function (ev) {
+  if (!ev.target || ev.target.id !== 'rp-retry-go') return;
+  const key = (document.querySelector('#rp-key').value || '').trim();
+  const msg = document.querySelector('#rp-retry-msg');
+  ev.target.disabled = true;
+  try {
+    const r = await fetch('/api/runs/retry', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: key })
+    });
+    const j = await r.json();
+    if (r.status === 429) {
+      msg.textContent = 'Rate limited: ' + (j.error || 'try again later');
+    } else if (!r.ok) {
+      msg.textContent = j.error || ('retry failed (HTTP ' + r.status + ')');
+    } else {
+      msg.textContent = 'Queued. ' + ((j.retry && j.retry.reason) || '');
+      rpLoad(false);
+    }
+  } catch (e) {
+    msg.textContent = 'Could not reach the server - ' + String((e && e.message) || e);
+  } finally {
+    ev.target.disabled = false;
+  }
+});
+
 """
 
 # ---------------------------------------------------------------- page assembly
@@ -3096,6 +3135,7 @@ page = f"""<!doctype html>
       <div id="rp-body" class="sub">Enter a key to trace a run.</div>
       <ol id="rp-steps" class="rp-steps"></ol>
       <div id="rp-fail"></div>
+      <div id="rp-retry" style="margin-top:10px"></div>
       <div id="rp-why-wrap" style="margin-top:14px;display:none">
         <div class="card-h"><div><h2>Why the AI did this</h2>
           <div class="sub">Assembled from what the run RECORDED — routing rules,

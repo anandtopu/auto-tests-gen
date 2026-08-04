@@ -147,6 +147,16 @@ pricing:
   codex:
     "*": {in: 1.25, out: 10.0}
 
+# Retry rate limiting (engine/lib/retry_policy.py). A retry is a FULL pipeline
+# run — clones, an LLM call per phase, possibly a commit — so it is bounded by
+# default rather than on request. Counted per KEY, because a queue item's id
+# changes when it is removed and re-added, which would make the limit resettable
+# by anyone who noticed.
+retry:
+  max_attempts: 3          # attempts on one key inside the window
+  window_minutes: 60
+  cooldown_seconds: 60     # minimum gap between two attempts on the same key
+
 budgets:
   max_cost_usd_single_suite: 2.0
   max_cost_usd_cross_repo: 4.0
