@@ -135,9 +135,13 @@ def test_a_cronjob_actually_runs_the_nightly_job():
     assert spec.get("schedule"), "a CronJob with no schedule never fires"
     assert spec.get("concurrencyPolicy") == "Forbid", \
         "maintenance takes the same locks a run does"
-    cmd = " ".join(spec["jobTemplate"]["spec"]["template"]["spec"]
-                   ["containers"][0]["command"])
-    assert "maintain" in cmd
+    # command OR args: the invariant is that the job RUNS maintenance, not which
+    # field carries it. It moved from `command:` to `args:` so the image
+    # ENTRYPOINT (first-boot state seeding) is not replaced — see
+    # test_deploy_manifests.test_no_container_replaces_the_image_entrypoint.
+    ct = spec["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]
+    cmd = " ".join((ct.get("command") or []) + (ct.get("args") or []))
+    assert "maintain" in cmd, f"the CronJob does not run maintenance: {cmd!r}"
 
 
 def test_no_manifest_references_a_volume_claim_nothing_defines():

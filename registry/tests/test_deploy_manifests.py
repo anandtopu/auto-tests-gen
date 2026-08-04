@@ -95,3 +95,59 @@ def test_the_cronjob_is_covered_by_the_substitution():
     including a build older than the code that scheduled it."""
     cj = (DEPLOY / "cronjob.yaml").read_text(encoding="utf-8")
     assert "image: ai-qe-platform:latest" in cj
+
+
+def test_no_container_replaces_the_image_entrypoint():
+    """In Kubernetes `command:` replaces the image ENTRYPOINT and `args:`
+    replaces CMD — the OPPOSITE mapping to docker-compose, where `command:`
+    means CMD. deploy/local/docker-compose.yml uses `command:` correctly; the
+    OpenShift manifests were written to look the same and therefore replaced
+    ENTRYPOINT.
+
+    The cost: `tini -> bin/container-entrypoint.sh` never ran in the deployment,
+    so a fresh cluster did NO first-boot state seeding — the exact failure the 17
+    checks in tests/entrypoint-smoke.sh exist to prevent, fixed in the script and
+    then bypassed by the manifest that was supposed to run it — and tini was no
+    longer PID 1. Proven with podman: replacing the entrypoint skips the seeding,
+    overriding CMD runs it.
+
+    A container MAY set `command:`, but only if it starts with the entrypoint
+    itself — otherwise seeding is silently skipped again.
+    """
+    yaml = pytest.importorskip("yaml")
+    entry = "container-entrypoint.sh"
+    checked = 0
+    for f in sorted(DEPLOY.glob("*.yaml")):
+        for doc in yaml.safe_load_all(f.read_text(encoding="utf-8")):
+            if not isinstance(doc, dict):
+                continue
+            spec = doc.get("spec") or {}
+            tmpl = ((spec.get("jobTemplate") or {}).get("spec", {}).get("template")
+                    or spec.get("template") or {})
+            for ct in (tmpl.get("spec") or {}).get("containers", []) or []:
+                checked += 1
+                cmd = ct.get("command")
+                if cmd:
+                    assert any(entry in str(x) for x in cmd), (
+                        f"{f.name}:{ct['name']} sets command: {cmd} — that REPLACES "
+                        f"the image ENTRYPOINT, so first-boot state seeding never "
+                        f"runs. Use args: instead.")
+    assert checked >= 3, f"only inspected {checked} containers; the walk broke"
+
+
+def test_compose_keeps_using_command_because_it_means_something_else_there():
+    """The mirror of the pin above. In compose, `command:` IS the right field —
+    'fixing' it to args there would be wrong, and this says so out loud so the
+    two files are not made to look alike again."""
+    yaml = pytest.importorskip("yaml")
+    compose = yaml.safe_load(
+        (ROOT / "deploy/local/docker-compose.yml").read_text(encoding="utf-8"))
+    for name, svc in (compose.get("services") or {}).items():
+        if "dashboard_server" in str(svc.get("command", "")) or \
+           "taskevent_receiver" in str(svc.get("command", "")):
+            assert "entrypoint" not in svc, (
+                f"compose service {name} overrides entrypoint — that IS the way to "
+                f"skip seeding here")
+            break
+    else:
+        raise AssertionError("neither compose service runs a known entrypoint command")

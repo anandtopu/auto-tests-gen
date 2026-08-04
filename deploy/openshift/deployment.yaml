@@ -33,7 +33,15 @@ spec:
       containers:
         - name: dashboard
           image: ai-qe-platform:latest      # overridden by kustomize / deploy.sh
-          command: ["python3", "bin/dashboard_server.py"]
+          # `args:`, NOT `command:`. In Kubernetes `command` replaces the
+          # image ENTRYPOINT and `args` replaces CMD — the opposite mapping to
+          # docker-compose, where `command:` means CMD. With `command:` here,
+          # ENTRYPOINT (tini -> bin/container-entrypoint.sh) never ran, so a
+          # fresh deployment did NO first-boot state seeding — the exact
+          # failure `make test-entrypoint`'s 17 checks exist to prevent — and
+          # lost tini as PID 1 as well. Proven with podman: replacing the
+          # entrypoint skips the seeding, overriding CMD runs it.
+          args: ["python3", "bin/dashboard_server.py"]
           ports:
             - name: ui
               containerPort: 4999
@@ -74,7 +82,8 @@ spec:
             - { name: state,     mountPath: /state }
         - name: receiver
           image: ai-qe-platform:latest
-          command: ["python3", "bin/taskevent_receiver.py"]
+          # See the note on the dashboard container: args, never command.
+          args: ["python3", "bin/taskevent_receiver.py"]
           ports:
             - name: hook
               containerPort: 4998

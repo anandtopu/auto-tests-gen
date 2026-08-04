@@ -40,7 +40,15 @@ spec:
           containers:
             - name: maintain
               image: ai-qe-platform:latest
-              command: ["make", "maintain"]
+              # `args:`, NOT `command:`. In Kubernetes `command` replaces the
+              # image ENTRYPOINT and `args` replaces CMD — the opposite mapping to
+              # docker-compose, where `command:` means CMD. With `command:` here,
+              # ENTRYPOINT (tini -> bin/container-entrypoint.sh) never ran, so a
+              # fresh deployment did NO first-boot state seeding — the exact
+              # failure `make test-entrypoint`'s 17 checks exist to prevent — and
+              # lost tini as PID 1 as well. Proven with podman: replacing the
+              # entrypoint skips the seeding, overriding CMD runs it.
+              args: ["make", "maintain"]
               env:
                 # Mutable state lives here, never in the image tree (R12).
                 - { name: AIQE_STATE_DIR, value: /state }
