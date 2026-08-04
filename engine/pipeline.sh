@@ -324,12 +324,18 @@ else
   else
     TRACKER get_item "$KEY" > out/ticket.json
   fi
-  COMP=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('components',[])))")
-  LBL=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('labels',[])))")
-  LINKED=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('linked_repos',[])))")
+  # ONE parse of the ticket for all five fields. These were five separate
+  # `python3 -c` one-liners, each a ~200ms interpreter start reading the SAME
+  # file — the spec_exemplars duplicated-work shape again. Values are
+  # shlex-quoted by the emitter because ticket text is untrusted JIRA data and
+  # this line evals them (same precedent as app_paths --sh).
+  eval "$(python3 engine/lib/ticket_fields.py out/ticket.json)"
+  COMP=$AIQE_T_COMP
+  LBL=$AIQE_T_LBL
+  LINKED=$AIQE_T_LINKED
   python3 engine/phases/resolve.py jira "$KEY" --components "$COMP" --labels "$LBL" --linked-repos "$LINKED" > out/resolve.contract.json
   # Release tracking: capture the ticket's fixVersions as the key's target release
-  FIXV=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print(','.join(t.get('fix_versions',[])))")
+  FIXV=$AIQE_T_FIXV
   if [ -n "$FIXV" ]; then python3 engine/lib/review_state.py release "$KEY" "$FIXV" jira; fi
   # Knowledge port: pull linked Confluence pages (budgeted) as analyze context
   # $AIQE_MOCK_RESOLVED, not the raw variable. Reading it again here meant
@@ -340,7 +346,7 @@ else
   else bash adapters/knowledge/confluence.sh get_linked_docs out/ticket.json > out/confluence.md || true; fi
   # P0: issue-type-aware generation — bug fixes get regression guidance,
   # security fixes get negative/abuse-case guidance, stories the extend-first bias
-  ITYPE=$(python3 -c "import json;t=json.load(open('out/ticket.json'));print((t.get('issue_type') or 'story').lower())")
+  ITYPE=$AIQE_T_ITYPE
   GUID=prompts/issue-types/story.md
   case "$ITYPE" in *bug*|*defect*) GUID=prompts/issue-types/bug.md ;; \
                    *security*|*vulnerab*) GUID=prompts/issue-types/security.md ;; esac
