@@ -67,6 +67,8 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+import app_paths  # noqa: E402
+
 SCHEMA = 1
 
 # Directories copied wholesale, and single files. Order is irrelevant; both are
@@ -141,24 +143,48 @@ def _excluded(rel):
     return rel.suffix in EXCLUDE_SUFFIX
 
 
+def source_of(rel):
+    """WHERE a bundled path actually lives.
+
+    This is the whole reason the backup was wrong. `collect()` resolved every
+    include against ROOT, so under R12 relocation (AIQE_STATE_DIR, or a per-path
+    knob) it read the IMAGE's factory copies at /app instead of the operator's
+    state on the volume. Measured in a container with AIQE_STATE_DIR=/state: an
+    edit to /state/registry/repo-registry.yaml was absent from every member of
+    the resulting bundle, while the bundle still reported "exported 29 file(s)"
+    and the nightly summary still said `ok`.
+
+    A backup that silently contains somebody else's data is worse than no backup:
+    the operator stops worrying, and finds out on the day they restore.
+
+    Reading moves; the ARCHIVE NAME does not. Members and manifest keys stay
+    repo-relative so a bundle taken from a relocated deployment still imports
+    into one laid out differently — which is the entire point of a portable
+    bundle."""
+    return app_paths.resolve_rel(rel)
+
+
 def collect(profile="full"):
-    """Every bundled path, relative to the repo root. Deterministic order.
-    profile="knowledge" carries guidance/catalog/conventions only (roadmap 6.4)."""
+    """Every bundled path, as a repo-relative NAME. Deterministic order.
+    profile="knowledge" carries guidance/catalog/conventions only (roadmap 6.4).
+    Use source_of() to turn a name into the file to read."""
     files = KNOWLEDGE_FILES if profile == "knowledge" else INCLUDE_FILES
     dirs = KNOWLEDGE_DIRS if profile == "knowledge" else INCLUDE_DIRS
     out = []
     for f in files:
-        p = ROOT / f
-        if p.is_file() and not _excluded(pathlib.Path(f)):
+        if source_of(f).is_file() and not _excluded(pathlib.Path(f)):
             out.append(pathlib.Path(f))
     for d in dirs:
-        base = ROOT / d
+        base = source_of(d)
         if not base.is_dir():
             continue
         for p in sorted(base.rglob("*")):
             if not p.is_file():
                 continue
-            rel = p.relative_to(ROOT)
+            # Name it relative to the INCLUDE, then re-root under the include's
+            # repo-relative path — so a relocated directory still lands in the
+            # archive under `catalog/...`, not `state/catalog/...`.
+            rel = pathlib.Path(d) / p.relative_to(base)
             if not _excluded(rel):
                 out.append(rel)
     return sorted(set(out), key=lambda r: r.as_posix())
@@ -184,7 +210,7 @@ def export(dest=None, profile="full"):
         "created": time.time(), "created_h": stamp,
         "source_host": os.environ.get("HOSTNAME") or os.environ.get("COMPUTERNAME", ""),
         "file_count": len(files),
-        "files": {r.as_posix(): _sha(ROOT / r) for r in files},
+        "files": {r.as_posix(): _sha(source_of(r)) for r in files},
     }
     man_path = ROOT / "reports/exports" / f".manifest-{stamp}.json"
     man_path.parent.mkdir(parents=True, exist_ok=True)
@@ -193,7 +219,7 @@ def export(dest=None, profile="full"):
         with tarfile.open(out, "w:gz") as tar:
             tar.add(man_path, arcname="manifest.json")
             for rel in files:
-                tar.add(ROOT / rel, arcname=f"state/{rel.as_posix()}")
+                tar.add(source_of(rel), arcname=f"state/{rel.as_posix()}")
     finally:
         man_path.unlink(missing_ok=True)
     return out
