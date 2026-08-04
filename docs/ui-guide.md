@@ -23,6 +23,26 @@ shows the current state, not a snapshot from when the page opened.
 
 ## Overview
 
+**Answers:** what is the state of the estate, and what should I look at first?
+
+A **Start here** panel appears while the estate is still being set up: register
+repositories, generate tests from a PR or ticket, review what came out. Each
+step reports what is actually TRUE (repo counts, run counts, cataloged tests),
+so it doubles as a status check for a half-built estate rather than a splash
+screen, and the whole panel disappears once the three are done.
+
+That panel exists because an estate with no repos, no runs and no catalog used
+to be told "Nothing needs attention — all clear". Everything *was* clear;
+nothing was set up. An absence of data was being reported as a healthy state,
+which is the same mistake constitution C13 forbids elsewhere — here it landed
+on the one user least able to spot it.
+
+**Navigation** is grouped: **Start** (orient and launch), **Work** (the things
+you do to a request), **Insight** (what the work produced), **Configure** (how
+the platform behaves). Fifteen flat entries gave a newcomer no way to tell the
+three they need from the twelve they do not.
+
+
 **Answers:** is anything on fire, and what is waiting on a person?
 
 The *Needs attention* card is the one to read first: failed runs, review debt,

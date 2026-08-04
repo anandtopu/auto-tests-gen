@@ -9,6 +9,7 @@ server-rendered from real state; interactive actions light up when served by
 bin/dashboard_server.py (make serve). Regenerate: make dashboard.
 """
 import glob, html, json, pathlib, sys, time
+import os
 
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -252,13 +253,70 @@ for e in orphans[:2]:
     attention.append(("orphan", "warning",
                       f"{e['file']} maps to no app repo — confirm a mapping or retire it.",
                       "Open catalog", "catalog"))
+# GETTING STARTED, DERIVED FROM THE ESTATE — not a static banner.
+#
+# "Nothing needs attention — all clear" was shown to an estate with no repos, no
+# runs and no catalog: a brand-new user was told everything was fine when in
+# fact nothing was set up. That is C13 applied to onboarding — an absence of
+# data reported as a healthy state — and it leaves the first question a new user
+# has ("what do I do?") unanswered by the page that exists to answer it.
+#
+# Each step reports what IS true, so the panel is also a status check for an
+# estate mid-setup, not just a first-run splash. It disappears once all three
+# are satisfied, because by then the attention panel has real work to show.
+_start_steps = []
+_n_app = len(reg.get("source_repositories") or [])
+_n_test = len(reg.get("test_repositories") or [])
+_start_steps.append((
+    bool(_n_app and _n_test),
+    "Register your repositories",
+    (f"{_n_app} app repo(s) and {_n_test} E2E test repo(s) configured."
+     if _n_app and _n_test else
+     "Add the app repos you ship and the E2E repos that test them. Routing "
+     "needs both: it maps a change in one to the suite that owns it."),
+    "Repositories", "repos"))
+_start_steps.append((
+    bool(runs),
+    "Generate tests from a PR or a ticket",
+    (f"{len(runs)} run(s) recorded." if runs else
+     "Guided run walks the two journeys step by step — a pull request, or a "
+     "JIRA ticket. Nothing is pushed until the gate passes."),
+    "Guided run", "wizard"))
+_start_steps.append((
+    bool(catalog),
+    "Review what was generated",
+    (f"{len(catalog)} test(s) cataloged." if catalog else
+     "Generated tests land on a branch with a catalog entry, then wait for a "
+     "human. Approve or request changes on the review board."),
+    "Runs & reviews", "runs"))
+
+_start_html = ""
+if not all(done for done, *_ in _start_steps):
+    _start_html = (
+        '<section class="card" id="start-here">'
+        '<div class="card-h"><div><h2>Start here</h2>'
+        '<div class="sub">Three steps to your first AI-generated E2E test. '
+        'This panel goes away once they are done.</div></div></div>'
+        + "".join(
+            f'<button class="attn start-step{" done" if done else ""}" data-go="{view}">'
+            f'<span class="chip chip-{"success" if done else "info"}">'
+            f'{"done" if done else str(i + 1)}</span>'
+            f'<span class="attn-text"><b>{esc(title)}</b><br>'
+            f'<span class="sub">{esc(why)}</span></span>'
+            f'<span class="attn-act">{esc(action)} \u2192</span></button>'
+            for i, (done, title, why, action, view) in enumerate(_start_steps))
+        + '</section>')
+
 attention_html = "".join(
     f'<button class="attn" data-go="{view}">'
     f'<span class="chip chip-{cls}">{esc(tag)}</span>'
     f'<span class="attn-text">{esc(text)}</span>'
-    f'<span class="attn-act">{esc(action)} →</span></button>'
-    for tag, cls, text, action, view in attention) or \
-    '<div class="empty">Nothing needs attention — all clear.</div>'
+    f'<span class="attn-act">{esc(action)} \u2192</span></button>'
+    for tag, cls, text, action, view in attention) or (
+    '<div class="empty">Nothing needs attention \u2014 all clear.</div>'
+    if all(done for done, *_ in _start_steps) else
+    '<div class="empty">Nothing needs attention <b>yet</b> \u2014 finish the '
+    'steps above and this fills with real work.</div>')
 
 matrix_head = "".join(f'<th class="c">{esc(t["name"])}</th>' for t in trepos)
 matrix_rows = ""
@@ -695,16 +753,26 @@ nav_badges = {
 }
 gen_ts = time.strftime("%Y-%m-%d %H:%M")
 
-NAV = [("overview", "◧", "Overview"), ("wizard", "✦", "Guided run"),
-       ("progress", "◉", "Run progress"),
-       ("queue", "⇥", "Intake & queue"),
-       ("plans", "✎", "Test plans"), ("specflow", "✓", "Spec workflow"),
-       ("runs", "▶", "Runs & reviews"), ("activity", "⚡", "Activity"), ("alerts", "△", "Alerts"),
-       ("trace", "⇢", "Trace"),
-       ("cost", "◔", "Cost"),
-       ("artifacts", "❏", "Artifacts"),
-       ("catalog", "☰", "Test catalog"), ("repos", "⛁", "Repositories"),
-       ("settings", "⚙", "Settings")]
+# (group, id, icon, label). Fifteen flat items gave a newcomer no way to tell
+# which three they need from the twelve they do not; the groups say what each
+# section is FOR, in the order a user meets them: do the work, then look at what
+# it produced, then change how it behaves.
+NAV = [("Start",     "overview", "◧", "Overview"),
+       ("Start",     "wizard",   "✦", "Guided run"),
+       ("Work",      "queue",    "⇥", "Intake & queue"),
+       ("Work",      "progress", "◉", "Run progress"),
+       ("Work",      "plans",    "✎", "Test plans"),
+       ("Work",      "runs",     "▶", "Runs & reviews"),
+       ("Insight",   "specflow", "✓", "Spec workflow"),
+       ("Insight",   "trace",    "⇢", "Trace"),
+       ("Insight",   "cost",     "└", "Cost"),
+       ("Insight",   "artifacts", "❏", "Artifacts"),
+       ("Insight",   "activity", "⚡", "Activity"),
+       ("Insight",   "alerts",   "△", "Alerts"),
+       ("Configure", "catalog",  "☰", "Test catalog"),
+       ("Configure", "repos",    "⛁", "Repositories"),
+       ("Configure", "settings", "⚙", "Settings")]
+
 TITLES = {"overview": "Overview", "wizard": "Guided run — PR or JIRA, step by step",
           "progress": "Run progress — where a request is, and why it failed",
           "queue": "Intake & work queue",
@@ -717,12 +785,17 @@ TITLES = {"overview": "Overview", "wizard": "Guided run — PR or JIRA, step by 
           "artifacts": "Generated artifacts",
           "catalog": "Test knowledge catalog", "repos": "Repositories & mapping",
           "settings": "Settings & integrations"}
-nav_html = "".join(
-    f'<button class="nav-item{" active" if vid == "overview" else ""}" data-go="{vid}">'
-    f'<span class="nav-ic">{icon}</span><span class="nav-lb">{esc(label)}</span>'
-    + (f'<span class="badge">{nav_badges[vid]}</span>'
-       if nav_badges.get(vid) else "") + "</button>"
-    for vid, icon, label in NAV)
+_nav_parts, _seen_group = [], None
+for _group, vid, icon, label in NAV:
+    if _group != _seen_group:
+        _nav_parts.append(f'<div class="nav-group">{esc(_group)}</div>')
+        _seen_group = _group
+    _nav_parts.append(
+        f'<button class="nav-item{" active" if vid == "overview" else ""}" data-go="{vid}">'
+        f'<span class="nav-ic">{icon}</span><span class="nav-lb">{esc(label)}</span>'
+        + (f'<span class="badge">{nav_badges[vid]}</span>'
+           if nav_badges.get(vid) else "") + "</button>")
+nav_html = "".join(_nav_parts)
 
 # ---------------------------------------------------------------- CSS (design tokens)
 CSS = """
@@ -848,6 +921,12 @@ th.gap { color:var(--sr-danger-fg); }
 .nowrap { white-space:nowrap; } .spacer { flex:1; }
 .success-fg { color:var(--sr-success-fg); } .warning-fg { color:var(--sr-warning-fg); }
 .danger-fg { color:var(--sr-danger-fg); }
+.nav-group { padding:14px 12px 4px; font-size:10px; font-weight:700;
+  letter-spacing:.09em; text-transform:uppercase; color:var(--sr-fg-muted); }
+.nav-group:first-child { padding-top:4px; }
+.start-step .chip { min-width:22px; text-align:center; }
+.start-step.done .attn-text b { color:var(--sr-fg-muted); font-weight:600; }
+
 .empty { padding:28px 20px; text-align:center; color:var(--sr-fg-muted); font-size:13px; }
 
 .chip { border-radius:9999px; font-size:11px; font-weight:600; padding:2px 9px; white-space:nowrap;
@@ -2906,6 +2985,7 @@ page = f"""<!doctype html>
 
   <div data-view="overview" class="on">
     <div class="tiles">{tiles_html}</div>
+    {_start_html}
     <section class="card">
       <div class="card-h"><h2>Needs attention</h2>
         <span class="sub">what a QA lead should look at first</span></div>
@@ -3550,7 +3630,13 @@ page = f"""<!doctype html>
 <script>{JS}</script>
 </body></html>"""
 
-out = ROOT / "reports/dashboard.html"
+# Output override: a caller (a test, a docs build, an operator rendering a
+# snapshot) must be able to write somewhere else. Without it, anything that
+# rendered against an isolated estate silently REPLACED the real dashboard
+# with a view of the fixture — the same estate-pollution class as the
+# transaction log and the run history.
+out = pathlib.Path(os.environ.get("AIQE_DASHBOARD_OUT", "").strip()
+                   or ROOT / "reports/dashboard.html")
 out.write_text(page, encoding="utf-8", newline="\n")
 print(f"dashboard written: {out} ({len(runs)} runs, {len(catalog)} catalog entries, "
       f"{len(latest_by_key)} artifact keys)")
