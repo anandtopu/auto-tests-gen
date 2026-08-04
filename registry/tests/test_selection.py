@@ -162,3 +162,63 @@ def test_the_finalized_stamp_records_the_follow_up_count(estate):
     st = selection.status("ZZSEL-1", root=estate)
     assert st["finalized"]["needs_follow_up"] == 1
     assert st["finalized"]["by"] == "qa-lead"
+
+
+def test_the_approved_artifact_is_carried_by_the_state_bundle():
+    """A finalized selection is a human decision — who approved what, what they
+    turned down and why. The bundle exists to carry exactly that, and a new
+    deployment that silently lost it cannot answer an audit's first question.
+
+    Placement did the work for selection.json (it sits under the already-bundled
+    reports/plans/), which is precisely why the artifact directory needs its own
+    assertion: nothing would have noticed."""
+    import state_bundle
+    assert "reports/approved" in state_bundle.INCLUDE_DIRS, \
+        "finalized approvals would not survive a migration"
+    excl = "".join(state_bundle.EXCLUDE_PARTS)
+    assert "reports/approved" not in excl, "carried by one rule, dropped by another"
+
+
+def test_rate_limit_counters_are_not_carried():
+    """The other direction. Importing one environment's cooldowns into another
+    where nothing has failed would rate-limit a fresh deployment's first retry."""
+    import state_bundle
+    assert not any("retries" in d for d in state_bundle.INCLUDE_DIRS)
+    assert not any("retries" in f for f in state_bundle.INCLUDE_FILES)
+
+
+def test_selection_follows_a_relocated_plan_directory(tmp_path, monkeypatch):
+    """R12: plan_state honours AIQE_PLAN_DIR. Selection must land in the SAME
+    directory or one review is split across two — the lifecycle state on the
+    volume, the decisions behind at the image path, where a read-only rootfs
+    cannot even write them.
+
+    Imported fresh under the env var, because both modules bind their paths at
+    import time (that is what makes the hazard invisible at runtime)."""
+    import importlib
+    relocated = tmp_path / "elsewhere/plans"
+    relocated.mkdir(parents=True)
+    monkeypatch.setenv("AIQE_PLAN_DIR", str(relocated))
+    import plan_state as ps
+    importlib.reload(ps)
+    import selection as sel
+    try:
+        importlib.reload(sel)
+        assert sel.FILE.parent == ps.DIR, \
+            "selection.json parted company with the plan state it belongs to"
+        assert str(relocated) in str(sel.FILE)
+    finally:
+        monkeypatch.delenv("AIQE_PLAN_DIR", raising=False)
+        importlib.reload(ps)
+        importlib.reload(sel)
+
+
+def test_selection_does_not_resolve_the_plan_directory_itself():
+    """The invariant, not just today's value — same shape as
+    test_catalog_paths: a future edit that re-hardcodes the path is caught even
+    if it happens to point at the right place today."""
+    src = (ROOT / "engine/lib/selection.py").read_text(encoding="utf-8")
+    head = src[:src.index("def _path(")]
+    assert 'plan_state.DIR' in head, "the plan directory is derived somewhere else"
+    assert 'ROOT / "reports/plans' not in head, \
+        "selection.py resolves the plan directory itself again"

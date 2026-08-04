@@ -46,8 +46,16 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import fs_lock  # noqa: E402
+import plan_state  # noqa: E402
 
-FILE = ROOT / "reports/plans/selection.json"
+# The plan directory has ONE definition, and it is plan_state's — it honours
+# AIQE_PLAN_DIR (R12 relocation, and how the state-adversarial suite isolates
+# itself). Re-deriving `reports/plans` here would repeat the catalog-paths
+# defect exactly: under a relocated plan dir the lifecycle state moves to the
+# volume and the selection decisions stay behind at the image path, so the two
+# halves of one review disagree — and on a read-only rootfs the second half is
+# simply unwritable.
+FILE = plan_state.DIR / "selection.json"
 
 
 def _path(root=ROOT):

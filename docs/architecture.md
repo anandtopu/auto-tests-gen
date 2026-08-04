@@ -1,7 +1,7 @@
 # Solution Architecture Document
 ## AI-Driven Test Engineering Workflow PoC — OpenHands + Claude Code
 
-**Version:** 2.7 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md). **v2.5** adds §5.17 (the transaction log, alert rules and notifications). **v2.6** adds §5.18 (spec-driven adoption — the workflow as a state machine, a generated governance page, coverage subtraction that counts but refuses to price, and two UI-layer defects found by driving the served page). **v2.7** adds §5.19 (the dominant defect class — an inability to establish a fact reported as an established negative — promoted to constitution clause C13)
+**Version:** 2.8 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md). **v2.5** adds §5.17 (the transaction log, alert rules and notifications). **v2.6** adds §5.18 (spec-driven adoption — the workflow as a state machine, a generated governance page, coverage subtraction that counts but refuses to price, and two UI-layer defects found by driving the served page). **v2.7** adds §5.19 (the dominant defect class — an inability to establish a fact reported as an established negative — promoted to constitution clause C13). **v2.8** adds §5.20 (the operator-facing layer — progress with an explicit `unknown` state, explanation from what was recorded, rate-limited retry, and selective approval that never claims a committed test is gone) and §5.21 (the efficiency inventory: what is held with evidence, what is unmeasured and why)
 **Author:** QA / AI Quality Engineering Team
 **Scope:** Proof of Concept — Agentic SDLC test generation workflow across a **multi-repository estate**: multiple UI repos, multiple backend/API repos, and **6 existing E2E test repositories (3 API, 3 UI) whose tests are currently unmapped to any application repository or feature**. v2.0 adds the **Test Catalog & Mapping subsystem** (bootstrap + continuous mapping of existing tests) and a **pluggable Integration & Extensibility layer** (Jira, Bitbucket, GitHub, Slack, Splunk, and future tools), and restructures the solution as a reusable, customizable platform. v2.1 extends the integration layer with **Confluence (knowledge source + publishing)**, **Jenkins (CI/CD trigger, execution, and results feedback)**, and a documented onboarding pattern for any additional SDLC tool.
 
@@ -1162,6 +1162,85 @@ cycle while the constitution stopped at C11: a rule documented as enforced that
 did not exist. `test_every_pin_exists` catches the opposite direction — a clause
 whose pin was deleted — so an *undefended* rule was already loud, while a
 *fictional* one was silent. Both directions are now pinned.
+
+### 5.20 The operator-facing layer: progress, explanation, retry, selection (v2.8)
+
+Four capabilities landed together because they answer four questions the same
+person asks in the same hour: *where is my request, why did it decide that, can
+I run it again, and can I take only part of it?* Each is deliberately a READ or
+a BOUNDED WRITE over state the engine already produces — none of them is a new
+authority.
+
+**Progress (`engine/lib/run_progress.py`).** A submitted PR or ticket becomes a
+step sequence with six states: `pending | running | done | failed | skipped |
+unknown`. `unknown` is not decoration — it is C13 in the UI layer. A step whose
+outcome was never recorded must not render as `done` (the user acts on a test
+suite that may not exist) nor as `failed` (they chase a failure that never
+happened). Exit codes are explained from `EXIT_MEANINGS`, read off the gate and
+pipeline rather than re-typed, so a new exit code cannot acquire a stale
+description. The stale-lock threshold is shared with `pipeline.sh` (90 min), so
+"running" and "abandoned" cannot disagree between the runner and the view.
+
+**Explainability (`engine/lib/explain.py`, [ai-explainability.md](ai-explainability.md)).**
+Six decisions are explained from what was RECORDED at the time — routing,
+plan authorship and adversary folds, generation targeting, gate verdict, cost
+basis, context selection. The context manifest names every chunk KEPT *and
+every chunk DROPPED*, which is the only way a reader can tell "the model saw
+this and disagreed" from "the model never saw it". Where a reason was not
+recorded, `_unknown()` says so and names what would record it; a plausible
+reconstruction would be worse than an admission, because it reads exactly like
+evidence.
+
+**Retry (`engine/lib/retry_policy.py`).** Failed runs are re-runnable, rate
+limited at 3 attempts / 60-minute window / 60-second cooldown. Two design
+points. A refusal names the limit and the wait, because an unexplained refusal
+is indistinguishable from a broken button. And limits are validated PER KEY
+with a `problems` list — a single malformed value must not discard the other
+two limits, which is how a rate limiter silently becomes no rate limiter. The
+requeue preserves `attempts`/`last_error`/`last_exit_code`, so the history of
+"this has failed three times the same way" survives the retry that would
+otherwise erase it.
+
+**Selective approval (`engine/lib/selection.py`).** Approval used to be
+all-or-nothing; a reviewer who liked nine of ten scenarios had to accept the
+tenth or reject the batch. Selection is per-scenario and per-test, undecided
+means INCLUDED (not deciding is not rejecting), and a partial update never
+reverts a decision it did not mention. The property the feature lives on:
+**the gate has already committed.** Un-ticking a test that was pushed cannot
+remove it from the test repo, so it is reported `already_committed` with the
+follow-up spelled out and listed in the manifest's `needs_follow_up` — never as
+absent. Claiming otherwise would be the worst lie available to this product: a
+reviewer believes a test is gone while it runs in CI that night. Finalizing
+with everything excluded is refused, because an empty approved plan reads
+downstream as "this ticket needs no tests" — a rejection wearing the wrong
+label.
+
+### 5.21 Efficiency: what is already here, and what measurement blocks (v2.8)
+
+A review for skills, agentic workflows, loop/graph engineering and prompt
+caching found most of that machinery already present, and the useful output was
+an inventory with verdicts rather than a proposal — recorded in
+[efficiency-review.md](efficiency-review.md). Held with evidence: 9 skills (two
+with DERIVED path globs), three agentic structures each with a containment
+argument, bounded-and-counted loops, graph-shaped routing over `covers:`/
+evidence edges with hybrid retrieval, and a content-addressed phase cache.
+Unmeasured and said so: the provider prompt-cache hit rate — the prompt SHAPE
+is cache-friendly by construction (run parameters appended LAST, context
+ordered most-stable-first) but `cache-probe` refuses mock mode with "Nothing
+was measured" and remains blocked on CLI auth. A phase cache showing zero
+entries on this estate is CORRECT, not broken: mock mode bypasses
+`run_phase.sh` entirely.
+
+The one gap closed was duplicated work, the second instance of a shape found
+earlier in `spec_exemplars`: the jira branch parsed `out/ticket.json` five
+times in five interpreters for one field each. `engine/lib/ticket_fields.py`
+parses once. Because the values are now `eval`ed where before they were `$()`
+captured, they are shlex-quoted — ticket text is untrusted JIRA data, and the
+day a component name carries a quote is the day unquoted output becomes an
+injection. Reported honestly: the whole-run A/B (+505/-406/+1307 ms on ~35s)
+sits inside the noise, so no speedup is claimed; what is claimed is four fewer
+interpreter starts and one parse of one document, with the emitted values
+pinned byte-identical to the expressions they replace.
 
 ## 6. Scalability, Reliability, Efficiency, Maintainability — Deep Dive
 

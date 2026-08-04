@@ -28,6 +28,7 @@ holds across the UI, the CLI and the API rather than being re-derived by
 whichever one happens to be running.
 """
 import json
+import os
 import pathlib
 import sys
 import time
@@ -40,7 +41,16 @@ import fs_lock  # noqa: E402
 # NOT under reports/runs/: every glob over that directory has to remember to
 # skip the state files that live in it, and CLAUDE.md lists three already.
 # Adding a fourth trap for the sake of tidiness would be a poor trade.
-FILE = ROOT / "reports/retries.json"
+#
+# AIQE_RETRIES_FILE exists for the same reason AIQE_REVIEWS_FILE and
+# AIQE_QUEUE_FILE do, and it was missing here. Without it the test suite had no
+# way to isolate this store, so `make review` recorded its fixture attempts into
+# the ESTATE's counters and spent a real operator's retry budget: measured, the
+# fixture key PROJ-9 held three genuine attempts and the suite then failed
+# because its own runs had exhausted the limit. A rate limiter whose counters
+# anything else can fill is a rate limiter that refuses the wrong person.
+FILE = pathlib.Path(os.environ.get("AIQE_RETRIES_FILE")
+                    or ROOT / "reports/retries.json")
 
 DEFAULTS = {"max_attempts": 3, "window_minutes": 60, "cooldown_seconds": 60}
 

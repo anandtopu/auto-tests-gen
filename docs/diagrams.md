@@ -7,7 +7,9 @@ Contents: 1 system overview · 2 ports & adapters · 3–4 Workflows A/B · 5 th
 6 resolution · 7 catalog bootstrap · 8 workspace · 9 estate knowledge, repo config &
 guidance sync · 10 QA monitoring/review/release · 11 sharing the test plan ·
 12 team report · 13 configuration & estate management · 14 plan-first approval
-workflow · 15 deployment topology.
+workflow · 15 deployment topology · 16 cost & retrieval · 17 LLM Runner port ·
+18 attribution → routing · 19 observability · 20 spec-driven workflow · 21 the C13
+defect class · 22 progress states · 23 selective approval.
 
 ## 1. System overview (§4.2)
 
@@ -761,3 +763,67 @@ the alarm matters.
 in mind: firing is a STATE that resolves, and it records `notify.sent` /
 `notify.failed` separately. The other three were each written as a one-line
 "have we already said this?" check.
+
+## 22. Where is my request? — the six progress states (§5.20)
+
+`run_progress.py` renders a submitted PR or ticket as a step sequence. The state
+that matters most is the one a naive implementation would not have: **`unknown`**.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> pending: queued
+    pending --> running: pipeline took the lock
+    running --> done: recorded success
+    running --> failed: recorded failure (exit code explained)
+    running --> skipped: deterministic no-op (not a failure)
+    running --> unknown: NOTHING was recorded
+    unknown --> [*]: says what would record it
+    done --> [*]
+    failed --> [*]
+    skipped --> [*]
+    note right of unknown
+      C13 in the UI layer.
+      Rendering this as done sends the user
+      to a test suite that may not exist;
+      rendering it as failed sends them
+      hunting a failure that never happened.
+    end note
+    note right of running
+      "running" vs "abandoned" is decided by the
+      SAME 90-min stale-lock threshold pipeline.sh
+      uses — two definitions would disagree.
+    end note
+```
+
+## 23. Selective approval — and the exclusion the artifact cannot deliver (§5.20)
+
+A reviewer accepts part of what the AI produced. The gate, however, has already
+run: for anything it committed, un-ticking a box is a request, not an erasure.
+
+```mermaid
+flowchart TD
+    P[Plan + generated tests] --> R{Reviewer decides<br/>per scenario / per test}
+    R -->|untouched| INC[INCLUDED<br/>not deciding is not rejecting]
+    R -->|un-ticked| EX[excluded + who + why]
+    INC --> F[finalize]
+    EX --> Q{was it already<br/>committed by the gate?}
+    Q -->|no| CLEAN[dropped from the approved artifact<br/>follow_up: none]
+    Q -->|yes| FU["already_committed = true<br/>follow_up names the manual step"]
+    CLEAN --> F
+    FU --> F
+    F --> M[reports/approved/KEY/<br/>manifest.json + rendered plan]
+    M --> NF["needs_follow_up[] — listed, never buried"]
+    F -.->|everything excluded| REF["REFUSED: 'nothing to approve —<br/>reject the plan instead'"]
+
+    style FU fill:#ffe6e6
+    style NF fill:#ffe6e6
+    style REF fill:#fff4e6
+```
+
+The red path is the whole point. An approved artifact that quietly omitted a
+committed test would tell the reviewer it is gone while it runs in CI that
+night. The plan is re-rendered through `spec_store.render()` rather than
+formatted a second way, and `finalize` never rewrites `specs/<KEY>` — that stays
+the record of what was PROPOSED, so "what did the reviewer turn down?" remains
+answerable.

@@ -50,6 +50,17 @@ TEST_EVENTS_DIR = ROOT / "out/test-events"
 if not (os.environ.get("AIQE_EVENTS_DIR") or "").strip():
     os.environ["AIQE_EVENTS_DIR"] = str(TEST_EVENTS_DIR)
 
+# Retry RATE-LIMIT counters, redirected for exactly the reason the audit log is.
+# retry_policy had no knob at all, so the suite's fixture attempts landed in the
+# estate's reports/retries.json and spent a real operator's retry budget —
+# measured: the fixture key PROJ-9 accumulated three genuine attempts and then
+# `make review` failed because its own earlier runs had used up the limit. A
+# limiter anything can fill refuses the wrong person. Set at IMPORT so module
+# level code and subprocesses both see it; an explicit value still wins.
+TEST_RETRIES_FILE = ROOT / "out/test-retries.json"
+if not (os.environ.get("AIQE_RETRIES_FILE") or "").strip():
+    os.environ["AIQE_RETRIES_FILE"] = str(TEST_RETRIES_FILE)
+
 # Throwaway repos registered by tests. Keep in sync with the tests that create
 # them; an unknown repo is NEVER removed — that would be this file quietly
 # deleting somebody's real registry entry.

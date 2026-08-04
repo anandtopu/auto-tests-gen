@@ -25,6 +25,7 @@ One `.tar.gz` holding exactly the state that constitutes work somebody did:
   reports/runs/*.json, *.diff     run history + archived generated code
   reports/runs/reviews.json       team-review decisions and release assignments
   reports/plans/                  test plans, their contracts and lifecycle state
+  reports/approved/               finalized selective-review artifacts (who approved what)
   reports/openhands/state.json    the OpenHands request/conversation trace
   testplans/, testdata/           the plan markdown and canonical data
 
@@ -78,8 +79,19 @@ INCLUDE_DIRS = [
     # under knowledge/facts/derived/ is EXCLUDED below: it rebuilds.
     "knowledge/facts",
     "catalog", "reports/runs", "reports/plans", "reports/openhands",
+    # The finalized product of a selective review: which scenarios and tests a
+    # named reviewer approved, which they excluded and why, and the
+    # needs_follow_up list for exclusions the gate had already committed. That
+    # is a human decision, not a derived file — dropping it on migration loses
+    # the answer to "who approved this, and what did they turn down?", which is
+    # the question an audit opens with.
+    "reports/approved",
     "testplans", "testdata", "specs",
 ]
+# DELIBERATELY not bundled, so the absence is a decision and not an oversight:
+# reports/retries.json holds rate-limit COUNTERS. They are operational state that
+# rebuilds on first use, and carrying them would import one environment's
+# cooldowns into another where nothing has failed yet.
 INCLUDE_FILES = [
     "registry/repo-registry.yaml", "registry/org-config.yaml", "AGENTS.md",
 ]
