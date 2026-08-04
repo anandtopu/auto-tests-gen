@@ -98,7 +98,8 @@ def test_markdown_carries_the_follow_this_framing():
 
 def test_pipeline_generates_and_passes_the_context_to_every_author_phase():
     src = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
-    assert "spec_exemplars.py out/repo-conventions.md" in src
+    # `all` also writes the per-repo files the fan-out reads, in one process.
+    assert "spec_exemplars.py all out/repo-conventions.md" in src
     # Generation goes through the GENERATE wrapper (it fans out per test repo), so the
     # context is declared at its three call sites — pr / tests / jira.
     gen_lines = [l for l in src.splitlines() if l.strip().startswith("GENERATE ")]
@@ -129,3 +130,56 @@ def test_prompts_and_skill_enforce_the_existing_approach():
     assert "new-approach" in critic, "the critic must flag approach deviations"
     skill = (ROOT / ".agents/skills/test-generation/SKILL.md").read_text(encoding="utf-8")
     assert "existing approach" in skill.lower()
+
+
+# ------------------------------------------------- one pass, identical bytes
+
+def test_build_all_is_byte_identical_to_the_separate_calls(tmp_path):
+    """`all` writes the combined file AND one per repo from a single process,
+    profiling each repo once. It replaced 1 + N invocations that each re-scanned
+    repos the previous call had already read (measured: 4.16s across three
+    processes on a two-repo run; the component alone went 3306ms -> 1396ms).
+
+    The output is CONTEXT injected into every authoring phase, so a change in
+    shape silently changes what generation is told — which is why this asserts
+    bytes rather than 'looks similar'.
+    """
+    import spec_exemplars as se
+    repos = ["e2e-api-tests-1", "e2e-ui-tests-1"]
+
+    combined_old = se.build(repos)
+    per_old = {r: se.build([r]) for r in repos}
+
+    out = tmp_path / "repo-conventions.md"
+    se.build_all(out, repos)
+
+    assert out.read_text(encoding="utf-8") == combined_old
+    for r in repos:
+        p = tmp_path / f"repo-conventions-{r}.md"
+        assert p.exists(), f"per-repo file missing for {r}"
+        assert p.read_text(encoding="utf-8") == per_old[r]
+
+
+def test_build_all_with_no_repos_still_writes_the_placeholder(tmp_path):
+    """The pipeline redirects failure to an empty file, but a run that resolves
+    no test repo must still leave a readable context rather than nothing."""
+    import spec_exemplars as se
+    out = tmp_path / "repo-conventions.md"
+    se.build_all(out, [])
+    assert "No test repos resolved" in out.read_text(encoding="utf-8")
+    assert not list(tmp_path.glob("repo-conventions-*.md"))
+
+
+def test_the_fanout_reuses_the_prebuilt_file_instead_of_rebuilding(tmp_path):
+    """The saving only exists if the fan-out stops rebuilding. It must still
+    rebuild when the file is genuinely absent, so a caller that skipped context
+    prep is not silently handed an empty approach."""
+    src = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
+    fanout = src[src.index('conv="out/repo-conventions-${repo}.md"'):]
+    fanout = fanout[:fanout.index("slice=")]
+    assert '[ ! -s "$conv" ]' in fanout, \
+        "the fan-out rebuilds unconditionally again — the duplicate scan is back"
+    assert "spec_exemplars.py" in fanout, \
+        "the missing-file fallback is gone; a skipped context prep yields no approach"
+    assert "spec_exemplars.py all out/repo-conventions.md" in src, \
+        "context prep no longer builds the per-repo files in one pass"

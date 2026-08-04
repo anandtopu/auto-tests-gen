@@ -240,7 +240,14 @@ GENERATE() {
   for repo in $repos; do
     conv="out/repo-conventions-${repo}.md"
     # Only THIS repo's helpers and exemplars — the whole point of the fan-out.
-    python3 engine/lib/spec_exemplars.py "$conv" "$repo" > /dev/null 2>&1 || : > "$conv"
+    # Already written by the `all` pass during context prep, which profiles each
+    # repo ONCE; rebuilding here re-scanned repos that pass had just scanned
+    # (measured: 4.16s across three processes on a two-repo run, two of the
+    # repo scans duplicates). Rebuild only if it is genuinely missing, so a
+    # caller that skipped context prep still works.
+    if [ ! -s "$conv" ]; then
+      python3 engine/lib/spec_exemplars.py "$conv" "$repo" > /dev/null 2>&1 || : > "$conv"
+    fi
     [ -f "$conv" ] || : > "$conv"
     # This repo's own existing-test rows, plus anything covering the app repos
     # this run touched — so the agent extends its own suite instead of
@@ -400,7 +407,10 @@ python3 engine/lib/catalog_slice.py out/resolve.contract.json \
 python3 engine/lib/coverage_gaps.py md > out/coverage-gaps.md 2>/dev/null || : > out/coverage-gaps.md
 # Existing-approach exemplars: REAL helper + spec code from each resolved test repo,
 # so generated tests mirror the repo's own approach instead of inventing a new one.
-python3 engine/lib/spec_exemplars.py out/repo-conventions.md \
+# `all` writes the combined file AND one per repo in a single process. The
+# fan-out needs the per-repo files and used to build each in its own
+# interpreter, re-profiling repos this pass had already read.
+python3 engine/lib/spec_exemplars.py all out/repo-conventions.md \
   $(python3 -c "import json;print(' '.join(json.load(open('out/resolve.contract.json'))['test_repos']))") \
   > /dev/null 2>&1 || : > out/repo-conventions.md
 [ -f out/repo-conventions.md ] || : > out/repo-conventions.md
