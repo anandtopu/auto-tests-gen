@@ -10,7 +10,7 @@ SHELL := /bin/bash
         cost-report index-rebuild cache-probe cost-baseline \
         requirements demo-requirements requirements-approve spec-verify \
         test-providers test-state test-routing-adv test-observability test-bootstrap test-entrypoint \
-        parity-compare repo-facts explain
+        parity-compare repo-facts explain select select-finalize
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -126,6 +126,12 @@ check-integrations:   # read-only connectivity check for every configured system
 
 smoke-openhands:
 	bash bin/smoke-openhands.sh
+
+select:               # selective review: show/approve individual scenarios + tests (KEY=..)
+	python3 engine/lib/selection.py $(KEY)
+
+select-finalize:      # emit the approved artifacts from the SELECTED items (KEY=..)
+	python3 engine/lib/selection.py $(KEY) finalize
 
 explain:              # why the AI did what it did for a request (KEY=.. [JSON=1])
 	python3 engine/lib/explain.py $(KEY) $(if $(JSON),--json,)

@@ -612,6 +612,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, {"key": key, "run_id": recs[-1].get("run_id", ""),
                              "markdown": md})
+        elif url.path == "/api/selection":
+            import selection
+            key = urllib.parse.parse_qs(url.query).get("key", [""])[0]
+            if not re.fullmatch(r"[\w.-]+", key or ""):
+                self._send(400, {"error": "key required (word characters, . or -)"})
+                return
+            self._send(200, selection.status(key))
         elif url.path == "/api/explain":
             # "Why did the AI do that?" — assembled from evidence the run
             # already recorded. Nothing is inferred; a decision whose reason was
@@ -975,6 +982,36 @@ class Handler(BaseHTTPRequestHandler):
                 # 409 (a conflict it might resolve) would hammer the very limit
                 # that just refused it. The message already carries the wait.
                 self._send(429 if "RETRY_RATE_LIMITED" in msg else 409, {"error": msg})
+        elif self.path in ("/api/selection", "/api/selection/finalize"):
+            # Selective review: approve SOME of what the AI produced. Excluding a
+            # test the gate ALREADY committed cannot un-push it, so the response
+            # carries `needs_follow_up` rather than letting a reviewer believe a
+            # file is gone when it runs in CI that night.
+            try:
+                import selection
+                p_ = json.loads(body or b"{}")
+                key = (p_.get("key") or "").strip()
+                if not re.fullmatch(r"[\w.-]+", key):
+                    self._send(400, {"error": "key must be word characters, . or -"})
+                    return
+                actor = (self.headers.get(SSO_HEADER) if SSO_HEADER else None) or "dashboard"
+                if self.path.endswith("finalize"):
+                    self._send(200, selection.finalize(key, actor=actor))
+                else:
+                    kind = p_.get("kind")
+                    if kind not in ("scenarios", "tests"):
+                        self._send(400, {"error": "kind must be scenarios or tests"})
+                        return
+                    if not isinstance(p_.get("decisions"), dict):
+                        self._send(400, {"error": "decisions must be {id: bool}"})
+                        return
+                    selection.set_items(key, kind, p_["decisions"], actor=actor,
+                                        reason=p_.get("reason") or "")
+                    self._send(200, selection.status(key))
+            except (KeyError, json.JSONDecodeError, ValueError) as e:
+                self._send(400, {"error": _err(e)})
+            except SystemExit as e:      # nothing to finalize / everything excluded
+                self._send(409, {"error": _err(e)})
         elif self.path == "/api/runs/retry":
             # Retry a FAILED RUN, not just a queue item. A run started from the
             # CLI or a webhook has no queue entry, so before this the only way
