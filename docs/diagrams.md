@@ -715,6 +715,7 @@ flowchart TD
 | `slack.sh`, no webhook configured | `SLACK_WEBHOOK_URL: unbound variable` | Slack is simply not configured |
 | First boot, empty state root | "already populated - nothing seeded" | it had just created it, empty |
 | The audit log after `make review` | 1400 refusals/failures on this estate | the test suite provoked them |
+| Scorecard commit rate | 81%, 3 quarantined runs | 100%; all 3 were test fixtures |
 
 **The direction is the design decision, not the third state.** Both mock-mode
 knobs resolve an unusable value toward "wrote nothing" — but that means MOCK for

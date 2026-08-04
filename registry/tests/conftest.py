@@ -103,6 +103,61 @@ def _sweep_registry(notes):
                      f"{', '.join(present)}: {e}")
 
 
+def fixture_tainted_runs(runs_dir=None):
+    """Run records produced by a FIXTURE repo, not by real work.
+
+    The fan-out containment test registers an unclonable repo on purpose, so the
+    pipeline correctly records `overall: quarantined`. That record then lands in
+    the estate's shared run history, where the scorecard counts it: every
+    quarantined run in a measured estate was one of these, and the headline read
+    "Commit rate: 81% of 16 runs (3 quarantined)". The platform's own quality
+    metric was reporting its test scaffolding as product failure.
+
+    Identified by CONTENT — a gate naming a fixture repo — never by age or by
+    'looks synthetic'. A real run is never touched.
+    """
+    import json
+    out = []
+    d = pathlib.Path(runs_dir) if runs_dir else ROOT / "reports/runs"
+    if not d.is_dir():
+        return out
+    for p in sorted(d.glob("*.json")):
+        if p.name in ("reviews.json", "queue.json", "hooks-seen.json"):
+            continue                      # shared state files, not run records
+        try:
+            rec = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        # Shape, not just name. `queue.json` is a LIST, so `rec.get` raised
+        # AttributeError and — because this runs in pytest_sessionstart — the
+        # whole suite died with an INTERNALERROR pointing here rather than at
+        # the file that caused it. The name skip above already excludes today's
+        # three; this makes an unexpected shape harmless instead of fatal.
+        if not isinstance(rec, dict):
+            continue
+        gates = rec.get("gates") or []
+        if any((g or {}).get("test_repo") in FIXTURE_REPOS for g in gates):
+            out.append(p)
+    return out
+
+
+def _sweep_run_records(notes):
+    stale = fixture_tainted_runs()
+    if not stale:
+        return
+    removed = 0
+    for rec in stale:
+        for p in rec.parent.glob(f"{rec.stem}*"):   # record + its archived diffs
+            try:
+                p.unlink()
+                removed += 1
+            except OSError:
+                pass
+    notes.append(f"removed {removed} file(s) from {len(stale)} run record(s) produced "
+                 f"by fixture repo(s) {', '.join(FIXTURE_REPOS)} — they are the test "
+                 f"suite's deliberate failures, and the scorecard counted them as ours")
+
+
 def _sweep_test_events(notes):
     """Start each session with an empty redirected log, so a leak assertion is
     about THIS run and a failed run's events stay inspectable until the next."""
@@ -119,6 +174,7 @@ def pytest_sessionstart(session):
     notes = []
     _sweep_lock(notes)
     _sweep_registry(notes)
+    _sweep_run_records(notes)
     _sweep_test_events(notes)
     for n in notes:
         print(f"[conftest] {n}")

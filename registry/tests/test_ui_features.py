@@ -327,6 +327,18 @@ def test_clone_failure_skips_the_repo_but_commits_the_rest():
             ra.remove_test("zz-nofetch", force=True)
         except SystemExit:
             pass
+        # And the RUN RECORD this test caused. Removing the fixture repo but
+        # leaving the record behind put a `quarantined` run in the estate's
+        # history — and every quarantined run in it was one of these. The
+        # scorecard's headline number read "Commit rate: 81% of 16 runs (3
+        # quarantined)", so the platform's own quality metric was reporting
+        # this test's deliberate clone failure as a product failure. The run id
+        # is already known above; conftest sweeps any left by a killed run.
+        try:
+            for p in (ROOT / "reports/runs").glob(f"{m.group(1)}*"):
+                p.unlink()
+        except (OSError, NameError):
+            pass
 
 
 # ------------------------------------------------- J6: ticket linking comment
