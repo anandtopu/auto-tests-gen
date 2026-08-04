@@ -149,6 +149,22 @@ def explain_exit(code):
     return (name, why)
 
 
+def dict_rows(seq):
+    """Only the dict entries of a run-record contract list.
+
+    A run record is LLM output that reached disk. Every renderer indexed those
+    lists directly (`s["id"]`, `t["file"]`), so ONE malformed entry raised out
+    of a generator and killed the whole page — for every other run too. The
+    contracts are schema-validated upstream, so this is defence in depth; the
+    point is that a bad row degrades the ROW, never the surface. Same reasoning
+    as run_record's torn-TSV line and the conftest sweep's non-dict guard.
+
+    Callers that want to SHOW the bad row still can — this is for the ones that
+    just need to count or list.
+    """
+    return [x for x in (seq or []) if isinstance(x, dict)]
+
+
 def _read_json(p):
     try:
         return json.loads(pathlib.Path(p).read_text(encoding="utf-8"))
@@ -258,7 +274,11 @@ def _summarize(sid, contract):
     if not isinstance(contract, dict):
         return ""
     if sid == "generate":
-        tests = contract.get("tests") or []
+        # dict_rows, not the raw list: this module reads the same LLM-produced
+        # records the renderers do, and it would be poor form for the module
+        # that exists to explain a failed run to be the one that crashes on a
+        # malformed one.
+        tests = dict_rows(contract.get("tests"))
         created = sum(1 for t in tests if t.get("action") == "created")
         return f"{created} created, {len(tests) - created} updated"
     if sid == "critic":
@@ -267,7 +287,7 @@ def _summarize(sid, contract):
     if sid == "validate":
         return f"{contract.get('repair_loops', 0)} repair loop(s)"
     if sid == "testplan":
-        return f"{len(contract.get('scenarios') or [])} scenario(s)"
+        return f"{len(dict_rows(contract.get('scenarios')))} scenario(s)"
     if sid == "resolve":
         return ", ".join(contract.get("test_repos") or []) or "no test repo resolved"
     return ""

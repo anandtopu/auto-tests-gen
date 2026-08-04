@@ -13,6 +13,7 @@ the gates have decided.
     nothing worth saying, e.g. triage found no behavior change)
 """
 import json, os, pathlib, sys
+import run_progress
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -77,6 +78,7 @@ def from_record(record):
 
 def _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key):
     tests = gen.get("tests", []) or []
+    tests = run_progress.dict_rows(tests)
     created = [t for t in tests if t.get("action") == "created"]
     updated = [t for t in tests if t.get("action") == "updated"]
     open_qs = gen.get("open_questions", []) or []

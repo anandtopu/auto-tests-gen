@@ -13,7 +13,8 @@ import glob, html, json, pathlib, sys, time
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import app_paths                      # R12: mutable paths resolve here
+import app_paths
+import run_progress                      # R12: mutable paths resolve here
 from registry import load_registry
 import review_state, test_health, work_queue
 
@@ -370,12 +371,24 @@ for key, r in latest_by_key.items():
                 f'</div><pre>{esc(cov)}</pre></div>')
 
     left, right = "", ""
+    # A run record is LLM output that reached disk. `s["id"]` on a scenario that
+    # is a bare int, or a test row with no `file`, raised out of the whole
+    # generator and killed dashboard generation entirely — one malformed record
+    # and the operator has no dashboard at all, for every OTHER run too. The
+    # contracts are schema-validated upstream, so this is defence in depth, and
+    # it degrades the ROW rather than the page. Same reasoning as run_record's
+    # torn-TSV line and the conftest sweep's non-dict guard.
     scen = contracts.get("testplan", {}).get("scenarios", [])
     if scen:
         left += "<h3>Scenarios</h3>" + "".join(
-            f'<div class="scen"><code>{esc(s["id"])}</code> {esc(s["title"])} '
-            f'<span class="chip chip-info sm">{esc(s["layer"])}</span>'
-            f'<span class="muted sm">→ {esc(s["target_repo"])}</span></div>' for s in scen)
+            (f'<div class="scen"><code>{esc(s.get("id", "?"))}</code> '
+             f'{esc(s.get("title", ""))} '
+             f'<span class="chip chip-info sm">{esc(s.get("layer", "?"))}</span>'
+             f'<span class="muted sm">→ {esc(s.get("target_repo", "?"))}</span></div>'
+             if isinstance(s, dict) else
+             f'<div class="scen muted sm">unreadable scenario entry: {esc(repr(s)[:60])}'
+             f' — the record is malformed, not empty</div>')
+            for s in scen)
     data_dir = app_paths.testdata_dir(ROOT) / key
     if data_dir.exists():
         files = [p for p in sorted(data_dir.rglob("*")) if p.is_file()]
@@ -385,8 +398,10 @@ for key, r in latest_by_key.items():
     gen = contracts.get("generate", {})
     if gen.get("tests"):
         right += "<h3>Generated tests</h3>" + "".join(
-            f'<div class="sm"><code>{esc(t["file"])}</code> '
-            f'<span class="chip chip-success sm">{esc(t.get("action", "?"))}</span></div>'
+            (f'<div class="sm"><code>{esc(t.get("file", "?"))}</code> '
+             f'<span class="chip chip-success sm">{esc(t.get("action", "?"))}</span></div>'
+             if isinstance(t, dict) else
+             f'<div class="sm muted">unreadable test entry: {esc(repr(t)[:60])}</div>')
             for t in gen["tests"])
     v = contracts.get("validate", {})
     if v:
@@ -520,7 +535,7 @@ for _tk in trace_lib.keys()[:12]:
                          f'critic {c.get("score")}</span>')
             files = "".join(f'<div class="mono sm muted">{esc(x.get("file", "?"))} '
                             f'({esc(x.get("action", "?"))})</div>'
-                            for x in m.get("tests", [])[:6])
+                            for x in run_progress.dict_rows(m.get("tests"))[:6])
             extra = (f'<div class="chips" style="margin-top:4px">{bits}</div>{files}'
                      f'<div class="mono sm muted">run {esc(m.get("run_id") or "")}</div>')
         actor = f'<span class="muted sm"> — {esc(ev["actor"])}</span>' if ev.get("actor") else ""
@@ -1241,7 +1256,21 @@ const chipMap = { queued: ['queued', 'info'], running: ['● running', 'warning'
 function keyOf(i) { return i.mode === 'pr' ? 'PR-' + i.target + '-' + i.pr : i.target; }
 async function refreshQueue() {
   if (!served) return;
-  const q = await api('/api/queue');
+  // A failed fetch used to reject straight out of here; runViewLoaders swallows
+  // it so the view keeps whatever it had. On THIS view that reads as "the queue
+  // is empty, nothing is running" — the reading that makes an operator queue a
+  // duplicate run, or walk away believing their submission was never accepted.
+  // Every other loading view reports; this one did not. Found by failing fetch
+  // against the served page, which is also how the loadFailed pattern was found.
+  let q;
+  try {
+    q = await api('/api/queue');
+  } catch (err) {
+    loadFailed('#queue-table tbody', 7, err);
+    const c = $('#queue-count');
+    if (c) c.textContent = 'queue status unknown — the list below is not current';
+    return [];
+  }
   const body = $('#queue-table tbody');
   if (!q.length) {
     body.innerHTML = '<tr><td colspan="7"><div class="empty">Queue is empty — fetch items above or paste JIRA context to get started.</div></td></tr>';

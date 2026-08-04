@@ -10,6 +10,7 @@ reuse export_plan's generic renderers. Filters: --days N (rolling window),
 CLI: bin/qa.py report / make report. Served: GET /api/report on the dashboard.
 """
 import glob, json, pathlib, sys, time
+import run_progress
 import app_paths
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -59,7 +60,7 @@ def build(days=None, release=None):
     for r in runs:
         key = r["trigger"]["key"]
         contracts = {p["name"]: p["contract"] for p in r.get("phases", [])}
-        for t in contracts.get("generate", {}).get("tests", []):
+        for t in run_progress.dict_rows(contracts.get("generate", {}).get("tests")):
             n_tests += 1
             if t.get("action") == "updated":
                 n_updated += 1

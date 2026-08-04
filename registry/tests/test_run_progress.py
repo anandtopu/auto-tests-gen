@@ -267,3 +267,25 @@ def test_the_view_reports_a_load_failure_in_its_own_words():
     body = js[js.index("async function rpLoad"):]
     body = body[:body.index("onEnter('progress'")]
     assert "display failure, not an empty result" in body
+
+
+def test_every_view_that_fetches_reports_a_load_failure():
+    """Driving the served page with a failing `fetch` showed the QUEUE view
+    silently keeping whatever it had. `runViewLoaders` swallows a rejected
+    loader by design (one failing loader must not stop its neighbours), so an
+    unguarded `await` leaves the view unchanged — and on the queue that reads as
+    "nothing is queued, nothing is running". An operator queues a duplicate, or
+    walks away believing their submission was never accepted.
+
+    Asserted over the loaders that actually FETCH. `repos` and `catalog` are
+    server-rendered and issue zero requests, so there is nothing there to fail —
+    measured, not assumed.
+    """
+    js = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    body = js[js.index("async function refreshQueue"):]
+    body = body[:body.index("\nasync function ", 10) if "\nasync function " in body[10:]
+                else len(body)]
+    assert "loadFailed('#queue-table tbody'" in body, \
+        "the queue loader no longer reports a failed load"
+    assert "not current" in body, \
+        "the count must say the list is stale, not just leave a number standing"
