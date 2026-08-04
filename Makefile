@@ -10,7 +10,7 @@ SHELL := /bin/bash
         cost-report index-rebuild cache-probe cost-baseline \
         requirements demo-requirements requirements-approve spec-verify \
         test-providers test-state test-routing-adv test-observability test-bootstrap test-entrypoint \
-        parity-compare repo-facts
+        parity-compare repo-facts explain
 
 deps:
 	pip install --break-system-packages -r requirements.txt
@@ -126,6 +126,9 @@ check-integrations:   # read-only connectivity check for every configured system
 
 smoke-openhands:
 	bash bin/smoke-openhands.sh
+
+explain:              # why the AI did what it did for a request (KEY=.. [JSON=1])
+	python3 engine/lib/explain.py $(KEY) $(if $(JSON),--json,)
 
 trace-matrix:         # requirement traceability: key -> scenario -> spec -> gate -> CI ([KEY=..] [CSV=1])
 	python3 engine/lib/trace_matrix.py $(KEY) $(if $(CSV),--csv,)

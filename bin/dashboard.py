@@ -1109,6 +1109,17 @@ pre { margin:0; background:var(--sr-bg-muted); border:1px solid var(--sr-border)
 .rp-log{background:var(--sr-bg-muted);padding:8px;border-radius:6px;font-size:11px;
   max-height:220px;overflow:auto;white-space:pre-wrap;font-family:var(--sr-font-mono)}
 
+
+.why-d { border-top:1px solid var(--sr-border); padding:10px 0; }
+.why-q { font-weight:600; }
+.why-a { margin:3px 0 4px; font-family:var(--sr-font-mono); font-size:12px; }
+.why-b { margin:4px 0 0 16px; padding:0; font-size:12px; color:var(--sr-fg-muted); }
+.why-b li { margin:2px 0; }
+.why-cav { font-size:12px; margin-top:5px; color:var(--sr-warning-fg); }
+.why-src { font-size:11px; margin-top:4px; color:var(--sr-fg-muted);
+  font-family:var(--sr-font-mono); }
+.why-unk .why-a { color:var(--sr-warning-fg); font-weight:700; }
+
 """
 
 # ---------------------------------------------------------------- client JS
@@ -2929,6 +2940,9 @@ async function rpLoad(polling) {
     // Poll only while a LIVE holder owns the lock. A stale lock reports
     // busy=false, so a dead run stops the poll instead of spinning forever.
     if (p.busy) rpTimer = setTimeout(function () { rpLoad(true); }, 4000);
+    // The explanation belongs with the outcome, and only changes when the
+    // run does — fetch it once per load, not on every poll tick.
+    if (!polling) rpWhy(key);
   } catch (e) {
     // loadFailed writes a table row and this view has no table, so say it here.
     // An unchanged ladder would look like the run simply had not moved.
@@ -2950,6 +2964,54 @@ onEnter('progress', function () {
   const el = document.querySelector('#rp-key');
   if (el && el.value.trim()) rpLoad(false);
 });
+
+
+// -------------------------------------------------------------- explainability
+// "Why did it do that?" next to "what happened". Every row cites the evidence
+// it came from; a decision with no recorded reason renders as NOT RECORDED
+// rather than as a plausible sentence, because a fabricated rationale is
+// confidently wrong about exactly the thing the reader came to check.
+function rpWhyRender(x) {
+  const wrap = document.querySelector('#rp-why-wrap');
+  const body = document.querySelector('#rp-why');
+  if (!x || (!(x.decisions || []).length && !(x.unexplained || []).length)) {
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = '';
+  const dec = (x.decisions || []).map(function (d) {
+    const because = (d.because || []).map(function (b) {
+      return '<li>' + escHtml(b) + '</li>'; }).join('');
+    const caveat = d.caveat
+      ? '<div class="why-cav">' + escHtml(d.caveat) + '</div>' : '';
+    return '<div class="why-d"><div class="why-q">' + escHtml(d.question) + '</div>'
+      + '<div class="why-a">' + escHtml(String(d.answer)) + '</div>'
+      + (because ? '<ul class="why-b">' + because + '</ul>' : '')
+      + caveat
+      + (d.evidence ? '<div class="why-src">evidence: ' + escHtml(d.evidence)
+                      + '</div>' : '')
+      + '</div>';
+  }).join('');
+  const unk = (x.unexplained || []).map(function (u) {
+    return '<div class="why-d why-unk"><div class="why-q">' + escHtml(u.question)
+      + '</div><div class="why-a">NOT RECORDED</div>'
+      + '<div class="why-cav">' + escHtml(u.not_recorded) + '</div></div>';
+  }).join('');
+  body.innerHTML = dec + unk;
+}
+
+async function rpWhy(key) {
+  try {
+    rpWhyRender(await api('/api/explain?key=' + encodeURIComponent(key)));
+  } catch (e) {
+    const wrap = document.querySelector('#rp-why-wrap');
+    const body = document.querySelector('#rp-why');
+    wrap.style.display = '';
+    body.innerHTML = '<div class="sub">Could not load the explanation - '
+      + escHtml(String((e && e.message) || e))
+      + '. This is a display failure, not an absence of reasons.</div>';
+  }
+}
 
 """
 
@@ -3034,6 +3096,15 @@ page = f"""<!doctype html>
       <div id="rp-body" class="sub">Enter a key to trace a run.</div>
       <ol id="rp-steps" class="rp-steps"></ol>
       <div id="rp-fail"></div>
+      <div id="rp-why-wrap" style="margin-top:14px;display:none">
+        <div class="card-h"><div><h2>Why the AI did this</h2>
+          <div class="sub">Assembled from what the run RECORDED — routing rules,
+          the knowledge each phase was given (and what was withheld from it), the
+          model that wrote each phase, what the adversarial reviewer found, and the
+          gate's verdict. A decision whose reason was not written down is listed as
+          not recorded rather than explained away.</div></div></div>
+        <div id="rp-why"></div>
+      </div>
     </section>
   </div>
 
