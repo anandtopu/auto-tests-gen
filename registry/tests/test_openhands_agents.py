@@ -16,22 +16,28 @@ import openhands_agents
 import work_queue
 
 
-class _TestHTTPServer(http.server.HTTPServer):
-    """A throwaway server whose accept queue survives a loaded machine.
+class _TestHTTPServer(http.server.ThreadingHTTPServer):
+    """A throwaway server that a loaded machine cannot reset.
 
-    `socketserver` defaults `request_queue_size` to 5. Under a full `make
-    review` — parallel gates, a dashboard render, several suites — a client
-    connect to one of these fixtures gets its SYN dropped and Windows reports
-    "[WinError 10054] connection forcibly closed". That surfaced as a test
-    failure in code the test was not exercising, three times now (2026-07-28,
-    2026-07-30, and again here), each read as a transient.
+    `socketserver` defaults `request_queue_size` to 5, so under a full
+    `make review` a SYN gets dropped and Windows reports "[WinError 10054]
+    connection forcibly closed" as a failure in code the test was not
+    exercising. Threading, and a deep accept queue, keep one slow or aborted
+    connection from starving the next — the same reasoning as
+    bin/dashboard_server.py.
 
-    Same root cause as the dashboard server's own backlog fix. The readiness
-    gate below solves a DIFFERENT race — the server not yet accepting — and
-    cannot help once the queue is full.
+    NOTE, because this class collected three fixes and only the last one was
+    the cause: the recurring 10054 in test_openhands_agents was NOT the
+    backlog, and NOT the single-threaded accept loop. It was a stub handler
+    replying WITHOUT reading the request body — Windows resets a connection
+    closed with unread bytes still buffered. Threading was measured and did not
+    help (2 failures in 2 of 3 runs, unchanged); draining the body did. Keep
+    the widened backlog and threading as sensible defaults, but do not credit
+    them with that fix.
     """
     request_queue_size = 128
     allow_reuse_address = True
+    daemon_threads = True
 
 SKILLS_DIR = ROOT / ".agents/skills"
 GENERATED = {"e2e-api-conventions", "e2e-ui-conventions"}
@@ -199,7 +205,27 @@ def _fake_cloud(handler_map):
             self.end_headers()
             self.wfile.write(body)
 
+        def _drain(self):
+            """Read the request body before replying.
+
+            A handler that answers and closes WITHOUT draining leaves unread
+            bytes in the receive buffer, and Windows resets the connection on
+            close — the client sees "[WinError 10054] connection forcibly
+            closed" from a server that answered correctly. It is timing
+            dependent (did the body land before the close?), so it presents as
+            a load-sensitive flake in whatever test happens to be running: two
+            different tests in this file failed that way under a full
+            `make review` while the file passed 6/6 in isolation.
+            """
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except (TypeError, ValueError):
+                n = 0
+            if n:
+                self.rfile.read(n)
+
         def do_POST(self):
+            self._drain()
             self._reply(handler_map["post"])
 
         def do_GET(self):

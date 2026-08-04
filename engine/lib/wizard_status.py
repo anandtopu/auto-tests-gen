@@ -106,6 +106,37 @@ def build(key, mode="pr"):
             steps.append(_step("pending", "Human approval", ""))
 
     tests_pending = [i for i in pending if i["mode"] in ("pr", "jira", "tests")]
+    # PLAN-FIRST KEYS ANSWER FROM THE PLAN, NOT FROM ANY RUN THAT EVER TOUCHED
+    # THE KEY. `tests` above is the LATEST run's generate contract, so a run
+    # from before the plan was (re-)authored made this step read "done" while
+    # plan_state.generated_run was still None — the ladder showed the step
+    # AFTER a blocked approval as complete, which reads as the approval gate
+    # having been bypassed, and tells a reviewer tests exist for a plan nothing
+    # has generated from yet.
+    #
+    # spec_workflow, agent_context, the Test plans table and `qa.py plans` all
+    # read `generated_run`; this view was the last one inferring. Same defect
+    # class CLAUDE.md records for spec_workflow ("`generated_run` NOT
+    # `generated`, a key nothing writes"), fixed in one view and not the other.
+    #
+    # PR keys have no plan, so their run-record inference stays: it is the only
+    # source there, and it is correct.
+    if mode == "jira":
+        gen_run = (plan_state.get(key) or {}).get("generated_run")
+        if not gen_run:
+            # THE GATE GOES WITH IT. Clearing only `tests` moved the same lie one
+            # step down the ladder: "Generate: pending" above "Quality gate:
+            # done", which reads as tests having been committed without being
+            # generated. Both steps describe ONE run, so they answer from one.
+            tests, gates = [], []
+        else:
+            match = next((r for r in runs if r.get("run_id") == gen_run), None)
+            if match:
+                latest = match
+                tests = ({p.get("name"): (p.get("contract") or {})
+                          for p in match.get("phases", [])}
+                         .get("generate", {}).get("tests", []) or [])
+                gates = match.get("gates", []) or []
     if tests:
         created = sum(1 for t in tests if t.get("action") == "created")
         updated = len(tests) - created

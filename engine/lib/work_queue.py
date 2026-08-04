@@ -64,6 +64,22 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
         sys.exit("mode must be pr|jira|plan|tests")
     if mode == "pr" and not pr:
         sys.exit("pr mode needs a PR number")
+    # ...and it must BE a PR number. `target` was validated against the registry
+    # right below with the comment "Validate at INTAKE, not minutes later in a
+    # background runner nobody watches" — but `pr` was not validated at all, so
+    # `-1`, `0` and a 200-digit string all queued 200 OK. The key becomes
+    # PR-<repo>-<pr>, which passes the pipeline's charset check (digits and `-`
+    # are legal), so the run starts and dies at the SCM call with whatever the
+    # vendor says about a pull request that cannot exist — minutes later, in a
+    # background process, for input that was wrong at the moment it was typed.
+    # Every SCM we speak numbers PRs from 1 (pr_url.py parses `num` out of the
+    # URL as digits), so this is the whole domain, not a guess at a limit.
+    if mode == "pr":
+        import re as _re
+        if not _re.fullmatch(r"[1-9][0-9]{0,8}", str(pr).strip()):
+            sys.exit(f"'{pr}' is not a pull-request number — PRs are numbered "
+                     f"from 1 (e.g. 201). Paste the PR URL instead and the "
+                     f"number is taken from it.")
     # Validate at INTAKE, not minutes later in a background runner nobody watches.
     # The pasted-URL path already refuses an unregistered repo with a hint; the
     # plain name+number path (wizard form, API, TaskEvent webhook) must match it.
