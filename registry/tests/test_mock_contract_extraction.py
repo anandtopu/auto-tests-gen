@@ -69,8 +69,21 @@ def test_an_unparseable_stub_is_named_before_extraction_confuses_it(tmp_path):
     assert "not valid JSON" in r.stderr
 
 
+@pytest.fixture
+def stub_artifacts():
+    """Stubs perform their phase's REAL side effects — the testplan stub writes
+    testplans/<KEY>.md. Running them under a probe key therefore drops files in
+    the estate, which this test did until it was caught leaving
+    testplans/ZZ-MOCK-1.md behind. Clean up what the probe key created; anything
+    under a real key is not ours to touch."""
+    created = []
+    yield created
+    for p in created:
+        pathlib.Path(p).unlink(missing_ok=True)
+
+
 @pytest.mark.parametrize("phase", ["triage", "analyze", "testplan", "validate"])
-def test_each_stub_satisfies_its_own_schema(phase, tmp_path):
+def test_each_stub_satisfies_its_own_schema(phase, tmp_path, stub_artifacts):
     """The property the whole change buys: run the stub, and the same extractor
     the real path uses must accept its output."""
     env = dict(os.environ, AIQE_MOCK="1")
@@ -79,6 +92,7 @@ def test_each_stub_satisfies_its_own_schema(phase, tmp_path):
                        cwd=ROOT, env=env, capture_output=True, text=True,
                        stdin=subprocess.DEVNULL, timeout=120)
     assert r.returncode == 0, f"{phase} stub rejected: {r.stdout}{r.stderr}"
+    stub_artifacts.append(ROOT / "testplans/ZZ-MOCK-1.md")
     contract = ROOT / f"out/{phase}.contract.json"
     assert contract.exists(), f"{phase} produced no contract"
     schema = json.loads((ROOT / f"engine/phases/contracts/{phase}.schema.json")

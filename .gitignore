@@ -47,3 +47,29 @@ knowledge/facts/derived/
 # Rebuilt by running; retention is `observability.retain_days` via `make maintain`.
 reports/events/
 reports/events.db
+
+# Run records and their archived diffs. Runtime data: written by every run,
+# pruned to `make prune KEEP=200` nightly, and carried between deployments by the
+# state bundle rather than by git. Neither tracked nor ignored before this, so
+# ~690 files sat permanently in `git status`, hiding real changes.
+#
+# Matched by the record NAME SHAPE (<epoch>-<pid>), NOT by `reports/runs/*.json`.
+# Three named state files share that directory — reviews.json (tracked),
+# queue.json and hooks-seen.json — and CLAUDE.md already warns that every glob
+# over it must skip them. A blanket pattern would also swallow the next state
+# file somebody adds there, silently.
+reports/runs/[0-9]*.json
+reports/runs/[0-9]*.diff
+
+# Guidance fetched from other repositories (guidance_sync). A CACHE — re-pulled by
+# `make sync-guidance`, and it holds files those repos own, not this one.
+knowledge/synced/
+
+# CI test health (test_health.ingest / `make ingest-results`). Runtime data of the
+# same class as reports/coverage-drift.json above — rebuilt from CI results, and
+# carried between deployments by the state bundle, not by git.
+catalog/health.json
+
+# Generated canonical test data. Deliberately untracked since e41d128 ("re-park
+# estate"), which removed it; the state bundle carries it as work.
+testdata/

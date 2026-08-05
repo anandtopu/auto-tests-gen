@@ -64,12 +64,24 @@ def journey(tmp_path_factory):
     """
     keep = tmp_path_factory.mktemp("estate-backup")
     before = {p.name for p in RUNS.glob("*")} if RUNS.exists() else set()
+
+    def slot(rel):
+        """Key the backup by the FULL relative path, not the basename.
+
+        `specs/PROJ-301` and `testdata/PROJ-301` share a basename. Keying on it
+        merged the two snapshots and the restore then cross-contaminated both
+        directories — a testdata fixture appeared in specs/, the tracked
+        directory holding the signed spec of record. Found by bisecting which
+        stage recreated an untracked specs/PROJ-301/discount-cases.json."""
+        return keep / rel.replace("/", "__")
+
     for rel in TOUCHED:                      # snapshot what is not redirected
-        src = ROOT / rel
+        src, dst = ROOT / rel, slot(rel)
         if src.is_dir():
-            shutil.copytree(src, keep / pathlib.Path(rel).name, dirs_exist_ok=True)
+            shutil.copytree(src, dst, dirs_exist_ok=True)
         elif src.is_file():
-            shutil.copy2(src, keep / pathlib.Path(rel).name)
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
 
     stages = {}
     stages["requirements"] = _run("requirements")
@@ -87,7 +99,7 @@ def journey(tmp_path_factory):
         if p.name not in before:
             p.unlink(missing_ok=True)
     for rel in TOUCHED:
-        dst, saved = ROOT / rel, keep / pathlib.Path(rel).name
+        dst, saved = ROOT / rel, slot(rel)
         if saved.is_dir():
             shutil.rmtree(dst, ignore_errors=True)
             shutil.copytree(saved, dst)
