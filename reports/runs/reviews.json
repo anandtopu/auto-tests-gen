@@ -30,14 +30,39 @@
     "updated": 1785530014.962095
   },
   "PROJ-301": {
+    "critic": {
+      "findings": [
+        {
+          "file": "suites/orders/PROJ-301-discount-boundary.spec.js",
+          "kind": "missing",
+          "note": "no case for a discount above the cap",
+          "severity": "low"
+        }
+      ],
+      "noise_count": 0,
+      "rationale": "assertions check the discounted total, not just the status code",
+      "score": 0.86,
+      "specs_reviewed": 2,
+      "ts": 1785958218.2472293,
+      "verdict": "accept"
+    },
     "history": [
       {
         "release": "2026.08",
         "source": "jira",
         "ts": 1785530018.431352
+      },
+      {
+        "note": "new AI-generated artifacts committed",
+        "reviewer": "pipeline",
+        "status": "pending_review",
+        "ts": 1785958026.3256304
       }
     ],
+    "note": "new AI-generated artifacts committed",
     "release": "2026.08",
-    "status": ""
+    "reviewer": "pipeline",
+    "status": "pending_review",
+    "updated": 1785958026.3256304
   }
 }
