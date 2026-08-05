@@ -9,6 +9,8 @@ regression that does not exist.
 import pathlib
 import subprocess
 import sys
+
+import pytest
 import types
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -24,6 +26,24 @@ def _fake_run(outcomes):
         rc, out = seq.pop(0)
         return types.SimpleNamespace(returncode=rc, stdout=out, stderr="")
     return run
+
+
+@pytest.fixture(autouse=True)
+def _isolate_plan_state(tmp_path, monkeypatch):
+    """spec_verify.verify() attaches its result to the plan store via
+    plan_state._save. plan_state binds DIR/FILE at IMPORT time, so if anything
+    imported it before the harness set AIQE_PLAN_DIR those writes land in the
+    ESTATE — traced with an instrumented _save: this file's `verify("K-1")`
+    wrote reports/plans/state.json while AIQE_PLAN_DIR correctly pointed at
+    out/test-plans, leaving a stray K-1 key in the operator's plan store.
+
+    Patching the module attributes directly does not care when it was imported.
+    """
+    import plan_state
+    d = tmp_path / "plans"
+    d.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(plan_state, "DIR", d)
+    monkeypatch.setattr(plan_state, "FILE", d / "state.json")
 
 
 def test_a_failed_clone_is_unverified_not_failed(tmp_path, monkeypatch):

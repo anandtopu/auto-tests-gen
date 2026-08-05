@@ -72,9 +72,12 @@ def test_an_oversize_declaration_is_refused_without_reading_it_all():
     h = _Handler(str(5_000_000_000), b"x" * 100)
     raw, err = http_body.read_body(h, limit=1024)
     assert raw is None and err[0] == 413
-    # The bounded drain may read, but no single read may ASK for more than the
-    # limit we were already willing to accept — never the 5 GB declared.
-    assert getattr(h.rfile, "max_requested", 0) <= 1024,         f"asked the socket for {h.rfile.max_requested} bytes on a refused request"
+    # The drain is bounded at 2x the limit (see http_body: draining only `limit`
+    # left a slightly-oversize body unread and raced the client into a reset).
+    # What must never happen is reading anything like the DECLARED size.
+    asked = getattr(h.rfile, "max_requested", 0)
+    assert asked <= 2 * 1024, f"asked the socket for {asked} bytes on a refused request"
+    assert asked < 5_000_000_000 / 1000,         "the declared size is reaching the socket — the refusal is not bounded"
 
 
 def test_an_oversize_body_is_drained_so_the_error_can_be_read():

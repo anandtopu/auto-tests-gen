@@ -94,7 +94,6 @@ for _var, _dest in (("AIQE_QUEUE_FILE", "out/test-queue.json"),
                     ("AIQE_DRIFT_FILE", "out/test-coverage-drift.json")):
     if not (os.environ.get(_var) or "").strip():
         os.environ[_var] = str(ROOT / _dest)
-
 # Throwaway repos registered by tests. Keep in sync with the tests that create
 # them; an unknown repo is NEVER removed — that would be this file quietly
 # deleting somebody's real registry entry.

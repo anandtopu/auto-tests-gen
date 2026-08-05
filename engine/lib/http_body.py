@@ -86,7 +86,15 @@ def read_body(handler, limit=DEFAULT_MAX):
         # (never more than we were already willing to read, in chunks, discarded)
         # so realistic overages get a clean answer, while an absurd declaration
         # is still capped. The socket timeout bounds how long this can take.
-        _drain(handler, min(n, limit))
+        # Drain up to TWICE the limit, not just the limit. A body that
+        # overshoots by a little — a 5 MB + 7 byte JUnit post against a 5 MB cap
+        # — is the common real case, and draining only `limit` left the last
+        # bytes unread, so the client raced between reading the 413 and getting
+        # its connection reset. That showed up as an INTERMITTENT failure in
+        # test_oversize_payload_is_refused: green alone, red once under a full
+        # suite. Still bounded (chunked and discarded, and the socket timeout
+        # caps the wait), so a 5 GB declaration is still refused for free.
+        _drain(handler, min(n, 2 * limit))
         return None, (413, {"error": f"request body over {limit // 1024} KB"})
     if n == 0:
         return b"", None
