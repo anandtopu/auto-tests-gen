@@ -158,6 +158,46 @@ ones, `jira PROJ-301` and `pr orders-api#201` both reached `GATE_STATUS=COMMITTE
 `touch /app/PROOF` was refused by the kernel, and a second start reported
 "already populated — nothing seeded" rather than clobbering the volume.
 
+### What running the DEPLOYED SHAPE found (2026-08-04 pass)
+
+The verification above ran the *image*. This pass ran the image the way the
+**manifests** run it, and the difference is where the defects were.
+
+Re-confirmed, not new: `jira PROJ-301` reaches `GATE_STATUS=COMMITTED` under
+`--read-only` with `AIQE_STATE_DIR=/state`, and its output lands on the volume
+(`/state/testplans`, `/state/specs`, `/state/testdata`) rather than the image
+tree. Added to that: all 12 `make maintain` steps run in the same shape, and the
+dashboard serves `/`, `/api/queue`, `/api/report`, `/api/cost-report`,
+`/api/trace-matrix` and `/api/governance` with no server-side error.
+
+Three things this pass found, none visible from a dev checkout:
+
+* **The manifests bypassed the entrypoint.** Kubernetes `command:` replaces the
+  image ENTRYPOINT (`args:` replaces CMD) — the opposite of docker-compose,
+  where `command:` means CMD. Both Deployment containers used `command:`, so
+  `tini -> container-entrypoint.sh` never ran on a cluster and a fresh
+  deployment did no first-boot seeding at all. Proven with a two-line probe
+  image: replacing the entrypoint skips the seeding, overriding CMD runs it.
+  Negative control on an empty volume: **0 files seeded**, and `make maintain`
+  then failed 2 of 12 steps — which is now visible only because the nightly job
+  stopped reporting success unconditionally.
+
+* **The nightly backup archived the image, not the deployment.**
+  `state_bundle.collect()` resolved every include against `ROOT`, so under
+  relocation it read `/app`'s factory copies. A marker appended to
+  `/state/registry/repo-registry.yaml` appeared in **no member** of the bundle,
+  while the export printed "exported 29 file(s)" and the maintenance summary
+  said `ok`. Fixed to read through `app_paths.resolve_rel()`; re-verified in the
+  container, where the marker now appears in `state/registry/repo-registry.yaml`.
+
+* **The teardown deleted the PVC it promised to keep** (`deploy.sh --delete` ran
+  `oc delete -k .`, and `pvc.yaml` is one of the kustomization's resources).
+
+The pattern worth keeping: each of these is invisible on a dev checkout, because
+there `ROOT` and the state root are the same directory and nothing replaces an
+entrypoint. Running the deployed *shape* — not just the image — is what
+distinguishes them.
+
 ### What the first EXECUTION of the entrypoint found (later pass)
 
 The verification above ran the image; nothing ever ran the entrypoint *as a unit*
