@@ -12,6 +12,41 @@ OUT="${AIQE_PHASE_LABEL:-$PHASE}"
 : "${AIQE_P_TESTPLANS:=testplans}"
 : "${AIQE_P_TESTDATA:=testdata}"
 mkdir -p out
+
+# Every stub below writes out/<OUT>.contract.json directly, which meant the mock
+# path SKIPPED engine/lib/extract_contract.py — the step the real path uses to
+# pull the contract out of the model's prose and check it against the phase
+# schema (REVIEW.md open item 2). Consequences: a stub could drift from its
+# schema and no demo run would notice, and every demo proved one step less of
+# the real chain than it appeared to.
+#
+# So after the stub runs, wrap its contract the way a provider returns one —
+# prose with a fenced JSON block — and re-extract with the SAME script. A stub
+# that no longer satisfies its schema now fails the demo loudly.
+#
+# The wrapper is out/<OUT>.mockresult.json, NOT out/<OUT>.json, deliberately:
+# budget.record() harvests the latter when it exists, and a mock file carrying
+# total_cost_usd 0 would be recorded with basis `reported` — a simulated run
+# reporting a MEASURED $0. Labelling simulated figures is the one rule the cost
+# stack does not bend.
+_finalize() {
+  rc=$?
+  [ "$rc" -eq 0 ] || exit "$rc"
+  c="out/${OUT}.contract.json"
+  s="engine/phases/contracts/${PHASE}.schema.json"
+  if [ ! -f "$c" ] || [ ! -f "$s" ]; then exit 0; fi
+  python3 engine/lib/mock_result.py "$c" "out/${OUT}.mockresult.json" || {
+    echo "[mock] could not wrap the $PHASE contract as a provider result" >&2
+    exit 1; }
+  if ! python3 engine/lib/extract_contract.py          "out/${OUT}.mockresult.json" "$s" > "$c.tmp"; then
+    echo "[mock] CONTRACT REJECTED: the $PHASE stub does not satisfy"          "engine/phases/contracts/${PHASE}.schema.json — fix the stub, not this check" >&2
+    rm -f "$c.tmp"; exit 1
+  fi
+  mv "$c.tmp" "$c"
+  exit 0
+}
+trap _finalize EXIT
+
 case "$PHASE" in
   triage)
     cat > out/triage.contract.json << EOF

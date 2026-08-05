@@ -188,12 +188,12 @@ capped at 20KB. Suite: 451 passing.
 
 ## Open items (ticketed, not blocking)
 1. ~~Real-LLM parity run~~ — **done, Pass 5 above.** Full `AIQE_MOCK=0` (real adapters) still needs estate credentials.
-2. Mock stubs still bypass `extract_contract.py` (real path now proven; stub passthrough remains cosmetic).
+2. ~~Mock stubs bypass `extract_contract.py`~~ — **closed 2026-08-05.** The mock harness now wraps each stub's contract as a provider-shaped reply (prose around a fenced JSON block, `out/<phase>.mockresult.json`) and runs the SAME extractor + schema check the real path uses. A stub that drifts from its schema fails the demo loudly instead of silently: measured by renaming a required key in the analyze stub, `make demo-jira` goes from exit 0 to exit 2 with `CONTRACT REJECTED ... fix the stub, not this check`. The wrapper is deliberately NOT named `out/<phase>.json` — `budget.record()` harvests that when present, and a mock file would be recorded with basis `reported`, i.e. a simulated run reporting a MEASURED $0. Pins: test_mock_contract_extraction.py (9).
 3. Playwright execution unproven in this sandbox (browser CDN blocked) — framework abstraction verified via node-test; validate Playwright path in week 1 of real rollout.
 4. OpenHands Path-1 live wiring (weeks 3–4 of the delivery plan); Path-2 mechanics fully proven.
 5. **BACKLOG — real-LLM parity run for the three quality claims mock cannot test.**
 
-   *Status (re-checked 2026-07-28): still blocked.* A single-call probe returns
+   *Status (re-checked 2026-08-05): still blocked, same error.* A single-call probe returns
    `Failed to authenticate: OAuth session expired and could not be refreshed`.
    **Unblock with** `claude login` in an interactive terminal, **or** put
    `ANTHROPIC_API_KEY=...` in `.env` (the pipeline exports it since the
