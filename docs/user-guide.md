@@ -981,6 +981,27 @@ ranked file feeds generation and the plan adversary. `make maintain` (cron it
 nightly) additionally snapshots per-repo uncovered counts and notifies when a
 repo's gaps **grew**.
 
+**Read its exit code.** Maintenance steps are independent and best-effort — a
+network blip in guidance sync must not skip the state-bundle snapshot that runs
+after it — so the job does not stop at the first failure. What it does instead is
+report, in three distinct outcomes:
+
+| outcome | meaning | exit |
+|---|---|---|
+| `ok` | the step ran and succeeded | — |
+| `DEGRADED` | it depends on an external system this platform does not own (SCM reachability, the embedding endpoint). Named in the summary; the job stays green, because one that reddens on somebody else's outage is one whose red gets ignored | 0 |
+| `FAILED` | a local step that should have worked. Named, with its command and exit code | **1** |
+
+A summary listing **every** step is printed on every run, including a clean one —
+a summary that only appears when something is wrong trains people not to look for
+it. Until 2026-08-04 the target ignored every step failure and printed
+"maintenance complete" unconditionally, so a CronJob reported Success no matter
+what happened; measured with two steps sabotaged (one of them the backup), the
+last line was still `maintenance complete` and the exit code was still 0. On
+OpenShift, `deploy/openshift/cronjob.yaml` runs it with `restartPolicy:
+OnFailure`, which is only worth having because the exit code now means
+something.
+
 ### Reviewing faster
 - **In place:** every Artifacts panel carries Approve / Request-changes (note
   required) next to the rendered diff — one screen from code to decision.

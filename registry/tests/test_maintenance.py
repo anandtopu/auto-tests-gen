@@ -172,3 +172,17 @@ def test_the_cronjob_is_applied_by_kustomize():
     # contains the filename, and the first version of this assertion passed
     # against exactly that mutation.
     assert "cronjob.yaml" in (kust.get("resources") or []),         "the CronJob is not an applied resource"
+
+
+def test_the_operator_guide_states_the_exit_contract():
+    """The exit code is only useful if the person who crons it knows to read it.
+    docs/user-guide.md tells operators to run this nightly; before the fix it
+    could not fail, so there was nothing to document. Now there is, and a doc
+    that still implies best-effort-means-always-green would send an operator
+    past a failed backup."""
+    guide = (ROOT / "docs/user-guide.md").read_text(encoding="utf-8")
+    section = guide.split("`make maintain` (cron it", 1)[1][:2000]
+    for token in ("DEGRADED", "FAILED", "exit"):
+        assert token in section, f"the guide never mentions {token!r} for maintenance"
+    assert "every" in section.lower(), \
+        "the guide should say the summary lists every step, not only failures"
