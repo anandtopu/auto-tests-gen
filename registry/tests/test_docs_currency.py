@@ -75,3 +75,20 @@ def test_docs_referenced_by_claude_md_exist():
     assert referenced, "no doc references found — the extraction pattern broke"
     missing = sorted(p for p in referenced if not (ROOT / p).exists())
     assert not missing, f"CLAUDE.md references documents that do not exist: {missing}"
+
+
+def test_the_generated_agents_md_points_coding_agents_at_their_guide():
+    """Root AGENTS.md is estate knowledge for the test-authoring phases and is
+    rewritten by every pipeline run. Coding agents look for that filename and
+    find the wrong document — so the generator emits one line pointing at the
+    guide, and the guide has to exist for the pointer to be worth anything."""
+    agents = _read("AGENTS.md")
+    assert "docs/coding-agent-guide.md" in agents, \
+        "the generated AGENTS.md no longer points coding agents anywhere"
+    guide = ROOT / "docs/coding-agent-guide.md"
+    assert guide.exists(), "the pointer names a guide that does not exist"
+    text = guide.read_text(encoding="utf-8").lower()
+    assert "auto-generated" in text, \
+        "the guide must warn that root AGENTS.md is generated, or someone edits it"
+    assert "make review" in text, \
+        "the guide must tell an agent how to verify its work"

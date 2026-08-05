@@ -27,7 +27,7 @@ This module normalises both shapes so callers only see:
   status(conversation_id)      -> {"conversation_id": ..., "status": ..., ...}
   health()                     -> {"reachable": bool, "http_code": int, "error": str}
 """
-import json, os, pathlib, socket, ssl, sys, time, urllib.error, urllib.request
+import json, os, pathlib, socket, ssl, sys, time, urllib.error, urllib.parse, urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -81,6 +81,31 @@ def _configured():
     if not url:
         raise RuntimeError("OPENHANDS_URL is not set — configure it in Settings")
     return url.rstrip("/"), key
+
+
+
+def _absolute(base, url):
+    """Resolve a conversation URL the SERVER gave us against the configured base.
+
+    OpenHands may return `url` as a path (`/conversations/abc`) rather than an
+    absolute URL. It used to be stored verbatim, and the dashboard renders it
+    straight into `<a href=...>` — so the browser resolved it against the
+    DASHBOARD's own origin and the user landed on http://localhost:4999/... with
+    "there is no OpenHands here". The configured OPENHANDS_URL was correct all
+    along; the link simply did not use it.
+
+    urljoin leaves an absolute URL untouched, so a deployment whose server
+    returns a full URL is unaffected.
+    """
+    url = (url or "").strip()
+    if not url:
+        return ""
+    if not base:
+        return url
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme and parsed.netloc:
+        return url                      # already absolute — the server's word
+    return urllib.parse.urljoin(base.rstrip("/") + "/", url.lstrip("/"))
 
 
 def _headers(api_key):
@@ -269,7 +294,7 @@ def start(message, repo=None, branch="main", title=None, extra=None):
 
     # Never synthesise a URL from an id we do not have. A link built from a
     # start-task id looks authoritative and 404s.
-    url = resp.get("url") or (f"{base}/conversations/{conv_id}" if conv_id else "")
+    url = _absolute(base, resp.get("url")) or (f"{base}/conversations/{conv_id}" if conv_id else "")
 
     return {
         "conversation_id": conv_id,
@@ -335,7 +360,7 @@ def status(conversation_id):
 
     cid = (resp.get("conversation_id") or resp.get("id") or resp.get("app_conversation_id")
            or conversation_id)
-    conv_url = resp.get("url") or f"{base}/conversations/{cid}"
+    conv_url = _absolute(base, resp.get("url")) or f"{base}/conversations/{cid}"
     return {
         "conversation_id": cid,
         "status": resp.get("status") or resp.get("sandbox_status") or "",
