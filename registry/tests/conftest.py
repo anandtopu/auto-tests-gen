@@ -61,6 +61,17 @@ TEST_RETRIES_FILE = ROOT / "out/test-retries.json"
 if not (os.environ.get("AIQE_RETRIES_FILE") or "").strip():
     os.environ["AIQE_RETRIES_FILE"] = str(TEST_RETRIES_FILE)
 
+# The team REVIEW BOARD, for the fourth time in this shape. review_state has
+# honoured AIQE_REVIEWS_FILE since it was written; nothing ever set it, so the
+# pytest suite wrote into the estate's real review record. MEASURED: one pytest
+# run added 14 history entries to PR-orders-api-201, every one a phantom
+# {"release": "", "source": "manual"} — 505 had accumulated, burying the single
+# genuine decision under test traffic. In a deployment, `make review` in CI does
+# that to the team's board and its audit history.
+TEST_REVIEWS_FILE = ROOT / "out/test-reviews.json"
+if not (os.environ.get("AIQE_REVIEWS_FILE") or "").strip():
+    os.environ["AIQE_REVIEWS_FILE"] = str(TEST_REVIEWS_FILE)
+
 # Throwaway repos registered by tests. Keep in sync with the tests that create
 # them; an unknown repo is NEVER removed — that would be this file quietly
 # deleting somebody's real registry entry.
