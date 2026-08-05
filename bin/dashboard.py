@@ -814,6 +814,20 @@ CSS = """
   --sr-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / .05);
   --sr-shadow: 0 1px 3px 0 rgb(0 0 0 / .08), 0 1px 2px -1px rgb(0 0 0 / .06);
   --sr-shadow-md: 0 4px 6px -1px rgb(0 0 0 / .08), 0 2px 4px -2px rgb(0 0 0 / .06);
+  /* Geometry. These EXIST in the design's tokens.css and were the only layer
+     missing here: every radius, control height and the sidebar/topbar size was
+     written as a literal at each use site, so the design could not be adjusted
+     in one place. --sr-ring was defined by neither, which is why focus was
+     showing the browser default. */
+  /* The full radius scale from tokens.css. -md and -lg are currently unused
+     here and in the design itself; they stay because a scale with holes in
+     it invites the next size to be invented as a literal. */
+  --sr-radius-sm: 4px; --sr-radius: 8px; --sr-radius-md: 8px; --sr-radius-lg: 12px;
+  --sr-radius-full: 9999px;
+  --sr-ring: hsl(222.2 84% 4.9%);
+  --sr-sidebar-w: 240px; --sr-topbar-h: 56px;
+  --sr-control-h: 36px; --sr-control-h-sm: 32px;
+  --sr-content-max: 1240px;
 }
 @media (prefers-color-scheme: dark) { :root {
   --sr-bg: hsl(222.2 47.4% 7%); --sr-bg-muted: hsl(217.2 32.6% 17.5%);
@@ -821,6 +835,7 @@ CSS = """
   --sr-primary: hsl(210 40% 98%); --sr-primary-90: hsl(210 40% 88%);
   --sr-fg-on-primary: hsl(222.2 47.4% 11.2%);
   --sr-border: hsl(217.2 32.6% 22%); --sr-input: hsl(217.2 32.6% 22%);
+  --sr-ring: hsl(212.7 26.8% 83.9%);
 } }
 /* Manual theme toggle: an explicit choice (persisted in localStorage, stamped as
    data-theme on <html>) must beat the OS preference IN BOTH DIRECTIONS — dark on a
@@ -831,6 +846,7 @@ CSS = """
   --sr-primary: hsl(210 40% 98%); --sr-primary-90: hsl(210 40% 88%);
   --sr-fg-on-primary: hsl(222.2 47.4% 11.2%);
   --sr-border: hsl(217.2 32.6% 22%); --sr-input: hsl(217.2 32.6% 22%);
+  --sr-ring: hsl(212.7 26.8% 83.9%);
 }
 :root[data-theme="light"] {
   --sr-bg: hsl(0 0% 100%); --sr-bg-muted: hsl(210 40% 96.1%);
@@ -838,46 +854,56 @@ CSS = """
   --sr-fg-on-primary: hsl(210 40% 98%);
   --sr-primary: hsl(222.2 47.4% 11.2%); --sr-primary-90: hsl(222.2 47.4% 18%);
   --sr-border: hsl(214.3 31.8% 91.4%); --sr-input: hsl(214.3 31.8% 91.4%);
+  --sr-ring: hsl(222.2 84% 4.9%);
 }
 * { box-sizing: border-box; }
-body { margin:0; display:flex; min-height:100vh; background:var(--sr-bg-muted); color:var(--sr-fg);
+body { margin:0; display:grid; grid-template-columns:var(--sr-sidebar-w) 1fr; min-height:100vh;
+  background:var(--sr-bg-muted); color:var(--sr-fg);
   font-family:var(--sr-font-sans); font-size:14px; line-height:1.5; }
+/* Keyboard focus was falling back to the UA default, which is invisible against
+   the dark primary. --sr-ring is in the design's token set for exactly this. */
+:focus-visible { outline:2px solid var(--sr-ring); outline-offset:2px; border-radius:var(--sr-radius-sm); }
 a { color:var(--sr-info-fg); text-decoration:none; } a:hover { text-decoration:underline; }
 code { font-family:var(--sr-font-mono); }
 @keyframes srfade { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
 
-aside { width:240px; flex:0 0 240px; background:var(--sr-bg); border-right:1px solid var(--sr-border);
-  display:flex; flex-direction:column; position:sticky; top:0; height:100vh; }
-.logo-row { height:56px; display:flex; align-items:center; gap:10px; padding:0 16px;
+aside { background:var(--sr-bg); border-right:1px solid var(--sr-border);
+  display:flex; flex-direction:column; position:sticky; top:0; height:100vh; min-width:0; }
+.logo-row { height:var(--sr-topbar-h); display:flex; align-items:center; gap:10px; padding:0 16px;
   border-bottom:1px solid var(--sr-border); }
-.logo { width:28px; height:28px; border-radius:8px; background:var(--sr-primary);
+.logo { width:28px; height:28px; border-radius:6px; background:var(--sr-primary);
   color:var(--sr-fg-on-primary); display:flex; align-items:center; justify-content:center;
   font-weight:700; font-size:13px; }
-.logo-t { font-weight:600; font-size:14px; line-height:1.2; }
+.logo-t { font-weight:600; font-size:13px; line-height:14px; }
 .logo-s { font-size:11px; color:var(--sr-fg-muted); line-height:1.2; }
 nav.side { display:flex; flex-direction:column; gap:2px; padding:12px 8px; }
 .nav-item { display:flex; align-items:center; gap:10px; padding:8px 10px; border:none;
-  text-align:left; cursor:pointer; border-radius:8px; font-size:14px; font-family:var(--sr-font-sans);
+  text-align:left; cursor:pointer; border-radius:var(--sr-radius); font-size:13px; font-family:var(--sr-font-sans);
   background:transparent; color:var(--sr-fg-muted); }
 .nav-item:hover { background:var(--sr-bg-muted); }
 .nav-item.active { background:var(--sr-bg-muted); color:var(--sr-fg); font-weight:600; }
 .nav-ic { width:18px; text-align:center; font-size:13px; }
 .nav-lb { flex:1; }
-.badge { background:var(--sr-warning-bg); color:var(--sr-warning-fg); border-radius:9999px;
+.badge { background:var(--sr-warning-bg); color:var(--sr-warning-fg); border-radius:var(--sr-radius-full);
   font-size:11px; font-weight:600; padding:1px 7px; }
 .side-foot { margin-top:auto; padding:14px 16px; border-top:1px solid var(--sr-border);
   display:flex; flex-direction:column; gap:8px; font-size:11px; color:var(--sr-fg-muted); }
 .dot-row { display:flex; align-items:center; gap:8px; font-size:12px; }
-.dot { width:8px; height:8px; border-radius:9999px; background:var(--sr-warning-fg); }
+.dot { width:8px; height:8px; border-radius:var(--sr-radius-full); background:var(--sr-warning-fg); }
 .dot.on { background:hsl(160 84% 39%); }
 
-main { flex:1; min-width:0; display:flex; flex-direction:column; }
-header { height:56px; background:var(--sr-bg); border-bottom:1px solid var(--sr-border);
+main { min-width:0; display:flex; flex-direction:column; }
+header { height:var(--sr-topbar-h); background:var(--sr-bg); border-bottom:1px solid var(--sr-border);
   display:flex; align-items:center; gap:16px; padding:0 24px; position:sticky; top:0; z-index:5; }
-header h1 { font-size:16px; font-weight:600; margin:0; flex:1; }
-.static-pill { background:var(--sr-info-bg); color:var(--sr-info-fg); border-radius:9999px;
+header h1 { font-size:16px; font-weight:600; margin:0; }
+/* The design puts a monospace breadcrumb next to the title so the topbar says
+   WHERE you are in the same vocabulary as the CLI (`ai-qe / cost`). It takes the
+   flex slack that h1 used to, which keeps the pill and buttons right-aligned. */
+.crumb { font-family:var(--sr-font-mono); font-size:12px; color:var(--sr-fg-muted);
+  flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.static-pill { background:var(--sr-info-bg); color:var(--sr-info-fg); border-radius:var(--sr-radius-full);
   font-size:12px; font-weight:500; padding:3px 10px; }
-.content { padding:24px; display:flex; flex-direction:column; gap:24px; max-width:1200px;
+.content { padding:24px; display:flex; flex-direction:column; gap:24px; max-width:var(--sr-content-max);
   width:100%; margin:0 auto; }
 
 .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; }
@@ -944,14 +970,14 @@ th.gap { color:var(--sr-danger-fg); }
 .pill { background:var(--sr-bg-muted); border-radius:6px; padding:2px 8px; font-size:11px;
   font-weight:600; text-transform:uppercase; color:var(--sr-fg-muted); }
 
-.btn { height:36px; padding:0 16px; border-radius:8px; border:1px solid var(--sr-border);
+.btn { height:var(--sr-control-h); padding:0 16px; border-radius:var(--sr-radius); border:1px solid var(--sr-input);
   background:var(--sr-bg); color:var(--sr-fg); font-size:13px; font-weight:500; cursor:pointer;
   font-family:var(--sr-font-sans); }
 .btn:hover { background:var(--sr-bg-muted); }
 .btn:disabled { opacity:.55; cursor:default; }
-.btn-sm { height:28px; padding:0 12px; font-size:12px; }
-.btn-primary { background:var(--sr-primary); color:var(--sr-fg-on-primary); border:none;
-  height:32px; padding:0 14px; }
+.btn-sm { height:var(--sr-control-h-sm); padding:0 12px; font-size:12px; }
+.btn-primary { background:var(--sr-primary); color:var(--sr-fg-on-primary);
+  border:1px solid transparent; height:var(--sr-control-h-sm); padding:0 14px; }
 .btn-primary:hover { background:var(--sr-primary-90); }
 .btn.danger { color:var(--sr-danger-fg); } .btn.danger:hover { background:var(--sr-danger-bg); }
 .btn.info { color:var(--sr-info-fg); } .btn.info:hover { background:var(--sr-info-bg); }
@@ -1074,8 +1100,8 @@ pre { margin:0; background:var(--sr-bg-muted); border:1px solid var(--sr-border)
 /* Narrow screens: collapse the sidebar into a horizontal, scrollable nav strip.
    (It used to be display:none, which left no way at all to change view.) */
 @media (max-width: 900px) {
-  body { flex-direction:column; }
-  aside { width:auto; flex:none; height:auto; position:static;
+  body { grid-template-columns:1fr; }
+  aside { height:auto; position:static;
     border-right:none; border-bottom:1px solid var(--sr-border); }
   .logo-row { border-bottom:none; }
   .logo-s { display:none; }
@@ -1215,6 +1241,11 @@ function go(view) {
   $$('[data-view]').forEach(v => v.classList.toggle('on', v.dataset.view === view));
   $$('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.go === view));
   $('#view-title').textContent = TITLES[view] || view;
+  // Keep the breadcrumb in step with the view. Guarded because the static
+  // snapshot and the served page share this script, and a missing node here
+  // would throw before runViewLoaders and leave the page on the old view.
+  const crumb = $('#view-crumb');
+  if (crumb) crumb.textContent = 'ai-qe / ' + view;
   // Persist the active view in the URL hash: repo add/edit/remove, settings
   // saves and clears finish with location.reload(), and without this every
   // reload dumped the user back on Overview instead of the view they were in.
@@ -3076,6 +3107,7 @@ page = f"""<!doctype html>
 <main>
   <header>
     <h1 id="view-title">Overview</h1>
+    <span class="crumb" id="view-crumb">ai-qe / overview</span>
     <span class="static-pill" id="static-pill" style="display:none">Static snapshot —
       run <code>make serve</code> for actions</span>
     <button class="btn btn-sm" id="theme-toggle"
