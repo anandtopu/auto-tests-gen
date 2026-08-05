@@ -95,8 +95,12 @@ def test_link_and_generated_markers(plan):
 def test_state_file_is_outside_reports_runs():
     """Plan state must not land in reports/runs/ — every run-record glob there would
     otherwise have to learn to skip a 4th state file."""
-    assert plan_state.FILE.parent.name == "plans"
-    assert "runs" not in plan_state.FILE.parts[-3:-1]
+    # Asserts the INTENT, not the literal directory name: under AIQE_PLAN_DIR
+    # relocation (which conftest now uses to keep tests off the estate's plan
+    # store) the directory is legitimately named something else. Pinning the
+    # name made a correct relocation look like a regression.
+    assert "runs" not in plan_state.FILE.parts[-3:-1],         f"plan state landed under a runs/ directory: {plan_state.FILE}"
+    assert plan_state.FILE.name == "state.json"
 
 
 # ----------------------------------------------------- CLI + pipeline integration

@@ -25,6 +25,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import merge_contracts
 import plan_adversary
+import plan_state
 import work_queue
 
 BASH = work_queue.bash_exe()
@@ -230,7 +231,7 @@ def test_adversarial_review_adds_scenarios_and_reaches_the_reviewer():
     assert "[plan-adversary]" in r.stdout
 
     # The arbiter's contract is what downstream phases see — and it is a SUPERSET.
-    contract = json.loads((ROOT / "reports/plans/PROJ-301.contract.json")
+    contract = json.loads((plan_state.DIR / "PROJ-301.contract.json")
                           .read_text(encoding="utf-8"))
     assert len(contract["scenarios"]) > 1, "arbitration added nothing"
 
@@ -248,7 +249,7 @@ def test_disabling_the_adversary_leaves_the_authored_plan_untouched():
     assert r.returncode == 0, r.stdout[-2000:]
     assert "[plan-adversary]" not in r.stdout
     assert not (ROOT / "out/planadversary.contract.json").exists()
-    contract = json.loads((ROOT / "reports/plans/PROJ-301.contract.json")
+    contract = json.loads((plan_state.DIR / "PROJ-301.contract.json")
                           .read_text(encoding="utf-8"))
     assert len(contract["scenarios"]) == 1, "the authored plan should stand alone"
 

@@ -72,6 +72,29 @@ TEST_REVIEWS_FILE = ROOT / "out/test-reviews.json"
 if not (os.environ.get("AIQE_REVIEWS_FILE") or "").strip():
     os.environ["AIQE_REVIEWS_FILE"] = str(TEST_REVIEWS_FILE)
 
+# The PLAN LIFECYCLE — approvals, spec signatures, generated_run links. Fifth
+# store in this shape and the one with the most to lose: plan_state records who
+# signed off on what. MEASURED by snapshotting the estate, running the suite and
+# diffing: PROJ-301's history went from 2 entries to 82 and a stray test key
+# `K-1` appeared in the operator's plan store. The status happened to survive
+# here, but nothing stopped a test calling approve or revoke on a real key.
+# selection.py derives its path from plan_state.DIR, so this redirects both.
+TEST_PLAN_DIR = ROOT / "out/test-plans"
+if not (os.environ.get("AIQE_PLAN_DIR") or "").strip():
+    os.environ["AIQE_PLAN_DIR"] = str(TEST_PLAN_DIR)
+
+# The remaining writable stores that already ship an env knob. The suite was not
+# measured writing these (the estate snapshot/diff showed no change to
+# queue.json, openhands/state.json or coverage-drift.json), so this is defence
+# rather than a fix — but the knobs exist, redirecting costs nothing, and every
+# one of the five leaks found this session was a store somebody assumed nothing
+# wrote.
+for _var, _dest in (("AIQE_QUEUE_FILE", "out/test-queue.json"),
+                    ("AIQE_OPENHANDS_DIR", "out/test-openhands"),
+                    ("AIQE_DRIFT_FILE", "out/test-coverage-drift.json")):
+    if not (os.environ.get(_var) or "").strip():
+        os.environ[_var] = str(ROOT / _dest)
+
 # Throwaway repos registered by tests. Keep in sync with the tests that create
 # them; an unknown repo is NEVER removed — that would be this file quietly
 # deleting somebody's real registry entry.

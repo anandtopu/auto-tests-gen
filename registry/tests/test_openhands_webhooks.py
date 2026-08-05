@@ -185,5 +185,9 @@ def test_malformed_openhands_payload_returns_200_not_500(tmp_path):
 
 
 def test_state_file_is_outside_reports_runs():
-    assert oe.FILE.parent.name == "openhands"
-    assert "runs" not in oe.FILE.parts[-3:-1]
+    # The intent is "not under reports/runs/", not "literally named openhands":
+    # conftest redirects AIQE_OPENHANDS_DIR to keep tests off the estate, and
+    # pinning the directory NAME made a correct relocation read as a regression.
+    assert "runs" not in oe.FILE.parts[-3:-1], \
+        f"openhands state landed under a runs/ directory: {oe.FILE}"
+    assert oe.FILE.name == "state.json"
