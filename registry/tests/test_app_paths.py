@@ -37,6 +37,7 @@ def test_defaults_are_the_checkout_unchanged():
     assert d["agents_file"] == str(ROOT / "AGENTS.md")
     assert d["skills"] == str(ROOT / ".agents" / "skills")
     assert d["knowledge"] == str(ROOT / "knowledge")
+    assert d["artifacts"] == str(ROOT / "reports" / "agent-artifacts")
 
 
 def test_state_dir_redirects_every_mutable_path(monkeypatch, tmp_path):

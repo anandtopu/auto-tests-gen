@@ -150,6 +150,11 @@ def knowledge_dir(sub="", root=None):
     return base / sub if sub else base
 
 
+def artifacts_dir(root=None):
+    """Durable agent artifacts on the reports volume, independently isolatable."""
+    return _p("AIQE_ARTIFACTS_DIR", "reports/agent-artifacts", root)
+
+
 # Paths whose content ships in the image and must be copied into an empty state
 # root on first boot (bin/container-entrypoint.sh reads this via `--seeded`).
 #
@@ -322,6 +327,7 @@ def describe():
         "agents_file": str(agents_file()),
         "skills": str(skills_dir()),
         "knowledge": str(knowledge_dir()),
+        "artifacts": str(artifacts_dir()),
     }
 
 
@@ -337,7 +343,8 @@ def sh_exports():
     pairs = [("AIQE_P_TESTPLANS", testplans_dir()), ("AIQE_P_TESTDATA", testdata_dir()),
              ("AIQE_P_SPECS", specs_dir()), ("AIQE_P_CATALOG", catalog_dir()),
              ("AIQE_P_KNOWLEDGE", knowledge_dir()), ("AIQE_P_AGENTS", agents_file()),
-             ("AIQE_P_REGISTRY", registry_file()), ("AIQE_P_SKILLS", skills_dir())]
+             ("AIQE_P_REGISTRY", registry_file()), ("AIQE_P_SKILLS", skills_dir()),
+             ("AIQE_P_ARTIFACTS", artifacts_dir())]
     return chr(10).join(f"{k}={shlex.quote(str(v))}" for k, v in pairs)
 
 

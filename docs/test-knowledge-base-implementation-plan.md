@@ -2,7 +2,7 @@
 
 Date: 2026-08-05
 Source: `docs/prd-test-knowledge-base.md` v2
-Status: In implementation; A1–A6 implemented (feature flags remain default-off where specified)
+Status: In implementation; A1–A6 and B1 implemented (feature flags remain default-off where specified)
 
 ## 1. Delivery principles
 
@@ -304,7 +304,9 @@ Implementation checkpoint (2026-08-06):
 
 ## 4. Epic B — Agent artifact generation and store
 
-### B1. Durable content-addressed artifact store
+### B1. Durable content-addressed artifact store — Implemented
+
+Status: Implemented (2026-08-06).
 
 Dependencies: `app_paths`, `fs_lock`, redaction rules.
 Flag: `AIQE_ARTIFACT_STORE=0`.
@@ -322,6 +324,26 @@ Implementation:
 
 Validation: deduplication, provenance multiplicity, concurrent writers, read-only
 rootfs path, redaction rejection, corruption, retention, and estate isolation.
+
+Acceptance mapping:
+
+| PRD | Implemented evidence |
+| --- | --- |
+| B1.1–B1.2 | `artifact_store.py` writes immutable `blobs/<sha256>` content and separate append-only, integrity-digested reference JSON carrying kind, repo/key, run, UTC time, input SHA, blob SHA, and size. Concurrent identical writes share one blob without collapsing provenance. |
+| B1.3 | `qa.py prune` retains a configurable number of producing runs, removes their old references, and mark/sweeps unreferenced blobs. `make maintain` already calls this prune path. Invalid retention fails before any deletion. |
+| B1.4 | Writes enforce a configurable byte ceiling and reject the existing secret-name denylist, secret assignments, bearer values, credentialed URLs, private keys, and configured credential values. State/export exclusions remain B2's portable-bundle integration. |
+| B1.5 | `repo-guidance` writes require `source_tier=generated`; owned guidance is rejected, and this store never writes into application/test repositories. |
+| B1.6–B1.8 | `app_paths.artifacts_dir()` resolves to the mounted `reports/` surface or `AIQE_STATE_DIR`, with `AIQE_ARTIFACTS_DIR` taking precedence. Every mutation uses the store-wide `fs_lock`; the suite redirects the knob and the class-level estate-leak pin passes. |
+
+Validation evidence: 81 focused unit/integration/adversarial tests pass, including
+parallel writers, append-only provenance, valid-JSON tampering, blob corruption,
+conservative quarantine retention, CLI maintenance integration, path relocation,
+default-off parity, settings conformance, and the cross-store isolation pin. Broad
+registry compatibility and final review evidence are recorded in the B1 review reports.
+
+B1 deliberately exposes the durable primitive only. B2 is responsible for wiring
+each phase producer into it, building per-run manifests, historical `explain`, and
+portable-state profile behavior; those are not claimed here.
 
 ### B2. Task artifact bundle
 

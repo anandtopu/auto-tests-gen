@@ -99,6 +99,14 @@ AIQE_PLAN_REUSE=
 AIQE_TESTCASE_INDEX=0
 # Test-case chunk size  ·  characters per physical testcase chunk (512–6000)
 AIQE_TESTCASE_CHUNK_CHARS=2000
+# Durable agent artifact store  ·  0 = off (default) · 1 = persist addressed artifacts
+AIQE_ARTIFACT_STORE=0
+# Artifact store override  ·  default reports/agent-artifacts
+AIQE_ARTIFACTS_DIR=
+# Artifact retention  ·  newest producing runs retained by make maintain
+AIQE_ARTIFACT_KEEP_RUNS=200
+# Artifact size ceiling in bytes
+AIQE_ARTIFACT_MAX_BYTES=1048576
 # Change-to-test impact analysis  ·  0 = off (default) · 1 = propose impacted existing cases
 AIQE_IMPACT_ANALYSIS=0
 # Impact deterministic threshold  ·  endpoint/route and testcase identifier signals

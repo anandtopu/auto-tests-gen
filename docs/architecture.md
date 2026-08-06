@@ -911,6 +911,17 @@ measured results and per-layer summary: [cost-optimization.md](cost-optimization
    the latest decision for a produced run becomes a bounded equal-score
    tie-breaker. It cannot create a candidate, change a similarity score, clear
    a threshold, or outrank stronger deterministic surface evidence.
+10. **Durable agent artifact store** (`artifact_store.py`, PRD B1). Behind the
+   default-off `AIQE_ARTIFACT_STORE` flag, immutable bytes live once at
+   `reports/agent-artifacts/blobs/<sha256>` while integrity-digested, append-only
+   references retain kind, repo/key, producing run, UTC timestamp, input SHA and
+   content SHA. This blob/reference split preserves both content deduplication and
+   provenance multiplicity. `app_paths` places the store on the mounted reports
+   surface (or `AIQE_STATE_DIR`/`AIQE_ARTIFACTS_DIR`); one `fs_lock` serializes all
+   mutations. Reads validate hashes, damaged records/blobs are quarantined, and
+   retention prunes old producing-run references before mark/sweep. Secret-shaped,
+   oversize, unknown-kind, and repo-owned guidance writes are refused. B2 adds the
+   producer/bundle integration; B1 does not write application or test repositories.
 
 Non-negotiables preserved by construction: retrieved/reused text is DATA
 (framing preamble pinned in every assembly), the gate remains the only writer,

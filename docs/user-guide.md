@@ -1079,6 +1079,22 @@ with `AIQE_ARTIFACT_REUSE` and, when enabled, only breaks equal retrieval scores
 An unavailable or corrupt provenance store is reported explicitly and ignored
 for ranking rather than being interpreted as no review history.
 
+### Durable agent artifact store (B1 foundation)
+
+Set `AIQE_ARTIFACT_STORE=1` to enable the content-addressed store foundation.
+It defaults to `reports/agent-artifacts/`, which is on the deployed reports
+volume; `AIQE_ARTIFACTS_DIR` is the explicit isolation/placement override.
+Writes above `AIQE_ARTIFACT_MAX_BYTES` (default 1 MiB), secret-shaped content,
+unknown artifact kinds, and repo-owned guidance are rejected. Reads recompute
+the content hash and quarantine damaged evidence rather than returning it.
+
+`make prune KEEP=200` prunes artifact references alongside run records, and
+`make maintain` does the same nightly. `AIQE_ARTIFACT_KEEP_RUNS` independently
+configures how many producing runs' references are retained (default 200); a
+quarantined reference makes blob sweeping conservative until an operator
+resolves that evidence. The feature remains default-off, and B2 adds automatic
+per-phase capture, historical bundles, and portable-state integration.
+
 ## 6. Integration guide
 
 Tool-specific step-by-step guides live in [integrations/](integrations/README.md):

@@ -45,7 +45,7 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
       (pass rate / flakiness in catalog/health.json; Jenkins role 3)
   bin/qa.py sql "SELECT ..."                    query the SQLite catalog index (read-only)
   bin/qa.py prune [--keep 200]                  retention: delete the oldest run
-      records + their diffs beyond --keep (never touches reviews/queue state)
+      records/diffs and artifact references beyond --keep producing runs
   bin/qa.py run-inline "<pasted JIRA context>" [--key K] [--components a,b]
       [--labels x,y] [--repos r1,r2] [--type Story|Bug|Security] [--queue]
       run Workflow B from pasted text (no ticket needed); --queue enqueues
@@ -590,6 +590,16 @@ def cmd_sql(args):
 
 
 def cmd_prune(args):
+    import os
+    if args.keep < 1:
+        raise SystemExit("--keep must be a positive integer")
+    configured_keep = (os.environ.get("AIQE_ARTIFACT_KEEP_RUNS") or "").strip()
+    try:
+        artifact_keep = int(configured_keep) if configured_keep else args.keep
+    except ValueError as exc:
+        raise SystemExit("AIQE_ARTIFACT_KEEP_RUNS must be a positive integer") from exc
+    if artifact_keep < 1:
+        raise SystemExit("AIQE_ARTIFACT_KEEP_RUNS must be a positive integer")
     runs_dir = pathlib.Path(args.dir) if args.dir else ROOT / "reports/runs"
     records = []
     for f in runs_dir.glob("*.json"):
@@ -616,6 +626,13 @@ def cmd_prune(args):
     import work_queue
     q = work_queue.prune_done(keep=max(args.keep // 4, 25))
     print(f"queue history: kept {q['kept']} done item(s); removed {q['removed']}")
+    import artifact_store
+    artifacts = artifact_store.prune(keep_runs=artifact_keep, root=ROOT)
+    print("artifact store: kept {kept_runs} producing run(s); removed "
+          "{removed_references} reference(s), {removed_blobs} blob(s)".format(
+              **artifacts))
+    if artifacts["sweep_skipped"]:
+        print("artifact store: blob sweep skipped because quarantined evidence exists")
 
 
 def cmd_run_inline(args):

@@ -92,6 +92,7 @@ if not (os.environ.get("AIQE_PLAN_DIR") or "").strip():
 for _var, _dest in (("AIQE_QUEUE_FILE", "out/test-queue.json"),
                     ("AIQE_OPENHANDS_DIR", "out/test-openhands"),
                     ("AIQE_DRIFT_FILE", "out/test-coverage-drift.json"),
+                    ("AIQE_ARTIFACTS_DIR", "out/test-agent-artifacts"),
                     ("AIQE_TESTCASE_PROVENANCE_FILE",
                      "out/test-testcase-provenance.jsonl")):
     if not (os.environ.get(_var) or "").strip():
