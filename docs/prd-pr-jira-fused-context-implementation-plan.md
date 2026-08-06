@@ -8,7 +8,7 @@ Source: [prd-pr-jira-fused-context-multi-agent.md](prd-pr-jira-fused-context-mul
 | Order | Item | Slice | Dependencies | Status | Implementation boundary |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | A1 Ticket discovery | S1 | none | Implemented | Opt-in SCM metadata collection, earned-key extraction, Tracker validation, deterministic selection/refusal, intake field, provenance, explain |
-| 2 | A2 Context fusion | S1 | A1 | Next eligible | Reuse `out/ticket.json`/`ticket_fields.py`, issue-type guidance, scoped prompt tail, acceptance-criteria retention, flag-off parity |
+| 2 | A2 Context fusion | S1 | A1 | Plan reviewed; ready to implement | Reuse `out/ticket.json`/`ticket_fields.py`, issue-type guidance, scoped prompt tail, acceptance-criteria retention, flag-off parity; detailed plan in [pr-jira-fused-context-a2-implementation-plan.md](pr-jira-fused-context-a2-implementation-plan.md) |
 | 3 | A4 Discovery evaluation | S2 | A1 | Planned | Labelled signal/conflict fixtures plus per-signal precision, recall, and correct-refusal metrics |
 | 4 | B1 Test reviewer | S3 | none; schedule after S2 | Planned | Read-only pre-gate reviewer contract, deterministic skip, unavailable state |
 | 5 | B4 Verdict surfaces | S3 | B1 | Planned | Run record, board, comments, progress, and explain surfaces |
@@ -36,11 +36,12 @@ fusion and reviewer delivery prerequisites for a useful, trustworthy PR plan.
 
 ### A2 — Context fusion
 
-Fetch the selected A1 key through the existing ticket materialization path,
-frame ticket text as untrusted data, and pass the same parsed fields and
-issue-type guidance used by JIRA mode to PR triage/generation. Extend context
-scoping so acceptance criteria are mandatory and description text remains
-budgeted. Pin disabled/no-selection behavior to the pre-feature phase inputs.
+The reviewed, acceptance-mapped design is maintained in
+[pr-jira-fused-context-a2-implementation-plan.md](pr-jira-fused-context-a2-implementation-plan.md).
+It first closes response-identity validation, then promotes the already-fetched
+selected ticket to the canonical path, shares guidance selection, renders a
+budget-aware untrusted-data block at the run-specific prompt tail, and pins A1
+flag-off/no-selection parity.
 
 ### A4 — Discovery evaluation
 
