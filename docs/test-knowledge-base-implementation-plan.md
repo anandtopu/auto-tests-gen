@@ -2,7 +2,7 @@
 
 Date: 2026-08-05
 Source: `docs/prd-test-knowledge-base.md` v2
-Status: In implementation; A1–A6 and B1–B3 implemented (feature flags remain default-off where specified)
+Status: Implemented; A1–A6 and B1–B4 implemented (feature flags remain default-off where specified)
 
 ## 1. Delivery principles
 
@@ -415,7 +415,7 @@ relocated state, default-off parity, cost/explain integration, and run-record
 compatibility. Broad compatibility and two-pass review evidence are recorded in the
 B3 review reports; the broad registry suite passes 1,398 tests.
 
-### B4. Structured application-repository facts
+### B4. Structured application-repository facts — Implemented
 
 Dependencies: existing `repo_facts` schema and guidance generator.
 Flag: presence of an authored app-repo facts file.
@@ -433,6 +433,21 @@ Implementation:
 
 Validation: backend/frontend fixtures, opt-in absence, deterministic rebuild,
 precedence invariants, and no LLM/tool call.
+
+Status and acceptance mapping:
+
+| PRD criterion | Implementation evidence |
+| --- | --- |
+| B4.1 | `repo_facts` builds application facts solely from the registry, local contract/route-table content, covering suites, and catalog evidence. App output carries no clock value, sorts set-like fields, and rebuilds byte-identically. Backend/frontend and no-model/subprocess tests pin the boundary. |
+| B4.2 | `app_opted_in()` requires the tracked authored file. Without it app harvesting returns empty, the CLI refuses app facts, and `repo_guidance_gen` follows its pre-B4 harvest/create-once path. Available-empty, unavailable, and not-configured surfaces are distinct. |
+| B4.3 | Opted-in assertions and fresh harvested surface enter only through `repo_guidance_gen`; `repo_admin` precedence and the estate generator are unchanged. Existing generated scratch refreshes when tracked facts change, while repo-owned guidance still prevents generation. |
+
+Validation evidence: focused Ruff and 35 unit/integration/adversarial tests cover
+backend/frontend harvesting, opt-in absence, deterministic rebuild, damaged
+authored data, unavailable inputs, catalog evidence, fallback refresh, and
+guidance compatibility. Broad compatibility and two-pass review evidence are
+recorded in the B4 review reports; 83 cross-boundary tests and the full 1,409-test
+registry compatibility suite pass.
 
 ## 5. Slice and release gates
 

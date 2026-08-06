@@ -1315,16 +1315,16 @@ def test_absent_facts_change_nothing():
     assert rf.conventions("no-such-repo") == []
 
 
-def test_facts_are_an_e2e_test_repo_concept():
-    """App repos are deliberately not modelled: their useful facts are surface
-    and ownership, which the registry and harvested contract already carry."""
+def test_application_repo_facts_are_per_repo_opt_in():
+    """B4 preserves old behavior until an app repo adds an authored file."""
     import repo_facts as rf
     assert rf.is_test_repo("e2e-api-tests-1")
-    assert not rf.is_test_repo("orders-api")
+    assert rf.is_app_repo("orders-api")
+    assert not rf.app_opted_in("orders-api")
     r = subprocess.run([sys.executable, str(ROOT / "engine/lib/repo_facts.py"),
                         "show", "orders-api"], cwd=ROOT, capture_output=True,
                        text=True, encoding="utf-8", stdin=subprocess.DEVNULL)
-    assert r.returncode == 1 and "not a registered E2E test repo" in r.stderr
+    assert r.returncode == 1 and "not an opted-in facts repository" in r.stderr
 
 
 def test_a_rebuild_never_touches_authored_facts(tmp_path, monkeypatch):
@@ -1395,7 +1395,8 @@ def test_harvested_is_a_reshaping_of_what_the_estate_already_computes():
     entry = next(t for t in reg["test_repositories"] if t["name"] == "e2e-api-tests-1")
     assert h["covers"] == list(entry.get("covers") or [])
     assert isinstance(h.get("surface_covered"), list)
-    assert "generated_at" in h
+    assert h["repo_kind"] == "test"
+    assert "generated_at" in h  # legacy test-repo contract remains unchanged
 
 
 def test_derived_facts_are_gitignored_and_authored_are_not():

@@ -576,6 +576,33 @@ last-resort fixture fallback.
 The merged section appears as "Repository guidance" in `AGENTS.md` with each
 source labeled; `demo/orders-api/CLAUDE.md` is a working example.
 
+#### Structured facts for application repositories
+
+An application repository can opt into machine-readable team assertions by
+adding `knowledge/facts/<repo>.yaml`:
+
+```yaml
+repo: orders-api
+schema: 1
+authored:
+  conventions:
+    - id: public-contract-only
+      rule: Test only versioned public endpoints.
+      severity: must
+```
+
+Run `make repo-facts REPO=orders-api` to rebuild only that repo's gitignored
+derived tier, or `make repo-facts` for all E2E repos plus all opted-in app repos.
+The application tier contains deterministic registry/dependency facts,
+contract/routes, covering suites, and catalog evidence. `status: unavailable`
+means the configured contract or route table could not be read; `status:
+available` with no items means it was read and contained no recognized surface.
+
+The authored file is tracked and included in state bundles; derived files are
+rebuildable scratch. Adding no file changes nothing. Facts are folded through
+the same generated-guidance path described above, and never outrank a repo's own
+or curated guidance.
+
 ### Team status reports
 
 One shareable document answering "what did the AI QE pipeline deliver, what's

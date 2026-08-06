@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Structured per-repo facts for E2E TEST repos (docs/knowledge-base-proposal.md).
+"""Structured authored + harvested facts for registered repositories.
 
 Steps 1-2 of the proposal: the schema, the loader, and the HARVESTED tier
 derived from what the estate already computes. The `observed` tier (flake,
 churn, reviewer edits) is deliberately NOT here — it needs a real CI feed, and
 shipping an empty tier that looks populated would be worse than not having it.
 
-Scope: E2E test repos only. An app repo's useful facts are surface + ownership,
-which the registry and the harvested contract already carry; conventions and
-pitfalls are test-repo concepts, and modelling both identically would be a
-false symmetry.
+E2E test repositories retain their existing always-available facts behavior.
+Application repositories opt in by adding ``knowledge/facts/<repo>.yaml``.  An
+application repo without that authored file is deliberately invisible here, so
+adopting B4 cannot alter an existing estate by accident.
 
 TWO FILES, not one — a deviation from the proposal, for a reason this codebase
 has felt repeatedly:
@@ -35,6 +35,7 @@ CLI:
 import datetime
 import json
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -88,18 +89,54 @@ def test_repo_names(reg=None):
         return []
 
 
+def app_repo_names(reg=None):
+    try:
+        from registry import load_registry
+        reg = reg or load_registry()
+        return [r["name"] for r in reg.get("source_repositories") or []]
+    except Exception:
+        return []
+
+
 def is_test_repo(repo, reg=None):
     return repo in test_repo_names(reg)
 
 
+def is_app_repo(repo, reg=None):
+    return repo in app_repo_names(reg)
+
+
+def app_opted_in(repo, reg=None):
+    """True only when a registered application repo has an authored facts file."""
+    return is_app_repo(repo, reg) and (FACTS_DIR / f"{repo}.yaml").is_file()
+
+
+def facts_repo_names(reg=None):
+    """Legacy test repos plus explicitly opted-in application repos."""
+    try:
+        from registry import load_registry
+        reg = reg or load_registry()
+    except Exception:
+        return []
+    tests = test_repo_names(reg)
+    apps = [name for name in app_repo_names(reg) if app_opted_in(name, reg)]
+    return tests + apps
+
+
+def is_facts_repo(repo, reg=None):
+    return is_test_repo(repo, reg) or app_opted_in(repo, reg)
+
+
 def authored(repo):
     """What humans asserted. Tracked in git; never regenerated."""
-    return _read_yaml(FACTS_DIR / f"{repo}.yaml").get("authored") or {}
+    value = _read_yaml(FACTS_DIR / f"{repo}.yaml").get("authored") or {}
+    return value if isinstance(value, dict) else {}
 
 
 def harvested(repo):
     """What was derived from the repo. Rebuilt; hand edits are lost."""
-    return _read_yaml(DERIVED_DIR / f"{repo}.yaml").get("harvested") or {}
+    value = _read_yaml(DERIVED_DIR / f"{repo}.yaml").get("harvested") or {}
+    return value if isinstance(value, dict) else {}
 
 
 def merged(repo):
@@ -131,6 +168,10 @@ def validate(repo):
     output, and validating your own output tells you nothing.
     """
     problems = []
+    doc = _read_yaml(FACTS_DIR / f"{repo}.yaml")
+    declared = doc.get("repo")
+    if declared is not None and declared != repo:
+        problems.append(f"repo is {declared!r}, expected {repo!r}")
     a = authored(repo)
     for field in ("conventions", "pitfalls"):
         for i, row in enumerate(a.get(field) or []):
@@ -148,6 +189,144 @@ def validate(repo):
 
 
 # ------------------------------------------------------------ harvested tier
+
+def _registry_entry(repo, reg):
+    for entry in reg.get("source_repositories") or []:
+        if entry.get("name") == repo:
+            return entry, "app"
+    for entry in reg.get("test_repositories") or []:
+        if entry.get("name") == repo:
+            return entry, "test"
+    return None, None
+
+
+def _catalog_rows():
+    """(status, rows, source_count), keeping unavailable distinct from empty."""
+    files = sorted(app_paths.catalog_files(ROOT))
+    if not files:
+        return "unavailable", [], 0
+    rows, readable = [], 0
+    for path in files:
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+            readable += 1
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(row, dict):
+                    rows.append(row)
+        except (OSError, UnicodeError):
+            continue
+    return ("available" if readable else "unavailable"), rows, readable
+
+
+def _app_surface(entry):
+    """Deterministic harvested surface with an explicit input state.
+
+    ``available`` with an empty ``items`` list means the configured input was
+    read and contained no recognized surface.  ``unavailable`` means the input
+    was configured but no local checkout/fixture supplied it.  Callers must not
+    collapse those two claims.
+    """
+    is_backend = entry.get("type") == "backend"
+    field = "contract" if is_backend else "route_table"
+    artifact = entry.get(field)
+    kind = "endpoints" if is_backend else "routes"
+    base = {"kind": kind, "input": field, "configured_path": artifact or ""}
+    if not artifact:
+        return {**base, "status": "not_configured", "source": "", "items": []}
+    candidates = ((ROOT / "workspace/src" / entry["name"] / artifact,
+                   f"workspace/src/{entry['name']}/{artifact}"),
+                  (ROOT / "demo" / entry["name"] / artifact,
+                   f"demo/{entry['name']}/{artifact}"))
+    for path, source in candidates:
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        if is_backend:
+            items = re.findall(r"^\s{2}(/[^:\s]+):", text, re.M)
+        else:
+            items = re.findall(r"path:\s*['\"]([^'\"]+)", text)
+        return {**base, "status": "available", "source": source,
+                "items": sorted(set(items))}
+    return {**base, "status": "unavailable", "source": artifact, "items": []}
+
+
+def _app_catalog(repo):
+    status, rows, source_count = _catalog_rows()
+    mapped, covered, counts = [], [], {}
+    for row in rows:
+        mapping = row.get("mapping") or {}
+        if not isinstance(mapping, dict):
+            continue
+        if repo not in (mapping.get("app_repos") or []):
+            continue
+        state = str(mapping.get("status") or "unknown")
+        counts[state] = counts.get(state, 0) + 1
+        if state not in ("auto", "confirmed"):
+            continue
+        test_id = row.get("test_id")
+        if test_id:
+            mapped.append(str(test_id))
+        evidence = row.get("evidence") or {}
+        if not isinstance(evidence, dict):
+            continue
+        covered.extend(str(v) for v in (evidence.get("endpoints") or []))
+        covered.extend(str(v) for v in (evidence.get("ui_routes") or []))
+    return {"status": status, "source_count": source_count,
+            "mapping_status_counts": {k: counts[k] for k in sorted(counts)},
+            "mapped_tests": sorted(set(mapped)),
+            "surface_covered": sorted(set(covered))}
+
+
+def _build_app_harvested(entry, reg):
+    name = entry["name"]
+    covering = sorted(t["name"] for t in reg.get("test_repositories") or []
+                      if name in (t.get("covers") or []))
+    return {
+        "repo_kind": "application",
+        "scm": entry.get("scm") or "",
+        "location": entry.get("url") or "",
+        "type": entry.get("type") or "",
+        "domains": sorted(set(entry.get("domains") or [])),
+        "testable_paths": sorted(set(entry.get("testable_paths") or [])),
+        "consumes_services": sorted(set(entry.get("consumes_services") or [])),
+        "consumed_by": sorted(set(entry.get("consumed_by") or [])),
+        "covering_test_repositories": covering,
+        "surface": _app_surface(entry),
+        "catalog": _app_catalog(name),
+    }
+
+
+def _build_test_harvested(entry):
+    repo = entry["name"]
+    out = {
+        "generated_at": datetime.datetime.now(
+            datetime.timezone.utc).isoformat(timespec="seconds"),
+        "repo_kind": "test",
+        "scm": entry.get("scm") or "",
+        "location": entry.get("url") or "",
+        "layer": entry.get("layer") or "",
+        "framework": entry.get("framework") or "",
+        "layout": entry.get("layout") or {},
+        "covers": list(entry.get("covers") or []),
+        "surface_covered": _surface_covered(repo),
+    }
+    try:
+        import spec_exemplars
+        prof = spec_exemplars.profile(
+            ROOT / "workspace/tests" / repo, repo,
+            (entry.get("layout") or {}).get("specs", ""))
+        if isinstance(prof, dict):
+            out["spec_count"] = prof.get("specs", 0)
+            out["shared_helpers"] = sorted(p for p, _ in prof.get("helpers") or [])
+    except Exception:
+        pass
+    return out
 
 def _surface_covered(repo):
     """Endpoints / UI routes this repo's cataloged tests actually exercise —
@@ -189,33 +368,11 @@ def build_harvested(repo, reg=None):
         reg = reg or load_registry()
     except Exception:
         return {}
-    entry = next((t for t in reg.get("test_repositories") or []
-                  if t["name"] == repo), None)
-    if entry is None:
+    entry, kind = _registry_entry(repo, reg)
+    if entry is None or (kind == "app" and not app_opted_in(repo, reg)):
         return {}
-    out = {
-        "generated_at": datetime.datetime.now(
-            datetime.timezone.utc).isoformat(timespec="seconds"),
-        "layer": entry.get("layer") or "",
-        "framework": entry.get("framework") or "",
-        "layout": entry.get("layout") or {},
-        "covers": list(entry.get("covers") or []),
-        "surface_covered": _surface_covered(repo),
-    }
-    # Shared helpers: PATHS only. The exemplar profiler already ships the bodies
-    # to the phases that need them; duplicating the text here would give two
-    # sources for the same thing and let them disagree.
-    try:
-        import spec_exemplars
-        prof = spec_exemplars.profile(
-            ROOT / "workspace/tests" / repo, repo,
-            (entry.get("layout") or {}).get("specs", ""))
-        if isinstance(prof, dict):
-            out["spec_count"] = prof.get("specs", 0)
-            out["shared_helpers"] = [p for p, _ in prof.get("helpers") or []]
-    except Exception:
-        pass                      # a repo that is not checked out simply has less
-    return out
+    return _build_app_harvested(entry, reg) if kind == "app" \
+        else _build_test_harvested(entry)
 
 
 def rebuild(names=None, reg=None):
@@ -225,8 +382,8 @@ def rebuild(names=None, reg=None):
         reg = reg or load_registry()
     except Exception:
         return []
-    targets = [n for n in (names or test_repo_names(reg))
-               if is_test_repo(n, reg)]
+    targets = [n for n in (names or facts_repo_names(reg))
+               if is_facts_repo(n, reg)]
     DERIVED_DIR.mkdir(parents=True, exist_ok=True)
     written = []
     for repo in targets:
@@ -247,14 +404,14 @@ def main(argv):
     cmd = argv[0] if argv else "show"
     if cmd == "rebuild":
         written = rebuild(argv[1:] or None)
-        print(f"harvested facts rebuilt for {len(written)} test repo(s): "
+        print(f"harvested facts rebuilt for {len(written)} repo(s): "
               f"{', '.join(written) or '-'}")
         return 0
     if cmd == "show" and len(argv) > 1:
         repo = argv[1]
-        if not is_test_repo(repo):
-            print(f"{repo} is not a registered E2E test repo — facts are a "
-                  f"test-repo concept (see docs/knowledge-base-proposal.md)",
+        if not is_facts_repo(repo):
+            print(f"{repo} is not an opted-in facts repository (application "
+                  "repos opt in with knowledge/facts/<repo>.yaml)",
                   file=sys.stderr)
             return 1
         m = merged(repo)

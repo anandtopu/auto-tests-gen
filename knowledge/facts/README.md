@@ -1,8 +1,10 @@
-# knowledge/facts/ — structured per-repo facts (E2E test repos)
+# knowledge/facts/ — structured per-repo facts
 
-One `<repo-name>.yaml` per registered **E2E test repo**, holding what humans
-assert about it. See `docs/knowledge-base-proposal.md` for the design and the
-tiers that are deliberately not built yet.
+One `<repo-name>.yaml` per participating repository, holding what humans assert
+about it. E2E test repositories retain the original facts behavior;
+application repositories opt in by adding this authored file. See
+`docs/knowledge-base-proposal.md` for the design and the tier deliberately not
+built yet.
 
     knowledge/facts/<repo>.yaml           AUTHORED — tracked, never regenerated
     knowledge/facts/derived/<repo>.yaml   HARVESTED — gitignored, rebuilt
@@ -33,12 +35,18 @@ Hand-edit the YAML, or:
 no `rule`). Only the authored tier is validated — validating this module's own
 derived output would tell you nothing.
 
-## Scope: E2E test repos only
+## Scope and application-repository opt-in
 
-App repos are not modelled. Their useful facts are surface and ownership, which
-the registry and the harvested contract already carry; conventions and pitfalls
-are test-repo concepts, and modelling both identically would be a false
-symmetry.
+E2E repositories are rebuilt as before. An application repository participates
+only when `knowledge/facts/<app-repo>.yaml` exists. Its harvested tier is a
+deterministic reshaping of registry ownership/dependencies, the configured
+contract or route table, and Test Catalog evidence. An unavailable contract or
+route table is recorded as `status: unavailable`; it is never presented as an
+available-but-empty surface.
+
+Opted-in authored conventions are rendered through the existing generated
+`AGENTS.md` path. Repo-owned guidance still wins, followed by curated guidance
+and then generated scratch; B4 does not add a second guidance generator.
 
 ## Precedence
 

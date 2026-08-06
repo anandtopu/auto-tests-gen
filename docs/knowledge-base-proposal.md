@@ -1,6 +1,8 @@
 # Per-repo knowledge base — proposal
 
-**Status: PROPOSAL. Nothing here is built.** It is written to be reacted to.
+**Status: Historical design.** The authored + harvested tiers are implemented
+for E2E repositories and opted-in application repositories. The observed tier
+remains deliberately deferred until a real CI evidence feed exists.
 
 ## 1. What a repo already knows about itself
 
@@ -163,17 +165,19 @@ Each step is independently useful and independently revertable.
 * **Not pushed to the repo.** Constitution C6 holds: the gate stays the only
   writer of repo content.
 
-## 8. Open questions for you
+## 8. Remaining open questions
 
 1. **Is `observed` worth it?** It is the highest-value tier and the most work —
    it needs run-record mining and a real CI feed (`health.json` is currently
    absent until someone runs `make ingest-results`). Ship 1–2 first and defer it?
 2. **Severity vocabulary** — is `must / should / avoid` the right axis, or do you
    want it tied to something existing (the critic's flag taxonomy)?
-3. **App repos too, or E2E repos only?** The schema fits both, but an app repo's
-   useful facts are mostly surface + ownership; the conventions and pitfalls are
-   test-repo concepts. Modelling both identically may be a false symmetry.
-4. **Who writes `authored`?** A structured editor in the Repositories view is
+3. **Who writes `authored`?** A structured editor in the Repositories view is
    more work than a YAML file in git, but a YAML file in git means only people
    comfortable with a PR contribute — which is probably the wrong set of people
    for "here is the pitfall that cost me a day".
+
+Resolved by B4: application repositories use the common authored/harvested base
+only when their team opts in with a tracked facts file. Their harvested fields
+remain app-specific (registry dependencies, surface, covering suites and catalog
+evidence), avoiding false symmetry with test-repository layout/helper fields.

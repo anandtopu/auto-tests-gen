@@ -34,7 +34,11 @@ CLI:
   repo_guidance_gen.py --all [--force]      every registered repo missing one
   repo_guidance_gen.py <repo> --print       render to stdout, write nothing
 """
-import os, pathlib, sys, time
+import json
+import os
+import pathlib
+import sys
+import time
 import app_paths
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -85,7 +89,6 @@ def _harvest(entry):
 
 
 def _catalog():
-    import glob, json
     out = []
     for f in app_paths.catalog_files(ROOT):
         for line in open(f, encoding="utf-8"):
@@ -104,6 +107,48 @@ def _conventions(layer):
         return ""
     text = p.read_text(encoding="utf-8", errors="ignore")
     return text.split("---", 2)[2].strip() if text.startswith("---") else text.strip()
+
+
+def _app_facts(name, reg):
+    """Fresh structured facts for an opted-in app, otherwise ``None``.
+
+    This is intentionally inside the existing guidance generator: B4 adds a
+    structured source, not a second generator or a competing precedence path.
+    """
+    try:
+        import repo_facts
+        if not repo_facts.app_opted_in(name, reg):
+            return None
+        return {"authored": repo_facts.authored(name),
+                "harvested": repo_facts.build_harvested(name, reg)}
+    except Exception:
+        return None
+
+
+def _append_authored_facts(lines, facts):
+    authored = (facts or {}).get("authored") or {}
+    if not authored:
+        return
+    lines.extend(["## Team-authored structured facts", "",
+                  "These tracked assertions are the authored tier in "
+                  "`knowledge/facts/`; harvested facts remain lower precedence.", ""])
+    ownership = authored.get("ownership")
+    if isinstance(ownership, dict):
+        for key in sorted(ownership):
+            lines.append(f"- **Ownership {key}**: {ownership[key]}")
+    for field, value_key in (("conventions", "rule"), ("pitfalls", "note")):
+        rows = authored.get(field) or []
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict) or not row.get(value_key):
+                continue
+            severity = row.get("severity") or "unspecified"
+            ident = row.get("id") or field[:-1]
+            value = " ".join(str(row[value_key]).split())
+            lines.append(f"- **[{severity}] {ident}**: {value}")
+    data_setup = authored.get("data_setup") or []
+    for value in data_setup if isinstance(data_setup, list) else []:
+        lines.append(f"- **Data setup**: {' '.join(str(value).split())}")
+    lines.append("")
 
 
 # --------------------------------------------------------------------- render
@@ -127,6 +172,7 @@ def _header(name, kind):
 def _render_app(entry, reg):
     name = entry["name"]
     L = _header(name, "app")
+    facts = _app_facts(name, reg)
     L.append("## What this repository is")
     L.append("")
     L.append(f"- **Kind**: {entry.get('type', 'unknown')} application repository")
@@ -143,6 +189,7 @@ def _render_app(entry, reg):
         L.append(f"- **Testable paths**: {', '.join(f'`{p}`' for p in entry['testable_paths'])} "
                  "— changes outside these do not trigger test generation")
     L.append("")
+    _append_authored_facts(L, facts)
 
     # Surface + which of it is already covered
     cat = _catalog()
@@ -152,7 +199,11 @@ def _render_app(entry, reg):
             ev = e.get("evidence", {})
             evidence.update(ev.get("endpoints", []) or [])
             evidence.update(ev.get("ui_routes", []) or [])
-    surface = _harvest(entry)
+    harvested = (facts or {}).get("harvested") or {}
+    structured_surface = harvested.get("surface") or {}
+    surface = structured_surface.get("items") if facts is not None else None
+    if not isinstance(surface, list):
+        surface = _harvest(entry)
     if surface:
         is_api = entry.get("type") == "backend"
         L.append(f"## {'API surface' if is_api else 'UI routes'} "
@@ -317,13 +368,18 @@ def ensure(name, force=False, reg=None):
     skipped_exists | unregistered. Never raises for an unregistered repo — callers run
     this opportunistically after an add and must not fail because of it.
     """
-    entry, _ = find_repo(name, reg)
+    entry, kind = find_repo(name, reg)
     if entry is None:
         return {"repo": name, "status": "unregistered", "path": None}
     if not force and has_real_guidance(name):
         return {"repo": name, "status": "skipped_has_own", "path": None}
     dest = generated_path(name)
-    if dest.exists() and not force:
+    # An opted-in app's tracked facts can change after this scratch file was
+    # first created. Refresh through this SAME generator so `make agents`
+    # cannot keep serving stale assertions. Repos without facts retain the
+    # historical create-once behavior exactly.
+    refresh_facts = kind == "app" and _app_facts(name, reg) is not None
+    if dest.exists() and not force and not refresh_facts:
         return {"repo": name, "status": "skipped_exists",
                 "path": _rel(dest)}
     text = render(name, reg)

@@ -1023,9 +1023,20 @@ generation of existing-test context makes it duplicate work it cannot see.
 ### 5.16 Structured per-repo facts (knowledge base, v2.4)
 
 `knowledge/facts/<repo>.yaml` (authored, tracked) beside
-`knowledge/facts/derived/<repo>.yaml` (harvested, gitignored), for **E2E test
-repos only** — an app repo's useful facts are surface and ownership, which the
-registry and harvested contract already carry.
+`knowledge/facts/derived/<repo>.yaml` (harvested, gitignored). E2E test repos
+retain the original always-available facts behavior. Application repositories
+opt in per repo by adding the authored file; without it they behave exactly as
+before B4.
+
+For an opted-in application repo the harvested tier deterministically reshapes
+registry metadata/dependencies, the configured OpenAPI contract or route table,
+covering test repositories, and catalog mapping/evidence. It records
+`available`, `unavailable`, and `not_configured` surface-input states separately,
+so a missing checkout cannot masquerade as an empty application surface. No
+model or external tool participates. Authored assertions and the fresh
+harvested surface are consumed by `repo_guidance_gen.py`, the existing fallback
+generator; repo-owned > curated > generated precedence is unchanged, and no
+second guidance path exists.
 
 The gap this closes is not plumbing: every repo already had guidance, catalog
 evidence, harvested surface and chunks. It is that everything *qualitative* was

@@ -57,7 +57,7 @@ test-gate:
 test-providers:
 	bash tests/provider-adversarial.sh
 
-repo-facts:           # structured per-repo facts: rebuild the harvested tier (E2E repos)
+repo-facts:           # harvested facts: E2E repos + opted-in app repos
 	python3 engine/lib/repo_facts.py rebuild $(REPO)
 
 # Adversarial UAT for the STATE layer (review pass C)
