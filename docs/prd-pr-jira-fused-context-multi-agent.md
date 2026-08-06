@@ -2,7 +2,7 @@
 
 |  |  |
 |---|---|
-| **Status** | Draft for review |
+| **Status** | Draft v2 — revised after adversarial gap review (Appendix B); Epic A implementation already under way on `codex/test-knowledge-a1-a2` |
 | **Author** | Product Management (QE Platform) |
 | **Date** | 2026-08-06 |
 | **Doc** | `docs/prd-pr-jira-fused-context-multi-agent.md` |
@@ -139,6 +139,15 @@ ticket**. `TRACKER get_item` is called only in the `jira|plan|tests` modes; the
 
 ## 5. Epic A — Fused PR + JIRA context
 
+> **Implementation status (v2).** A1 shipped in commit `c9a4a3f` while this PRD
+> was in review, and in two places the implementation is *better* than the v1
+> spec: it added the Scm port verb v1 forgot to specify (`pr_context`, on all
+> four adapters, conformance-tested), and it validates with three states
+> (`valid | invalid | unavailable`) where v1's A1.2 had two — including
+> treating a tracker that answers with a *different issue* as unavailable
+> evidence. The ACs below are updated to codify what shipped; A2 is in flight;
+> A3 is not started and carries the two SDD decisions added in v2.
+
 ### A1. Ticket discovery from a pull request
 
 **Requirement.** WHEN a PR-triggered run starts, THE SYSTEM SHALL attempt to
@@ -152,12 +161,28 @@ order — an explicit statement always beating an inference:
 
 **Acceptance criteria:**
 
+- **A1.0** — PR metadata (source branch, title, description, commit messages)
+  SHALL come through a dedicated Scm port verb — **`pr_context`**, as shipped:
+  implemented on all four adapters (github/bitbucket/stash/mock), in the
+  conformance verb list, reporting `state: available|unavailable` so an adapter
+  that cannot answer is distinguishable from a PR with no metadata. v1
+  specified the signals without specifying the verb; a port change is the most
+  governed surface in the platform and belongs in the requirement, not in a
+  surprise during S1.
 - **A1.1** — Extraction SHALL reuse `correlate.py::jira_keys()` (one definition;
   its false-positive exclusions are earned knowledge).
 - **A1.2** — A discovered key SHALL be validated by `TRACKER get_item` before
-  use. A key that does not resolve is recorded as `discovered_invalid` and NOT
-  used — a plausible-looking key pointing at the wrong or dead ticket poisons
+  use, with **three outcomes, never two**: `valid` (resolves to the same issue),
+  `invalid` (the tracker answered and the key does not exist), `unavailable`
+  (the tracker is unconfigured, unreachable, or answered with a *different*
+  issue — evidence about the tracker, not about the key). Only `valid` keys are
+  used; a plausible-looking key pointing at the wrong or dead ticket poisons
   context worse than no ticket at all.
+- **A1.2a** — `unavailable` SHALL never be recorded as `invalid`. Standalone
+  operation (no tracker configured) is a supported mode, and v1's two-state AC
+  would have branded every real key invalid in it — the exact C13 violation
+  this platform's constitution exists to name. The run proceeds without a
+  ticket, stating which state applied and why.
 - **A1.3** — WHEN multiple distinct keys survive validation, THE SYSTEM SHALL
   prefer the branch-name key; absent that, it SHALL proceed **without** a ticket
   and record `ambiguous` naming every candidate — guessing between two tickets
@@ -171,6 +196,17 @@ order — an explicit statement always beating an inference:
 - **A1.5** — WHEN no ticket is discovered, the run SHALL proceed exactly as
   today AND the context assembly SHALL state "no ticket discovered" explicitly
   (C13: not-found is its own state, distinct from not-looked).
+- **A1.6** — The validated ticket's **status** SHALL be recorded in provenance,
+  and a ticket in a terminal state (Closed/Done) SHALL fuse with a warning on
+  every surface that names the ticket — a reused branch carrying last
+  quarter's key passes existence validation and still fuses the wrong
+  requirements. Warn, don't refuse: a just-closed ticket whose PR lands late
+  is legitimate and common.
+- **A1.7** — The explicit-key intake field SHALL exist on every intake surface,
+  **including the TaskEvent schema** (optional `key` on `mode: pr` events). The
+  new field SHALL be excluded from the dedupe hash — replay idempotency for
+  events that never carried it must not change — and the schema pin updated in
+  the same change.
 
 ### A2. Context fusion
 
@@ -195,6 +231,25 @@ A3), as **data, never instructions**.
   the fusion), while description prose competes normally.
 - **A2.5** — With the flag off, or no ticket found, the PR path SHALL be
   byte-identical to today (pinned).
+- **A2.6** — **Artifact hygiene is load-bearing, not housekeeping.** Every
+  fused artifact — `out/ticket.json` above all — SHALL be cleared at the start
+  of the PR branch, *before* the flag is consulted. Found during the v2
+  review as a live pre-existing defect: the jira branch writes
+  `out/ticket.json`, the pr branch never cleared it, and
+  `context_scope.gather_signals()` reads it unconditionally — so every PR run
+  following a JIRA run biased its retrieval toward the *previous ticket's*
+  text, flag or no flag. Fusion piggybacking on the same file turns that
+  contamination from a bias into a wrong-ticket fusion. (The in-flight A2
+  implementation already carries this cleanup; this AC exists so it can never
+  be "simplified" away.)
+- **A2.7** — The fused ticket SHALL feed the run's retrieval signals
+  (`gather_signals` already reads `out/ticket.json` — fusion gets this free,
+  which is a reason A2.1's reuse is the right shape) **and** the knowledge
+  base's impact analysis (`engine/lib/impact_analysis.py`, prior PRD A3) on the
+  PR path, so extend-vs-create targeting sees the ticket's vocabulary, not
+  only the diff's. Two initiatives shipping disjoint context enrichments for
+  the same run would be this platform's two-definitions defect, repeated in
+  context.
 
 ### A3. Plan-first from a pull request (resolves prior-PRD D7)
 
@@ -215,6 +270,23 @@ existing `tests` mode into generation and the gate.
   mode: it never reaches the gate, and commit-rate metrics stay honest).
 - **A3.4** — The wizard and queue SHALL offer "plan first" for PR intake exactly
   as they do for tickets today — same ladder, same approval step.
+- **A3.5** — **Requirements-gate decision (v2).** PR-keyed plans SHALL be
+  **exempt** from `spec.requirements_gate` — with the exemption stated in the
+  refusal-free path and pinned. Rationale: the gate refuses `plan|jira` until
+  an approved EARS requirements file exists, and a PR key has no requirements
+  story and no mode that could author one — without this exemption, plan-from-PR
+  is unusable in precisely the estates disciplined enough to run the gate.
+  Revisit only if a PR-requirements story is ever wanted (it is not proposed
+  here: a PR's requirements are its ticket's, which is what fusion is for).
+- **A3.6** — **Spec-gate decision (v2).** A structured, signed plan under a PR
+  key SHALL be enforced by `spec_check` exactly as a JIRA-keyed one — and this
+  is a *decision*, because it would otherwise happen **by accident**: the
+  gate's PR-path exemption is by construction ("no structured spec for the key
+  → exempt", `spec_check.py`), so the first signed PR spec silently removes it,
+  and `spec_drift`, the trace matrix and scenario chunks all begin treating PR
+  keys as first-class. Adopted deliberately: a signed spec is a signed spec,
+  whatever shape its key. Pinned both ways — enforcement applies to signed PR
+  specs, and unsigned/free-form PR runs stay exempt exactly as today.
 
 ### A4. Discovery evaluation
 
@@ -261,6 +333,18 @@ severity, the file/test it concerns, and what a fix looks like — and a verdict
   verdict shows.
 - **B1.4** — Zero generated tests SHALL skip the reviewer via the existing
   deterministic skip machinery (`SKIP_PHASE`), rendered as skipped, not passed.
+- **B1.5** — **The reviewer mirrors the generation fan-out.** WHEN a run
+  resolved ≥2 test repos, each repo's tests are reviewed by their own reviewer
+  call carrying that repo's conventions and catalog slice — the fan-out exists
+  because cross-repo convention mixing produced wrong tests, and a single
+  reviewer reading merged multi-repo output re-introduces exactly that mixing
+  at review time. A repo with zero generated tests skips per B1.4. Verdicts
+  merge like generate contracts do: per-repo verdicts recorded, the run-level
+  verdict is `needs_work` if any repo's is.
+- **B1.6** — The mock estate SHALL ship a reviewer stub like every phase, with
+  scripted verdicts. Consequence, stated here so no metric launders it: every
+  mock-mode reviewer figure measures *plumbing* (findings route, repair
+  triggers, verdicts surface), never review quality (B6.3, M3).
 
 ### B2. Bounded repair from findings
 
@@ -278,6 +362,14 @@ the reviewer re-examines.
 - **B2.3** — A finding the repair pass does not resolve SHALL survive into the
   final verdict — a repair loop that launders findings into silence is worse
   than no reviewer.
+- **B2.4** — The repair mechanism SHALL be a named prompt
+  (`review-repair.md`, modeled on the existing `validate-repair.md`),
+  write-enabled, confined to the reviewed repo's workspace exactly as the
+  fan-out confines generation, and each loop SHALL re-run `validate` (the
+  tests must still *execute* after the fix). Cost accounting per loop is
+  therefore reviewer + repair + validate — three calls, which is why
+  `max_loops` defaults to 1. "The generator applies fixes" was v1's hand-wave;
+  a mechanism nobody named is a mechanism nobody costed.
 
 ### B3. Delivery policy — what a verdict means
 
@@ -290,8 +382,18 @@ decide the consequence of a final `needs_work` verdict, defaulting to **warn**.
   recorded and surfaced everywhere (B4) but the run proceeds to the gate.
   `require`: a final `needs_work` **fails the run before the gate executes** —
   nothing is committed, the run record states the refusing findings, and the
-  PR/ticket comment names the fix and the override (requeue with
-  `review.agent_gate=warn` requires the same permission as editing org-config).
+  PR/ticket comment names the fix.
+- **B3.1a** — **Override mechanics, decided (v2).** There is NO per-run bypass
+  flag, by design: the only way past a `require` refusal is changing
+  `review.agent_gate` in org-config — estate-wide, made by whoever owns that
+  file, and visible in the audit trail like any settings change. v1 said the
+  override "requires the same permission as editing org-config", which
+  described two contradictory mechanisms at once: a per-run flag would be
+  settable by anyone with queue access (a bypass, not an override), and an
+  org-config edit is not per-run. The estate-wide edit is the honest option:
+  if refusals are wrong often enough that people need an escape hatch, the
+  policy belongs back at `warn` — for everyone, visibly — until the reviewer
+  earns `require` again.
 - **B3.2** — The rollout SHALL be two-step by default and documented in the
   Settings UI in consequence language, exactly as `spec.enforce` is: turning on
   `require` first just teaches people to bypass the reviewer.
@@ -305,12 +407,20 @@ decide the consequence of a final `needs_work` verdict, defaulting to **warn**.
   reads its output; it has no write tools; its verdict alone never moves a
   review-board status.* Each sub-claim pinned. C2 (critic) is untouched — and a
   pin SHALL assert the critic and reviewer remain distinct phases, so the
-  reviewer's gating power can never be quietly transferred to the critic.
+  reviewer's gating power can never be quietly transferred to the critic. The
+  amendment SHALL update **CLAUDE.md's non-negotiables rendering in the same
+  change** — the constitution's own header requires the human rendering stay in
+  sync, and a rendering that drifts from the yaml is precisely the stale-docs
+  class the last documentation review existed to purge.
 
 ### B4. Verdict surfaces
 
 **Requirement.** The verdict SHALL appear everywhere the run does: run record
-block (`review: {verdict, findings, loops, unresolved}`), review-board column,
+block (`review: {verdict, findings, loops, unresolved, policy}` — `policy`
+records the `agent_gate` value **in effect for that run**, because M6 conditions
+on it and a metric conditioned on a knob nobody recorded is uncomputable — the
+exact instrumentation-free-metric defect the prior PRD's review caught in its
+M6), review-board column,
 PR coverage comment and JIRA comment line, wizard/Run-progress step ("Agent
 review" between "Validate" and "Quality gate"), and `make explain` (which
 findings, what was repaired, what survived).
@@ -353,11 +463,11 @@ attack, not by inspection.
 | # | Metric | Baseline | Target | Method |
 |---|---|---|---|---|
 | M1 | Ticket-discovery precision on fixtures | n/a (new) | ≥95%, with ambiguous-refusal counted correct | A4 eval in `make eval` |
-| M2 | PR runs with fused ticket context | 0% | ≥70% of PR runs in estates using key-bearing branch/commit conventions | run-record provenance |
-| M3 | Reviewer catch rate on seeded defects | n/a (new) | 100% of B6.1 classes in mock; real-model rate reported when parity unblocks | B6 eval |
+| M2 | Fusion rate **given signal** — denominator: PR runs where discovery produced ≥1 candidate | 0% | ≥90% of candidate-bearing runs end fused or correctly refused | run-record provenance. v1's denominator ("estates using key-bearing conventions") was unmeasurable — no instrument can decide whether an estate "uses a convention"; conditioning on observed candidates measures what the feature controls |
+| M3 | Reviewer catch rate on seeded defects | n/a (new) | 100% of B6.1 classes in mock — **a plumbing figure** (scripted verdicts prove routing, not judgement; B1.6); real-model rate reported when parity unblocks | B6 eval |
 | M4 | Findings resolved by the bounded repair | n/a | ≥60% of findings resolved within `max_loops: 1` | run records |
-| M5 | Plan-from-PR adoption | 0 (impossible today) | ≥30% of PR-path work in plan-first estates goes through a plan within a quarter | plan_state + run records |
-| M6 | Escaped noise (critic §5.8.7 proxy: defects reaching human review) | scorecard baseline at S3 ship | −40% where `agent_gate ≥ warn` | scorecard, conditioned on the knob |
+| M5 | Plan-from-PR adoption | 0 (impossible today) | **report-only for the first quarter** (plan-mode PR requests / all PR requests); a target is set from that baseline, not invented ahead of it | plan_state + run records |
+| M6 | Escaped noise (critic §5.8.7 proxy: defects reaching human review) | scorecard baseline at S3 ship | −40% where `agent_gate ≥ warn` | scorecard, conditioned on the **`policy` field the run record now carries** (B4) — the knob is recorded per run precisely so this row is computable |
 | **Guardrails** | Commit rate (mechanics), p95 wall-clock, cost per run vs envelope | current | no regression; cost uplift within the documented envelope delta | scorecard + cost report |
 
 Same honesty rule as the prior PRD: mock-derived figures guard mechanics, not
@@ -373,11 +483,11 @@ behaviour byte-for-byte (pinned per slice).
 
 | Slice | Scope | Flag / knob | Exit criteria |
 |---|---|---|---|
-| **S1 — Discovery + fusion** | A1, A2, G3 intake field | `AIQE_PR_TICKET_CONTEXT` (default 0) | discovery with provenance; validation + ambiguity refusal; issue-type guidance on PR path; flag-off byte-identical |
+| **S1 — Discovery + fusion** | A1, A2, G3 intake field | `AIQE_PR_TICKET_CONTEXT` (default 0) | discovery with provenance via the `pr_context` verb; three-state validation + ambiguity refusal; artifact hygiene (A2.6); issue-type guidance on PR path; TaskEvent `key` field with dedupe hash unchanged (A1.7); flag-off byte-identical. **Status: A1 shipped (`c9a4a3f`); A2 in flight on `codex/test-knowledge-a1-a2`** |
 | **S2 — Discovery eval** | A4 | — (eval always on) | fixture set incl. conflict + invalid cases; precision/recall in `make eval`; M1 met in mock |
 | **S3 — Reviewer, advisory** | B1, B4, B6 | `AIQE_TEST_REVIEWER` (default 0) + `review.agent_gate: warn` | read-only reviewer; verdict on every surface incl. explain; skip-on-zero-tests; seeded-defect eval green |
-| **S4 — Repair + require** | B2, B3, constitution clause | `review.agent_gate: require` (opt-in) | bounded repair metered; pre-gate refusal with named fix; new clause + pins landed; critic/reviewer distinctness pinned |
-| **S5 — Plan-from-PR** | A3 | `AIQE_PR_PLAN` (default 0) | full plan-first lifecycle on a PR key through existing plan_state; wizard/queue entry points; prior-PRD D7 closed with a pointer here |
+| **S4 — Repair + require** | B2, B3, constitution clause | `review.agent_gate: require` (opt-in) | bounded repair via `review-repair.md`, metered; pre-gate refusal with named fix; org-config-only override (B3.1a); new clause + pins landed incl. CLAUDE.md rendering sync; critic/reviewer distinctness pinned |
+| **S5 — Plan-from-PR** | A3 | `AIQE_PR_PLAN` (default 0) | full plan-first lifecycle on a PR key through existing plan_state; requirements-gate exemption (A3.5) and spec-gate enforcement decision (A3.6) both landed WITH their pins; wizard/queue entry points; prior-PRD D7 closed with a pointer here |
 
 S5 deliberately last: fusion (S1) makes a PR-authored plan worth reading, and
 the reviewer (S3/S4) is what makes the resumed generation trustworthy.
@@ -445,3 +555,34 @@ commits, two mentioning PROJ-310.
 The human reviewer's first question — "did it test what the ticket asked, not
 just what the code does?" — was asked by an agent, answered, and recorded,
 before a human spent a minute.
+
+---
+
+## Appendix B — Revision history
+
+**v2 (2026-08-06)** — after an adversarial gap review of v1, verified against
+the codebase — which, unusually, was already implementing Epic A while the
+review ran. Three findings were resolved by the implementation before the PRD
+caught up; the revision codifies what shipped rather than proposing it again.
+
+| Change | Driven by |
+|---|---|
+| A1.0: the `pr_context` Scm verb specified — v1 defined discovery signals without noticing three of four require a new port verb across all adapters + conformance | Review finding 1; **shipped in `c9a4a3f` before this revision landed** — the spec now documents the verb rather than proposing it |
+| A1.2/A1.2a: three validation states (`valid`/`invalid`/`unavailable`) — v1's two states branded every real key invalid in tracker-less standalone estates, a C13 violation in the PRD's own AC | Finding 2; also shipped ahead of the revision, including treating a same-key-different-issue response as unavailable evidence — stricter than v1 asked |
+| A2.6: artifact hygiene as a load-bearing AC | Finding 5 — a **live pre-existing defect** found during review: stale `out/ticket.json` from a prior JIRA run biased every PR run's retrieval signals via `gather_signals()`. The in-flight A2 implementation carries the cleanup; the AC exists so it cannot be "simplified" away |
+| A3.5: requirements-gate exemption for PR keys | Finding 3 — `spec.requirements_gate: on` would have made plan-from-PR unusable in exactly the estates disciplined enough to run it |
+| A3.6: spec-gate enforcement of signed PR specs as a stated decision | Finding 4 — the PR exemption in `spec_check.py` is by construction and would have lapsed **by accident** the moment the first signed PR spec existed |
+| B1.5 reviewer fan-out mirror; B1.6 mock stub + plumbing caveat; B2.4 `review-repair.md` named and costed; B3.1a org-config-only override | Findings 6–9 — the reviewer's undecided mechanics |
+| B4 `policy` field; M2 denominator = candidate-bearing runs; M3 labelled plumbing; M5 report-only first quarter; M6 conditioned on the recorded field | Findings 10–11 — unmeasurable metrics; M6 was the same instrumentation-free-metric defect the prior PRD's review caught, repeated in a new document |
+| A1.7 TaskEvent `key` field with dedupe hash unchanged | Finding 12 |
+| B3.4 CLAUDE.md rendering sync required in the amendment | Finding 13 |
+| A1.6 closed-ticket warning | Finding 14 — existence validation passes on last quarter's key from a reused branch |
+| A2.7 fused ticket feeds `gather_signals` and `impact_analysis` | Finding 15 — two initiatives enriching the same run's context must not ship disjoint |
+
+Convergence note, recorded because it is evidence the review method works both
+ways: the A2 implementer's own pre-implementation review independently raised
+response-identity validation, stale-artifact protection, MUST-KEEP acceptance
+criteria, and the issue-guidance coupling (its P1/P2 register) — four of the
+same items — and its post-implementation passes added fixes this PRD had not
+asked for (CRLF key normalization at every shell boundary, budget-safe prose
+rendering, partial-manifest rejection in run records).
