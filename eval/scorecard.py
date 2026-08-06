@@ -14,10 +14,16 @@ def pct(x):
     return f"{x:.0%}"
 
 # --- routing accuracy (benchmark replays) ---------------------------------------
-# context-scope.json is the retrieval guardrail's output (context_check.py),
-# not a replay result — the same shared-directory rule as reports/runs/.
-res = [json.load(open(f)) for f in glob.glob("eval/results/*.json")
-       if pathlib.Path(f).name != "context-scope.json"]
+# Only a row carrying routing_ok is a replay result. Eval outputs share this
+# directory and A5 adds another one; name-based exclusions drift at every slice.
+res = []
+for f in glob.glob("eval/results/*.json"):
+    try:
+        row = json.load(open(f, encoding="utf-8"))
+        if isinstance(row, dict) and "routing_ok" in row:
+            res.append(row)
+    except (OSError, ValueError):
+        pass
 if res:
     routing = sum(r["routing_ok"] for r in res) / len(res)
     print(f"Routing accuracy: {pct(routing)} across {len(res)} fixtures (target ≥95%)")
@@ -34,6 +40,21 @@ try:
           + " (token-counted; quality delta awaits parity runs)")
 except (OSError, ValueError):
     pass
+
+# --- change-to-test retrieval quality (PRD A5) ---------------------------------
+try:
+    rq = json.load(open("eval/results/retrieval-quality.json", encoding="utf-8"))
+    print(f"Retrieval quality: {rq.get('overall', 'unknown').upper()} across "
+          f"{(rq.get('label_set') or {}).get('changes', 0)} labelled changes")
+    for mode in ("deterministic", "lexical", "semantic"):
+        row = (rq.get("modes") or {}).get(mode) or {}
+        metrics = row.get("metrics")
+        detail = (f" precision@5={metrics['precision_at_5']:.2f}, "
+                  f"recall@5={metrics['recall_at_5']:.2f}, MRR={metrics['mrr']:.2f}"
+                  if metrics else f" {row.get('reason', '')}")
+        print(f"  {mode}: {row.get('state', 'unavailable')}{detail}")
+except (OSError, ValueError, KeyError, TypeError):
+    print("Retrieval quality: n/a — run `make retrieval-eval`")
 
 # --- run outcomes + generation behavior (persisted run records) -----------------
 runs = []

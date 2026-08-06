@@ -1215,12 +1215,23 @@ Every `make` target, grouped. Details are in the section linked from each group.
 | Cost (§5a) | `cost-report`, `cost-baseline`, `cache-stats`, `cache-clear`, `cache-probe` |
 | State portability | `state-export`, `state-inspect`, `state-import`, `clear-demo` |
 | Deployment | `docker-build`, `deploy-local`, `deploy-local-down`, `deploy-openshift` |
-| Verification | `review` (everything below, in sequence), `test-routing`, `test-routing-adv`, `test-gate`, `test-state`, `test-providers`, `test-bootstrap`, `test-entrypoint`, `test-observability`, `conformance`, `eval`, `check-integrations`, `smoke-openhands` |
+| Verification | `review` (everything below, in sequence), `test-routing`, `test-routing-adv`, `test-gate`, `test-state`, `test-providers`, `test-bootstrap`, `test-entrypoint`, `test-observability`, `conformance`, `eval`, `retrieval-eval`, `check-integrations`, `smoke-openhands` |
 
 `make review` is the one to run before believing anything works: goldens, adapter
 conformance, seven adversarial/smoke suites (gate, routing, state, providers,
 bootstrap, entrypoint, observability), the replay benchmark and the scorecard. It takes
 roughly twelve minutes.
+
+`make retrieval-eval` runs the versioned A5 gold set directly. It reports
+precision@5, recall@5, and MRR separately for deterministic, lexical, and
+semantic ranking. Deterministic and lexical results always have independent
+floors. If embeddings are absent, semantic is `unmeasured`; if mock embeddings
+are active, it is `simulated` and does not gate quality. A configured real
+provider must meet its semantic floors. Results in
+`eval/results/retrieval-quality.json` include corpus/label hashes, source
+commit, evaluation time, hostile-retrieval checks, and the current M9 human
+baseline state. Update the v1 labels and pinned corpus hash together under QE
+Lead review; never relabel drift implicitly.
 
 Three verification targets are worth calling out because each exists to cover an
 entry point that nothing was running:

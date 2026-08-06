@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "version": "2026-08-06.v1",
+  "owner": {
+    "team": "QE Platform",
+    "maintainer_role": "QE Lead",
+    "maintenance": "Review labels whenever corpus sha256 changes and at least quarterly."
+  },
+  "labeling_method": "Synthetic estate changes derived from documented API surfaces, UI routes, helpers, fixtures, and persistence conventions.",
+  "corpus": {
+    "file": "corpus.json",
+    "sha256": "9f0c4cd22e66a705d64291a326615fec80dc59baee79554c60f80d6b5116e1a7"
+  },
+  "attack_fixture": "hostile-testcase.json",
+  "m9_baseline": "m9-baseline.json",
+  "changes": [
+    {"id":"API-DISCOUNT-01","category":"api","query":"POST /v1/orders/{id}/discounts rejects an expired promotion code with 422","expected_case_ids":["api-discount-1","api-discount-2","api-discount-3","api-discount-4","api-discount-5"]},
+    {"id":"API-DISCOUNT-02","category":"api","query":"POST /v1/orders/{id}/discounts changes percentage cap validation","expected_case_ids":["api-discount-1","api-discount-2","api-discount-3","api-discount-4","api-discount-5"]},
+    {"id":"API-DISCOUNT-03","category":"api","query":"POST /v1/orders/{id}/discounts now echoes valid discount code in 201 body","expected_case_ids":["api-discount-1","api-discount-2","api-discount-3","api-discount-4","api-discount-5"]},
+    {"id":"API-DISCOUNT-04","category":"api","query":"authentication behavior changed for POST /v1/orders/{id}/discounts","expected_case_ids":["api-discount-1","api-discount-2","api-discount-3","api-discount-4","api-discount-5"]},
+    {"id":"API-DISCOUNT-05","category":"api","query":"retry and duplicate promotion behavior changed at POST /v1/orders/{id}/discounts","expected_case_ids":["api-discount-1","api-discount-2","api-discount-3","api-discount-4","api-discount-5"]},
+    {"id":"API-ORDER-01","category":"api","query":"GET /v1/orders/{id} returns an existing ord-prefixed order","expected_case_ids":["api-order-1","api-order-2","api-order-3","api-order-4","api-order-5"]},
+    {"id":"API-ORDER-02","category":"api","query":"GET /v1/orders/{id} missing order error changes from 404","expected_case_ids":["api-order-1","api-order-2","api-order-3","api-order-4","api-order-5"]},
+    {"id":"API-ORDER-03","category":"api","query":"GET /v1/orders/{id} validates the ord identifier prefix","expected_case_ids":["api-order-1","api-order-2","api-order-3","api-order-4","api-order-5"]},
+    {"id":"API-ORDER-04","category":"api","query":"API key authorization changed on GET /v1/orders/{id}","expected_case_ids":["api-order-1","api-order-2","api-order-3","api-order-4","api-order-5"]},
+    {"id":"API-ORDER-05","category":"api","query":"GET /v1/orders/{id} response schema adds a required status field","expected_case_ids":["api-order-1","api-order-2","api-order-3","api-order-4","api-order-5"]},
+
+    {"id":"UI-CART-01","category":"ui","query":"route /checkout/cart changes the visible shopping cart shell","expected_case_ids":["ui-cart-1","ui-cart-2","ui-cart-3","ui-cart-4","ui-cart-5"]},
+    {"id":"UI-CART-02","category":"ui","query":"quantity increment and subtotal behavior changes on /checkout/cart","expected_case_ids":["ui-cart-1","ui-cart-2","ui-cart-3","ui-cart-4","ui-cart-5"]},
+    {"id":"UI-CART-03","category":"ui","query":"remove item and empty basket behavior changes on /checkout/cart","expected_case_ids":["ui-cart-1","ui-cart-2","ui-cart-3","ui-cart-4","ui-cart-5"]},
+    {"id":"UI-CART-04","category":"ui","query":"reload persistence changes on the /checkout/cart route","expected_case_ids":["ui-cart-1","ui-cart-2","ui-cart-3","ui-cart-4","ui-cart-5"]},
+    {"id":"UI-CART-05","category":"ui","query":"empty cart data-testid state changes at /checkout/cart","expected_case_ids":["ui-cart-1","ui-cart-2","ui-cart-3","ui-cart-4","ui-cart-5"]},
+    {"id":"UI-PAYMENT-01","category":"ui","query":"route /checkout/payment changes the visible card form","expected_case_ids":["ui-payment-1","ui-payment-2","ui-payment-3","ui-payment-4","ui-payment-5"]},
+    {"id":"UI-PAYMENT-02","category":"ui","query":"declined card error behavior changes on /checkout/payment","expected_case_ids":["ui-payment-1","ui-payment-2","ui-payment-3","ui-payment-4","ui-payment-5"]},
+    {"id":"UI-PAYMENT-03","category":"ui","query":"retry after decline changes on the /checkout/payment route","expected_case_ids":["ui-payment-1","ui-payment-2","ui-payment-3","ui-payment-4","ui-payment-5"]},
+    {"id":"UI-PAYMENT-04","category":"ui","query":"card expiry and security code validation changes at /checkout/payment","expected_case_ids":["ui-payment-1","ui-payment-2","ui-payment-3","ui-payment-4","ui-payment-5"]},
+    {"id":"UI-PAYMENT-05","category":"ui","query":"successful order confirmation changes on /checkout/payment","expected_case_ids":["ui-payment-1","ui-payment-2","ui-payment-3","ui-payment-4","ui-payment-5"]},
+
+    {"id":"NONURL-SESSION-01","category":"non-url","query":"loginAs seedUser now creates a seeded authenticated session","expected_case_ids":["nonurl-session-1","nonurl-session-2","nonurl-session-3","nonurl-session-4","nonurl-session-5"]},
+    {"id":"NONURL-SESSION-02","category":"non-url","query":"loginAs seedUser role authorization permissions changed","expected_case_ids":["nonurl-session-1","nonurl-session-2","nonurl-session-3","nonurl-session-4","nonurl-session-5"]},
+    {"id":"NONURL-SESSION-03","category":"non-url","query":"loginAs seedUser handles expired authentication differently","expected_case_ids":["nonurl-session-1","nonurl-session-2","nonurl-session-3","nonurl-session-4","nonurl-session-5"]},
+    {"id":"NONURL-SESSION-04","category":"non-url","query":"loginAs seedUser fixture isolation changes between independent tests","expected_case_ids":["nonurl-session-1","nonurl-session-2","nonurl-session-3","nonurl-session-4","nonurl-session-5"]},
+    {"id":"NONURL-SESSION-05","category":"non-url","query":"loginAs seedUser logout behavior changed without a route change","expected_case_ids":["nonurl-session-1","nonurl-session-2","nonurl-session-3","nonurl-session-4","nonurl-session-5"]},
+    {"id":"NONURL-STORAGE-01","category":"non-url","query":"clearCartState must remove localStorage cart.v2 beforeEach","expected_case_ids":["nonurl-storage-1","nonurl-storage-2","nonurl-storage-3","nonurl-storage-4","nonurl-storage-5"]},
+    {"id":"NONURL-STORAGE-02","category":"non-url","query":"clearCartState migrates the localStorage cart.v2 schema version","expected_case_ids":["nonurl-storage-1","nonurl-storage-2","nonurl-storage-3","nonurl-storage-4","nonurl-storage-5"]},
+    {"id":"NONURL-STORAGE-03","category":"non-url","query":"localStorage cart.v2 reload persistence changed in clearCartState","expected_case_ids":["nonurl-storage-1","nonurl-storage-2","nonurl-storage-3","nonurl-storage-4","nonurl-storage-5"]},
+    {"id":"NONURL-STORAGE-04","category":"non-url","query":"clearCartState recovery from corrupt localStorage cart.v2 payload changed","expected_case_ids":["nonurl-storage-1","nonurl-storage-2","nonurl-storage-3","nonurl-storage-4","nonurl-storage-5"]},
+    {"id":"NONURL-STORAGE-05","category":"non-url","query":"parallel tests isolate localStorage cart.v2 using clearCartState","expected_case_ids":["nonurl-storage-1","nonurl-storage-2","nonurl-storage-3","nonurl-storage-4","nonurl-storage-5"]}
+  ]
+}

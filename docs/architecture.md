@@ -893,6 +893,15 @@ measured results and per-layer summary: [cost-optimization.md](cost-optimization
    may record a typed `duplicate` exclusion only with the referenced testcase
    `case_id`; finalized selection manifests carry warning/exclusion counts for
    M6 without rewriting the proposed plan.
+8. **Retrieval quality measurement** (`eval/retrieval_quality.py`, PRD A5).
+   A QE-owned, SHA-pinned label set measures deterministic, lexical, and
+   semantic top-five rankings independently with precision@5, recall@5, and
+   MRR. `make eval` gates configured regressions, records source commit and
+   fixture hashes, and reports an unconfigured semantic provider as
+   `unmeasured` rather than blending lexical fallback into semantic quality.
+   Mock embeddings are labelled `simulated` and cannot certify semantic
+   quality. The same harness contains a mutation-sensitive hostile-retrieval
+   oracle; M9 remains explicitly unmeasured until a real QA survey is collected.
 
 Non-negotiables preserved by construction: retrieved/reused text is DATA
 (framing preamble pinned in every assembly), the gate remains the only writer,

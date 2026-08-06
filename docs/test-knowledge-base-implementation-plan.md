@@ -2,7 +2,7 @@
 
 Date: 2026-08-05
 Source: `docs/prd-test-knowledge-base.md` v2
-Status: In implementation; A1–A4 implemented behind default-off flags
+Status: In implementation; A1–A5 implemented (feature flags remain default-off where specified)
 
 ## 1. Delivery principles
 
@@ -208,6 +208,8 @@ Implementation checkpoint (2026-08-06):
 
 ### A5. Retrieval quality measurement
 
+Status: Implemented (2026-08-06).
+
 Dependencies: QE-owned labels (D3); A1 fixtures before S3 tuning.
 Flag: none; evaluation is always available.
 
@@ -225,6 +227,32 @@ Implementation:
 
 Validation: metric math unit tests, label drift detection, mode separation,
 attack mutation test, and an explicit `unmeasured` semantic state.
+
+Acceptance mapping:
+
+| PRD item | Evidence |
+| --- | --- |
+| A5.1 | `eval/retrieval/v1/` contains a QE-owned, SHA-pinned v1 corpus and 30 labelled changes: 10 API, 10 UI, and 10 non-URL. |
+| A5.2 | `eval/retrieval_quality.py` measures precision@5, recall@5, and MRR per mode; configured floors fail `make eval`, and results carry label/corpus hashes, timestamp, and source commit. |
+| A5.3 | Unconfigured embeddings record semantic as `unmeasured`; lexical metrics remain independently labelled and are never presented as semantic quality. |
+
+Implementation checkpoint (2026-08-06):
+
+- Added deterministic, lexical, and semantic top-five evaluation against the
+  actual A3 rankers. Deterministic and lexical floors always gate; a real
+  configured semantic provider gates its own floors, while mock hash vectors
+  are visibly `simulated` and prove only adapter plumbing.
+- Labels pin the corpus SHA-256 and declare QE Platform ownership plus QE Lead
+  maintenance. Drift, traversal, malformed labels, embedding failures, and
+  configured quality regressions fail closed.
+- The hostile testcase is framed through the production retrieval preamble.
+  A mutation-sensitive oracle verifies data framing, tool/write boundaries,
+  and deterministic gate independence.
+- M9 is deliberately recorded as `unmeasured`: no QA time-to-first-relevant-
+  result survey exists yet, so the repository does not invent a numeric human
+  baseline. The fixture defines the collection fields and minimum cohort for S3.
+- Focused A5/A3/context/integrity tests and the broad registry suite pass;
+  release-readiness evidence is in the A5 review reports.
 
 ### A6. Close the learning loop
 

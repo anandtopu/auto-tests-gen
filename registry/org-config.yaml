@@ -118,6 +118,16 @@ context_scope:
   planarbiter: off
 context_budget: 4000        # tokens; MUST-KEEP chunks may exceed it
 
+# A5 retrieval-quality regression gate. Deterministic and lexical modes always
+# enforce these floors. Semantic enforces them only with real provider vectors;
+# mock hash vectors are explicitly simulated and an unconfigured provider is
+# explicitly unmeasured, never blended into lexical fallback.
+retrieval_eval:
+  floors:
+    deterministic: { precision_at_5: 0.80, recall_at_5: 0.70, mrr: 0.80 }
+    lexical:       { precision_at_5: 0.80, recall_at_5: 0.70, mrr: 0.80 }
+    semantic:      { precision_at_5: 0.80, recall_at_5: 0.70, mrr: 0.80 }
+
 # Spec-driven development (docs/spec-driven-stories.md). The requirements gate
 # makes `pipeline.sh plan|jira` refuse until a human validated the EARS
 # requirements (make requirements KEY=.. -> review -> requirements-approve).

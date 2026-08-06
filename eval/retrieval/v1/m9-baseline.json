@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "metric": "M9 time-to-first-draft",
+  "state": "unmeasured",
+  "recorded_at": "2026-08-06T00:00:00Z",
+  "owner_role": "QE Lead",
+  "reason": "No QA survey responses were supplied; a numeric human baseline would be fabricated.",
+  "collection": {
+    "instrument": "QA survey",
+    "required_fields": ["participant_count", "median_minutes", "p95_minutes", "collection_start", "collection_end"],
+    "minimum_participants": 5
+  }
+}

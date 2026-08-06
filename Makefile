@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: deps test-routing test-unit python-coverage python-coverage-check python-coverage-html bootstrap run-pr run-jira eval conformance \
+.PHONY: deps test-routing test-unit python-coverage python-coverage-check python-coverage-html bootstrap run-pr run-jira eval retrieval-eval conformance \
         status coverage dashboard review-queue reviews repos agents parity-pr parity-jira \
         serve queue-run export-plan publish-plan attach-plan hook-server prune \
         gaps catalog-db ingest-results smoke-openhands clear-demo report critic \
@@ -42,7 +42,10 @@ run-jira:
 	bash engine/pipeline.sh jira $(KEY)
 
 eval:
-	bash eval/replay.sh && python3 eval/context_check.py && python3 eval/scorecard.py
+	bash eval/replay.sh && python3 eval/context_check.py && python3 eval/retrieval_quality.py && python3 eval/scorecard.py
+
+retrieval-eval:
+	python3 eval/retrieval_quality.py
 
 conformance:
 	bash adapters/conformance/test_adapters.sh
@@ -108,7 +111,7 @@ parity-compare:
 	python3 engine/lib/parity_compare.py $(DAYS)
 
 review:
-	$(MAKE) python-coverage-check && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash tests/provider-adversarial.sh && bash tests/state-adversarial.sh && bash tests/routing-adversarial.sh && bash tests/observability-adversarial.sh && bash tests/bootstrap-smoke.sh && bash tests/entrypoint-smoke.sh && bash eval/replay.sh && python3 eval/context_check.py && python3 eval/scorecard.py
+	$(MAKE) python-coverage-check && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash tests/provider-adversarial.sh && bash tests/state-adversarial.sh && bash tests/routing-adversarial.sh && bash tests/observability-adversarial.sh && bash tests/bootstrap-smoke.sh && bash tests/entrypoint-smoke.sh && bash eval/replay.sh && python3 eval/context_check.py && python3 eval/retrieval_quality.py && python3 eval/scorecard.py
 
 # --- QA monitoring & mapping management ---
 status:
