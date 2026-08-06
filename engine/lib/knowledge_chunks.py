@@ -33,12 +33,14 @@ best-effort) and by `make maintain`; removed by clear-demo.
 """
 import hashlib
 import json
+import os
 import pathlib
 import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import app_paths                      # R12: mutable paths resolve here
+import env_flag
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "reports/knowledge-index/chunks.jsonl"
@@ -46,16 +48,82 @@ OUT = ROOT / "reports/knowledge-index/chunks.jsonl"
 # Caps keep a chunk a retrieval unit, not a whole-file smuggling route.
 MAX_CHUNK_CHARS = 6000
 MAX_TESTDATA_FILE_CHARS = 2000
+DEFAULT_TESTCASE_CHARS = 2000
+KINDS = frozenset({"repo-surface", "guidance", "exemplar", "spec",
+                   "catalog", "scenario", "testdata", "testcase"})
 
 
 def _sha(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _chunk(kind, repo, slug, source_path, text):
+def _chunk(kind, repo, slug, source_path, text, **metadata):
     text = text[:MAX_CHUNK_CHARS]
-    return {"chunk_id": f"{kind}:{repo}:{slug}", "kind": kind, "repo": repo,
-            "source_path": str(source_path), "text": text, "sha256": _sha(text)}
+    chunk = {"chunk_id": f"{kind}:{repo}:{slug}", "kind": kind, "repo": repo,
+             "source_path": str(source_path), "text": text, "sha256": _sha(text)}
+    chunk.update(metadata)
+    return chunk
+
+
+def testcase_enabled():
+    return env_flag.flag("AIQE_TESTCASE_INDEX", False)
+
+
+def testcase_chunk_chars():
+    try:
+        value = int(os.environ.get("AIQE_TESTCASE_CHUNK_CHARS", "") or
+                    DEFAULT_TESTCASE_CHARS)
+    except ValueError:
+        value = DEFAULT_TESTCASE_CHARS
+    return max(512, min(value, MAX_CHUNK_CHARS))
+
+
+def _case_chunks(repo, rel, source_path, case, occurrence=1):
+    """Physical chunks for one logical case, all sharing ``case_id``."""
+    suite = [_compact(v) for v in case.get("suite", []) if _compact(v)]
+    title = _compact(case.get("title", ""), 300) or "untitled"
+    path = "/".join([*suite, title])
+    slug = f"{rel}#{path}" + (f"~{occurrence}" if occurrence > 1 else "")
+    case_id = f"testcase:{repo}:{slug}"
+    fields = {
+        "suite": suite,
+        "title": title,
+        "tags": sorted(set(case.get("tags") or [])),
+        "exercises": sorted(set(case.get("exercises") or [])),
+        "fixtures": sorted(set(case.get("fixtures") or [])),
+        "assertions": list(dict.fromkeys(case.get("assertions") or [])),
+    }
+    header = "\n".join([
+        f"suite: {' > '.join(fields['suite']) or '-'}",
+        f"title: {fields['title']}",
+        f"tags: {', '.join(fields['tags']) or '-'}",
+        f"exercises: {', '.join(fields['exercises']) or '-'}",
+        f"fixtures: {', '.join(fields['fixtures']) or '-'}",
+        f"assertions: {'; '.join(fields['assertions']) or '-'}",
+        "body:",
+    ])
+    limit = testcase_chunk_chars()
+    # Metadata is bounded independently so even a pathological identifier list
+    # cannot consume the entire retrieval unit.
+    if len(header) >= limit - 64:
+        header = header[:limit - 64].rstrip() + "\nbody:"
+    body_budget = max(1, limit - len(header) - 1)
+    body = case.get("body") or ""
+    parts = [body[i:i + body_budget] for i in range(0, len(body), body_budget)] or [""]
+    out = []
+    for index, part in enumerate(parts, 1):
+        part_slug = slug if len(parts) == 1 else f"{slug}:part-{index}"
+        text = f"{header}\n{part}"
+        out.append(_chunk(
+            "testcase", repo, part_slug, source_path, text,
+            case_id=case_id, part=index, parts=len(parts), parse_status="parsed",
+            **fields,
+        ))
+    return out
+
+
+def _compact(value, limit=160):
+    return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
 
 
 def _harvest_surface(r):
@@ -73,12 +141,39 @@ def _harvest_surface(r):
     return None, []
 
 
-def build():
+def build(test_roots=None, index_outcomes=None):
     """Every chunk, deterministic order. Read-only over the estate."""
     from registry import load_registry
     import repo_admin
     reg = load_registry()
     chunks = []
+    use_testcases = testcase_enabled()
+    resolved_roots = dict(test_roots or {})
+    outcomes = dict(index_outcomes or {})
+    if test_roots is None:
+        for t in reg.get("test_repositories", []):
+            name = t["name"]
+            base = next((ROOT / b / name for b in ("workspace/tests", "demo")
+                         if (ROOT / b / name).is_dir()), None)
+            if base is not None:
+                resolved_roots[name] = base
+    if use_testcases:
+        for t in reg.get("test_repositories", []):
+            name = t["name"]
+            if name in outcomes:
+                continue
+            if name in resolved_roots:
+                outcomes[name] = {
+                    "status": "indexed", "source": "local", "scm": "not_called",
+                    "exit_class": "not_called", "reason": "",
+                }
+            else:
+                outcomes[name] = {
+                    "status": "not_indexed", "source": "local",
+                    "scm": str(t.get("scm") or "unknown"),
+                    "exit_class": "not_resolved",
+                    "reason": "no resolved checkout was provided or found locally",
+                }
 
     # --- repo-surface: one per app repo (facts + harvested surface) ----------
     for r in reg.get("source_repositories", []):
@@ -103,8 +198,16 @@ def build():
                  f"specs dir: {lay.get('specs', '-')}  fixtures: {lay.get('fixtures', '-')}",
                  f"covers: {', '.join(t.get('covers', [])) or '-'}",
                  f"scope: {', '.join(t.get('scope', [])) or '-'}"]
-        chunks.append(_chunk("repo-surface", t["name"], "test",
-                             "registry/repo-registry.yaml", "\n".join(lines)))
+        surface = _chunk("repo-surface", t["name"], "test",
+                         "registry/repo-registry.yaml", "\n".join(lines))
+        if use_testcases:
+            outcome = outcomes[t["name"]]
+            surface.update(index_status=outcome["status"],
+                           index_source=outcome["source"],
+                           index_scm=outcome["scm"],
+                           index_exit_class=outcome["exit_class"],
+                           index_reason=outcome["reason"])
+        chunks.append(surface)
 
     # --- guidance: one per repo that has any ---------------------------------
     all_names = [r["name"] for r in reg.get("source_repositories", [])] + \
@@ -136,22 +239,40 @@ def build():
     except Exception:
         pass
 
-    # --- spec: one per exemplar-candidate spec file per test repo ------------
-    # Feeds semantic exemplar ranking (3.4): vector_index.query(kind="spec",
-    # repo=target) ranks a repo's REAL specs by relevance to the change.
+    # --- spec/testcase: file-level today, case-level behind the S1 flag -------
+    # Parsed files replace their whole-file semantic chunk with bounded testcase
+    # chunks. An unsupported/malformed file retains the old spec chunk and says
+    # why, so "could not parse" can never masquerade as "contains no tests".
+    if use_testcases:
+        import testcase_parser
     for t in reg.get("test_repositories", []):
-        base = next((ROOT / b / t["name"] for b in ("workspace/tests", "demo")
-                     if (ROOT / b / t["name"]).is_dir()), None)
+        base = resolved_roots.get(t["name"])
         if base is None:
             continue
+        base = pathlib.Path(base)
         spec_root = base / ((t.get("layout") or {}).get("specs") or "")
         specs = sorted(p for pat in ("**/*.spec.js", "**/*.spec.ts",
                                      "**/*.test.js", "**/*.test.ts")
                        for p in spec_root.glob(pat))
         for p in specs:
             rel = p.relative_to(base).as_posix()
-            chunks.append(_chunk("spec", t["name"], rel, str(p),
-                                 p.read_text(encoding="utf-8", errors="ignore")))
+            source = p.read_text(encoding="utf-8", errors="replace")
+            if not use_testcases:
+                chunks.append(_chunk("spec", t["name"], rel, str(p), source))
+                continue
+            parsed = testcase_parser.parse(source)
+            if parsed["unparsed_reason"]:
+                chunks.append(_chunk(
+                    "spec", t["name"], rel, str(p), source,
+                    parse_status="unparsed", parse_reason=parsed["unparsed_reason"],
+                ))
+                continue
+            seen = {}
+            for case in parsed["cases"]:
+                identity = (tuple(case.get("suite") or []), case.get("title") or "")
+                seen[identity] = seen.get(identity, 0) + 1
+                chunks.extend(_case_chunks(t["name"], rel, str(p), case,
+                                           occurrence=seen[identity]))
 
     # --- catalog: one per app repo with mapped tests -------------------------
     catalog = []
@@ -227,7 +348,21 @@ def build():
 def rebuild():
     """Write chunks.jsonl. Returns the chunk count. Deterministic: same estate
     -> byte-identical file."""
-    chunks = build()
+    roots = outcomes = None
+    if testcase_enabled():
+        from registry import load_registry
+        import index_checkouts
+        roots, outcomes = index_checkouts.resolve(
+            load_registry().get("test_repositories", []), root=ROOT)
+        for repo, outcome in sorted(outcomes.items()):
+            if outcome.get("status") == "not_indexed":
+                detail = "/".join(filter(None, [outcome.get("scm", ""),
+                                                 outcome.get("exit_class", "")]))
+                print(f"[knowledge-index] NOT INDEXED {repo}"
+                      f"{f' ({detail})' if detail else ''}: "
+                      f"{outcome.get('reason') or 'reason not recorded'}",
+                      file=sys.stderr)
+    chunks = build(test_roots=roots, index_outcomes=outcomes)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     body = "".join(json.dumps(c, sort_keys=True) + "\n" for c in chunks)
     OUT.write_text(body, encoding="utf-8", newline="\n")
@@ -249,6 +384,68 @@ def load():
     return out
 
 
+def index_stats(chunks=None):
+    """Parse-coverage report derived from chunks, with no second state file."""
+    chunks = load() if chunks is None else chunks
+    repos = {}
+    try:
+        from registry import load_registry
+        for entry in load_registry().get("test_repositories", []):
+            repos[entry["name"]] = {"cases": set(), "chunks": 0,
+                                    "parsed_files": set(), "unparsed": {},
+                                    "index_status": "unknown",
+                                    "index_source": "", "index_scm": "",
+                                    "index_exit_class": "", "index_reason": ""}
+    except Exception:
+        pass
+    for chunk in chunks:
+        if chunk.get("kind") == "repo-surface" and chunk.get("index_status"):
+            repo = chunk.get("repo", "?")
+            row = repos.setdefault(repo, {"cases": set(), "chunks": 0,
+                                          "parsed_files": set(), "unparsed": {}})
+            for field in ("status", "source", "scm", "exit_class", "reason"):
+                row[f"index_{field}"] = chunk.get(f"index_{field}", "")
+        if chunk.get("kind") not in ("testcase", "spec"):
+            continue
+        repo = chunk.get("repo", "?")
+        row = repos.setdefault(repo, {"cases": set(), "chunks": 0,
+                                      "parsed_files": set(), "unparsed": {},
+                                      "index_status": "unknown",
+                                      "index_source": "", "index_scm": "",
+                                      "index_exit_class": "", "index_reason": ""})
+        if chunk.get("kind") == "testcase":
+            row["cases"].add(chunk.get("case_id") or chunk["chunk_id"])
+            row["chunks"] += 1
+            row["parsed_files"].add(chunk.get("source_path", "?"))
+        elif chunk.get("parse_status") == "unparsed":
+            row["unparsed"][chunk.get("source_path", "?")] = \
+                chunk.get("parse_reason", "reason not recorded")
+    clean = {}
+    for repo, row in sorted(repos.items()):
+        clean[repo] = {"cases_indexed": len(row["cases"]),
+                       "chunks_emitted": row["chunks"],
+                       "files_parsed": len(row["parsed_files"]),
+                       "files_unparsed": len(row["unparsed"]),
+                       "index_status": row.get("index_status", "unknown"),
+                       "index_source": row.get("index_source", ""),
+                       "index_scm": row.get("index_scm", ""),
+                       "index_exit_class": row.get("index_exit_class", ""),
+                       "not_indexed_reason": (
+                           row.get("index_reason", "")
+                           if row.get("index_status") == "not_indexed" else
+                           ("index outcome was not recorded"
+                            if testcase_enabled()
+                            and row.get("index_status", "unknown") == "unknown"
+                            and not row["parsed_files"] and not row["unparsed"]
+                            else "")),
+                       "unparsed": [{"file": f, "reason": reason}
+                                    for f, reason in sorted(row["unparsed"].items())]}
+    return {"enabled": testcase_enabled(), "repos": clean,
+            "cases_indexed": sum(r["cases_indexed"] for r in clean.values()),
+            "chunks_emitted": sum(r["chunks_emitted"] for r in clean.values()),
+            "files_unparsed": sum(r["files_unparsed"] for r in clean.values())}
+
+
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else "rebuild"
     if cmd == "rebuild":
@@ -262,7 +459,25 @@ def main(argv):
         print(f"{len(load())} chunk(s): " +
               ", ".join(f"{k}={v}" for k, v in sorted(by_kind.items())))
         return 0
-    print("usage: knowledge_chunks.py rebuild|stats", file=sys.stderr)
+    if cmd == "index-stats":
+        stats = index_stats()
+        state = "enabled" if stats["enabled"] else "disabled"
+        print(f"testcase index ({state}): {stats['cases_indexed']} case(s), "
+              f"{stats['chunks_emitted']} chunk(s), "
+              f"{stats['files_unparsed']} unparsed file(s)")
+        for repo, row in stats["repos"].items():
+            print(f"  {repo}: {row['cases_indexed']} case(s), "
+                  f"{row['files_parsed']} parsed file(s), "
+                  f"{row['files_unparsed']} unparsed file(s)")
+            if row["not_indexed_reason"]:
+                detail = "/".join(filter(None, [row["index_scm"],
+                                                 row["index_exit_class"]]))
+                print(f"    NOT INDEXED{f' ({detail})' if detail else ''}: "
+                      f"{row['not_indexed_reason']}")
+            for item in row["unparsed"]:
+                print(f"    UNPARSED {item['file']}: {item['reason']}")
+        return 0
+    print("usage: knowledge_chunks.py rebuild|stats|index-stats", file=sys.stderr)
     return 64
 
 

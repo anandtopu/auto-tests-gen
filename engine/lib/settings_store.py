@@ -136,6 +136,12 @@ SPEC = [
          "options": [["0", "off (default until the quality eval)"], ["1", "on — plan mode only"]],
          "default": "0",
          "help": "adapts a similar HUMAN-APPROVED prior plan instead of authoring; always lands as draft"},
+        {"env": "AIQE_TESTCASE_INDEX", "label": "Test-case knowledge index",
+         "options": [["0", "off (default)"], ["1", "on — index individual test cases"]],
+         "default": "0",
+         "help": "S1 preview: JS/TS Playwright and node:test; inspect coverage with make index-stats"},
+        {"env": "AIQE_TESTCASE_CHUNK_CHARS", "label": "Test-case chunk size",
+         "default": "2000", "help": "characters per physical testcase chunk (512–6000)"},
      ]},
     {"section": "Embeddings",
      "hint": "Optional semantic index (vector search over plans, specs, estate "

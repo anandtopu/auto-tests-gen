@@ -105,7 +105,7 @@ ranked sources, exemplar specs via `spec_exemplars`):
 
 ```python
 CHUNK = {"chunk_id": "<kind>:<repo>:<slug>", "kind": "repo-surface|guidance|"
-         "exemplar|contract|catalog|scenario|testdata", "repo": "...",
+         "exemplar|spec|testcase|catalog|scenario|testdata", "repo": "...",
          "source_path": "...", "text": "...", "sha256": "..."}
 def rebuild():   # -> reports/knowledge-index/chunks.jsonl, deterministic order
 def load():      # guarded read; [] on absence
@@ -121,6 +121,13 @@ Hook: `gen_agents_md.py` calls `knowledge_chunks.rebuild()` after writing
 AGENTS.md (one call site covers pipeline/onboarding/repo_admin/bootstrap, since all
 of them regenerate AGENTS.md). `make maintain` adds an explicit rebuild step.
 `clear-demo` removes `reports/knowledge-index/`.
+
+With the testcase-index flag enabled, `index_checkouts.py` resolves every
+registered E2E repository before the read-only chunk build. Complete pipeline
+checkouts win; otherwise the repository's registered Scm adapter performs a
+read-only clone into a validated derived-cache target. Repository acquisition
+failure is persisted on the repo-surface chunk as `not_indexed` and cannot be
+mistaken for an indexed repository containing zero tests.
 
 **Pins**: byte-identical rebuild on unchanged inputs; ids stable under a content
 edit; every chunk's `source_path` exists.

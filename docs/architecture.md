@@ -852,7 +852,7 @@ measured results and per-layer summary: [cost-optimization.md](cost-optimization
    the phase and the likely causes.
 2. **Knowledge chunks** (`knowledge_chunks.py`, story 2.1). The same sources
    `gen_agents_md.py` reads, chunked into addressed units (repo-surface,
-   guidance, exemplar, spec, catalog, scenario, testdata) with content-
+   guidance, exemplar, spec, testcase (flagged), catalog, scenario, testdata) with content-
    independent ids and sha256 change markers. Derived data: byte-deterministic,
    gitignored, rebuilt with every AGENTS.md regeneration.
 3. **Vector index** (`vector_index.py` + the **Embedding port**, ADR-9).

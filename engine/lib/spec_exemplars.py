@@ -74,12 +74,19 @@ def _semantic_ranks(repo):
         if not embeddings.configured():
             return {}
         import context_scope
+        import env_flag
         import vector_index
         sig = context_scope.gather_signals(os.environ.get("KEY", ""))
         if not sig.strip():
             return {}
-        hits = vector_index.query(sig[:2000], k=20, kind="spec", repo=repo)
-        return {h["chunk_id"].split(":", 2)[2]: i for i, h in enumerate(hits)}
+        kind = "testcase" if env_flag.flag("AIQE_TESTCASE_INDEX", False) else "spec"
+        hits = vector_index.query(sig[:2000], k=20, kind=kind, repo=repo)
+        ranks = {}
+        for i, hit in enumerate(hits):
+            slug = hit["chunk_id"].split(":", 2)[2]
+            rel = slug.split("#", 1)[0] if kind == "testcase" else slug
+            ranks.setdefault(rel, i)
+        return ranks
     except Exception:
         return {}
 

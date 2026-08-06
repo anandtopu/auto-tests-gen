@@ -150,9 +150,11 @@ mechanism has a kill switch (Settings → "Cost levers") and its pins.
   Cost view, an Overview tile, team-report line. Simulated figures always
   labelled; savings print `n/a` until a measured run exists.
 - **Knowledge chunks** (`knowledge_chunks.py`): the estate chunked into
-  addressed units (repo-surface / guidance / exemplar / spec / catalog /
-  scenario / testdata) — derived data, byte-deterministic, rebuilt with
-  AGENTS.md.
+  addressed units (repo-surface / guidance / exemplar / spec / testcase /
+  catalog / scenario / testdata) — derived data, byte-deterministic, rebuilt with
+  AGENTS.md. With `AIQE_TESTCASE_INDEX=1`, absent registered E2E repositories
+  are cloned read-only through their registry-selected SCM adapter; unreachable
+  repositories remain visible as `not_indexed` with a sanitized reason.
 - **Vector index** (`vector_index.py` + the Embed port, `docs/adr/embeddings.md`):
   SQLite + pure-python cosine; sha-skip refresh (unchanged corpus = zero
   embedding calls); daily spend cap; corruption → quarantine + rebuild.

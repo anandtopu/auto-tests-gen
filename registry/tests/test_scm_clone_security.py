@@ -88,7 +88,7 @@ def test_prepare_removes_stale_checkout():
 
 @pytest.mark.parametrize("kind,repo", [
     ("other", "repo"), ("src", "../repo"), ("tests", ".."),
-    ("src", "repo/name"), ("tests", ""),
+    ("src", "repo/name"), ("tests", ""), ("index", "../repo"),
 ])
 def test_prepare_refuses_broad_or_escaping_targets(kind, repo):
     with pytest.raises(ValueError):

@@ -7,7 +7,7 @@ SHELL := /bin/bash
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
         demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config \
-        cost-report index-rebuild cache-probe cost-baseline \
+        cost-report index-rebuild index-stats cache-probe cost-baseline \
         requirements demo-requirements requirements-approve spec-verify \
         test-providers test-state test-routing-adv test-observability test-bootstrap test-entrypoint \
         parity-compare repo-facts explain select select-finalize
@@ -185,6 +185,9 @@ cache-probe:          # measure whether provider prompt caching engages (real CL
 index-rebuild:        # force-rebuild the semantic vector index from the knowledge chunks
 	python3 engine/lib/knowledge_chunks.py rebuild
 	python3 engine/lib/vector_index.py rebuild
+
+index-stats:          # testcase parse coverage by registered E2E repository
+	python3 engine/lib/knowledge_chunks.py index-stats
 
 cache-stats:          # phase-cache hit report (LLM calls avoided)
 	python3 engine/lib/phase_cache.py stats

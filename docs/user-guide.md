@@ -1050,12 +1050,23 @@ print `n/a` until at least one measured run exists. The same data serves
 Settings → **Cost levers** holds one kill switch per mechanism: the phase cache
 (`AIQE_PHASE_CACHE`), retrieval-scoped context (`AIQE_CONTEXT_SCOPE`; per-phase
 policy in org-config `context_scope:`), the missing-context retry
-(`AIQE_CONTEXT_RETRY`), and semantic plan reuse (`AIQE_PLAN_REUSE`, default off
+(`AIQE_CONTEXT_RETRY`), the case-level test index (`AIQE_TESTCASE_INDEX`, default
+off during the S1 preview), and semantic plan reuse (`AIQE_PLAN_REUSE`, default off
 — a reused draft always lands for human review with a "Reused from" banner and
 a VERIFY checklist). Budget envelopes per workflow and the degradation ladder
 live in org-config `budgets:`; a run that degraded says so on the wizard's
 generate step. After real runs exist, `make cost-baseline` freezes per-phase
 medians and `make maintain` alarms on >25% regressions.
+
+When the case-level index is enabled, rebuilds cover every registered E2E
+repository. A complete `workspace/tests/<repo>` checkout is reused; an absent
+repository is cloned read-only through its registered SCM adapter into the
+derived knowledge-index cache. An unreachable repository does not abort the
+estate rebuild: it is recorded as **NOT INDEXED** with a sanitized reason, and
+the remaining repositories continue. Run `make index-stats` to see cases,
+parsed/unparsed files, SCM exit class, and per-repository reasons. Nightly
+`make maintain` rebuilds chunks before refreshing vectors, so unchanged chunk
+hashes incur no embedding call.
 
 ## 6. Integration guide
 
@@ -1199,7 +1210,7 @@ Every `make` target, grouped. Details are in the section linked from each group.
 | Selective approval | `select`, `select-finalize` |
 | Operations (§5) | `status`, `reviews`, `review-queue`, `coverage`, `gaps`, `critic`, `explain`, `trace-matrix`, `report`, `email`, `prune`, `maintain` |
 | Services | `serve`, `hook-server`, `dashboard` |
-| Estate & knowledge | `repos`, `repo-facts`, `repo-agents`, `sync-guidance`, `sync-status`, `catalog-db`, `ingest-results`, `index-rebuild` |
+| Estate & knowledge | `repos`, `repo-facts`, `repo-agents`, `sync-guidance`, `sync-status`, `catalog-db`, `ingest-results`, `index-rebuild`, `index-stats` |
 | Plan sharing | `export-plan`, `publish-plan`, `attach-plan` |
 | Cost (§5a) | `cost-report`, `cost-baseline`, `cache-stats`, `cache-clear`, `cache-probe` |
 | State portability | `state-export`, `state-inspect`, `state-import`, `clear-demo` |

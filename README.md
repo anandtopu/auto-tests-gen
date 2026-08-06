@@ -58,6 +58,7 @@ make review                     # full regression: goldens + conformance + gate 
 make test-unit                  # pytest unit/integration suite only
 make python-coverage            # branch-aware Python coverage (engine/lib + bin)
 make python-coverage-check      # same report with the measured baseline threshold
+make index-stats                # testcase parse coverage (when AIQE_TESTCASE_INDEX=1)
 
 # Real runs (cp .env.example .env, fill credentials)
 make parity-pr / parity-jira    # real claude -p phases against the demo estate (~$2)
