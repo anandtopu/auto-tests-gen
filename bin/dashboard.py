@@ -1489,6 +1489,7 @@ if ($('#wz-mode')) {
   $('#wz-start-pr').addEventListener('click', async () => {
     if (needsServer()) return;
     const repo = $('#wz-repo').value.trim(), pr = $('#wz-pr').value.trim();
+    const ticket = $('#wz-pr-ticket').value.trim();
     // A pasted PR URL carries the repo and number (and the Stash project), so the
     // PR # box is optional when the first field is a URL — the server parses it.
     const isUrl = repo.includes('pull-requests') || repo.includes('/pull/');
@@ -1497,7 +1498,7 @@ if ($('#wz-mode')) {
     try {
       const r = await api('/api/queue', { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'pr', target: repo, pr: pr }) });
+        body: JSON.stringify({ mode: 'pr', target: repo, pr: pr, ticket: ticket }) });
       // Derive the key from what the SERVER resolved, so a URL-driven run polls
       // the right key instead of one built from the raw URL text.
       wzKey = (r.item && r.item.pr)
@@ -3222,6 +3223,9 @@ page = f"""<!doctype html>
             style="width:330px"></label>
           <label class="f">PR # <input id="wz-pr" class="h32"
             placeholder="201" style="width:80px"></label>
+          <label class="f">Ticket (optional) <input id="wz-pr-ticket" class="h32"
+            placeholder="PROJ-301" style="width:130px"
+            title="Explicit ticket linkage wins over branch/title/commit discovery"></label>
           <button class="btn btn-primary" id="wz-start-pr">Analyze PR &amp; generate tests</button>
         </div>
         <div class="wz-row hidden" id="wz-jira-inputs">

@@ -188,7 +188,29 @@ def explain(key=None, run_id=None, root=ROOT):
             "routing", "Which E2E test repositories were chosen, and why?",
             "No resolve contract was kept for this run."))
 
-    # --- 2. context: what the model saw, and what it did NOT ----------------
+    # --- PR ticket discovery -----------------------------------------------
+    discovery = (rec or {}).get("ticket_discovery") or (
+        _read_json(root / "out/ticket-discovery.json") if live else {}) or {}
+    if discovery.get("artifact") == "pr-ticket-discovery":
+        outcome = discovery.get("outcome") or "unexplained"
+        selected = discovery.get("selected_key")
+        because = []
+        for row in discovery.get("candidates") or []:
+            if not isinstance(row, dict):
+                continue
+            because.append(f"{row.get('key', '?')}: "
+                           f"signals={','.join(row.get('signals') or []) or 'none'}, "
+                           f"validation={row.get('validation') or 'not recorded'}")
+        because.append(f"selection rule: {discovery.get('reason') or 'not recorded'}")
+        decisions.append(_decision(
+            "ticket-discovery",
+            "Why did this PR run use, or refuse to use, a JIRA ticket?",
+            selected or outcome.replace("_", " "), because,
+            "run-record ticket_discovery (SCM signals + Tracker validation)",
+            caveat=("No inferred ticket text is trusted until Tracker get_item "
+                    "validates the key; ambiguity proceeds without a ticket.")))
+
+    # --- context: what the model saw, and what it did NOT -------------------
     manifests, manifest_error = {}, None
     manifest_evidence = ""
     pointer = (rec or {}).get("artifact_bundle") or {}

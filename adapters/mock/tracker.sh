@@ -2,7 +2,8 @@
 set -euo pipefail
 VERB=${1:?verb}; shift || true
 case "$VERB" in
-  get_item) cat "eval/benchmark/tickets/.item-$1.json" ;;
+  get_item) [ -f "eval/benchmark/tickets/.item-$1.json" ] || exit 3
+            cat "eval/benchmark/tickets/.item-$1.json" ;;
   search_release)  # tickets whose fix_versions contain $1 (empty arg = all tickets)
     python3 - "$1" << 'PY'
 import glob, json, sys

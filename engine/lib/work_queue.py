@@ -2,7 +2,7 @@
 """Manual work queue: PR / JIRA items queued from the dashboard (or CLI) and
 processed sequentially through engine/pipeline.sh.
 
-Store: reports/runs/queue.json — [{id, mode, target, pr, release, requested_by,
+Store: reports/runs/queue.json — [{id, mode, target, pr, ticket, release, requested_by,
 status: queued|running|done|failed, ts, finished, exit_code}]. Run-record globs
 must skip this file (like reviews.json).
 
@@ -112,7 +112,7 @@ def key_of(item):
 
 
 def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
-        force=False):
+        force=False, ticket=None):
     # "tests" resumes generation from an approved test plan (pipeline.sh tests <KEY>)
     if mode not in ("pr", "jira", "plan", "tests"):
         sys.exit("mode must be pr|jira|plan|tests")
@@ -147,7 +147,15 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
             sys.exit(f"'{target}' is not a registered repository — add it in "
                      f"Repositories first, or paste the PR URL (it carries the "
                      f"repo and, on Stash, the project key)")
+        if ticket:
+            import ticket_discovery
+            normalized = ticket_discovery.normalize_explicit(ticket)
+            if normalized is None:
+                sys.exit(f"'{ticket}' is not one bare JIRA key (e.g. PROJ-301)")
+            ticket = normalized
     else:
+        if ticket:
+            sys.exit("an explicit PR ticket can only be supplied in pr mode")
         # Same charset the pipeline enforces (INVALID_KEY, exit 64) — fail here
         # with a message instead of queueing work that dies on arrival.
         import re
@@ -174,9 +182,10 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
             pass                     # no plan state readable — nothing to protect
     with fs_lock.lock(FILE):
         items = load()
-        sig = (mode, target, str(pr or ""))
+        sig = (mode, target, str(pr or ""), str(ticket or ""))
         for it in items:
-            if (it["mode"], it["target"], str(it.get("pr") or "")) == sig \
+            if (it["mode"], it["target"], str(it.get("pr") or ""),
+                    str(it.get("ticket") or "")) == sig \
                     and it["status"] in ("queued", "running"):
                 return it, False                   # already pending — dedupe
         base, n = f"q{int(time.time())}", len(items) + 1
@@ -187,6 +196,8 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
                 "requested_by": requested_by, "status": "queued", "ts": time.time(),
                 "finished": None, "exit_code": None,
                 "inline_file": str(inline_file) if inline_file else None}
+        if ticket:
+            item["ticket"] = ticket
         warning = _envelope_warning(mode, target, pr)
         if warning:
             item["warning"] = warning
@@ -367,6 +378,8 @@ def run_all():
         item_env = {**env}
         if item.get("inline_file"):                # pasted JIRA context, not a real ticket
             item_env["AIQE_INLINE_FILE"] = item["inline_file"]
+        if item.get("ticket"):                     # explicit PR -> ticket linkage (A1)
+            item_env["AIQE_PR_TICKET"] = item["ticket"]
         r = subprocess.run(cmd, cwd=ROOT, env=item_env, stdin=subprocess.DEVNULL,
                            capture_output=True, text=True,
                            encoding="utf-8", errors="replace")
@@ -402,7 +415,8 @@ if __name__ == "__main__":
         item, fresh = add(sys.argv[2], sys.argv[3],
                           sys.argv[4] if len(sys.argv) > 4 else None,
                           sys.argv[5] if len(sys.argv) > 5 else "",
-                          sys.argv[6] if len(sys.argv) > 6 else "")
+                          sys.argv[6] if len(sys.argv) > 6 else "",
+                          ticket=sys.argv[7] if len(sys.argv) > 7 else None)
         print(f"{'queued' if fresh else 'already queued'}: {key_of(item)} ({item['id']})")
     elif cmd == "list":
         for it in load():

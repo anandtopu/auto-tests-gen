@@ -18,7 +18,7 @@ Endpoints:
   POST /api/export/attach     {"key","format"?}          attach the plan to the JIRA ticket
   POST /api/review            {"key","status","by"?,"note"?}  set team-review status
                               (the dashboard's Approve button; statuses per review_state.VALID)
-  POST /api/queue             {"mode","target","pr","release"} -> enqueue
+  POST /api/queue             {"mode","target","pr","ticket","release"} -> enqueue
   POST /api/queue/inline      {"text","key"?,"components"?,"labels"?,"repos"?,"type"?}
                               -> synthesize a ticket from pasted JIRA context + enqueue
   POST /api/queue/run         drain the queue in a background process
@@ -936,7 +936,8 @@ class Handler(BaseHTTPRequestHandler):
                         return
                 item, fresh = work_queue.add(p["mode"], target, pr,
                                              p.get("release", ""), "dashboard",
-                                             force=bool(p.get("force")))
+                                             force=bool(p.get("force")),
+                                             ticket=p.get("ticket") or None)
                 self._send(200, {"queued": fresh, "item": item,
                                  "resolved_from_url": bool(parsed)})
             except (KeyError, json.JSONDecodeError, SystemExit) as e:

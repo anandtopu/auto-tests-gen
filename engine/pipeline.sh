@@ -309,9 +309,58 @@ EV() {
   python3 engine/lib/event_log.py --emit "$@" >/dev/null 2>&1 || true
 }
 export RUN_ID
+PR_TICKET_CONTEXT=()
 if [ "$MODE" = "pr" ]; then
   REPO=$2; PR=$3; export KEY="PR-${REPO}-${PR}"
   case "$KEY" in *[!A-Za-z0-9._-]*) echo "INVALID_KEY: $KEY"; exit 64;; esac
+  # Successor PRD A1: opt-in, deterministic ticket discovery. SCM supplies PR
+  # metadata; Tracker validates every candidate. With the flag off this creates
+  # no file, makes no extra port call, and adds no phase argument.
+  PR_TICKET_ENABLED=0
+  case "$(printf '%s' "${AIQE_PR_TICKET_CONTEXT:-0}" | tr 'A-Z' 'a-z')" in
+    1|true|yes|on) PR_TICKET_ENABLED=1 ;;
+    0|false|no|off) ;;
+    *) echo "[config] AIQE_PR_TICKET_CONTEXT is not a recognized boolean — using OFF" >&2 ;;
+  esac
+  if [ "$PR_TICKET_ENABLED" = "1" ]; then
+    if ! SCM pr_context "$REPO" "$PR" > out/pr-context.json 2>/dev/null; then
+      printf '%s\n' '{"state":"unavailable","reason":"SCM PR metadata unavailable"}' \
+        > out/pr-context.json
+    fi
+    python3 engine/lib/ticket_discovery.py extract out/pr-context.json \
+      "${AIQE_PR_TICKET:-}" > out/ticket-discovery.json
+    : > out/ticket-validation.tsv
+    while IFS= read -r candidate; do
+      [ -n "$candidate" ] || continue
+      if TRACKER get_item "$candidate" > "out/discovered-ticket-${candidate}.json" 2>/dev/null; then
+        printf '%s\tvalid\ttracker get_item resolved\n' "$candidate" >> out/ticket-validation.tsv
+      else
+        vrc=$?
+        if [ "$vrc" = "3" ]; then
+          printf '%s\tinvalid\ttracker item not found\n' "$candidate" >> out/ticket-validation.tsv
+        else
+          printf '%s\tunavailable\ttracker validation unavailable (exit %s)\n' \
+            "$candidate" "$vrc" >> out/ticket-validation.tsv
+        fi
+      fi
+    done < <(python3 engine/lib/ticket_discovery.py keys out/ticket-discovery.json)
+    python3 engine/lib/ticket_discovery.py resolve out/ticket-discovery.json \
+      out/ticket-validation.tsv > out/.ticket-discovery.tmp
+    mv out/.ticket-discovery.tmp out/ticket-discovery.json
+    python3 engine/lib/ticket_discovery.py context out/ticket-discovery.json \
+      > out/pr-ticket-context.md
+    PR_TICKET_CONTEXT=(out/pr-ticket-context.md)
+    DISCOVERED_TICKET=$(python3 engine/lib/ticket_discovery.py selected \
+      out/ticket-discovery.json)
+    if [ -n "$DISCOVERED_TICKET" ]; then
+      cp "out/discovered-ticket-${DISCOVERED_TICKET}.json" out/discovered-ticket.json
+    fi
+    DISCOVERY_OUTCOME=$(python3 -c "import json;print(json.load(open('out/ticket-discovery.json'))['outcome'])")
+    if [ "$DISCOVERY_OUTCOME" = "ambiguous" ]; then
+      DISCOVERY_KEYS=$(python3 -c "import json;d=json.load(open('out/ticket-discovery.json'));print(', '.join(d.get('validated_keys') or []))")
+      SCM comment "$REPO" "$PR" "AI-QE ticket discovery was ambiguous (${DISCOVERY_KEYS}). Generation continues without ticket context; requeue with an explicit ticket key." || true
+    fi
+  fi
   SCM changed_files "$REPO" "$PR" > out/changed.txt
   # P0: the actual patch, not just the file list — triage reviews real hunks
   SCM diff "$REPO" "$PR" > out/pr.diff 2>/dev/null || : > out/pr.diff
@@ -480,13 +529,13 @@ relocate_artifacts() {
 
 # Phase chain (Workflow A: triage->generate->validate; B: analyze->plan->data->generate->validate)
 if [ "$MODE" = "pr" ]; then
-  PHASE triage   pr-triage.md    "$(CTX triage)" out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md
+  PHASE triage   pr-triage.md    "$(CTX triage)" out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md "${PR_TICKET_CONTEXT[@]}"
   # Extend-vs-create scout (roadmap 2.1): deterministic join of the diff's surface
   # against catalog evidence, emitting NAMED extend targets. Tolerant — a scout
   # failure yields an empty file, never a failed run.
   python3 engine/lib/extend_scout.py > out/extend-candidates.md 2>/dev/null || : > out/extend-candidates.md
   RUN_IMPACT pr
-  GENERATE "$(CTX generate)" out/triage.contract.json out/pr.diff out/catalog-slice.jsonl out/extend-candidates.md "${IMPACT_CONTEXT[@]}" out/coverage-gaps.md out/repo-conventions.md
+  GENERATE "$(CTX generate)" out/triage.contract.json out/pr.diff out/catalog-slice.jsonl out/extend-candidates.md "${IMPACT_CONTEXT[@]}" out/coverage-gaps.md out/repo-conventions.md "${PR_TICKET_CONTEXT[@]}"
   # PR mode has no scenario artifact before generation. Compare the generated
   # proposal before validation/reporting; this warning never changes the files.
   RUN_DUPLICATES pr

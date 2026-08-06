@@ -19,9 +19,27 @@ CURL_FLAGS=(-s --fail-with-body)
 if [[ "${AIQE_SSL_VERIFY:-1}" == "0" ]]; then CURL_FLAGS+=(-k); fi
 
 case "$VERB" in
-  get_item) curl "${CURL_FLAGS[@]}" -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
-    "$J/issue/$1?fields=summary,description,components,labels,fixVersions,issuetype,comment" \
-    | python3 -c "
+  get_item)
+    BODY=$(mktemp "${TMPDIR:-/tmp}/aiqe-jira-item.XXXXXX")
+    trap 'rm -f "$BODY"' EXIT
+    ITEM_FLAGS=(-s)
+    if [[ "${AIQE_SSL_VERIFY:-1}" == "0" ]]; then ITEM_FLAGS+=(-k); fi
+    HTTP=$(curl "${ITEM_FLAGS[@]}" -o "$BODY" -w '%{http_code}' \
+      -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
+      "$J/issue/$1?fields=summary,description,components,labels,fixVersions,issuetype,comment") \
+      || exit 1
+    # Some estates wrap curl for recording/replay and return the body on stdout
+    # without implementing -o/-w. Preserve that supported adapter-test shape,
+    # but accept it only when it is visibly a JSON object; arbitrary output is
+    # still an unavailable validation, never a successful ticket lookup.
+    case "$HTTP" in
+      [0-9][0-9][0-9]) ;;
+      \{*) printf '%s\n' "$HTTP" > "$BODY"; HTTP=200 ;;
+      *) exit 1 ;;
+    esac
+    [ "$HTTP" = "404" ] && exit 3
+    [ "$HTTP" = "200" ] || { cat "$BODY" >&2; exit 1; }
+    python3 -c "
 import json,sys; i=json.load(sys.stdin); f=i['fields']
 
 def adf(n):
@@ -49,7 +67,7 @@ print(json.dumps({'key':i['key'],'summary':f['summary'],
  'issue_type':(f.get('issuetype') or {}).get('name',''),
  'comments':comments,
  'linked_repos':[],  # populated from dev-panel API if enabled
- 'remote_links_url':'$J/issue/'+i['key']+'/remotelink'}))" ;;
+ 'remote_links_url':'$J/issue/'+i['key']+'/remotelink'}))" < "$BODY" ;;
   search_release)  # JQL: tickets targeting a fixVersion (empty arg = all with any fixVersion)
     JQL="fixVersion is not EMPTY"; [ -n "${1:-}" ] && JQL="fixVersion = \"$1\""
     curl "${CURL_FLAGS[@]}" -G -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \

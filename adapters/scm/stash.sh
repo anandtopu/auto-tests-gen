@@ -103,6 +103,22 @@ for f in d.get('diffs', []):
             p = mark.get(seg.get('type'), ' ')
             for ln in seg.get('lines', []):
                 print(p + ln.get('line', ''))" ;;
+  pr_context) req "$1"
+    META=$(mktemp "${TMPDIR:-/tmp}/aiqe-stash-pr.XXXXXX")
+    COMMITS=$(mktemp "${TMPDIR:-/tmp}/aiqe-stash-commits.XXXXXX")
+    trap 'rm -f "$META" "$COMMITS"' EXIT
+    curl -s --fail-with-body "${SSL_FLAG[@]}" "${PROXY_FLAG[@]}" "${AUTH[@]}" \
+      "$S/repos/$SLUG/pull-requests/$2" > "$META"
+    curl -s --fail-with-body "${SSL_FLAG[@]}" "${PROXY_FLAG[@]}" "${AUTH[@]}" \
+      "$S/repos/$SLUG/pull-requests/$2/commits?limit=100" > "$COMMITS"
+    python3 -c "
+import json,sys
+d=json.load(open(sys.argv[1],encoding='utf-8')); cs=json.load(open(sys.argv[2],encoding='utf-8'))
+print(json.dumps({'state':'available',
+ 'source_branch':(d.get('fromRef') or {}).get('displayId',''),
+ 'title':d.get('title',''),'description':d.get('description',''),
+ 'commit_messages':[c.get('message','') for c in cs.get('values',[]) if c.get('message')]}))" \
+      "$META" "$COMMITS" ;;
   set_status) req "$1"  # set_status <repo> <sha> <success|failure|pending> <description>
     STATE=$(case "$3" in success) echo SUCCESSFUL;; failure) echo FAILED;; *) echo INPROGRESS;; esac)
     curl -s --fail-with-body "${SSL_FLAG[@]}" "${PROXY_FLAG[@]}" "${AUTH[@]}" -H 'Content-Type: application/json' \

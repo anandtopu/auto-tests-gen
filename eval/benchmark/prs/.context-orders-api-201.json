@@ -1,0 +1,1 @@
+{"state":"available","source_branch":"feature/PROJ-301-discounts","title":"Enforce discount boundary","description":"Reject discounts above the documented cap.","commit_messages":["PROJ-301 enforce the 90 percent limit"]}

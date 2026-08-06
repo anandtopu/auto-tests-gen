@@ -117,6 +117,8 @@ AIQE_IMPACT_SEMANTIC_THRESHOLD=0.78
 AIQE_IMPACT_LEXICAL_THRESHOLD=0.30
 # Near-duplicate detection  ·  0 = off (default) · 1 = advisory warnings only
 AIQE_ARTIFACT_REUSE=0
+# PR ticket discovery  ·  explicit/branch/title/commit signals, default off
+AIQE_PR_TICKET_CONTEXT=0
 # Duplicate semantic threshold  ·  cosine threshold when testcase embeddings are available
 AIQE_DUPLICATE_SEMANTIC_THRESHOLD=0.90
 # Duplicate lexical threshold  ·  separate threshold for zero-embedding lexical fallback

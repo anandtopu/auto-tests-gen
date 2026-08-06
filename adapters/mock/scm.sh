@@ -48,6 +48,8 @@ case "$VERB" in
   changed_files) cat "eval/benchmark/prs/.changed-$1-$2.txt" 2>/dev/null \
     || { echo "[mock-scm] no changed-files fixture for $1#$2" >&2; exit 1; } ;;
   diff)      cat "eval/benchmark/prs/.diff-$1-$2.txt" 2>/dev/null || true ;;
+  pr_context) cat "eval/benchmark/prs/.context-$1-$2.json" 2>/dev/null ||
+    printf '%s\n' '{"state":"available","source_branch":"","title":"","description":"","commit_messages":[]}' ;;
   set_status) echo "[mock-scm] build status $1@$2 -> $3 ($4)" ;;
   # fetch_file <repo> <path> [ref] — served from the demo estate (stands in for the
   # remote). Exit 3 = absent, matching the real adapters.

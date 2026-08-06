@@ -98,6 +98,14 @@ overall = ("quarantined" if any(g["status"] in ("quarantined", "clone_failed")
 record = {"run_id": run_id, "trigger": {"type": mode, "key": key},
           "ts": time.time(), "overall": overall,
           "gates": gates, "phases": phases}
+# Successor PRD A1 discovery provenance. Optional and total: malformed scratch
+# cannot cost the otherwise durable gate record.
+try:
+    discovery = json.load(open("out/ticket-discovery.json", encoding="utf-8"))
+    if isinstance(discovery, dict) and discovery.get("artifact") == "pr-ticket-discovery":
+        record["ticket_discovery"] = discovery
+except (OSError, ValueError):
+    pass
 # A3's proposal must survive the ephemeral out/ directory so a historical
 # `make explain` can answer why generation extended rather than created. A bad
 # optional artifact cannot destroy the otherwise durable run record.

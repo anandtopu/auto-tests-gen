@@ -22,6 +22,22 @@ case "$VERB" in
   changed_files) curl -su "x-token-auth:${BITBUCKET_TOKEN}" "$BB/$1/pullrequests/$2/diffstat" \
                  | python3 -c "import json,sys;[print(v['new']['path']) for v in json.load(sys.stdin)['values']]" ;;
   diff)      curl -sLu "x-token-auth:${BITBUCKET_TOKEN}" "$BB/$1/pullrequests/$2/diff" ;;
+  pr_context)
+    META=$(mktemp "${TMPDIR:-/tmp}/aiqe-bb-pr.XXXXXX")
+    COMMITS=$(mktemp "${TMPDIR:-/tmp}/aiqe-bb-commits.XXXXXX")
+    trap 'rm -f "$META" "$COMMITS"' EXIT
+    curl -sL --fail-with-body -u "x-token-auth:${BITBUCKET_TOKEN}" \
+      "$BB/$1/pullrequests/$2" > "$META"
+    curl -sL --fail-with-body -u "x-token-auth:${BITBUCKET_TOKEN}" \
+      "$BB/$1/pullrequests/$2/commits?pagelen=100" > "$COMMITS"
+    python3 -c "
+import json,sys
+d=json.load(open(sys.argv[1],encoding='utf-8')); cs=json.load(open(sys.argv[2],encoding='utf-8'))
+print(json.dumps({'state':'available',
+ 'source_branch':((d.get('source') or {}).get('branch') or {}).get('name',''),
+ 'title':d.get('title',''),'description':d.get('description',''),
+ 'commit_messages':[c.get('message','') for c in cs.get('values',[]) if c.get('message')]}))" \
+      "$META" "$COMMITS" ;;
   set_status)  # set_status <repo> <sha> <success|failure|pending> <description>
     STATE=$(case "$3" in success) echo SUCCESSFUL;; failure) echo FAILED;; *) echo INPROGRESS;; esac)
     curl -sL --fail-with-body -u "x-token-auth:${BITBUCKET_TOKEN}" -H 'Content-Type: application/json' \

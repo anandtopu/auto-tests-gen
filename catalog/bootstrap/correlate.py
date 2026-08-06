@@ -3,8 +3,11 @@
 JIRA keys from git history of the test file."""
 import json, re, subprocess, sys
 
-entries = [json.loads(l) for l in open(sys.argv[1])]
-facts = json.load(open(sys.argv[2]))
+# Import-safe because PR ticket discovery reuses ``jira_keys``. The bootstrap
+# script still executes exactly as before; importing the earned key grammar no
+# longer tries to open the importer's argv as catalog files.
+entries = [json.loads(l) for l in open(sys.argv[1])] if __name__ == "__main__" else []
+facts = json.load(open(sys.argv[2])) if __name__ == "__main__" else {}
 
 # Methods that actually ATTRIBUTE a test to an app repo. Confidence is a claim
 # about the attribution, so only these may raise it — see the formula below.

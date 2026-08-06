@@ -18,6 +18,15 @@ clone_with_token() {
 case "$VERB" in
   changed_files) gh pr view "$2" --repo "org/$1" --json files -q '.files[].path' ;;
   diff)      gh pr diff "$2" --repo "org/$1" ;;
+  pr_context) gh pr view "$2" --repo "org/$1" --json headRefName,title,body,commits |
+    python3 -c "
+import json,sys
+d=json.load(sys.stdin); msgs=[]
+for c in d.get('commits') or []:
+    msg='\n'.join(filter(None,[c.get('messageHeadline',''),c.get('messageBody','')])).strip()
+    if msg: msgs.append(msg)
+print(json.dumps({'state':'available','source_branch':d.get('headRefName',''),
+ 'title':d.get('title',''),'description':d.get('body',''),'commit_messages':msgs}))" ;;
   set_status)  # set_status <repo> <sha> <success|failure|pending> <description>
     gh api "repos/org/$1/statuses/$2" -f state="$3" -f context="ai-qe" \
       -f description="$4" >/dev/null && echo ok ;;
