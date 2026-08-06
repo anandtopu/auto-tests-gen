@@ -35,6 +35,10 @@ make state-import  BUNDLE=x.tar.gz DRY=1           # show what would change
 `catalog/review/`, `reports/runs/` (records, archived diffs, `reviews.json`, and
 append-only `testcase-provenance.jsonl` learning outcomes),
 `reports/plans/`, `reports/openhands/state.json`, `testplans/`, `testdata/`.
+Full state also carries `reports/agent-artifacts/`: immutable B1 blobs, references,
+and B2 task manifests needed to explain historical runs. Export and import hold the
+artifact-store mutation lock, and import relocates these members through
+`AIQE_ARTIFACTS_DIR`/`AIQE_STATE_DIR` rather than assuming the checkout path.
 
 ### Not carried, and why
 
@@ -48,6 +52,7 @@ append-only `testcase-provenance.jsonl` learning outcomes),
 | `reports/runs/queue.json` | In-flight work, not decisions — see the `.gitignore` note. |
 | `knowledge/generated/` | Regenerated on demand from the registry and harvested surface. |
 | `reports/exports/`, `dashboard.html`, `*.log` | Outputs, not state. |
+| `reports/agent-artifacts/` in the knowledge-only profile | Run-scoped audit history is not shared as reusable team knowledge. The full state profile carries it. |
 
 ### Integrity, and why the manifest matters
 

@@ -123,8 +123,7 @@ def lock(path, timeout=10.0):
 
 
 def _release(lockdir):
-    """Drop the lock. RETRIES the rmdir, because giving up after one attempt
-    wedges every waiter.
+    """Drop the lock; retry only the owner unlink, never the rmdir.
 
     On Windows the directory entry for a just-unlinked file lingers for a few
     milliseconds, so `rmdir` immediately after `unlink("owner")` can raise
@@ -135,14 +134,10 @@ def _release(lockdir):
     started raising TimeoutError. Reproduced by tests/state-adversarial.sh:
     one WinError 32 turned into six timed-out writers and 77 lost decisions.
 
-    Bounded at ~200 ms — long enough to outlast the pending-delete window,
-    short enough that a genuinely undeletable dir still falls through to the
-    stale-break path rather than blocking here.
+    The marker retry is bounded at ~50 ms. A genuinely undeletable directory
+    still falls through to the stale-break path rather than blocking here.
     """
-    try:
-        (lockdir / "owner").unlink(missing_ok=True)
-    except OSError:
-        pass
+    _unlink_owner(lockdir)
     try:
         lockdir.rmdir()
     except OSError:
@@ -152,6 +147,23 @@ def _release(lockdir):
         # retry can outlive our ownership and delete a lock a waiter has
         # since acquired. The orphan-grace path in lock() recovers instead.
         pass
+
+
+def _unlink_owner(lockdir, attempts=5, pause=0.01):
+    """Remove our owner marker past transient Windows sharing violations.
+
+    Retrying the marker is safe: nobody can legitimately acquire the lock
+    while the directory still contains it.  The directory removal itself must
+    remain single-shot because a delayed retry could delete a successor's lock.
+    """
+    for attempt in range(attempts):
+        try:
+            (lockdir / "owner").unlink(missing_ok=True)
+            return True
+        except OSError:
+            if attempt + 1 < attempts:
+                time.sleep(pause)
+    return False
 
 
 # --------------------------------------------------------------------------

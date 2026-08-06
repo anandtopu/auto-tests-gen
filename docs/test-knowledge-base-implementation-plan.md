@@ -2,7 +2,7 @@
 
 Date: 2026-08-05
 Source: `docs/prd-test-knowledge-base.md` v2
-Status: In implementation; A1–A6 and B1 implemented (feature flags remain default-off where specified)
+Status: In implementation; A1–A6 and B1–B2 implemented (feature flags remain default-off where specified)
 
 ## 1. Delivery principles
 
@@ -345,7 +345,9 @@ B1 deliberately exposes the durable primitive only. B2 is responsible for wiring
 each phase producer into it, building per-run manifests, historical `explain`, and
 portable-state profile behavior; those are not claimed here.
 
-### B2. Task artifact bundle
+### B2. Task artifact bundle — Implemented
+
+Status: Implemented (2026-08-06).
 
 Dependencies: B1; run-record and state-bundle schemas.
 
@@ -362,6 +364,21 @@ Implementation:
 
 Validation: historical explain after scratch deletion, missing-phase truthfulness,
 portable round trip, tamper detection, and profile exclusions.
+
+Acceptance mapping:
+
+| PRD | Implemented evidence |
+| --- | --- |
+| B2.1 | `task_bundle.py` captures exact phase-boundary inputs into B1 and stores a compact versioned per-run manifest containing immutable reference IDs, blob SHA-256 values, roles, attempts, and logical paths—never duplicated artifact bodies. Run-hashed journals prevent concurrent tasks from mixing evidence. |
+| B2.2 | Run records carry the verified bundle pointer. Historical `make explain` resolves context manifests after `out/` is deleted, verifies every B1 hash, requires the bundle run/key to match the run record, and never borrows another run's live scratch. |
+| B2.3 | Per-phase and per-kind coverage records distinguish produced, skipped, full-estate fallback, unavailable, and disabled states with reasons. A failed estate archive cannot be reported as a successful fallback. |
+| B2.4 | Full state export includes `reports/agent-artifacts/` under the B1 mutation lock and import restores it through configured artifact placement. Knowledge-only export excludes the run-scoped store; lock and quarantine internals remain excluded. |
+
+Validation evidence: focused lint and 98 focused unit/integration/adversarial tests
+cover hash-only manifests, scratch deletion, corruption, cross-run pointer rejection,
+concurrent journal isolation, missing/skip/fallback truthfulness, state profile export,
+configured-path import, and Windows lock release. Broad registry compatibility and
+the two-pass release review are recorded in the B2 review reports.
 
 ### B3. Artifact reuse across tasks
 

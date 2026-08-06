@@ -7,6 +7,7 @@ import glob, json, os, pathlib, sys, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import critic as critic_lib
 import env_flag                     # AIQE_MOCK means what it says
+import task_bundle
 
 run_id, mode, key = sys.argv[1:4]
 
@@ -180,4 +181,10 @@ try:
                             "detail": _msg}
 except Exception:
     pass
+try:
+    record["artifact_bundle"] = task_bundle.finalize(run_id, mode, key)
+except Exception as exc:  # the gate result must survive an optional archive failure
+    record["artifact_bundle"] = {
+        "state": "unavailable", "schema": task_bundle.SCHEMA,
+        "reason": f"task bundle finalization failed: {exc.__class__.__name__}"}
 print(json.dumps(record))

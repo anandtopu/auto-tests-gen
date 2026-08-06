@@ -90,10 +90,11 @@ Scoped context is off for the judgement phases (`testplan`, the adversary pair,
 `generate`) until a quality evaluation clears them. `AIQE_CONTEXT_SCOPE=0`
 disables it everywhere.
 
-**These manifests live in `out/`, which the next run overwrites.** For a
-historical run the platform reports the manifest as unavailable and says so —
-"we did not keep it" and "nothing was dropped" are different facts that lead to
-opposite actions.
+With `AIQE_ARTIFACT_STORE=1`, the exact context and its parsed manifest are archived
+at the phase boundary and addressed by the run's task bundle. Historical explain
+verifies that bundle after `out/` is overwritten. Older or default-off runs report
+the manifest as unavailable and say so—"we did not keep it" and "nothing was
+dropped" are different facts that lead to opposite actions.
 
 ## Ticket text is data, never instructions
 

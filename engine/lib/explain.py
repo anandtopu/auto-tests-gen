@@ -14,8 +14,8 @@ The decisions a user actually asks about, and where each is evidenced:
               (confidence + rationale come from
               engine/phases/resolve.py, which is
               deterministic and rules-first)
-  context     what the model was SHOWN, and what was   out/context-<phase>.md
-              deliberately withheld from it            audit manifest header
+  context     what the model was SHOWN, and what was   task artifact bundle
+              deliberately withheld from it            (live fallback: out/)
   model       which model wrote each phase, and        out/cost.tsv + org-config
               whether a budget rung downgraded it      models: + cost-degrade.tsv
   skipped     phases that did not run, and why         out/phase-skips.tsv
@@ -33,10 +33,9 @@ phase was given AND every chunk that was dropped to fit the budget. "The model
 never saw the payments-api surface" explains an omission that no amount of
 staring at the output would.
 
-It is also the most perishable: manifests live in out/, which the NEXT run
-overwrites. For a historical run this reports it as unavailable and says why —
-because "we did not keep it" and "nothing was dropped" are different facts and
-lead to different actions.
+For B2 runs the manifest is content-addressed and survives scratch cleanup.
+Older/default-off runs still report it as unavailable and say why — because
+"we did not keep it" and "nothing was dropped" are different facts.
 """
 import json
 import pathlib
@@ -46,6 +45,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import run_progress  # noqa: E402  (shared record reading + exit-code meanings)
+import task_bundle  # noqa: E402
 
 
 def _decision(did, question, answer, because=None, evidence=None, caveat=None):
@@ -140,6 +140,10 @@ def explain(key=None, run_id=None, root=ROOT):
     rec = run_progress._record_for(key=key, run_id=run_id, root=root)
     ctx = _read_json(root / "out/run-context.json") or {}
     live = bool(ctx) and (not key or ctx.get("key") == key)
+    if rec:
+        # A current scratch directory for another run of the SAME key is still
+        # another run. Historical explain must never borrow it.
+        live = live and ctx.get("run_id") == rec.get("run_id")
 
     if not rec and not live:
         return {"key": key, "run_id": run_id, "source": "none", "decisions": [],
@@ -185,9 +189,30 @@ def explain(key=None, run_id=None, root=ROOT):
             "No resolve contract was kept for this run."))
 
     # --- 2. context: what the model saw, and what it did NOT ----------------
-    manifests = context_manifests(root)
+    manifests, manifest_error = {}, None
+    manifest_evidence = ""
+    pointer = (rec or {}).get("artifact_bundle") or {}
+    if rec and pointer.get("state") == "produced":
+        manifests, manifest_error = task_bundle.context_manifests(
+            pointer, root=root, expected_run_id=rec.get("run_id"),
+            expected_key=(rec.get("trigger") or {}).get("key"))
+        manifest_evidence = "content-addressed task artifact bundle"
+    elif live:
+        manifests = context_manifests(root)
+        manifest_evidence = "live out/context-<phase>.md audit manifest"
     if manifests:
         for phase, m in sorted(manifests.items()):
+            if m.get("full_estate"):
+                decisions.append(_decision(
+                    f"context:{phase}",
+                    f"What was the model shown for the `{phase}` phase?",
+                    "full estate guidance (scoped context was not used)",
+                    ["the complete estate AGENTS.md was supplied",
+                     "no scoped context manifest existed, so no dropped-chunk "
+                     "claim is made"], manifest_evidence,
+                    caveat="This is an explicit full-estate fallback, not a claim "
+                           "that scoped retrieval kept every chunk."))
+                continue
             because = [f"{len(m['kept'])} knowledge chunk(s) supplied"]
             if m["dropped"]:
                 because.append("WITHHELD to fit the budget: " + ", ".join(m["dropped"]))
@@ -200,17 +225,24 @@ def explain(key=None, run_id=None, root=ROOT):
                 f"context:{phase}",
                 f"What was the model shown for the `{phase}` phase?",
                 f"{len(m['kept'])} chunk(s) kept, {len(m['dropped'])} dropped",
-                because, f"out/context-{phase}.md audit manifest",
+                because, manifest_evidence,
                 caveat=("A dropped chunk is knowledge the model DID NOT HAVE. If an "
                         "expected behaviour is missing from the output, look here "
                         "first.") if m["dropped"] else None))
     elif live or rec:
+        if manifest_error:
+            why = ("The recorded task bundle could not be verified: "
+                   f"{manifest_error}. No live scratch was substituted.")
+        elif pointer.get("state") in ("disabled", "unavailable"):
+            why = (pointer.get("reason") or "The task bundle was unavailable") + \
+                  ". No historical context manifest was retained."
+        else:
+            why = ("This record predates the task artifact bundle and its out/ "
+                   "manifests are gone. Re-run with AIQE_ARTIFACT_STORE=1 to "
+                   "retain them.")
         unexplained.append(_unknown(
             "context", "What knowledge was the model given, and what was withheld?",
-            "Context manifests live in out/, which the next run overwrites. This "
-            "run's manifests are gone. (Nothing was lost from the RUN — only the "
-            "record of what it was shown. Re-run to capture it, or turn scoping "
-            "off with AIQE_CONTEXT_SCOPE=0 so every phase gets the full estate.)"))
+            why))
 
     # --- 3. model per phase, and any budget downgrade ------------------------
     models = _phase_models(root)

@@ -22,6 +22,29 @@ import fs_lock
 
 # ------------------------------------------------------------ the writer
 
+def test_lock_release_retries_only_the_owner_marker(tmp_path, monkeypatch):
+    """A transient Windows unlink failure must not leave a live-PID orphan,
+    while the unsafe directory-removal retry remains forbidden."""
+    lockdir = tmp_path / "state.lock"
+    lockdir.mkdir()
+    owner = lockdir / "owner"
+    owner.write_text("123 1", encoding="utf-8")
+    real_unlink = pathlib.Path.unlink
+    calls = {"owner": 0}
+
+    def transient_unlink(path, *args, **kwargs):
+        if path == owner:
+            calls["owner"] += 1
+            if calls["owner"] == 1:
+                raise PermissionError("simulated sharing violation")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "unlink", transient_unlink)
+    fs_lock._release(lockdir)
+
+    assert calls["owner"] == 2
+    assert not lockdir.exists()
+
 def test_atomic_write_survives_a_crash_at_the_replace_boundary(tmp_path, monkeypatch):
     """The whole point: if the process dies at ANY instant, the file on disk is
     either the old complete document or the new complete document — never torn."""

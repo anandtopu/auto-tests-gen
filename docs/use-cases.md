@@ -548,9 +548,10 @@ What was the model shown for the `triage` phase?
 **A decision whose reason was not recorded comes back under `unexplained`,
 naming what is missing.** It will not invent a rationale — a fabricated one is
 confidently wrong about exactly the thing you came to check, and is
-indistinguishable from a real one. Context manifests live in `out/` and the next
-run overwrites them, so for a historical run this reports them *unavailable*
-rather than as "nothing was dropped".
+indistinguishable from a real one. With `AIQE_ARTIFACT_STORE=1`, the run bundle
+retains and verifies context manifests for historical explain. Older/default-off
+runs report overwritten manifests *unavailable* rather than as "nothing was
+dropped".
 
 ## 18. Approve some of it, not all of it
 

@@ -30,6 +30,7 @@ ALLOWED_KINDS = frozenset({
     "estate-guidance", "repo-guidance", "conventions", "exemplar",
     "phase-context", "context-manifest", "extend-candidates",
     "requirements", "plan", "generated-skill",
+    "task-bundle",
 })
 DEFAULT_MAX_BYTES = 1_048_576
 DEFAULT_KEEP_RUNS = 200

@@ -32,6 +32,10 @@ def _estate(tmp_path, record=None, manifests=None, cost=None, degrade=None):
             f"<!-- context-scope phase={phase} budget_tokens=4000 used_chars=99\n"
             f"     kept={','.join(kept)}\n"
             f"     dropped={','.join(dropped)} -->\n# body\n", encoding="utf-8")
+    if manifests and record:
+        (tmp_path / "out/run-context.json").write_text(
+            json.dumps({"run_id": record["run_id"],
+                        "key": record["trigger"]["key"]}), encoding="utf-8")
     if cost:
         (tmp_path / "out/cost.tsv").write_text(
             "\n".join("\t".join(r) for r in cost), encoding="utf-8")
@@ -100,8 +104,8 @@ def test_a_lost_manifest_is_unexplained_not_silently_absent(tmp_path):
     out = ex.explain(key="PROJ-X", root=_estate(tmp_path, record=REC))
     unk = {u["id"]: u for u in out["unexplained"]}
     assert "context" in unk, "a lost manifest vanished from the report entirely"
-    assert "overwrites" in unk["context"]["not_recorded"]
-    assert "AIQE_CONTEXT_SCOPE" in unk["context"]["not_recorded"], \
+    assert "manifests are gone" in unk["context"]["not_recorded"]
+    assert "AIQE_ARTIFACT_STORE" in unk["context"]["not_recorded"], \
         "say how to capture it next time"
 
 

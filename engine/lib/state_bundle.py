@@ -24,6 +24,7 @@ One `.tar.gz` holding exactly the state that constitutes work somebody did:
   catalog/review/                 mapping review queues
   reports/runs/*.json, *.diff     run history + archived generated code
   reports/runs/reviews.json       team-review decisions and release assignments
+  reports/agent-artifacts/        content-addressed run evidence (full profile only)
   reports/plans/                  test plans, their contracts and lifecycle state
   reports/approved/               finalized selective-review artifacts (who approved what)
   reports/openhands/state.json    the OpenHands request/conversation trace
@@ -36,6 +37,8 @@ sha256 per file — so an import can verify it got what was exported.
 
 `out/`, `workspace/`, `reports/phase-cache/`, `reports/exports/`, `reports/*.log`,
 `reports/catalog.db`, `knowledge/generated/`, `.env` and `aiqe.properties`.
+The knowledge-only profile also excludes `reports/agent-artifacts/` because it is
+run-scoped audit history, not curated reusable knowledge.
 
 The first group is regenerable scratch; carrying it would move stale derived data
 around. The last two are **credentials** — a bundle is a thing people email and commit,
@@ -56,6 +59,7 @@ CLI:
   state_bundle.py inspect <bundle>         manifest + file count, no writes
   state_bundle.py import <bundle> [--replace] [--dry-run]
 """
+import contextlib
 import hashlib
 import json
 import os
@@ -68,6 +72,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import app_paths  # noqa: E402
+import fs_lock  # noqa: E402
 
 SCHEMA = 1
 
@@ -81,6 +86,7 @@ INCLUDE_DIRS = [
     # under knowledge/facts/derived/ is EXCLUDED below: it rebuilds.
     "knowledge/facts",
     "catalog", "reports/runs", "reports/plans", "reports/openhands",
+    "reports/agent-artifacts",
     # The finalized product of a selective review: which scenarios and tests a
     # named reviewer approved, which they excluded and why, and the
     # needs_follow_up list for exclusions the gate had already committed. That
@@ -117,6 +123,7 @@ EXCLUDE_PARTS = (
     # data — a bundle carries work, not caches; `make index-rebuild` restores
     # them on the receiving deployment.
     "reports/knowledge-index/",
+    ".lock/",
     # Bootstrap is CODE (extract/correlate/index), not state — it ships in the image
     # and the repo. Bundling it moved a copy of the source around for no reason and
     # would let an import overwrite live tooling with an older revision.
@@ -196,6 +203,17 @@ def _sha(path):
 
 def export(dest=None, profile="full"):
     """Write a bundle. Returns its path."""
+    artifact_root = app_paths.artifacts_dir(ROOT)
+    artifact_mutex = artifact_root / ".mutation"
+    artifact_lock = (fs_lock.lock(artifact_mutex, timeout=30)
+                     if profile == "full" and artifact_root.exists()
+                     else contextlib.nullcontext())
+    with artifact_lock:
+        return _export_locked(dest, profile)
+
+
+def _export_locked(dest=None, profile="full"):
+    """Export implementation while the B1 store is stable."""
     files = collect(profile)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     suffix = "knowledge" if profile == "knowledge" else "state"
@@ -264,7 +282,8 @@ def import_bundle(bundle, replace=False, dry_run=False, force=False):
         raise SystemExit(f"bundle schema {info['schema']} != supported {SCHEMA}")
 
     written, skipped, mismatched = [], [], []
-    with tarfile.open(bundle, "r:gz") as tar:
+    artifact_mutex = app_paths.artifacts_dir(ROOT) / ".mutation"
+    with fs_lock.lock(artifact_mutex, timeout=30), tarfile.open(bundle, "r:gz") as tar:
         man = json.loads(tar.extractfile("manifest.json").read().decode("utf-8"))
         shas = man.get("files") or {}
         for m in tar.getmembers():
@@ -278,10 +297,23 @@ def import_bundle(bundle, replace=False, dry_run=False, force=False):
             # str.startswith check accepted `../<root-name>-evil/payload`: a
             # SIBLING directory whose name merely starts with the root's does
             # satisfy the prefix while living entirely outside the checkout.
-            target = (ROOT / rel).resolve()
-            root = ROOT.resolve()
-            if target == root or root not in target.parents:
+            rel_path = pathlib.PurePosixPath(rel)
+            if (rel_path.is_absolute() or ".." in rel_path.parts or not rel_path.parts
+                    or ":" in rel_path.parts[0]):
                 raise SystemExit(f"bundle contains an unsafe path: {rel}")
+            root = ROOT.resolve()
+            artifact_root = app_paths.artifacts_dir(ROOT).resolve()
+            is_artifact = rel == "reports/agent-artifacts" or rel.startswith(
+                "reports/agent-artifacts/")
+            if is_artifact:
+                tail = rel.removeprefix("reports/agent-artifacts").lstrip("/")
+                target = (artifact_root / tail).resolve() if tail else artifact_root
+                if target != artifact_root and artifact_root not in target.parents:
+                    raise SystemExit(f"bundle contains an unsafe artifact path: {rel}")
+            else:
+                target = (ROOT / rel).resolve()
+                if target == root or root not in target.parents:
+                    raise SystemExit(f"bundle contains an unsafe path: {rel}")
             data = tar.extractfile(m).read()
             if shas.get(rel) and hashlib.sha256(data).hexdigest() != shas[rel]:
                 mismatched.append(rel)

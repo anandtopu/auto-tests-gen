@@ -285,6 +285,9 @@ def resolve_rel(rel, root=None):
     # is a guard waiting to be lost.
     if s == "registry/repo-registry.yaml":
         return registry_file(root)
+    if s == "reports/agent-artifacts" or s.startswith("reports/agent-artifacts/"):
+        tail = s.removeprefix("reports/agent-artifacts").lstrip("/")
+        return artifacts_dir(root) / tail if tail else artifacts_dir(root)
     fn = _MUTABLE_TOP.get(head)
     if fn is None:
         return (pathlib.Path(root) if root else ROOT) / s

@@ -920,8 +920,17 @@ measured results and per-layer summary: [cost-optimization.md](cost-optimization
    surface (or `AIQE_STATE_DIR`/`AIQE_ARTIFACTS_DIR`); one `fs_lock` serializes all
    mutations. Reads validate hashes, damaged records/blobs are quarantined, and
    retention prunes old producing-run references before mark/sweep. Secret-shaped,
-   oversize, unknown-kind, and repo-owned guidance writes are refused. B2 adds the
-   producer/bundle integration; B1 does not write application or test repositories.
+   oversize, unknown-kind, and repo-owned guidance writes are refused. B1 does not
+   write application or test repositories.
+11. **Per-run artifact bundles** (`task_bundle.py`, PRD B2). At each LLM boundary,
+   the exact prompt and input files are stored through B1 and a run-isolated journal
+   records hash/reference provenance plus explicit produced, skipped, fallback, and
+   unavailable states. Finalization writes a compact content-addressed manifest and
+   places its verified pointer in the run record. Historical explain requires the
+   bundle run/key to match that record, verifies the addressed bytes, and never
+   substitutes another run's scratch context. Full portable state carries the B1
+   store under its mutation lock; knowledge-only state excludes these run-scoped
+   artifacts. Capture remains default-off with `AIQE_ARTIFACT_STORE`.
 
 Non-negotiables preserved by construction: retrieved/reused text is DATA
 (framing preamble pinned in every assembly), the gate remains the only writer,

@@ -1079,7 +1079,7 @@ with `AIQE_ARTIFACT_REUSE` and, when enabled, only breaks equal retrieval scores
 An unavailable or corrupt provenance store is reported explicitly and ignored
 for ranking rather than being interpreted as no review history.
 
-### Durable agent artifact store (B1 foundation)
+### Durable task artifacts and historical explain (B1–B2)
 
 Set `AIQE_ARTIFACT_STORE=1` to enable the content-addressed store foundation.
 It defaults to `reports/agent-artifacts/`, which is on the deployed reports
@@ -1094,6 +1094,18 @@ configures how many producing runs' references are retained (default 200); a
 quarantined reference makes blob sweeping conservative until an operator
 resolves that evidence. The feature remains default-off, and B2 adds automatic
 per-phase capture, historical bundles, and portable-state integration.
+
+When enabled, each LLM phase archives the exact prompt and input files before the
+provider call. The final run record points to a versioned bundle of B1 references
+and hashes; skipped phases, full-estate fallbacks, failed captures, and artifact
+kinds that were not produced are named explicitly. `make explain KEY=PROJ-123`
+therefore answers historical context questions after `out/` has been cleaned. It
+rejects corrupt content and a pointer belonging to another run instead of using
+current scratch as a substitute.
+
+`make state-export` includes this evidence in the full state profile, and
+`make state-import` restores it to the configured artifact-store path. A
+knowledge-only export intentionally excludes run-scoped artifact history.
 
 ## 6. Integration guide
 

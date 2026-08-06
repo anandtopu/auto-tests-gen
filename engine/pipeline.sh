@@ -162,10 +162,18 @@ _budget_guard() {
 # AIQE_PHASE_LABEL renames the phase's OUTPUT artifacts (and therefore its cost-ledger
 # row) without changing which org-config policy it runs under — that is what lets
 # generation fan out to one labeled call per test repo.
+_ARCHIVE_INPUTS() {
+  if [ "${AIQE_ARTIFACT_STORE:-0}" = "1" ]; then
+    python3 engine/lib/task_bundle.py capture-phase "$@" >/dev/null ||
+      echo "[artifact-bundle] capture unavailable for $3 (run continues)"
+  fi
+}
+
 PHASE() {
   local label="${AIQE_PHASE_LABEL:-$1}"
   _budget_guard "$label"
   local rc=0
+  _ARCHIVE_INPUTS "$RUN_ID" "$KEY" "$label" initial "prompts/$2" "${@:3}"
   _PHASE_IMPL "$@" || rc=$?
   python3 engine/lib/budget.py record "$label" "out/$label.json" || true
   # Context-retry escape hatch (cost-reduction 2.3): a phase that ran on a
@@ -182,6 +190,8 @@ PHASE() {
       if [ "$swapped" = "1" ]; then
         echo "[context] $label reported missing context — one retry with the full estate"
         python3 -c "import json; c=json.load(open('out/${label}.contract.json')); print('${label}\t' + '; '.join(map(str, c.get('missing_context') or [])))" >> out/context-retries.tsv 2>/dev/null || true
+        _ARCHIVE_INPUTS "$RUN_ID" "$KEY" "$label" retry \
+          "prompts/${args[1]}" "${args[@]:2}"
         _PHASE_IMPL "${args[@]}" || rc=$?
         python3 engine/lib/budget.py record "$label" "out/$label.json" || true
       fi
@@ -639,6 +649,7 @@ elif python3 engine/lib/critic.py enabled; then
   # validate and the gate would discard a fully-paid-for run over an advisory
   # signal. The critic's own cost is still metered for the record.
   CRITIC_RC=0
+  _ARCHIVE_INPUTS "$RUN_ID" "$KEY" critic initial prompts/critic.md "${CRITIC_CTX[@]}"
   _PHASE_IMPL critic critic.md "${CRITIC_CTX[@]}" || CRITIC_RC=$?
   python3 engine/lib/budget.py record critic out/critic.json || true
   if [ "$CRITIC_RC" -ne 0 ]; then
