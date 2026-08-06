@@ -23,6 +23,8 @@ The decisions a user actually asks about, and where each is evidenced:
               what the arbiter accepted
   reuse       whether the plan was written fresh or    out/plan-reuse.json
               adapted from a prior approved plan
+  impact      why an existing case was proposed for    run impact_candidates
+              extend/replace, or why create was right  artifact
   gate        why tests were or were not committed,    run record gates[] +
               per repo, with the exit code's meaning   run_progress.EXIT_MEANINGS
 
@@ -281,7 +283,37 @@ def explain(key=None, run_id=None, root=ROOT):
              "is disabled (AIQE_PLAN_REUSE)"],
             "absence of out/plan-reuse.json"))
 
-    # --- 7. the gate ---------------------------------------------------------
+    # --- 7. change-to-test impact proposal ----------------------------------
+    impact = (rec or {}).get("impact_candidates") or {}
+    if not impact and live:
+        impact = _read_json(root / "out/impact-candidates.json") or {}
+    if impact.get("artifact") == "impact-candidates":
+        threshold = impact.get("active_threshold")
+        accepted = [c for c in impact.get("candidates") or []
+                    if c.get("recommendation") in ("extend", "replace")
+                    and (threshold is None or c.get("confidence", 0) >= threshold)]
+        if accepted:
+            answer = "; ".join(
+                f"{c.get('recommendation')} {c.get('test_repo')}/{c.get('file')} "
+                f"(confidence {c.get('confidence')})" for c in accepted[:5])
+            because = [c.get("reason") or "reason not recorded" for c in accepted[:5]]
+        else:
+            none = impact.get("no_candidate") or {}
+            answer = none.get("message") or "no candidate decision was recorded"
+            because = [none.get("reason") or "the absence reason was not recorded"]
+        because.append(f"retrieval mode: {impact.get('retrieval_mode')} "
+                       f"(threshold {threshold})")
+        caught = impact.get("should_have_caught")
+        if caught:
+            because.append("bug check: " + str(caught.get("message") or
+                                                "result not recorded"))
+        decisions.append(_decision(
+            "impact", "Why was an existing test extended/replaced, or a new one created?",
+            answer, because, "run record `impact_candidates`",
+            caveat="This is a bounded PROPOSAL only; generation authors changes "
+                   "and the deterministic gate alone commits them."))
+
+    # --- 8. the gate ---------------------------------------------------------
     gates = (rec or {}).get("gates") or []
     if gates:
         because = []

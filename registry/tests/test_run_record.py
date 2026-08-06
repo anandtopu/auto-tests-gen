@@ -88,3 +88,17 @@ def test_a_blank_file_still_produces_a_record(tmp_path):
     rec = _record(tmp_path, "\n\n")
     assert rec["gates"] == []
     assert rec["run_id"] == "RUN-1" and rec["trigger"]["key"] == "K-1"
+
+
+def test_impact_artifact_is_archived_but_corruption_is_nonfatal(tmp_path):
+    (tmp_path / "out").mkdir()
+    artifact = {"schema_version": 1, "artifact": "impact-candidates",
+                "retrieval_mode": "deterministic", "candidates": []}
+    (tmp_path / "out/impact-candidates.json").write_text(
+        json.dumps(artifact), encoding="utf-8")
+    rec = _record(tmp_path, "")
+    assert rec["impact_candidates"] == artifact
+
+    (tmp_path / "out/impact-candidates.json").write_text("{torn", encoding="utf-8")
+    rec = _record(tmp_path, "")
+    assert "impact_candidates" not in rec and rec["run_id"] == "RUN-1"

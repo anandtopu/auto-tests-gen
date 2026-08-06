@@ -130,6 +130,38 @@ def test_the_gate_row_carries_the_exit_codes_meaning(tmp_path):
     assert "only step that commits" in (d["caveat"] or "").lower()
 
 
+def test_impact_explanation_uses_archived_reason_and_explicit_none(tmp_path):
+    rec = json.loads(json.dumps(REC))
+    rec["impact_candidates"] = {
+        "artifact": "impact-candidates", "retrieval_mode": "deterministic",
+        "active_threshold": .7, "candidates": [{
+            "test_repo": "e2e-api", "file": "suites/order.spec.js",
+            "recommendation": "extend", "confidence": .97,
+            "reason": "catalog endpoint overlap"}], "no_candidate": None}
+    d = _by_id(ex.explain(key="PROJ-X", root=_estate(tmp_path, record=rec)))["impact"]
+    assert "extend e2e-api/suites/order.spec.js" in d["answer"]
+    assert "catalog endpoint overlap" in d["because"]
+    assert "proposal" in d["caveat"].lower()
+
+    rec["impact_candidates"]["candidates"] = []
+    ia_message = "no existing test covers this — creating new specs is correct here"
+    rec["impact_candidates"]["no_candidate"] = {
+        "message": ia_message,
+        "reason": "no lexical candidate cleared threshold"}
+    d = _by_id(ex.explain(key="PROJ-X", root=_estate(tmp_path, record=rec)))["impact"]
+    assert d["answer"] == ia_message
+
+
+def test_historical_explain_never_borrows_another_live_runs_impact(tmp_path):
+    root = _estate(tmp_path, record=REC)
+    (root / "out/run-context.json").write_text(
+        json.dumps({"run_id": "other", "key": "OTHER-1"}), encoding="utf-8")
+    (root / "out/impact-candidates.json").write_text(json.dumps({
+        "artifact": "impact-candidates", "candidates": [],
+        "no_candidate": {"message": "wrong run"}}), encoding="utf-8")
+    assert "impact" not in _by_id(ex.explain(key="PROJ-X", root=root))
+
+
 def test_an_unknown_target_says_so_rather_than_returning_an_empty_page(tmp_path):
     out = ex.explain(key="NOPE-1", root=_estate(tmp_path))
     assert out["source"] == "none" and out["decisions"] == []

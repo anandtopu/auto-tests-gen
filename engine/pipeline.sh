@@ -437,6 +437,19 @@ python3 engine/lib/spec_exemplars.py all out/repo-conventions.md \
   > /dev/null 2>&1 || : > out/repo-conventions.md
 [ -f out/repo-conventions.md ] || : > out/repo-conventions.md
 
+# A3 change-to-test impact analysis. The helper leaves no artifact while the
+# preview flag is off, preserving the old generate context byte-for-byte. When
+# enabled, failure is not converted into an empty/silent result: A3 requires an
+# explicit candidate or explicit no-candidate artifact.
+IMPACT_CONTEXT=()
+RUN_IMPACT() {
+  python3 engine/lib/impact_analysis.py "$1" "$KEY"
+  IMPACT_CONTEXT=()
+  if [ -s out/impact-candidates.json ]; then
+    IMPACT_CONTEXT=(out/impact-candidates.json)
+  fi
+}
+
 # Control-repo artifacts (test plans, canonical data) belong at the root; real phases
 # run with cwd=workspace so relocate anything written there (no-op in mock mode).
 relocate_artifacts() {
@@ -452,7 +465,8 @@ if [ "$MODE" = "pr" ]; then
   # against catalog evidence, emitting NAMED extend targets. Tolerant — a scout
   # failure yields an empty file, never a failed run.
   python3 engine/lib/extend_scout.py > out/extend-candidates.md 2>/dev/null || : > out/extend-candidates.md
-  GENERATE "$(CTX generate)" out/triage.contract.json out/pr.diff out/catalog-slice.jsonl out/extend-candidates.md out/coverage-gaps.md out/repo-conventions.md
+  RUN_IMPACT pr
+  GENERATE "$(CTX generate)" out/triage.contract.json out/pr.diff out/catalog-slice.jsonl out/extend-candidates.md "${IMPACT_CONTEXT[@]}" out/coverage-gaps.md out/repo-conventions.md
 elif [ "$MODE" = "tests" ]; then
   # Resume from the APPROVED plan. The reviewed markdown is authoritative (it may have
   # been edited), so it is passed to both phases alongside the snapshotted contract.
@@ -462,12 +476,13 @@ elif [ "$MODE" = "tests" ]; then
     echo "PLAN_SNAPSHOT_MISSING: reports/plans/${KEY}.contract.json — re-run 'pipeline.sh plan ${KEY}'"
     exit 64
   fi
+  RUN_IMPACT tests
   if python3 -c "import json,sys; c=json.load(open('out/testplan.contract.json')); sys.exit(0 if c.get('data_needs')=='none' else 1)" 2>/dev/null; then
     SKIP_PHASE testdata "plan declares data_needs: none"
   else
     PHASE testdata jira-testdata.md "$(CTX testdata)" out/testplan.contract.json "$AIQE_P_TESTPLANS/${KEY}.md"
   fi
-  GENERATE "$(CTX generate)" out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "$AIQE_P_TESTPLANS/${KEY}.md" out/catalog-slice.jsonl out/repo-conventions.md
+  GENERATE "$(CTX generate)" out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "$AIQE_P_TESTPLANS/${KEY}.md" out/catalog-slice.jsonl "${IMPACT_CONTEXT[@]}" out/repo-conventions.md
 else
   PHASE analyze  jira-analyze.md "$(CTX analyze)" out/issue-guidance.md out/ticket.json out/confluence.md
   # SDD (story 2.1): persist the EARS requirements spec the analyze contract
@@ -561,6 +576,9 @@ else
     # `[ -n .. ] && echo` returning 1 as the last statement here would trip set -e.
     if [ -n "$ADVERSARY_LINE" ]; then echo "[plan-adversary] $ADVERSARY_LINE"; fi
   fi
+  # The JIRA query includes the ticket acceptance criteria plus the FINAL
+  # authored/arbitrated scenario set, so it must run after plan arbitration.
+  RUN_IMPACT "$MODE"
   if [ "$MODE" = "plan" ]; then
     # STOP: the plan awaits human review/edit/approval. No test code, no commit.
     relocate_artifacts
@@ -580,7 +598,7 @@ else
   else
     PHASE testdata jira-testdata.md "$(CTX testdata)" out/testplan.contract.json
   fi
-  GENERATE "$(CTX generate)" out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json out/catalog-slice.jsonl out/repo-conventions.md
+  GENERATE "$(CTX generate)" out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json out/catalog-slice.jsonl "${IMPACT_CONTEXT[@]}" out/repo-conventions.md
 fi
 PHASE validate validate-repair.md out/generate.contract.json out/repo-conventions.md
 

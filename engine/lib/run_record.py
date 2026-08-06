@@ -96,6 +96,15 @@ overall = ("quarantined" if any(g["status"] in ("quarantined", "clone_failed")
 record = {"run_id": run_id, "trigger": {"type": mode, "key": key},
           "ts": time.time(), "overall": overall,
           "gates": gates, "phases": phases}
+# A3's proposal must survive the ephemeral out/ directory so a historical
+# `make explain` can answer why generation extended rather than created. A bad
+# optional artifact cannot destroy the otherwise durable run record.
+try:
+    impact = json.load(open("out/impact-candidates.json", encoding="utf-8"))
+    if isinstance(impact, dict) and impact.get("artifact") == "impact-candidates":
+        record["impact_candidates"] = impact
+except (OSError, ValueError):
+    pass
 if malformed_gate_lines:
     # Present only when something was lost, and never inferred away: a record
     # showing three gates when the file held four must SAY that it is short,

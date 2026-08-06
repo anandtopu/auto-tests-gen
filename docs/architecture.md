@@ -1451,6 +1451,15 @@ These surfaces are diagrammed in [diagrams.md](diagrams.md) §10 (monitoring), �
 - **Extend-vs-create scout** — a deterministic join of the PR diff's surface
   against catalog evidence emits named `EXTEND <file>` targets into the generate
   context; the join is mechanics, so no LLM runs for it.
+- **Case-level impact analysis** (`AIQE_IMPACT_ANALYSIS=1`) — PR diffs and JIRA
+  ticket/scenario text produce a bounded, versioned `impact-candidates.json`.
+  Catalog surface and testcase identifier joins short-circuit semantic work;
+  otherwise testcase vectors or a separately-thresholded lexical fallback rank
+  `extend|replace|unaffected` proposals. Explicit absence means create new. Bug
+  tickets also record which surface-covering case should have caught the defect.
+  The artifact is generation context and durable run-record evidence for
+  `make explain`; it is untrusted data and never edits, deletes, reorders, commits,
+  or pushes a test.
 - **Plan versioning** — approval snapshots the signed text; re-approval reviews a
   unified diff against that baseline, never the whole document on faith.
 - **Reviewer assignment** — an optional rota assigns pending reviews by stable key

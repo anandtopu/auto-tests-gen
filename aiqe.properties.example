@@ -95,6 +95,18 @@ AIQE_CONTEXT_SCOPE=
 AIQE_CONTEXT_RETRY=
 # Semantic plan reuse  ·  0 = off (default until the quality eval) · 1 = on, plan mode only
 AIQE_PLAN_REUSE=
+# Test-case knowledge index  ·  0 = off (default) · 1 = index individual test cases
+AIQE_TESTCASE_INDEX=0
+# Test-case chunk size  ·  characters per physical testcase chunk (512–6000)
+AIQE_TESTCASE_CHUNK_CHARS=2000
+# Change-to-test impact analysis  ·  0 = off (default) · 1 = propose impacted existing cases
+AIQE_IMPACT_ANALYSIS=0
+# Impact deterministic threshold  ·  endpoint/route and testcase identifier signals
+AIQE_IMPACT_DETERMINISTIC_THRESHOLD=0.70
+# Impact semantic threshold  ·  cosine threshold when testcase embeddings are available
+AIQE_IMPACT_SEMANTIC_THRESHOLD=0.78
+# Impact lexical threshold  ·  separate threshold for zero-embedding lexical fallback
+AIQE_IMPACT_LEXICAL_THRESHOLD=0.30
 
 # --- Embeddings ---
 # Optional semantic index (vector search over plans, specs, estate knowledge).

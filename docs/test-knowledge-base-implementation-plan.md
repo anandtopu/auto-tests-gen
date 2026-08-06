@@ -2,7 +2,7 @@
 
 Date: 2026-08-05
 Source: `docs/prd-test-knowledge-base.md` v2
-Status: Approved for implementation planning; A1 in progress
+Status: In implementation; A1–A3 implemented behind default-off flags
 
 ## 1. Delivery principles
 
@@ -25,11 +25,12 @@ Status: Approved for implementation planning; A1 in progress
 | B1 addressing | Store immutable content blobs by SHA; store run-specific provenance as append-only references to those blobs | `produced_by_run` and `produced_at` cannot live in a deduplicated content object. |
 | A4 timing | JIRA: check approved/draft scenarios before test generation. PR: check generated scenario/test contracts after generation but before comment/gate completion, advisory only | PR mode has no plan editor and no proposed scenario exists before generation. |
 | A3 unaffected | Persist only scored candidates plus an explicit no-candidate result; do not enumerate the unbounded unaffected corpus | Keeps artifacts bounded and makes “unaffected” a candidate disposition, not a dump of every test. |
+| A3/A5 sequencing | Ship A3 behind its default-off flag with provisional per-mode thresholds; A5 remains required before threshold tuning or default enablement | A3's deterministic contract and workflow integration are independently testable; claiming retrieval quality is not. |
 | Baselines | Stamp every measured baseline with commit, mode, corpus hash, and timestamp | The prose snapshot already drifted from 28 to 30 chunks and from 13,318 to 15,036 AGENTS.md characters. |
 
 ## 3. Epic A — Test-aware knowledge base
 
-### A1. Test-case-level indexing — In progress
+### A1. Test-case-level indexing — Implemented
 
 Dependencies: none beyond the current chunk store.
 Flag: `AIQE_TESTCASE_INDEX=0` by default.
@@ -70,9 +71,9 @@ Implementation checkpoint (2026-08-05):
 - Verified: 11 A1 tests; 68 focused A1/compatibility tests; 113 retrieval,
   vector, context, settings, docs, and maintenance tests. Enabled estate smoke:
   6 logical cases / 6 chunks and one registered repo explicitly `NOT INDEXED`.
-- Remaining before A1/S1 is complete: A6.1 same-run gate indexing and the A1.6
-  behavioral attack evaluation scheduled with A5/S2. A2 estate acquisition is
-  implemented below.
+- Follow-on work remains explicitly owned by A6.1 (same-run gate indexing) and
+  A5/S2 (the A1.6 behavioral attack evaluation); neither changes the shipped A1
+  parser/index contract. A2 estate acquisition is implemented below.
 
 ### A2. Estate-wide indexing — Implemented
 
@@ -114,7 +115,7 @@ Implementation checkpoint (2026-08-05):
   cleanup, credential redaction, per-repo adapter selection, rebuild wiring,
   narrow replacement, and maintenance-order tests.
 
-### A3. Change-to-test impact analysis
+### A3. Change-to-test impact analysis — Implemented
 
 Dependencies: A1, A2, A5 measurement harness.
 Flag: `AIQE_IMPACT_ANALYSIS=0`.
@@ -136,6 +137,28 @@ Implementation:
 
 Validation: deterministic short-circuit makes zero embedding calls; lexical and
 semantic thresholds remain separate; both trigger paths and bug absence are pinned.
+
+Implementation checkpoint (2026-08-06):
+
+- Added `engine/lib/impact_analysis.py` and the versioned, bounded
+  `out/impact-candidates.json` proposal contract. Catalog surface and A1
+  `exercises` joins run before retrieval; deterministic winners make no
+  embedding call. Semantic retrieval falls back to lexical scoring and records
+  the active mode plus independent thresholds.
+- PR diff, JIRA authoring, plan review, and approved-plan resume run at lifecycle
+  points where their complete input exists. The artifact joins generation only
+  when the flag is enabled, is archived in the run record, and is rendered by
+  `make explain` without borrowing another live run's artifact.
+- Bug mode persists a ranked, surface-based `should_have_caught` answer or an
+  explicit regression gap. Weak bounded candidates are marked `unaffected`; no
+  threshold winner emits the PRD's explicit create-new message.
+- The generate prompt treats candidate titles/reasons as untrusted retrieval
+  data and the artifact states proposal-only authority. No impact code writes to
+  test repositories; generation authors and the deterministic gate commits.
+- Verified with 12 focused A3 acceptance/adversarial cases, 82 focused adjacent
+  compatibility tests, and all 1,306 registry tests across three bounded
+  tranches after fixing two broad-suite findings. The shell pipeline smoke was
+  not runnable because this Windows host has no Git Bash/WSL `/bin/bash`.
 
 ### A4. Near-duplicate detection
 
