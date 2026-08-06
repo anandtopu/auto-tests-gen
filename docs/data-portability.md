@@ -32,7 +32,8 @@ make state-import  BUNDLE=x.tar.gz DRY=1           # show what would change
 
 `registry/repo-registry.yaml`, `registry/org-config.yaml`, `AGENTS.md`,
 `knowledge/repos/` + `knowledge/curated/` + `knowledge/synced/`, `catalog/*.jsonl` +
-`catalog/review/`, `reports/runs/` (records, archived diffs, `reviews.json`),
+`catalog/review/`, `reports/runs/` (records, archived diffs, `reviews.json`, and
+append-only `testcase-provenance.jsonl` learning outcomes),
 `reports/plans/`, `reports/openhands/state.json`, `testplans/`, `testdata/`.
 
 ### Not carried, and why

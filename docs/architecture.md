@@ -902,6 +902,15 @@ measured results and per-layer summary: [cost-optimization.md](cost-optimization
    Mock embeddings are labelled `simulated` and cannot certify semantic
    quality. The same harness contains a mutation-sensitive hostile-retrieval
    oracle; M9 remains explicitly unmeasured until a real QA survey is collected.
+9. **Closed learning loop** (`testcase_learning.py`, PRD A6). After the gate has
+   successfully pushed a generated-test commit, its full SHA and changed spec
+   paths are parsed into testcase chunks before the run record is finalized.
+   Gate commit and human review/duplicate decisions are atomically appended to
+   a durable provenance sidecar keyed by case/chunk IDs; decision events never
+   mutate chunk text or content SHA. When `AIQE_ARTIFACT_REUSE` is enabled, only
+   the latest decision for a produced run becomes a bounded equal-score
+   tie-breaker. It cannot create a candidate, change a similarity score, clear
+   a threshold, or outrank stronger deterministic surface evidence.
 
 Non-negotiables preserved by construction: retrieved/reused text is DATA
 (framing preamble pinned in every assembly), the gate remains the only writer,

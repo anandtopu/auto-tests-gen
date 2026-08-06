@@ -91,7 +91,9 @@ if not (os.environ.get("AIQE_PLAN_DIR") or "").strip():
 # wrote.
 for _var, _dest in (("AIQE_QUEUE_FILE", "out/test-queue.json"),
                     ("AIQE_OPENHANDS_DIR", "out/test-openhands"),
-                    ("AIQE_DRIFT_FILE", "out/test-coverage-drift.json")):
+                    ("AIQE_DRIFT_FILE", "out/test-coverage-drift.json"),
+                    ("AIQE_TESTCASE_PROVENANCE_FILE",
+                     "out/test-testcase-provenance.jsonl")):
     if not (os.environ.get(_var) or "").strip():
         os.environ[_var] = str(ROOT / _dest)
 # Throwaway repos registered by tests. Keep in sync with the tests that create

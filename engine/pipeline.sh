@@ -694,6 +694,15 @@ for name in "${GATE_NAMES[@]}"; do
   fi
   printf '%s\t%s\t%s\t%s\n' "$name" "$ST" "$GRC" "$SHA" >> out/gate_results.tsv
 done
+# A6: the commit is now an established fact. Parse only committed changed specs
+# into the derived testcase store before the durable run record is assembled.
+# An index outage cannot undo or reclassify the gate commit; it is persisted as
+# `unavailable` in out/learning-loop.json and surfaced on this run's summary.
+LEARNING_RC=0
+python3 engine/lib/testcase_learning.py index "$RUN_ID" "$KEY" || LEARNING_RC=$?
+if [ "$LEARNING_RC" -ne 0 ]; then
+  SUMMARY+=$'\n'"- testcase learning unavailable ⚠ (commits remain valid; retry indexing)"
+fi
 # Advisory critic line on the summary, so the score reaches the reviewer with the
 # artifacts rather than only in the run record. Appended AFTER the gate loop by
 # design — the commit decision above is already final and independent of it.

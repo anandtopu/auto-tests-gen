@@ -1068,6 +1068,17 @@ parsed/unparsed files, SCM exit class, and per-repository reasons. Nightly
 `make maintain` rebuilds chunks before refreshing vectors, so unchanged chunk
 hashes incur no embedding call.
 
+The same flag also closes the same-run gap for generated tests. After a gate
+successfully pushes a commit, the pipeline reads the committed bytes, upserts
+only changed testcase chunks, and records the full commit/case/chunk provenance
+before finalizing the run record. `no_changes`, quarantined, and clone-failed
+gates never enter the index. Team approvals, changes requests, and typed
+duplicate exclusions append to `reports/runs/testcase-provenance.jsonl`; they
+do not rewrite indexed code or its SHA. Outcome-aware ordering is default-off
+with `AIQE_ARTIFACT_REUSE` and, when enabled, only breaks equal retrieval scores.
+An unavailable or corrupt provenance store is reported explicitly and ignored
+for ranking rather than being interpreted as no review history.
+
 ## 6. Integration guide
 
 Tool-specific step-by-step guides live in [integrations/](integrations/README.md):

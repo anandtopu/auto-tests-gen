@@ -81,15 +81,22 @@ def set_status(key, status, reviewer="", note="", ts=None):
     if status == "changes_requested" and not note:
         sys.exit("changes_requested needs a note saying what to change — "
                  "pass --note (the reviewer's ask is the whole point of the status)")
+    stamp = ts if ts is not None else time.time()
     with fs_lock.lock(FILE):
         data = load()
         entry = data.get(key, {"history": []})
         entry["history"].append({"status": status, "reviewer": reviewer, "note": note,
-                                 "ts": ts if ts is not None else time.time()})
+                                 "ts": stamp})
         entry.update(status=status, reviewer=reviewer, note=note,
                      updated=entry["history"][-1]["ts"])
         data[key] = entry
         save(data)
+    # A6 provenance is deliberately outside the review-state lock: acquiring
+    # two shared-store locks in opposite order would invite a deadlock. The
+    # decision is already durable; any outcome-store failure is raised so the
+    # caller cannot report that learning succeeded when it did not.
+    import testcase_learning
+    testcase_learning.record_review(key, status, reviewer, note, stamp)
     return entry
 
 

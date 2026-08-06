@@ -113,6 +113,15 @@ try:
         record["duplicate_warnings"] = duplicates
 except (OSError, ValueError):
     pass
+# A6 same-run indexing evidence. A failed optional read cannot destroy the gate
+# record, but the learning hook itself writes `state=unavailable` on failure so
+# an index outage never masquerades as "no commits".
+try:
+    learning = json.load(open("out/learning-loop.json", encoding="utf-8"))
+    if isinstance(learning, dict) and learning.get("artifact") == "testcase-learning":
+        record["testcase_learning"] = learning
+except (OSError, ValueError):
+    pass
 if malformed_gate_lines:
     # Present only when something was lost, and never inferred away: a record
     # showing three gates when the file held four must SAY that it is short,

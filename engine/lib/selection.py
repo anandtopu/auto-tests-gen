@@ -98,20 +98,30 @@ def set_items(key, kind, decisions, actor="", reason="", reason_code="",
         raise ValueError("duplicate exclusions require duplicate_case_id")
     p = _path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
+    duplicate_events = []
     with fs_lock.lock(p):
         data = _load_all(root)
         entry = data.setdefault(key, {})
         bucket = entry.setdefault(kind, {})
         for item_id, included in (decisions or {}).items():
+            stamp = time.time()
             decision = {"included": bool(included), "by": actor or "unknown",
-                        "reason": reason or "", "ts": time.time()}
+                        "reason": reason or "", "ts": stamp}
             if not included and reason_code:
                 decision["reason_code"] = reason_code
                 decision["duplicate_case_id"] = str(duplicate_case_id)[:500]
+                if reason_code == "duplicate":
+                    duplicate_events.append((str(item_id), stamp))
             bucket[str(item_id)] = decision
         tmp = p.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
         fs_lock.replace_atomic(tmp, p)
+    if duplicate_events:
+        import testcase_learning
+        for item_id, stamp in duplicate_events:
+            testcase_learning.record_duplicate(
+                key, kind, item_id, duplicate_case_id, actor or "unknown",
+                reason or "", stamp, root)
     return load(key, root)
 
 

@@ -2,7 +2,7 @@
 
 Date: 2026-08-05
 Source: `docs/prd-test-knowledge-base.md` v2
-Status: In implementation; A1–A5 implemented (feature flags remain default-off where specified)
+Status: In implementation; A1–A6 implemented (feature flags remain default-off where specified)
 
 ## 1. Delivery principles
 
@@ -256,6 +256,8 @@ Implementation checkpoint (2026-08-06):
 
 ### A6. Close the learning loop
 
+Status: Implemented (2026-08-06).
+
 Dependencies: A1/A2 index coordinator, gate result, review/selection state.
 Flags: S1 uses `AIQE_TESTCASE_INDEX`; outcome ranking waits for S5.
 
@@ -271,6 +273,34 @@ Implementation:
 
 Validation: same-run retrieval, failed/no-change gates do not index, append-only
 outcomes under concurrency, and code bytes remain unchanged by review decisions.
+
+Acceptance mapping:
+
+| PRD item | Evidence |
+| --- | --- |
+| A6.1 | `testcase_learning.py` reads successful gate SHAs, upserts changed committed specs before `run_record.py`, refreshes vectors when available, and records disabled/no-commit/unavailable states explicitly. |
+| A6.2 | Gate commits, approvals, changes requests, and typed duplicate exclusions append run/key/full-SHA/case/chunk provenance under `reports/runs/`; accepted outcomes become capped tie-breakers only behind `AIQE_ARTIFACT_REUSE`. |
+| A6.3 | Review outcomes live in an append-only sidecar keyed to chunk IDs. Tests pin chunk text and SHA before/after decisions and exercise locked concurrent writers and torn-record refusal. |
+
+Implementation checkpoint (2026-08-06):
+
+- The pipeline invokes the learning hook after all gates finish and before the
+  durable run record. Only `committed` rows qualify; abbreviated gate SHAs are
+  resolved to full commits and file bytes are read with `git show` from that
+  established commit, never from a mutable working tree.
+- Changed/renamed/deleted spec paths replace only their prior `testcase`/fallback
+  chunks. Unsupported syntax remains a visible `unparsed` spec; unrelated chunk
+  kinds and repositories are preserved. A retry is idempotent.
+- Commit and human-decision events are atomically appended under `fs_lock` to
+  `reports/runs/testcase-provenance.jsonl`, which full state bundles already
+  carry. Malformed existing provenance refuses overwrite and ranking reports
+  `unavailable` instead of silently consuming partial history.
+- Approval/changes-requested follows the latest decision for a produced run;
+  duplicate exclusions retain both the generated case IDs and referenced
+  canonical case. Outcomes never change similarity/confidence or create a
+  match: equal-score ordering is the only influence, capped and default-off.
+- Focused lifecycle, concurrency, immutability, ranking, and adversarial tests
+  pass. Broad compatibility evidence is recorded in the A6 review reports.
 
 ## 4. Epic B — Agent artifact generation and store
 

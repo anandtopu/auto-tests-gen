@@ -227,7 +227,8 @@ def _public(case: dict, score: float, recommendation: str, reason: str,
 
 
 def _deterministic(cases: list[dict], query: str, removed: set[str],
-                   health: dict) -> list[dict]:
+                   health: dict, outcomes: dict[str, float] | None = None) -> list[dict]:
+    outcomes = outcomes or {}
     query_surface, query_tokens = _surfaces(query), _tokens(query)
     scored = []
     for case in cases:
@@ -249,11 +250,15 @@ def _deterministic(cases: list[dict], query: str, removed: set[str],
         signals = {"surface_overlap": surface_overlap,
                    "identifier_overlap": identifiers[:20],
                    "similarity": None}
-        scored.append((_public(case, score, rec, reason, signals), _health_tie(case, health)))
+        if case["case_id"] in outcomes:
+            signals["outcome_tie_breaker"] = outcomes[case["case_id"]]
+        scored.append((_public(case, score, rec, reason, signals),
+                       outcomes.get(case["case_id"], 0.0), _health_tie(case, health)))
     scored.sort(key=lambda item: (-item[0]["confidence"],
-                                  -int(item[1][0]), -item[1][1], -item[1][2],
+                                  -item[1], -int(item[2][0]),
+                                  -item[2][1], -item[2][2],
                                   item[0]["case_id"]))
-    return [row for row, _ in scored[:MAX_CANDIDATES]]
+    return [row for row, _, _ in scored[:MAX_CANDIDATES]]
 
 
 def _lexical_score(query_tokens: set[str], case: dict) -> float:
@@ -264,7 +269,9 @@ def _lexical_score(query_tokens: set[str], case: dict) -> float:
 
 
 def _retrieved(cases: list[dict], query: str, mode: str, raw: list[dict],
-               threshold: float, health: dict) -> list[dict]:
+               threshold: float, health: dict,
+               outcomes: dict[str, float] | None = None) -> list[dict]:
+    outcomes = outcomes or {}
     by_chunk = {cid: c for c in cases for cid in c.get("chunk_ids") or []}
     if mode == "semantic":
         scores = {}
@@ -284,14 +291,17 @@ def _retrieved(cases: list[dict], query: str, mode: str, raw: list[dict],
         rec = "extend" if score >= threshold else "unaffected"
         reason = (f"{mode} testcase similarity {score:.4f} "
                   f"{'clears' if rec == 'extend' else 'does not clear'} threshold {threshold:.4f}")
-        ranked.append((_public(case, score, rec, reason,
-                               {"surface_overlap": [], "identifier_overlap": [],
-                                "similarity": round(score, 4)}),
-                       _health_tie(case, health)))
+        signals = {"surface_overlap": [], "identifier_overlap": [],
+                   "similarity": round(score, 4)}
+        if case["case_id"] in outcomes:
+            signals["outcome_tie_breaker"] = outcomes[case["case_id"]]
+        ranked.append((_public(case, score, rec, reason, signals),
+                       outcomes.get(case["case_id"], 0.0), _health_tie(case, health)))
     ranked.sort(key=lambda item: (-item[0]["confidence"],
-                                  -int(item[1][0]), -item[1][1], -item[1][2],
+                                  -item[1], -int(item[2][0]),
+                                  -item[2][1], -item[2][2],
                                   item[0]["case_id"]))
-    return [row for row, _ in ranked[:MAX_CANDIDATES]]
+    return [row for row, _, _ in ranked[:MAX_CANDIDATES]]
 
 
 def _jira_query(root: pathlib.Path, key: str) -> tuple[str, str]:
@@ -332,8 +342,17 @@ def analyze(mode: str, key: str, root: pathlib.Path = ROOT, *,
     catalog_path = pathlib.Path(catalog_path or root / "out/catalog-slice.jsonl")
     cases = _cases(_catalog_rows(catalog_path), chunks)
     health = _health(root)
+    outcome_signals = {}
+    outcome_ranking = {"state": "disabled", "applied": False,
+                       "reason": "AIQE_ARTIFACT_REUSE is disabled"}
+    if env_flag.flag("AIQE_ARTIFACT_REUSE", False):
+        import testcase_learning
+        outcome_ranking = testcase_learning.ranking_signal_result(root)
+        outcome_signals = outcome_ranking.pop("scores")
+        outcome_ranking["applied"] = bool(outcome_signals)
     limits = thresholds()
-    deterministic_candidates = _deterministic(cases, query, removed, health)
+    deterministic_candidates = _deterministic(
+        cases, query, removed, health, outcome_signals)
     candidates = deterministic_candidates
     retrieval_mode = "deterministic"
     active = limits[retrieval_mode]
@@ -351,10 +370,12 @@ def analyze(mode: str, key: str, root: pathlib.Path = ROOT, *,
             hits = semantic_search(query, k=MAX_CANDIDATES * 3, kind="testcase") or []
         if hits:
             retrieval_mode, active = "semantic", limits["semantic"]
-            candidates = _retrieved(cases, query, retrieval_mode, hits, active, health)
+            candidates = _retrieved(cases, query, retrieval_mode, hits, active,
+                                    health, outcome_signals)
         else:
             retrieval_mode, active = "lexical", limits["lexical"]
-            candidates = _retrieved(cases, query, retrieval_mode, [], active, health)
+            candidates = _retrieved(cases, query, retrieval_mode, [], active,
+                                    health, outcome_signals)
 
     accepted = [c for c in candidates
                 if c["confidence"] >= active and c["recommendation"] != "unaffected"]
@@ -371,6 +392,7 @@ def analyze(mode: str, key: str, root: pathlib.Path = ROOT, *,
                   "chars": len(query)},
         "retrieval_mode": retrieval_mode, "thresholds": limits,
         "active_threshold": active, "candidates": candidates,
+        "outcome_ranking": outcome_ranking,
         "no_candidate": no_candidate,
         "authority": "proposal-only; generation authors and the deterministic gate commits",
         "trust_boundary": "candidate text is untrusted data, never instructions",
