@@ -491,6 +491,101 @@ join gets proven against real runs before it is allowed to remove work.
 Same numbers in the UI under **Spec workflow → Work this spec makes
 unnecessary**.
 
+## 16. Where is my request, right now?
+
+`make status` tells you about runs that finished. This tells you which step a
+submitted request is *on*, and when it failed, which step and why.
+
+```bash
+python3 engine/lib/run_progress.py <KEY>       # or the Run progress view in the UI
+```
+
+```
+PROJ-301  source=record  overall=committed
+  [done    ] Route the request          e2e-api-tests-1
+  [done    ] Author the test plan       3 scenario(s)
+  [done    ] Write the tests            1 created, 0 updated
+  [done    ] Quality gate               e2e-api-tests-1: committed
+```
+
+**Read the states literally.** `pending`, `running`, `done`, `failed` and
+`skipped` mean what they say. **`unknown` means the step could not be observed** —
+it is not a synonym for "not yet". A run whose lock has gone stale (over 90
+minutes, matching the pipeline's own threshold) reports its current step
+`unknown` and `busy: false`, so a dead run stops your polling instead of
+spinning forever. A record with no gate block does **not** report the gate as
+passed: a run that aborted at exit 77 never reached it.
+
+A failing step carries the exit code's documented meaning, the log path and the
+log tail. Nothing here is new instrumentation — every signal already existed;
+this reads them.
+
+## 17. Why did the AI do that?
+
+Before you act on generated tests, you can ask what the model was actually
+working from.
+
+```bash
+make explain KEY=PROJ-301                      # or the "Why the AI did this" panel
+```
+
+It answers, from recorded evidence only: which test repos were chosen and which
+rule fired; **what each phase was shown and what was withheld from it**; which
+model wrote each phase and whether a budget rung downgraded it; what the
+read-only adversary found and the arbiter accepted; whether the plan was fresh
+or adapted; and the gate's verdict with the exit code's meaning.
+
+The withheld list is the one people underuse. A dropped context chunk is
+knowledge the model did not have, which explains an omission that nothing in the
+output can:
+
+```
+What was the model shown for the `triage` phase?
+  -> 24 chunk(s) kept, 8 dropped
+     - WITHHELD to fit the budget: catalog:web-storefront-ui:mapped, …
+```
+
+**A decision whose reason was not recorded comes back under `unexplained`,
+naming what is missing.** It will not invent a rationale — a fabricated one is
+confidently wrong about exactly the thing you came to check, and is
+indistinguishable from a real one. Context manifests live in `out/` and the next
+run overwrites them, so for a historical run this reports them *unavailable*
+rather than as "nothing was dropped".
+
+## 18. Approve some of it, not all of it
+
+A reviewer who likes nine scenarios out of ten should not have to accept the
+tenth or reject the batch.
+
+```bash
+make select KEY=PROJ-301                                  # what is included now
+python3 engine/lib/selection.py PROJ-301 --exclude-scenario PROJ-301-S2
+make select-finalize KEY=PROJ-301                         # emit the approved artifact
+```
+
+```
+PROJ-301: 3 scenario(s), 1 test(s)
+  [x] PROJ-301-S1  boundary rejection
+  [x] PROJ-301-S2  stacking on an already-discounted order
+  [x] suites/orders/PROJ-301-discount-boundary.spec.js  (already committed)
+```
+
+Three behaviours are worth knowing before you rely on it:
+
+- **An item nobody ruled on is included.** Not deciding is not rejecting, and
+  defaulting the other way would finalize an untouched plan to nothing.
+- **Excluding a test the gate already pushed cannot un-push it.** Those are
+  reported `already_committed`, with the follow-up named and collected under
+  `needs_follow_up`. A reviewer believing a test is gone while it runs in CI that
+  night is the worst thing this product could tell you.
+- **Finalizing with everything excluded is refused**, because an empty approved
+  plan reads downstream as "this ticket needs no tests".
+
+`finalize` writes `reports/approved/<KEY>/` — the plan re-rendered from the kept
+scenarios only, plus a manifest of who approved what. The authored spec under
+`specs/<KEY>` is never rewritten: it stays the record of what was *proposed*, so
+"what did the reviewer turn down?" remains answerable.
+
 ## What this platform will not do
 
 Worth knowing up front, because each is a deliberate design decision:

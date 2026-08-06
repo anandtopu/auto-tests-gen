@@ -95,7 +95,7 @@ The adversarial suite (`make test-gate`) permanently regression-tests codes 2–
 
 ### 2a. The dashboard, view by view
 
-`make serve` opens fourteen views. **[ui-guide.md](ui-guide.md)** documents each
+`make serve` opens fifteen views. **[ui-guide.md](ui-guide.md)** documents each
 one: what it answers, what you can do in it, and what it deliberately refuses to
 tell you (an unmeasured cost is never rendered as a measured one, and a view
 that could not load says so rather than showing an empty table).
@@ -426,11 +426,19 @@ visibility, never a second code path. `python3 engine/lib/wizard_status.py <KEY>
 make serve        # http://localhost:4999 — the dashboard with live actions
 ```
 
-The dashboard (implemented from the "QA Dashboard" Claude Design) is a nine-view app
-with sidebar navigation: **Overview** (KPI tiles, a needs-attention feed, the coverage
-matrix), **Intake & queue**, **Test plans**, **Runs & reviews**, **Trace**,
-**Artifacts**, **Test catalog**, **Repositories**, and **Settings** — with toast
-feedback and pending-work badges on the nav.
+The dashboard (implemented from the "QA Dashboard" Claude Design) is a fifteen-view
+app whose sidebar is grouped **Start** / **Work** / **Insight** / **Configure**:
+
+| Group | Views |
+|---|---|
+| Start | **Overview** (KPI tiles, needs-attention feed, coverage matrix, Start-here panel), **Guided run** (paste a PR URL or ticket and follow the ladder) |
+| Work | **Intake & queue**, **Run progress** (which step a request is on), **Test plans**, **Runs & reviews** |
+| Insight | **Spec workflow**, **Trace**, **Cost**, **Artifacts**, **Activity**, **Alerts** |
+| Configure | **Test catalog**, **Repositories**, **Settings** |
+
+Toast feedback and pending-work badges appear on the nav.
+[ui-guide.md](ui-guide.md) documents each view — what it answers, and what it
+deliberately refuses to tell you.
 
 Served (rather than opened as a file), the **Intake & queue** view becomes active:
 type any release/fixVersion (known versions autocomplete; free text works — the
@@ -955,7 +963,10 @@ curl --data-binary @results.xml -H "X-AIQE-Token: $TOKEN"      http://<receiver>
 ```
 
 The response reports `matched`/`unmatched` so mapping rot shows up in the CI job's
-own log. Then:
+own log. This route accepts up to **5 MB** (every other receiver route caps at 1 MB);
+a larger post is refused with `413` before the body is read, so split an oversized
+report rather than expecting it to be truncated — see
+[deployment.md](deployment.md#request-limits-at-the-trigger-ingress). Then:
 
 ```bash
 python3 bin/qa.py flaky                       # sometimes-passing tests, worst first
@@ -1152,11 +1163,61 @@ every generated test must be born-mapped.
 
 ## 8. Known limitations (PoC)
 
-Tracked in [REVIEW.md](../REVIEW.md) ("Open items"):
-mock phase stubs bypass JSON-schema contract extraction (the real path validates —
-and the parity runs in §7 have exercised it end-to-end); Playwright execution
-validated only via the framework-agnostic abstraction (demo runs `node --test`);
-state stores are JSON files (honest at PoC scale — the PostgreSQL migration is an H2
-item in [product-direction.md](product-direction.md)). OpenHands is **optional** by
-design: `AIQE_OPENHANDS=off|auto|required` sets how much an outage matters
-(see [integrations/standalone-operation.md](integrations/standalone-operation.md)).
+Tracked in [REVIEW.md](../REVIEW.md) ("Open items"): Playwright execution validated
+only via the framework-agnostic abstraction (demo runs `node --test`); state stores
+are JSON files (honest at PoC scale — the PostgreSQL migration is an H2 item in
+[product-direction.md](product-direction.md)). OpenHands is **optional** by design:
+`AIQE_OPENHANDS=off|auto|required` sets how much an outage matters (see
+[integrations/standalone-operation.md](integrations/standalone-operation.md)).
+
+Two limitations previously listed here are **closed**, and the second is worth
+knowing about if you are reading older notes:
+
+- Mock phase stubs no longer bypass contract extraction. Every stub is wrapped as a
+  provider reply (`engine/lib/mock_result.py`) and parsed by the same
+  `extract_contract.py` the real path uses, so a stub that drifts from its schema
+  now fails the demo instead of passing silently. Verified by renaming a required
+  key in the analyze stub: `make demo-jira` exits 2 with `CONTRACT REJECTED`, where
+  it previously exited 0.
+- Prompt *quality* on real models remains unmeasured here. `make parity-pr` /
+  `parity-jira` are blocked on `claude` CLI authentication (`claude login`, or
+  `ANTHROPIC_API_KEY` in `.env`), so nothing in this repo should be read as evidence
+  about output quality from a real provider — only about mechanics.
+
+## 9. Command index
+
+Every `make` target, grouped. Details are in the section linked from each group.
+
+| Group | Targets |
+|---|---|
+| Setup | `deps`, `bootstrap`, `agents`, `skills`, `config` |
+| Demo (no credentials) | `demo-pr`, `demo-jira`, `demo-plan`, `demo-plan-tests`, `demo-requirements`, `demo-bootstrap` |
+| Real runs | `run-pr`, `run-jira`, `queue-run`, `parity-pr`, `parity-jira`, `parity-compare` |
+| Plan-first (§5) | `plan`, `plan-show`, `plan-edit`, `plan-approve`, `plan-changes`, `plan-link`, `plan-tests`, `plans` |
+| Requirements & specs (§5a) | `requirements`, `requirements-approve`, `spec-verify`, `spec-savings` |
+| Selective approval | `select`, `select-finalize` |
+| Operations (§5) | `status`, `reviews`, `review-queue`, `coverage`, `gaps`, `critic`, `explain`, `trace-matrix`, `report`, `email`, `prune`, `maintain` |
+| Services | `serve`, `hook-server`, `dashboard` |
+| Estate & knowledge | `repos`, `repo-facts`, `repo-agents`, `sync-guidance`, `sync-status`, `catalog-db`, `ingest-results`, `index-rebuild` |
+| Plan sharing | `export-plan`, `publish-plan`, `attach-plan` |
+| Cost (§5a) | `cost-report`, `cost-baseline`, `cache-stats`, `cache-clear`, `cache-probe` |
+| State portability | `state-export`, `state-inspect`, `state-import`, `clear-demo` |
+| Deployment | `docker-build`, `deploy-local`, `deploy-local-down`, `deploy-openshift` |
+| Verification | `review` (everything below, in sequence), `test-routing`, `test-routing-adv`, `test-gate`, `test-state`, `test-providers`, `test-bootstrap`, `test-entrypoint`, `test-observability`, `conformance`, `eval`, `check-integrations`, `smoke-openhands` |
+
+`make review` is the one to run before believing anything works: goldens, adapter
+conformance, seven adversarial/smoke suites (gate, routing, state, providers,
+bootstrap, entrypoint, observability), the replay benchmark and the scorecard. It takes
+roughly twelve minutes.
+
+Three verification targets are worth calling out because each exists to cover an
+entry point that nothing was running:
+
+- **`make test-bootstrap`** — the catalog bootstrap chain decides which app repos each
+  test covers, and `covers:` decides routing. A chain that quietly produces less than
+  it should *unroutes* work, which is the one failure this platform cannot see from
+  the inside.
+- **`make test-entrypoint`** — first-boot state seeding. See
+  [deployment.md](deployment.md#first-boot-what-a-new-deployment-seeds).
+- **`make test-observability`** — the transaction log and alert rules, including that
+  an unreadable log reports `unevaluable` rather than `ok`.

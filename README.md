@@ -64,7 +64,7 @@ make smoke-openhands            # staged live smoke test of the OpenHands integr
 python3 bin/qa.py run-inline "<pasted JIRA text>" --repos orders-api --type Bug
 
 # QA operations (bin/qa.py + services)
-make serve                      # interactive dashboard :4999 — 11 views: Overview,
+make serve                      # interactive dashboard :4999 — 15 views: Overview,
                                 #   Guided run (wizard: paste a PR URL or ticket and
                                 #   follow the ladder), Intake & queue, Test plans
                                 #   (review/approve; adversary verdicts, similar

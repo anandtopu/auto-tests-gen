@@ -24,11 +24,50 @@ and reviewing), **LEAD** (QA team lead owning coverage and quality), **EM**
   ticket linking (attachment + summary comment).
 - **Test catalog**: bootstrap (extract → correlate → classify → tier), born-mapped
   sidecars, coverage matrix, gap analysis, CI-health ingest, SQLite query index.
-- **Operations**: 10-view dashboard with a guided wizard, work queue with
+- **Operations**: 15-view dashboard with a guided wizard, work queue with
   actionable failure reasons, PR-URL intake, review board with releases, team
   report, email digests, exports (md/html/docx/pdf), Confluence publish.
 - **Platform**: OpenHands agents/skills with full request tracing, phase cache,
   model tiers, budget guard, torn-write-safe state stores, portable state bundle.
+
+---
+
+## 0a. Already shipped since this roadmap was written
+
+The tables below are the *original* proposal and are kept as written — they record
+what was wanted and why. Fourteen of those items have since been built, so read the
+tables with this list in hand: proposing work that already exists is the expensive
+direction for a roadmap to be stale in.
+
+| # | Shipped as | Where it lives |
+|---|---|---|
+| 1.1 | CI results auto-ingest | `POST /hooks/ci/results` (token-gated, 5 MB cap), `make ingest-results` |
+| 1.2 | Flake quarantine workflow | `bin/qa.py flaky` / `quarantine` / `unquarantine` over `catalog/health.json` |
+| 1.5 | Reviewer assignment & review debt | `review.reviewers` rota in `engine/lib/review_state.py`; review-debt card on Overview |
+| 2.1 | Extend-vs-create scout | `engine/lib/extend_scout.py` |
+| 3.1 | Traceability matrix | `make trace-matrix`, `GET /api/trace-matrix`, Trace view |
+| 3.2 | Risk-weighted gap ranking | `engine/lib/coverage_gaps.py` |
+| 3.4 | Coverage drift alarm | `engine/lib/coverage_drift.py`, run by `make maintain` |
+| 4.1 | In-UI diff review | Artifacts view (rendered code + before/after) |
+| 4.2 | Plan versioning + diff-since-approval | `engine/lib/plan_state.py`, plan editor |
+| 4.3 | Batch review | Runs & reviews view — filter a release, approve the remaining set in one confirmed pass |
+| 4.5 | Adversary verdicts in the plan reviewer | plan editor cards |
+| 5.4 | Scheduled estate maintenance | `make maintain` via `engine/lib/maintenance.py`; `deploy/openshift/cronjob.yaml` |
+| 6.1 | Similar prior plans | `engine/lib/plan_similarity.py` |
+| 6.4 | Portable state bundle | `make state-export` / `state-import`, `engine/lib/state_bundle.py` |
+
+**1.4 (real cost dashboard) is half-shipped and the half that is missing is the
+important one.** The Cost view, the by-phase/by-provider rollups and the regression
+alarm all exist; what does not exist is *measured* data, because `make parity-*`
+remains blocked on Claude CLI auth. Every figure this estate can currently show is
+simulated, and is labelled as such.
+
+Four capability areas shipped that this roadmap never proposed, and they have their
+own documents: the [LLM Runner port](multi-llm-providers.md) (provider
+independence), the [spec-driven workflow](spec-driven-architecture.md),
+[observability](observability-epic.md) (transaction log + alert rules), and the
+operator-facing layer — run progress, explainability, bounded retry and selective
+approval (architecture §5.20, use cases 16–18).
 
 ---
 

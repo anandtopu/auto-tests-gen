@@ -146,7 +146,8 @@ All of this is in the UI too, under **Spec workflow** — see
 ```bash
 python3 bin/qa.py artifacts PROJ-301 --full   # view the generated plan + test code
 make status          # runs with per-repo gate outcomes, team review + release columns
-make serve           # interactive dashboard :4999 — eleven views: Overview, Guided run, Intake &
+make serve           # interactive dashboard :4999 — fifteen views: Overview, Guided run, Run progress,
+                     #   Intake &
                      #   queue, Test plans (review/edit/approve), Runs & reviews, Cost,
                      #   Trace (story→plan→tests→gate→review→release timeline),
                      #   Artifacts (rendered code + before/after diff), Test catalog,
@@ -212,6 +213,17 @@ Four passes in sequence — all must be green:
   reconfigure stdout to UTF-8 at the top of the script (see `eval/scorecard.py`).
 - **Stale state between runs** — `rm -rf workspace out` resets all per-run scratch;
   everything in them is regenerated.
+- **`CONTRACT REJECTED: the <phase> stub does not satisfy …schema.json`** — a demo run
+  exited 2 because a mock stub drifted from its phase schema. This is working as
+  intended and the message names the file to fix: since the mock harness started
+  wrapping each stub as a provider-shaped reply and parsing it with the same
+  `extract_contract.py` the real path uses, a stub can no longer disagree with its
+  schema silently. Fix the stub in `engine/phases/mock_phase.sh`, not the check.
+- **The receiver answers `413` or `400` to a webhook** — the trigger ingress caps
+  request bodies (1 MB, or 5 MB on `/hooks/ci/results`) and refuses an oversized
+  declaration before reading it. A `400` means the `Content-Length` was unparseable,
+  negative, or larger than what the client actually sent. See
+  [deployment.md](deployment.md#request-limits-at-the-trigger-ingress).
 
 ## Next steps
 

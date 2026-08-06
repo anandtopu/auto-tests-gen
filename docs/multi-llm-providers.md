@@ -274,7 +274,8 @@ model/tokens/turns/cost and renders the Cost view. Provider support adds:
   malformed provider JSON, price-table absence (cost renders unknown — never
   0), a completion provider assigned an agentic phase, cache poisoning
   across providers. *As built:* `make test-providers`
-  (`tests/provider-adversarial.sh`), 6 attacks, wired into `make review`.
+  (`tests/provider-adversarial.sh`), 8 attacks (the R1 unpriced-provider and R3a
+  cache-key attacks were added by the multi-pass review), wired into `make review`.
 
 ## 5. Build order
 

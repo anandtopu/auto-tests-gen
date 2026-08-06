@@ -46,7 +46,7 @@ its enforcing pins is `specs/platform/constitution.yaml`.
 make review
 ```
 
-Runs the full suite (~12 min): pytest, adapter conformance, six adversarial
+Runs the full suite (~12 min): pytest, adapter conformance, seven adversarial
 suites, replay, context check, scorecard. **Run it before claiming anything
 works.** A single pytest file is `python3 -m pytest registry/tests/test_x.py -q`.
 

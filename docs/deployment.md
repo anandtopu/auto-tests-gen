@@ -11,7 +11,7 @@ The platform runs two long-lived HTTP services that share filesystem state:
 
 | Service | Port | Role |
 |---|---|---|
-| **Dashboard** (`bin/dashboard_server.py`) | 4999 | Nine-view QA UI; also runs the pipeline when you drain the work queue |
+| **Dashboard** (`bin/dashboard_server.py`) | 4999 | Fifteen-view QA UI ([ui-guide.md](ui-guide.md)); also runs the pipeline when you drain the work queue |
 | **TaskEvent receiver** (`bin/taskevent_receiver.py`) | 4998 | Webhook endpoint: validates, de-duplicates, and enqueues events |
 
 Both coordinate through an advisory lock (`engine/lib/fs_lock.py`) on a shared
@@ -30,7 +30,51 @@ State layout:
 The container image (`Dockerfile`) bundles the app, Python 3 + PyYAML, Node 20 (the
 demo estate and the `node --test` gate), and bash/git/curl/jq. It is
 **OpenShift-compatible**: the app tree is group-0 writable and the process runs as an
-arbitrary non-root UID — no root, no fixed UID.
+arbitrary non-root UID — no root, no fixed UID. Both containers run with
+`readOnlyRootFilesystem: true` (see [review-readonly-rootfs.md](review-readonly-rootfs.md)),
+which is why state lives on a volume rather than in `/app`.
+
+### First boot: what a new deployment seeds
+
+With a read-only root the image tree is immutable, so every mutable path is
+redirected to `AIQE_STATE_DIR` (`engine/lib/app_paths.py`). Three of those paths
+**ship content in the image** and would otherwise start empty on a brand-new
+volume: the catalog mappings, the repo registry, and the knowledge base. A fresh
+deployment with none of them routes nothing — every resolution resolves to no
+repo, which is failure that looks like "no work to do".
+
+`bin/container-entrypoint.sh` copies them in **once**, under two rules:
+
+- **Never overwrite.** Once the volume holds a path, the volume wins — it carries
+  a human's edits (mappings confirmed in review, repos added through Settings,
+  curated guidance). Re-seeding on restart would silently revert somebody's work.
+- **Data only, never code or config.** `catalog/bootstrap/*.py`, `catalog/schema.json`
+  and `registry/org-config.yaml` stay in the image so an image upgrade actually
+  ships new logic. Copying them onto the volume freezes them at first boot —
+  the exact failure the relocation design exists to avoid. The policy lives in
+  `app_paths.seed_plan()`, so the entrypoint copies what it is given and decides
+  nothing.
+
+Generated directories (`testplans/`, `testdata/`, `specs/`) are created empty and
+never seeded: restoring a stale plan over an empty volume would present it as state.
+
+`make test-entrypoint` is 17 checks on this path. It is worth knowing what they
+caught, because both failures were silent:
+
+- The entrypoint reported `state root already populated — nothing seeded` about a
+  directory it had **just created empty**. "We copied nothing" and "the volume
+  already had it" were the same branch. It now samples the state root *before*
+  seeding and warns loudly when an empty root receives nothing.
+- **The Kubernetes manifests then bypassed the entrypoint entirely.** In
+  Kubernetes, `command:` replaces the image ENTRYPOINT and `args:` replaces CMD —
+  the *opposite* mapping to docker-compose, where `command:` means CMD. The
+  manifests had been written to look like the (correct) compose file, so
+  `tini → container-entrypoint.sh` never ran on a cluster and a fresh deployment
+  did no seeding at all. `tini` also stopped being PID 1.
+
+Both directions are pinned in `test_deploy_manifests.py`: no Kubernetes container
+may set a `command:` that does not start with the entrypoint, and compose must
+**keep** its `command:` — "fixing" it there would be the wrong direction.
 
 ---
 
@@ -134,9 +178,6 @@ promised preservation; only the command disagreed. It now deletes the manifests 
 file, and `test_deploy_manifests.py` pins BOTH directions: the PVC is never in that
 list, and every other kustomization resource always is — so a new resource cannot be
 added to the deploy and silently survive the teardown.
-
-```bash
-```
 
 ---
 
@@ -254,6 +295,50 @@ Validate credentials before a real run with the staged smoke test
   with `make index-rebuild`) and runs the cost regression alarm.
 - **Upgrades** — rebuild the image and re-run `deploy.sh`; the PVC (state) survives the
   `Recreate` rollout.
+
+### Request limits at the trigger ingress
+
+The receiver binds `0.0.0.0` in both the Dockerfile and `configmap.yaml`, so its
+request-body handling is exposed to whatever can reach the Route. Both servers read
+bodies through `engine/lib/http_body.read_body()`, which enforces this contract:
+
+| Route | Body limit |
+|---|---|
+| `POST /hooks/ci/results` (raw JUnit/Jenkins) | **5 MB** |
+| Every other receiver route (small JSON envelopes) | **1 MB** |
+| Dashboard API (`bin/dashboard_server.py`) | **2 MB** |
+
+| Client behaviour | Response |
+|---|---|
+| `Content-Length` unparseable or negative | `400` |
+| Declared size over the route's limit | `413`, refused **before** the body is read |
+| Declared more than it sent, then stopped | `400` after the socket timeout |
+| Under the limit, honest | processed |
+
+The ordering is the point, and each part replaced a measured failure against a
+running receiver:
+
+- **Route first, then read.** The 5 MB cap used to be applied *after* the whole body
+  was in memory, so the check preventing a huge allocation ran once the allocation
+  had happened. A 3 MB body was accepted on `/hooks/taskevent`, which has a 1 MB cap.
+- **An unparseable `Content-Length` is a 400, not a crash.** It used to raise
+  `ValueError` out of the handler: the client got no response line at all and a
+  traceback landed in the log.
+- **A lying `Content-Length` cannot hold a worker thread.** `Content-Length: 10000000`
+  with a short body used to block forever. Each such connection ties up a thread, so a
+  handful stop the ingress accepting PR and JIRA events — silently, because nothing
+  fails, it just never answers.
+
+Two limits are stated rather than glossed. A body overshooting the cap by more than
+2× is refused *without* draining, so a grossly oversized request may see a connection
+reset instead of a readable `413` — that is the trade for not waiting on bytes that
+may never arrive. And a request that lies *under* the limit is bounded by the
+handlers' 30-second `timeout`, not refused instantly: 30 seconds of one thread, not
+forever. Both servers must keep that class-level `timeout` set, or the socket read has
+no deadline to hit.
+
+If you front the receiver with a proxy, set its own body cap at or below these values
+so an oversized request is refused at the edge.
 
 See [diagrams.md](diagrams.md) for the runtime architecture and
 [user-guide.md](user-guide.md) for operating the platform once it is up.

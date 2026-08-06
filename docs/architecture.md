@@ -1,7 +1,7 @@
 # Solution Architecture Document
 ## AI-Driven Test Engineering Workflow PoC — OpenHands + Claude Code
 
-**Version:** 2.8 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md). **v2.5** adds §5.17 (the transaction log, alert rules and notifications). **v2.6** adds §5.18 (spec-driven adoption — the workflow as a state machine, a generated governance page, coverage subtraction that counts but refuses to price, and two UI-layer defects found by driving the served page). **v2.7** adds §5.19 (the dominant defect class — an inability to establish a fact reported as an established negative — promoted to constitution clause C13). **v2.8** adds §5.20 (the operator-facing layer — progress with an explicit `unknown` state, explanation from what was recorded, rate-limited retry, and selective approval that never claims a committed test is gone) and §5.21 (the efficiency inventory: what is held with evidence, what is unmeasured and why)
+**Version:** 2.9 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md). **v2.5** adds §5.17 (the transaction log, alert rules and notifications). **v2.6** adds §5.18 (spec-driven adoption — the workflow as a state machine, a generated governance page, coverage subtraction that counts but refuses to price, and two UI-layer defects found by driving the served page). **v2.7** adds §5.19 (the dominant defect class — an inability to establish a fact reported as an established negative — promoted to constitution clause C13). **v2.8** adds §5.20 (the operator-facing layer — progress with an explicit `unknown` state, explanation from what was recorded, rate-limited retry, and selective approval that never claims a committed test is gone) and §5.21 (the efficiency inventory: what is held with evidence, what is unmeasured and why). **v2.9** adds §5.22 (the deployed shape: entry points nothing executed, manifests that disagreed with the scripts they were meant to run, the untrusted request boundary in front of the trigger ingress, and the test suite that was writing into the operator's estate — C13 at deployment scale)
 **Author:** QA / AI Quality Engineering Team
 **Scope:** Proof of Concept — Agentic SDLC test generation workflow across a **multi-repository estate**: multiple UI repos, multiple backend/API repos, and **6 existing E2E test repositories (3 API, 3 UI) whose tests are currently unmapped to any application repository or feature**. v2.0 adds the **Test Catalog & Mapping subsystem** (bootstrap + continuous mapping of existing tests) and a **pluggable Integration & Extensibility layer** (Jira, Bitbucket, GitHub, Slack, Splunk, and future tools), and restructures the solution as a reusable, customizable platform. v2.1 extends the integration layer with **Confluence (knowledge source + publishing)**, **Jenkins (CI/CD trigger, execution, and results feedback)**, and a documented onboarding pattern for any additional SDLC tool.
 
@@ -356,7 +356,7 @@ git commit -m "test(${KEY}): AI-generated E2E updates" \
 git push origin HEAD
 ```
 
-Exit codes map to structured failure reasons in the run record; scope or secret violations quarantine the run for human inspection instead of retrying. The implemented gate (`engine/gate/gate.sh`) uses the full set: **2** scope violation — including any filename outside a safe charset, checked *before* a spec name is ever interpolated into a shell command; **3** secret/PII pattern; **4** unmapped (no born-mapped catalog sidecar); **5** tests failed; **6** refuse-if-not-a-standalone-repo; **7** push failed with a configured remote (auth/protection/network — never reported as success; only the no-remote demo case is skippable); **8** spec unsatisfied (SDD 3.2, `spec.enforce: strict`). Codes 2–5 are regression-tested by `make test-gate`, now 6 attacks.
+Exit codes map to structured failure reasons in the run record; scope or secret violations quarantine the run for human inspection instead of retrying. The implemented gate (`engine/gate/gate.sh`) uses the full set: **2** scope violation — including any filename outside a safe charset, checked *before* a spec name is ever interpolated into a shell command; **3** secret/PII pattern; **4** unmapped (no born-mapped catalog sidecar); **5** tests failed; **6** refuse-if-not-a-standalone-repo; **7** push failed with a configured remote (auth/protection/network — never reported as success; only the no-remote demo case is skippable); **8** spec unsatisfied (SDD 3.2, `spec.enforce: strict`). Codes 2–5 are regression-tested by `make test-gate`, now 7 attacks (11 assertions as run).
 
 #### 5.5.1 The gate takes no orders from what a run produced (v2.4)
 
@@ -1242,6 +1242,89 @@ sits inside the noise, so no speedup is claimed; what is claimed is four fewer
 interpreter starts and one parse of one document, with the emitted values
 pinned byte-identical to the expressions they replace.
 
+### 5.22 The deployed shape, and the boundary in front of it (v2.9)
+
+Every design above describes what the platform does when it runs. This section
+is about the three places where **what runs in a deployment differed from what
+any test ever executed** — a category that produces no failing test by
+construction, because the thing nobody runs is also the thing nobody checks.
+
+**5.22.1 Entry points nothing executed.** Four were found by the simple method of
+running them once. `bin/container-entrypoint.sh` (first-boot state seeding) was
+referenced only by the Dockerfile's `ENTRYPOINT` — no test, no Make target — and
+seeded zero files while printing that the state root was already populated. The
+catalog bootstrap chain existed *twice* (`catalog/bootstrap/run_bootstrap.sh` real,
+`bin/demo-bootstrap.sh` for the demo estate) and only the demo copy ever ran, so
+divergence was invisible by construction; five defects had accumulated in the real
+one, including that nothing ever populated `workspace/src/`, so every test tiered
+`orphan` and `covers:` regenerated empty — an *unrouting* failure, the one thing
+this platform cannot see from the inside. `make maintain` ran twelve `-`-prefixed
+Make lines, so two sabotaged steps (one of them the disaster-recovery backup) both
+failed under a final "maintenance complete" and exit 0, which a CronJob reads as
+success. And `bin/onboard.sh` had hand-rolled a second definition of repo
+registration — the copy without the validation — where `type: frontendd` and
+`layer: apii` were accepted and written.
+
+The structural fix in each case is the same: **one definition, and a test that
+executes the real one.** `onboard.sh` delegates to `repo_admin`; maintenance steps
+run through `engine/lib/maintenance.py` with three distinct outcomes (`ok` /
+`DEGRADED` for an external system this platform does not own / `failed` for a local
+step, which exits 1); seeding policy lives in `app_paths.seed_plan()` so the
+entrypoint copies what it is given and decides nothing.
+
+**5.22.2 The manifest that disagreed with the script.** Kubernetes `command:`
+replaces the image ENTRYPOINT and `args:` replaces CMD — the opposite mapping to
+docker-compose. The OpenShift manifests were written to look like the (correct)
+compose file, so the entrypoint never ran on a cluster: the seeding defect was
+fixed in the script and then skipped by the manifest meant to run it. Two adjacent
+instances of the same shape: `deploy.sh --delete` ran `oc delete -k .` with
+`pvc.yaml` among the kustomization's resources, deleting every run record, plan and
+audit event while printing "PVC ai-qe-reports left in place"; and `state_bundle`
+resolved its includes against `ROOT`, so under R12 relocation the nightly backup
+archived the image's factory copies rather than the operator's state — measured in a
+container, a marker written to the volume appeared in no member of the bundle while
+the export reported 29 files and maintenance reported the snapshot `ok`.
+
+A backup that silently holds someone else's data is worse than no backup: it stops
+the operator worrying, and surfaces on the one day it cannot be fixed. All three are
+pinned in `test_deploy_manifests.py` / `test_state_bundle_relocation.py`, and both
+directions are pinned where a "fix" could go the wrong way — compose must *keep* its
+`command:`, and the PVC must *never* appear in the teardown list while every other
+kustomization resource always does.
+
+**5.22.3 The untrusted boundary.** The TaskEvent receiver binds `0.0.0.0`, so its
+request-body handling is the platform's actual security perimeter, and both servers
+read bodies through one function (`engine/lib/http_body.read_body()`). Ordering is
+the design: **route first, then read with that route's limit** — the 5 MB CI-results
+cap used to be applied after the body was already in memory, which is not a cap — and
+**refuse an oversize declaration before reading it**. An unparseable `Content-Length`
+is a 400 rather than a `ValueError` out of the handler, and a lying one cannot hold a
+worker thread indefinitely; a handful of held threads stop the trigger ingress
+accepting PR and JIRA events *silently*, because nothing fails, it simply never
+answers. Operator-facing limits are tabulated in
+[deployment.md](deployment.md#request-limits-at-the-trigger-ingress).
+
+**5.22.4 The test suite as an estate writer.** Five state stores were *measured*
+being written by `pytest` into the operator's own estate — the audit log (2516
+events, 56% of them attacks the adversarial suites provoke on purpose), run records
+(which made the scorecard report *its own scaffolding* as product failure: 81%
+commit rate against a true 100%), retry counters (which then refused a real
+operator's retry on evidence the tests manufactured), the team review board (505
+phantom entries burying one genuine decision), and plan approvals (a key's history
+going 2 → 82 entries). Three more — the work queue, the OpenHands trace directory
+and the drift file — were redirected defensively rather than because a write was
+observed, on the grounds that every one of the five had been a store somebody
+assumed nothing wrote. Each was found one at a time, so the last fix was
+structural: `test_no_writable_state_store_still_points_at_the_estate`
+enumerates every `engine/lib` module that writes through `fs_lock` and fails if any
+module-level path resolves into estate data under the test environment. The
+allow-list is a silencing mechanism by construction, so each entry carries its
+evidence and the docstring says so.
+
+The common thread across all four is **C13 at deployment scale**: a step that did not
+run, a file that was not archived, a request that was never answered and a metric
+computed from the wrong population all reported themselves as normal operation.
+
 ## 6. Scalability, Reliability, Efficiency, Maintainability — Deep Dive
 
 ### 6.1 Scalability
@@ -1339,7 +1422,7 @@ Human reviewers tag every agent commit with a 3-level rubric (accept / minor edi
 
 Beyond raw records, the platform ships operator tooling so a QA team can monitor, manage, and report without editing files by hand. All of it reads the same persisted state (run records, review board, work queue, catalog, CI health) — nothing is a separate source of truth.
 
-- **Interactive dashboard** (`make serve`, `bin/dashboard_server.py`, token- or SSO-authed) — a nine-view SPA: **Overview** (KPI tiles, needs-attention feed, coverage matrix, team-report card), **Intake & queue** (fetch by any release/fixVersion — free text with autocomplete —, queue, run, re-queue/remove, pasted-JIRA inline runs, plan-only queue mode), **Test plans** (review/edit/approve + author a plan via the queue or a named OpenHands agent), **Runs & reviews** (per-repo gate outcomes, release/review filters, Approve), **Trace** (chronological story/PR → plan → tests → gate → review → release timeline per key, `engine/lib/trace.py`, also `qa.py trace` / `GET /api/trace`), **Artifacts** (plan/data/tests/diffs + rendered code with before/after comparison + a **PR coverage report** panel rebuilt from the run record — `pr_comment.from_record`, `GET /api/pr-coverage` — + export/publish/attach), **Test catalog** (mappings + CI health), **Repositories** (incl. the durable **curated** per-repo AGENTS.md/CLAUDE.md editor with export — `engine/lib/curated_guidance.py` → tracked `knowledge/curated/`), and **Settings**.
+- **Interactive dashboard** (`make serve`, `bin/dashboard_server.py`, token- or SSO-authed) — a fifteen-view SPA grouped Start/Work/Insight/Configure (see [ui-guide.md](ui-guide.md)): **Overview** (KPI tiles, needs-attention feed, coverage matrix, team-report card), **Intake & queue** (fetch by any release/fixVersion — free text with autocomplete —, queue, run, re-queue/remove, pasted-JIRA inline runs, plan-only queue mode), **Test plans** (review/edit/approve + author a plan via the queue or a named OpenHands agent), **Runs & reviews** (per-repo gate outcomes, release/review filters, Approve), **Trace** (chronological story/PR → plan → tests → gate → review → release timeline per key, `engine/lib/trace.py`, also `qa.py trace` / `GET /api/trace`), **Artifacts** (plan/data/tests/diffs + rendered code with before/after comparison + a **PR coverage report** panel rebuilt from the run record — `pr_comment.from_record`, `GET /api/pr-coverage` — + export/publish/attach), **Test catalog** (mappings + CI health), **Repositories** (incl. the durable **curated** per-repo AGENTS.md/CLAUDE.md editor with export — `engine/lib/curated_guidance.py` → tracked `knowledge/curated/`), and **Settings**.
 - **Repositories view** (`engine/lib/repo_admin.py`, CLI parity in `bin/repos.py`) — add/edit UI and service repos and E2E test repos; manage the **many-app-to-one-test-repo mapping** via each test repo's hand-managed `scope` (`covers[]` stays generated as *catalog evidence ∪ scope*); and edit **per-repo agent guidance**. Guidance is team notes in `knowledge/repos/<name>.md` plus any `AGENTS.md`/`CLAUDE.md` committed inside a repo's own checkout — both merged into `AGENTS.md` and thus injected into every test-plan, generation, and coverage-gap phase.
 - **Settings view** (`engine/lib/settings_store.py`) — configure every integration (SCM, JIRA, Confluence, OpenHands, Jenkins, Slack/Splunk, budgets, adapter mode) into `.env`, the same file the adapters read; secrets are write-only (reads report set/unset, never the value). A danger-zone **Clear demo data** (`engine/lib/demo_data.py`) removes generated state while preserving the estate.
 - **Team status report** (`make report`, `engine/lib/team_report.py`; `GET /api/report`) — one shareable md/html/docx/pdf document: completed work, quarantined runs, review backlog with wait time, work queue, by-release rollup, throughput, and estate health, with `--days`/`--release` filters.

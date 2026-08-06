@@ -22,3 +22,23 @@ are executable NOW against the in-repo demo estate; weeks map to real-estate rol
   `test_env: {mode: compose|shared, url|compose_file, seed_cmd}`. `compose` = hermetic
   app-under-test per run (default for API suites); `shared` = QA env URL (UI suites until
   hermetic UI env exists). `bin/with-env.sh` consumes this uniformly.
+
+## What was built after B1–B5
+
+This plan covers the PoC delivery only. Everything below shipped afterwards and has
+its own document — a reader who takes B1–B5 as the whole build will underestimate the
+system by a wide margin:
+
+| Stream | Document |
+|---|---|
+| Cost reduction (telemetry → chunk store → embeddings → context scoping → reuse → spend controls) | [cost-reduction-architecture.md](cost-reduction-architecture.md) |
+| Spec-driven development (EARS requirements, signed specs, spec gate, drift) | [spec-driven-architecture.md](spec-driven-architecture.md) · [sdd-for-e2e-adoption.md](sdd-for-e2e-adoption.md) |
+| Provider independence (LLM Runner port, ollama/codex/openhands adapters, parity) | [multi-llm-providers.md](multi-llm-providers.md) |
+| Observability (transaction log, alert rules, notification delivery) | [observability-epic.md](observability-epic.md) |
+| Operator layer (run progress, explainability, retry, selective approval) | architecture §5.20 · [ai-explainability.md](ai-explainability.md) |
+| Deployment integrity (first-boot seeding, manifests, ingress limits, estate isolation) | architecture §5.22 · [deployment.md](deployment.md) · [review-readonly-rootfs.md](review-readonly-rootfs.md) |
+
+Review passes also went well past R1–R4: passes A–C (constitution, core engine, state
+and locking) are recorded in [review-gate-and-core.md](review-gate-and-core.md), the
+multi-LLM review in [review-multi-llm.md](review-multi-llm.md), and the open-items
+list lives in the root [REVIEW.md](../REVIEW.md).

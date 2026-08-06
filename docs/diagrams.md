@@ -9,7 +9,8 @@ guidance sync · 10 QA monitoring/review/release · 11 sharing the test plan ·
 12 team report · 13 configuration & estate management · 14 plan-first approval
 workflow · 15 deployment topology · 16 cost & retrieval · 17 LLM Runner port ·
 18 attribution → routing · 19 observability · 20 spec-driven workflow · 21 the C13
-defect class · 22 progress states · 23 selective approval.
+defect class · 22 progress states · 23 selective approval · 24 request admission
+at the trigger ingress.
 
 ## 1. System overview (§4.2)
 
@@ -185,7 +186,7 @@ written: `.ai-qe/` is off the writable scope, and the commands come from the
 committed file. Either guard alone leaves a gap — without the scope removal the
 gate would commit a malicious config and the *next* run would execute it.
 
-Codes 2–5 are permanently regression-tested by `make test-gate` (6 attacks,
+Codes 2–5 are permanently regression-tested by `make test-gate` (7 attacks / 11 checks,
 two of which pin exactly this: the rewrite is refused **and** the planted
 command never runs).
 
@@ -307,7 +308,7 @@ flowchart LR
 
     subgraph SURFACES["QA surfaces"]
         ST["make status / reviews<br/>(review + release columns)"]
-        DB["make serve — authed dashboard (11 views):<br/>Overview · <b>Guided run</b> (PR/JIRA wizard) ·<br/>Intake &amp; queue · <b>Test plans</b> (adversary verdicts,<br/>similar plans, changed-since-approval diff) ·<br/>Runs &amp; reviews (batch approve) · <b>Cost</b> (spend,<br/>hit rates, honest savings) · <b>Trace</b> (timeline +<br/>traceability matrix) · Artifacts (code + diff +<br/>review in place) · Test catalog ·<br/>Repositories · Settings"]
+        DB["make serve — authed dashboard (15 views):<br/>Overview · <b>Guided run</b> (PR/JIRA wizard) ·<br/>Intake &amp; queue · <b>Test plans</b> (adversary verdicts,<br/>similar plans, changed-since-approval diff) ·<br/>Runs &amp; reviews (batch approve) · <b>Cost</b> (spend,<br/>hit rates, honest savings) · <b>Trace</b> (timeline +<br/>traceability matrix) · Artifacts (code + diff +<br/>review in place) · Test catalog ·<br/>Repositories · Settings"]
         TRC["qa.py trace &lt;KEY&gt; · GET /api/trace<br/>(trace.py joins plans + runs + reviews)"]
         AR["qa.py artifacts &lt;KEY&gt;<br/>plan · data · tests · diffs ·<br/>PR coverage report (/api/pr-coverage,<br/>rebuilt from the run record)"]
         REP["make report / qa.py report<br/>(md·html·docx·pdf): completed work ·<br/>queue · throughput · estate health"]
@@ -827,3 +828,44 @@ night. The plan is re-rendered through `spec_store.render()` rather than
 formatted a second way, and `finalize` never rewrites `specs/<KEY>` — that stays
 the record of what was PROPOSED, so "what did the reviewer turn down?" remains
 answerable.
+
+## 24. Request admission at the trigger ingress (§5.22.3)
+
+The receiver binds `0.0.0.0`, so this is the platform's actual perimeter. Both
+servers read bodies through `engine/lib/http_body.read_body()`. The ORDER of
+these checks is the design — every box was once in the wrong place, and each
+wrong placement failed silently.
+
+```mermaid
+flowchart TD
+    REQ[POST from an unknown client] --> AUTH{authenticated?<br/>X-AIQE-Token / Bearer}
+    AUTH -->|no| R401[401]
+    AUTH -->|yes| ROUTE["ROUTE FIRST — pick this route's limit<br/>/hooks/ci/results 5 MB · others 1 MB<br/>dashboard API 2 MB"]
+    ROUTE --> CL{Content-Length}
+    CL -->|absent| EMPTY["b'' — nothing to read"]
+    CL -->|unparseable / negative| R400["400 — NOT a ValueError<br/>out of the handler"]
+    CL -->|> limit| OVER{overage size}
+    CL -->|<= limit| READ[read exactly n bytes]
+    OVER -->|"<= 2x limit"| DRAIN["drain bounded, discard,<br/>then answer — a real CI job<br/>has the body in flight"]
+    OVER -->|"> 2x limit"| R413F["413 immediately, undrained —<br/>waiting on a claim is the<br/>thread-holding this guard stops"]
+    DRAIN --> R413[413]
+    READ --> SHORT{got fewer bytes<br/>than declared?}
+    SHORT -->|yes, socket timed out| R400S["400 — answer rather than wait"]
+    SHORT -->|peer gone| NOBODY["stop: nobody left to answer"]
+    SHORT -->|no| OK[handle the request]
+
+    style R413F fill:#ffe6e6
+    style R400 fill:#ffe6e6
+    style NOBODY fill:#fff4e6
+```
+
+Three measured failures this replaced, all against a running receiver: a 3 MB body
+accepted on a 1 MB route because the cap was checked after the read; an unparseable
+header producing no response line at all; and `Content-Length: 10000000` with a
+short body holding a worker thread forever — a handful of those stop the ingress
+accepting PR and JIRA events while nothing anywhere reports a failure.
+
+The `> 2x` branch is a regression fixed twice. Widening the drain to rescue a
+modestly-oversized CI post reintroduced the wait for a grossly lying one, which was
+caught only by re-testing against the deployed container: a declared 10 MB with a
+25-byte body stopped answering where it had previously returned 413 at once.

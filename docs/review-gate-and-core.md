@@ -77,7 +77,7 @@ fresh read-only clone. Left as-is rather than adding a third config reader.
 
 **Pinned permanently** in `tests/gate-adversarial.sh` as two assertions — the
 attack must be refused *and* the planted command must never run. The gate suite
-is now 6 attacks.
+is now 7 attacks (11 assertions as run).
 
 ---
 
