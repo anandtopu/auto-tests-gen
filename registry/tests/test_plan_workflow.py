@@ -31,6 +31,18 @@ def test_record_plan_starts_in_draft(plan):
     assert json.load(open(plan_state.contract_path(KEY)))["scenarios"][0]["id"] == "S1"
 
 
+def test_record_plan_snapshots_advisory_duplicate_evidence(plan, monkeypatch):
+    import duplicate_detector
+    artifact = {"artifact": "duplicate-warnings", "warning_count": 1,
+                "warnings": [{"proposal": {"id": "S1"},
+                              "existing_case": {"case_id": "case-1"}}],
+                "advisory": True, "blocks_gate": False}
+    monkeypatch.setattr(duplicate_detector, "load", lambda: artifact)
+    entry = plan_state.record_plan(KEY, {"scenarios": [{"id": "S1"}]})
+    assert entry["duplicate_warnings"] == artifact
+    assert entry["status"] == "draft", "warning evidence must not alter lifecycle"
+
+
 def test_full_lifecycle_draft_review_approved(plan):
     plan_state.record_plan(KEY)
     plan_state.set_status(KEY, "in_review", "qa-lead")

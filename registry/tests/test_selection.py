@@ -68,6 +68,37 @@ def test_excluding_a_scenario_records_who_and_why(estate):
     assert all(s["included"] for s in st["scenarios"] if s["id"] != "ZZSEL-1-S3")
 
 
+def test_duplicate_exclusion_records_typed_reason_reference_and_ratio(estate):
+    state = {"ZZSEL-1": {"duplicate_warnings": {"warning_count": 2}}}
+    (estate / "reports/plans/state.json").write_text(json.dumps(state), encoding="utf-8")
+    selection.set_items(
+        "ZZSEL-1", "scenarios", {"ZZSEL-1-S3": False}, actor="qa-lead",
+        reason="covered by existing case", reason_code="duplicate",
+        duplicate_case_id="testcase:api:discount", root=estate)
+    st = selection.status("ZZSEL-1", root=estate)
+    s3 = next(s for s in st["scenarios"] if s["id"] == "ZZSEL-1-S3")
+    assert s3["reason_code"] == "duplicate"
+    assert s3["duplicate_case_id"] == "testcase:api:discount"
+    assert st["duplicate_review"] == {"warnings": 2, "excluded": 1}
+    manifest = selection.finalize("ZZSEL-1", actor="qa-lead", root=estate)
+    assert manifest["duplicate_review"] == {"warnings": 2, "excluded": 1}
+    assert manifest["scenarios"]["excluded"][0]["duplicate_case_id"] == \
+        "testcase:api:discount"
+
+
+def test_duplicate_reason_requires_existing_case_reference(estate):
+    with pytest.raises(ValueError, match="duplicate_case_id"):
+        selection.set_items("ZZSEL-1", "scenarios", {"ZZSEL-1-S3": False},
+                            reason_code="duplicate", root=estate)
+
+
+def test_corrupt_duplicate_count_falls_back_to_warning_rows(estate):
+    state = {"ZZSEL-1": {"duplicate_warnings": {
+        "warning_count": "not-a-number", "warnings": [{}, {}]}}}
+    (estate / "reports/plans/state.json").write_text(json.dumps(state), encoding="utf-8")
+    assert selection.status("ZZSEL-1", root=estate)["duplicate_review"]["warnings"] == 2
+
+
 def test_a_partial_update_does_not_revert_other_decisions(estate):
     """A stale UI posting its whole view would otherwise silently undo somebody
     else's exclusion."""

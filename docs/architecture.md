@@ -883,6 +883,16 @@ measured results and per-layer summary: [cost-optimization.md](cost-optimization
    with a queue-intake warning; a degradation ladder (60% of envelope → cheap
    tier for non-judgement phases, 80% → halved context budgets, 100% → the
    §5.8 exit-77 abort) — judgement phases never downgrade.
+7. **Advisory near-duplicate detection** (`duplicate_detector.py`, PRD A4).
+   Proposed JIRA scenarios and PR-generated test contracts are compared with
+   A1 testcase chunks using independent semantic/lexical thresholds. Results
+   are bounded, versioned evidence: plan state feeds the review editor and run
+   records feed live/historical PR comments. Retrieval outage falls back to
+   lexical scoring. Warnings never mutate phase contracts or generated files,
+   never suppress generation, and never contribute to gate outcome. A reviewer
+   may record a typed `duplicate` exclusion only with the referenced testcase
+   `case_id`; finalized selection manifests carry warning/exclusion counts for
+   M6 without rewriting the proposed plan.
 
 Non-negotiables preserved by construction: retrieved/reused text is DATA
 (framing preamble pinned in every assembly), the gate remains the only writer,

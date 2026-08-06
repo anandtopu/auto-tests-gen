@@ -1022,7 +1022,9 @@ class Handler(BaseHTTPRequestHandler):
                         self._send(400, {"error": "decisions must be {id: bool}"})
                         return
                     selection.set_items(key, kind, p_["decisions"], actor=actor,
-                                        reason=p_.get("reason") or "")
+                                        reason=p_.get("reason") or "",
+                                        reason_code=p_.get("reason_code") or "",
+                                        duplicate_case_id=p_.get("duplicate_case_id") or "")
                     self._send(200, selection.status(key))
             except (KeyError, json.JSONDecodeError, ValueError) as e:
                 self._send(400, {"error": _err(e)})

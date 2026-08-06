@@ -105,6 +105,14 @@ try:
         record["impact_candidates"] = impact
 except (OSError, ValueError):
     pass
+# A4 advisory evidence for historical PR comments/metrics. It is independent
+# of gate outcome and cannot influence `overall` above.
+try:
+    duplicates = json.load(open("out/duplicate-warnings.json", encoding="utf-8"))
+    if isinstance(duplicates, dict) and duplicates.get("artifact") == "duplicate-warnings":
+        record["duplicate_warnings"] = duplicates
+except (OSError, ValueError):
+    pass
 if malformed_gate_lines:
     # Present only when something was lost, and never inferred away: a record
     # showing three gates when the file held four must SAY that it is short,

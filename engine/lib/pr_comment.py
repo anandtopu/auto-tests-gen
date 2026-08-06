@@ -30,6 +30,7 @@ def build(out_dir=".", run_id="", key=""):
     triage = _load(out / "out/triage.contract.json")
     gen = _load(out / "out/generate.contract.json")
     validate = _load(out / "out/validate.contract.json")
+    duplicates = _load(out / "out/duplicate-warnings.json")
 
     gates = []
     tsv = out / "out/gate_results.tsv"
@@ -54,7 +55,8 @@ def build(out_dir=".", run_id="", key=""):
             cost = tot
     except Exception:
         pass
-    return _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key)
+    return _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key,
+                    duplicates)
 
 
 def from_record(record):
@@ -73,10 +75,17 @@ def from_record(record):
     return _compose(contracts.get("triage") or {}, contracts.get("generate") or {},
                     contracts.get("validate") or {}, gates, critic_sig, cost,
                     record.get("run_id", ""),
-                    record.get("trigger", {}).get("key", ""))
+                    record.get("trigger", {}).get("key", ""),
+                    record.get("duplicate_warnings") or {})
 
 
-def _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key):
+def _safe_code(value):
+    """Bound untrusted catalog/test titles before placing them in Markdown."""
+    return str(value or "").replace("`", "'").replace("\r", " ").replace("\n", " ")[:500]
+
+
+def _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key,
+             duplicates=None):
     tests = gen.get("tests", []) or []
     tests = run_progress.dict_rows(tests)
     created = [t for t in tests if t.get("action") == "created"]
@@ -110,6 +119,27 @@ def _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key):
             lines.append(f"- `{t.get('file', '?')}` ({t.get('action', '?')})")
         if len(tests) > 8:
             lines.append(f"- … and {len(tests) - 8} more")
+        lines.append("")
+
+    dup_warnings = [w for w in ((duplicates or {}).get("warnings") or [])
+                    if isinstance(w, dict)][:8]
+    if dup_warnings:
+        lines.append("**Near-duplicate warnings (advisory only):**")
+        for warning in dup_warnings:
+            proposal = warning.get("proposal") or {}
+            existing = warning.get("existing_case") or {}
+            location = "/".join(filter(None, [
+                _safe_code(existing.get("test_repo")),
+                _safe_code(existing.get("file"))])) or "unknown case"
+            suite = "/".join(_safe_code(v) for v in
+                             (existing.get("suite") or []) if v)
+            lines.append(
+                f"- `{_safe_code(proposal.get('id') or proposal.get('title'))}` ≈ "
+                f"`{location}` — `{_safe_code(existing.get('title'))}` "
+                f"{('(suite `' + suite + '`) ') if suite else ''}"
+                f"({_safe_code(warning.get('retrieval_mode'))} similarity "
+                f"{warning.get('similarity')})")
+        lines.append("- This signal did not block validation, generation, or the gate.")
         lines.append("")
 
     if validate:

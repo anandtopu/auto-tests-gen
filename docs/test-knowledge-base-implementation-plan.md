@@ -2,7 +2,7 @@
 
 Date: 2026-08-05
 Source: `docs/prd-test-knowledge-base.md` v2
-Status: In implementation; A1–A3 implemented behind default-off flags
+Status: In implementation; A1–A4 implemented behind default-off flags
 
 ## 1. Delivery principles
 
@@ -160,7 +160,7 @@ Implementation checkpoint (2026-08-06):
   tranches after fixing two broad-suite findings. The shell pipeline smoke was
   not runnable because this Windows host has no Git Bash/WSL `/bin/bash`.
 
-### A4. Near-duplicate detection
+### A4. Near-duplicate detection — Implemented
 
 Dependencies: A1, A3 query contract, selection/review state.
 Flag: `AIQE_ARTIFACT_REUSE` during S5; advisory behavior is invariant.
@@ -179,6 +179,32 @@ Implementation:
 
 Validation: false positives cannot block or delete; duplicate exclusions are
 auditable; both UI/comment presentations name repo, file, suite, and case.
+
+Acceptance mapping:
+
+| PRD item | Evidence |
+| --- | --- |
+| A4.1 | `duplicate_detector.py` emits bounded warnings with proposal identity, retrieval mode/threshold, and existing testcase `case_id`, repo, file, suite, and title; the plan editor and PR comment render them. |
+| A4.2 | `RUN_DUPLICATES` catches detector failure, never changes a contract/file/gate result, and artifacts explicitly record `advisory=true`, `blocks_gate=false`, and `suppresses_generation=false`. |
+| A4.3 | Selection decisions accept the typed `duplicate` reason only with a referenced testcase `case_id`; finalized manifests preserve both and expose M6 warning/exclusion counts. |
+
+Implementation checkpoint (2026-08-06):
+
+- Added a default-off, versioned detector over A1 testcase chunks. JIRA/plan
+  scenarios are checked after arbitration and before generation; PR proposals
+  are checked after generation and before validation/reporting because PR mode
+  has no earlier scenario contract.
+- Semantic and lexical thresholds are independent. An unavailable or failing
+  embedding provider degrades to bounded lexical scoring; raw query text is
+  hashed rather than persisted. A disabled run removes stale advice.
+- Plan state snapshots warnings for the editor; run records retain them for
+  historical PR-comment replay. Both surfaces escape and bound untrusted case
+  metadata and name repo, file, suite, and case title.
+- Selection records `reason_code=duplicate` plus `duplicate_case_id`, and emits
+  the M6 denominator (`warnings`) and numerator (`excluded`) without altering
+  the authored plan or claiming an already-committed test was removed.
+- Focused detector, lifecycle, reporting, dashboard, settings, and adversarial
+  tests pass. Broad compatibility evidence is recorded in the A4 review report.
 
 ### A5. Retrieval quality measurement
 

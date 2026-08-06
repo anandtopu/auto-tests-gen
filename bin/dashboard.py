@@ -2337,6 +2337,26 @@ async function openPlan(key) {
       ru.classList.remove('hidden');
     } else { ru.classList.add('hidden'); }
   }
+  // A4: advisory near-duplicate evidence. It informs the reviewer but is never
+  // wired to approval/generation controls, so a retrieval miss cannot gate work.
+  const dup = $('#plan-duplicates');
+  if (dup) {
+    const warnings = (p.duplicate_warnings && p.duplicate_warnings.warnings) || [];
+    if (warnings.length) {
+      dup.innerHTML = '<b>Near-duplicate warnings (advisory only)</b>' + warnings.map(w => {
+        const c = w.existing_case || {};
+        return '<div class="sm" style="margin-top:6px"><b>' +
+          escHtml((w.proposal || {}).title || w.proposal_id || 'proposed scenario') +
+          '</b> resembles <code>' + escHtml(c.test_repo || '?') + '/' +
+          escHtml(c.file || '?') + '</code> — ' + escHtml(c.title || c.case_id || '?') +
+          ((c.suite || []).length ? ' <span class="muted">suite ' +
+            escHtml((c.suite || []).join('/')) + '</span>' : '') +
+          ' <span class="muted">(' + escHtml(w.retrieval_mode || '?') + ' ' +
+          escHtml(w.similarity == null ? '?' : w.similarity) + ')</span></div>';
+      }).join('') + '<div class="sm muted" style="margin-top:6px">This warning does not block approval or test generation.</div>';
+      dup.classList.remove('hidden');
+    } else { dup.innerHTML = ''; dup.classList.add('hidden'); }
+  }
   // Per-gap verdicts (roadmap 4.5): the reviewer approves a plan that was already
   // challenged — show WHAT was challenged, not just that a challenge happened.
   // Structured spec (SDD 6.1): review at the level the machine enforces —
@@ -3587,6 +3607,9 @@ page = f"""<!doctype html>
           style="list-style:none; margin:0; padding:8px 12px; display:flex;
                  flex-direction:column; gap:6px; border:1px solid var(--sr-border);
                  border-radius:8px"></ul>
+        <div id="plan-duplicates" class="hidden sm"
+          style="border:1px solid var(--sr-warning-fg); border-radius:8px;
+                 padding:8px 12px"></div>
         <div id="plan-spec" class="hidden" style="display:flex; flex-direction:column; gap:8px"></div>
         <ul id="plan-ambiguities" class="hidden"
           title="What the ticket's requirements left undefined (SDD 2.1) — the scenarios below had to route around these; consider resolving them on the ticket before approving."

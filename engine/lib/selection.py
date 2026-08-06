@@ -81,7 +81,8 @@ def load(key, root=ROOT):
             "finalized": entry.get("finalized")}
 
 
-def set_items(key, kind, decisions, actor="", reason="", root=ROOT):
+def set_items(key, kind, decisions, actor="", reason="", reason_code="",
+              duplicate_case_id="", root=ROOT):
     """Record include/exclude for some items. `decisions` is {id: bool}.
 
     Only the named items change — a review is usually a few exclusions against a
@@ -90,6 +91,11 @@ def set_items(key, kind, decisions, actor="", reason="", root=ROOT):
     """
     if kind not in ("scenarios", "tests"):
         raise ValueError("kind must be 'scenarios' or 'tests'")
+    if reason_code not in ("", "duplicate"):
+        raise ValueError("reason_code must be empty or 'duplicate'")
+    if reason_code == "duplicate" and any(not bool(v) for v in (decisions or {}).values()) \
+            and not str(duplicate_case_id or "").strip():
+        raise ValueError("duplicate exclusions require duplicate_case_id")
     p = _path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
     with fs_lock.lock(p):
@@ -97,10 +103,12 @@ def set_items(key, kind, decisions, actor="", reason="", root=ROOT):
         entry = data.setdefault(key, {})
         bucket = entry.setdefault(kind, {})
         for item_id, included in (decisions or {}).items():
-            bucket[str(item_id)] = {"included": bool(included),
-                                    "by": actor or "unknown",
-                                    "reason": reason or "",
-                                    "ts": time.time()}
+            decision = {"included": bool(included), "by": actor or "unknown",
+                        "reason": reason or "", "ts": time.time()}
+            if not included and reason_code:
+                decision["reason_code"] = reason_code
+                decision["duplicate_case_id"] = str(duplicate_case_id)[:500]
+            bucket[str(item_id)] = decision
         tmp = p.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
         fs_lock.replace_atomic(tmp, p)
@@ -155,7 +163,9 @@ def status(key, root=ROOT):
                           "target_repo": sc.get("target_repo"),
                           "included": d.get("included", True),
                           "decided": bool(d), "by": d.get("by"),
-                          "reason": d.get("reason")})
+                          "reason": d.get("reason"),
+                          "reason_code": d.get("reason_code"),
+                          "duplicate_case_id": d.get("duplicate_case_id")})
 
     rec = run_progress._record_for(key=key, root=root)
     committed = _committed_files(key, root)
@@ -174,6 +184,8 @@ def status(key, root=ROOT):
                     "scenario_id": t.get("scenario_id"),
                     "included": inc, "decided": bool(d),
                     "by": d.get("by"), "reason": d.get("reason"),
+                    "reason_code": d.get("reason_code"),
+                    "duplicate_case_id": d.get("duplicate_case_id"),
                     # The honest flag: excluding this cannot un-push it.
                     "already_committed": f in committed,
                     "follow_up": ("this file is already committed to the test "
@@ -182,7 +194,29 @@ def status(key, root=ROOT):
                                   "quarantine it via bin/qa.py quarantine")
                     if (not inc and f in committed) else None})
 
+    try:
+        if root is ROOT:
+            warned = (plan_state.get(key).get("duplicate_warnings") or {})
+        else:
+            state = json.loads((pathlib.Path(root) / "reports/plans/state.json")
+                               .read_text(encoding="utf-8"))
+            warned = (state.get(key) or {}).get("duplicate_warnings") or {}
+    except (OSError, ValueError):
+        warned = {}
+    raw_warning_count = (warned.get("warning_count") or
+                         len(warned.get("warnings") or [])) \
+        if isinstance(warned, dict) else len(warned)
+    try:
+        warning_count = max(0, int(raw_warning_count))
+    except (TypeError, ValueError, OverflowError):
+        warning_count = len(warned.get("warnings") or []) \
+            if isinstance(warned, dict) else 0
+    excluded_as_duplicate = sum(
+        1 for row in [*scen_rows, *test_rows]
+        if not row["included"] and row.get("reason_code") == "duplicate")
     return {"key": key, "scenarios": scen_rows, "tests": test_rows,
+            "duplicate_review": {"warnings": warning_count,
+                                 "excluded": excluded_as_duplicate},
             "finalized": sel.get("finalized")}
 
 
@@ -245,9 +279,13 @@ def finalize(key, actor="", root=ROOT):
         "finalized_ts": time.time(),
         "scenarios": {"approved": [s["id"] for s in kept_scen],
                       "excluded": [{"id": s["id"], "reason": s["reason"],
+                                    "reason_code": s.get("reason_code"),
+                                    "duplicate_case_id": s.get("duplicate_case_id"),
                                     "by": s["by"]} for s in dropped_scen]},
         "tests": {"approved": [t["file"] for t in kept_tests],
                   "excluded": [{"file": t["file"], "reason": t["reason"],
+                                "reason_code": t.get("reason_code"),
+                                "duplicate_case_id": t.get("duplicate_case_id"),
                                 "by": t["by"],
                                 "already_committed": t["already_committed"],
                                 "follow_up": t["follow_up"]}
@@ -258,6 +296,7 @@ def finalize(key, actor="", root=ROOT):
                             if t["already_committed"]],
         "plan_rendered": bool(plan_md),
         "note": render_note,
+        "duplicate_review": st["duplicate_review"],
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2),
                                        encoding="utf-8")

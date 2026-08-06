@@ -73,6 +73,22 @@ def test_long_test_lists_are_truncated(rundir):
     assert text.count("- `suites/") == 8, "never more than 8 file bullets on a PR"
 
 
+def test_near_duplicate_warning_names_case_and_remains_advisory(rundir):
+    artifact = {"artifact": "duplicate-warnings", "warnings": [{
+        "proposal": {"id": "BUG-9-S1"}, "retrieval_mode": "lexical",
+        "similarity": 0.91, "existing_case": {
+            "test_repo": "e2e-api-tests-1", "file": "suites/discount.spec.js",
+            "suite": ["orders"], "title": "PROJ-1: expired discount"}}]}
+    (rundir / "out/duplicate-warnings.json").write_text(
+        json.dumps(artifact), encoding="utf-8")
+    text = pr_comment.build(rundir, "42-dup", "PR-x-dup")
+    assert "Near-duplicate warnings (advisory only)" in text
+    assert "e2e-api-tests-1/suites/discount.spec.js" in text
+    assert "PROJ-1: expired discount" in text
+    assert "suite `orders`" in text
+    assert "did not block validation, generation, or the gate" in text
+
+
 def test_cost_line_appears_only_when_metered(rundir):
     (rundir / "out/cost.tsv").write_text("triage\t0.200000\t1\t0\n", encoding="utf-8")
     assert "💰 run cost: $0.20" in pr_comment.build(rundir, "1", "K")

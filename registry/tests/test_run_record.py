@@ -102,3 +102,15 @@ def test_impact_artifact_is_archived_but_corruption_is_nonfatal(tmp_path):
     (tmp_path / "out/impact-candidates.json").write_text("{torn", encoding="utf-8")
     rec = _record(tmp_path, "")
     assert "impact_candidates" not in rec and rec["run_id"] == "RUN-1"
+
+
+def test_duplicate_advice_is_archived_but_cannot_change_overall(tmp_path):
+    (tmp_path / "out").mkdir()
+    artifact = {"schema_version": 1, "artifact": "duplicate-warnings",
+                "advisory": True, "blocks_gate": False,
+                "warning_count": 1, "warnings": [{"proposal": {"id": "S1"}}]}
+    (tmp_path / "out/duplicate-warnings.json").write_text(
+        json.dumps(artifact), encoding="utf-8")
+    rec = _record(tmp_path, "api\tcommitted\t0\tdeadbeef\n")
+    assert rec["duplicate_warnings"] == artifact
+    assert rec["overall"] == "committed"

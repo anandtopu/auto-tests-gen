@@ -450,6 +450,16 @@ RUN_IMPACT() {
   fi
 }
 
+# A4 is advisory by contract. Even with its preview flag enabled, a detector
+# failure may not block generation or the gate; the warning is simply
+# unavailable for this run and the error remains visible in pipeline output.
+RUN_DUPLICATES() {
+  if ! python3 engine/lib/duplicate_detector.py "$1" "$KEY"; then
+    echo "[duplicate-detection] advisory detector failed — generation continues"
+    rm -f out/duplicate-warnings.json
+  fi
+}
+
 # Control-repo artifacts (test plans, canonical data) belong at the root; real phases
 # run with cwd=workspace so relocate anything written there (no-op in mock mode).
 relocate_artifacts() {
@@ -467,6 +477,9 @@ if [ "$MODE" = "pr" ]; then
   python3 engine/lib/extend_scout.py > out/extend-candidates.md 2>/dev/null || : > out/extend-candidates.md
   RUN_IMPACT pr
   GENERATE "$(CTX generate)" out/triage.contract.json out/pr.diff out/catalog-slice.jsonl out/extend-candidates.md "${IMPACT_CONTEXT[@]}" out/coverage-gaps.md out/repo-conventions.md
+  # PR mode has no scenario artifact before generation. Compare the generated
+  # proposal before validation/reporting; this warning never changes the files.
+  RUN_DUPLICATES pr
 elif [ "$MODE" = "tests" ]; then
   # Resume from the APPROVED plan. The reviewed markdown is authoritative (it may have
   # been edited), so it is passed to both phases alongside the snapshotted contract.
@@ -477,6 +490,7 @@ elif [ "$MODE" = "tests" ]; then
     exit 64
   fi
   RUN_IMPACT tests
+  RUN_DUPLICATES tests
   if python3 -c "import json,sys; c=json.load(open('out/testplan.contract.json')); sys.exit(0 if c.get('data_needs')=='none' else 1)" 2>/dev/null; then
     SKIP_PHASE testdata "plan declares data_needs: none"
   else
@@ -578,6 +592,7 @@ else
   fi
   # The JIRA query includes the ticket acceptance criteria plus the FINAL
   # authored/arbitrated scenario set, so it must run after plan arbitration.
+  RUN_DUPLICATES "$MODE"
   RUN_IMPACT "$MODE"
   if [ "$MODE" = "plan" ]; then
     # STOP: the plan awaits human review/edit/approval. No test code, no commit.

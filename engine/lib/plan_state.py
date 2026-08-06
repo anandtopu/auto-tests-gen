@@ -119,6 +119,16 @@ def _adversary_detail():
         return {}
 
 
+def _duplicate_warnings():
+    """This run's bounded A4 warnings, snapshotted before out/ is replaced."""
+    try:
+        import duplicate_detector
+        artifact = duplicate_detector.load()
+        return artifact
+    except Exception:
+        return {}
+
+
 def record_plan(key, contract=None, by="pipeline", adversary=""):
     """Called by the pipeline after the testplan phase: snapshot the contract and put
     the plan in `draft` awaiting human review. Preserves prior history.
@@ -138,7 +148,10 @@ def record_plan(key, contract=None, by="pipeline", adversary=""):
                   # per-run scratch and record time is the last moment it exists —
                   # without this the reviewer sees one summary line and the actual
                   # challenge dies with the run. Bounded: the gaps list only.
-                  "adversary_detail": _adversary_detail()})
+                  "adversary_detail": _adversary_detail(),
+                  # Advisory only. Persisting the warning does not alter the
+                  # scenario contract or approval state.
+                  "duplicate_warnings": _duplicate_warnings()})
         # Reuse provenance (cost-reduction 3.3): same out/-is-scratch pattern as
         # the adversary detail — record time is the last moment the marker
         # exists. A FRESH authoring clears any stale provenance from a prior
