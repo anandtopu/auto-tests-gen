@@ -586,7 +586,7 @@ store or index in this PRD inherits as requirements (B1.6–B1.8), not advice:
 | D4 | Artifact retention window — run records use `KEEP=200`; should artifacts follow, or be longer for audit? | Eng Manager | S4 |
 | D5 | Does near-duplicate detection (A4) ever become blocking, or stay advisory permanently? | QE Lead | S5 |
 | D6 | Capturing reviewer **edit diffs** (the half of GAP-8 that A6 does not close) — worth a dedicated PRD once the CI feed exists? | Product | Next quarter |
-| D7 | **Test plan from a pull request.** The sponsor's ask names it; plan-first mode is JIRA-keyed today, and this PRD excludes the workflow change (§3.2). Is it wanted as its own initiative? | Product + QE Lead | Next planning cycle |
+| D7 | **Test plan from a pull request.** The sponsor's ask names it; plan-first mode is JIRA-keyed today, and this PRD excludes the workflow change (§3.2). **Resolved 2026-08-06:** wanted — specified as Epic A3 of [prd-pr-jira-fused-context-multi-agent.md](prd-pr-jira-fused-context-multi-agent.md) | Product + QE Lead | ~~Next planning cycle~~ done |
 
 ---
 
