@@ -2,7 +2,7 @@
 
 Date: 2026-08-05
 Source: `docs/prd-test-knowledge-base.md` v2
-Status: In implementation; A1–A6 and B1–B2 implemented (feature flags remain default-off where specified)
+Status: In implementation; A1–A6 and B1–B3 implemented (feature flags remain default-off where specified)
 
 ## 1. Delivery principles
 
@@ -380,7 +380,9 @@ concurrent journal isolation, missing/skip/fallback truthfulness, state profile 
 configured-path import, and Windows lock release. Broad registry compatibility and
 the two-pass release review are recorded in the B2 review reports.
 
-### B3. Artifact reuse across tasks
+### B3. Artifact reuse across tasks — Implemented
+
+Status: Implemented (2026-08-06).
 
 Dependencies: B1/B2; cost report; phase-cache attribution.
 Flag: `AIQE_ARTIFACT_REUSE=0`.
@@ -397,6 +399,21 @@ Implementation:
 
 Validation: stale input misses, generator-version misses, denied-kind rejection,
 disjoint savings accounting, and no simulated dollar claim.
+
+Acceptance mapping:
+
+| PRD | Implemented evidence |
+| --- | --- |
+| B3.1 | `artifact_reuse.py` hashes a canonical manifest containing phase, provider/model, key/target parameters, prompt and ordered context content, explicit generator version, and a fingerprint of phase schemas, adapters, extraction/materialization code, and policy. Any input or generator byte change misses; no TTL exists. |
+| B3.2 | The phase cache is consulted first. A phase-cache hit records ownership but increments no B3 counter; only durable hits populate run-record `artifact_reuse.artifacts_reused`. Cost reporting keeps the mechanisms on separate lines and reports avoided tokens by `reported`/`estimated` basis without inventing artifact-reuse dollars. |
+| B3.3 | The B3 allowlist is pinned to the phase cache's pure product set. `generate` and `validate` are explicitly denied before lookup/store, and restored files must match canonical declared product paths resolved through `app_paths`; traversal, undeclared descendants, and unsafe links are refused. |
+
+Validation evidence: focused Ruff and 106 unit/integration/adversarial tests cover
+exact hits, one-byte and generator-version misses, provider-model identity,
+phase-cache ownership, reported/estimated tokens, corruption, path attacks,
+relocated state, default-off parity, cost/explain integration, and run-record
+compatibility. Broad compatibility and two-pass review evidence are recorded in the
+B3 review reports; the broad registry suite passes 1,398 tests.
 
 ### B4. Structured application-repository facts
 

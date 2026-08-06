@@ -6,6 +6,7 @@ import glob, json, os, pathlib, sys, time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import critic as critic_lib
+import artifact_reuse
 import env_flag                     # AIQE_MOCK means what it says
 import task_bundle
 
@@ -179,6 +180,12 @@ try:
                             "unpriced_calls": _calls,
                             "unpriced_providers": _provs,
                             "detail": _msg}
+except Exception:
+    pass
+try:
+    reuse = artifact_reuse.summary()
+    if reuse.get("events"):
+        record["artifact_reuse"] = reuse
 except Exception:
     pass
 try:

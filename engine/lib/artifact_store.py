@@ -30,7 +30,7 @@ ALLOWED_KINDS = frozenset({
     "estate-guidance", "repo-guidance", "conventions", "exemplar",
     "phase-context", "context-manifest", "extend-candidates",
     "requirements", "plan", "generated-skill",
-    "task-bundle",
+    "task-bundle", "reusable-phase",
 })
 DEFAULT_MAX_BYTES = 1_048_576
 DEFAULT_KEEP_RUNS = 200
@@ -286,6 +286,56 @@ def references(*, root=None) -> list[dict]:
     with fs_lock.lock(mutex, timeout=30):
         rows = [_read_ref(path, quarantine) for path in sorted(refs.glob("*.json"))]
     return sorted(rows, key=lambda row: (row["produced_at"], row["reference_id"]))
+
+
+def find(*, kind: str, inputs_sha: str, repo: str | None = None,
+         key: str | None = None, root=None) -> tuple[dict, bytes] | None:
+    """Newest valid artifact matching an exact input identity and scope.
+
+    Reuse is conservative: malformed candidates are quarantined and skipped;
+    content is returned only after the same reference/blob integrity checks as
+    ``get``.  An unrelated damaged record does not make every reusable artifact
+    unavailable.
+    """
+    if kind not in ALLOWED_KINDS:
+        raise ArtifactRejected(f"unsupported artifact kind {kind!r}")
+    inputs = _validate_sha("inputs_sha", inputs_sha)
+    if (repo is None) == (key is None):
+        raise ArtifactRejected("exactly one of repo or key is required")
+    scope_name, scope_value = ("repo", repo) if repo is not None else ("key", key)
+    scope_value = _validate_name(scope_name, scope_value)
+    _, blobs, refs, quarantine, mutex = _paths(root)
+    if not refs.exists():
+        return None
+    with fs_lock.lock(mutex, timeout=30):
+        matches = []
+        damaged_match = False
+        for path in sorted(refs.glob("*.json")):
+            try:
+                row = _read_ref(path, quarantine)
+            except ArtifactCorrupt:
+                continue
+            if (row.get("kind") == kind and row.get("inputs_sha") == inputs
+                    and row.get(scope_name) == scope_value):
+                matches.append(row)
+        for row in sorted(matches, key=lambda item: (
+                item["produced_at"], item["reference_id"]), reverse=True):
+            try:
+                content = _read_blob(
+                    blobs / row["blob_sha256"], row["blob_sha256"], quarantine)
+            except ArtifactCorrupt:
+                damaged_match = True
+                continue
+            if len(content) == row["size"]:
+                return row, content
+            damaged_match = True
+            try:
+                _quarantine(refs / f"{row['reference_id']}.json", quarantine)
+            except OSError:
+                pass
+        if damaged_match:
+            raise ArtifactCorrupt("matching artifact evidence is corrupt")
+    return None
 
 
 def prune(*, keep_runs: int | None = None, root=None) -> dict:

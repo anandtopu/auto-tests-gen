@@ -931,6 +931,17 @@ measured results and per-layer summary: [cost-optimization.md](cost-optimization
    substitutes another run's scratch context. Full portable state carries the B1
    store under its mutation lock; knowledge-only state excludes these run-scoped
    artifacts. Capture remains default-off with `AIQE_ARTIFACT_STORE`.
+12. **Durable pure-phase reuse** (`artifact_reuse.py`, PRD B3). After the local
+   phase cache misses, `AIQE_ARTIFACT_REUSE=1` may restore a B1 `reusable-phase`
+   package only for phases whose contract plus declared control-repo artifacts are
+   their complete product. The key hashes all prompt/context bytes, run parameters,
+   provider model, policy, adapter/schema/materializer fingerprint, and explicit
+   generator version. `generate` and `validate` remain denied because their true
+   product is workspace/git state. Restores use canonical product paths through
+   `app_paths`, so portable state relocation works without trusting stored paths.
+   Run records retain hit/miss/refusal and one savings owner: phase-cache hits never
+   increment `artifacts_reused`. Cost reporting keeps artifact tokens separate,
+   labels them reported/estimated, and makes no synthetic dollar claim.
 
 Non-negotiables preserved by construction: retrieved/reused text is DATA
 (framing preamble pinned in every assembly), the gate remains the only writer,

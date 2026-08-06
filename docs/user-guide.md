@@ -1058,6 +1058,16 @@ live in org-config `budgets:`; a run that degraded says so on the wizard's
 generate step. After real runs exist, `make cost-baseline` freezes per-phase
 medians and `make maintain` alarms on >25% regressions.
 
+`AIQE_ARTIFACT_REUSE=1` enables the durable second-level cache in addition to its
+existing duplicate/learning preview behavior. The local phase cache is always
+asked first; only its miss can become an artifact reuse. Identical prompt,
+context, provider model, policy, run parameters, and generator version restore a
+pure phase contract plus its declared plan/testdata product from B1 after a cache
+clear or full-state move. `generate` and `validate` are never eligible because
+their real output is workspace and git state. The Cost report shows phase-cache
+hits and `Artifacts reused` separately, with avoided tokens marked reported or
+estimated and no inferred dollar saving.
+
 When the case-level index is enabled, rebuilds cover every registered E2E
 repository. A complete `workspace/tests/<repo>` checkout is reused; an absent
 repository is cloned read-only through its registered SCM adapter into the
@@ -1079,7 +1089,7 @@ with `AIQE_ARTIFACT_REUSE` and, when enabled, only breaks equal retrieval scores
 An unavailable or corrupt provenance store is reported explicitly and ignored
 for ranking rather than being interpreted as no review history.
 
-### Durable task artifacts and historical explain (B1–B2)
+### Durable task artifacts, historical explain, and reuse (B1–B3)
 
 Set `AIQE_ARTIFACT_STORE=1` to enable the content-addressed store foundation.
 It defaults to `reports/agent-artifacts/`, which is on the deployed reports
@@ -1106,6 +1116,11 @@ current scratch as a substitute.
 `make state-export` includes this evidence in the full state profile, and
 `make state-import` restores it to the configured artifact-store path. A
 knowledge-only export intentionally excludes run-scoped artifact history.
+
+When both `AIQE_ARTIFACT_STORE=1` and `AIQE_ARTIFACT_REUSE=1` are set, a later
+identical pure phase can restore its durable product from the full-state store.
+`make explain KEY=PROJ-123` names every hit, miss, phase-cache-owned result, and
+unsafe-phase refusal from the historical run record.
 
 ## 6. Integration guide
 

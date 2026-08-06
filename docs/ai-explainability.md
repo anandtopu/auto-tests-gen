@@ -112,6 +112,7 @@ approve this" is a string in a document, not a command.
 | Which model wrote each phase; was it downgraded? | same → model |
 | What did the adversary find; what was accepted? | same → adversary |
 | Was the plan written fresh or adapted? | same → reuse |
+| Did durable artifact reuse hit, miss, or refuse a phase? | same → artifact-reuse |
 | Why was it committed, or not? | same → gate, with the exit code's meaning |
 | Which step is it on right now? | Run progress view, `GET /api/run-progress` |
 | What did it cost, and is that measured or simulated? | `make cost-report` |
@@ -131,5 +132,5 @@ failure this document exists to avoid:
   against each other on real runs; that is the honest version of the question.
 * **Why a model phrased something a particular way.** The contracts record what
   was produced and under what constraints, not the reasoning that produced it.
-* **Anything from a run whose scratch artifacts were overwritten.** Run records
-  are durable; `out/` is not.
+* **Scratch-only evidence from an older/default-off run.** Run records are durable;
+  B2/B3 evidence survives only when the artifact store was enabled for that run.

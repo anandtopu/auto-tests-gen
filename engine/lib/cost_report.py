@@ -56,12 +56,20 @@ def collect(days=None):
         out.append({"run_id": rec.get("run_id", f.stem),
                     "key": (rec.get("trigger") or {}).get("key", ""),
                     "mode": (rec.get("trigger") or {}).get("type", ""),
-                    "ts": rec.get("ts", 0), "phases": phases})
+                    "ts": rec.get("ts", 0), "phases": phases,
+                    "artifact_reuse": rec.get("artifact_reuse") or {}})
     return out
 
 
 def _policy_phase(label):
     return label.split("-", 1)[0]
+
+
+def _nonnegative_int(value):
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _pct(values, q):
@@ -76,7 +84,17 @@ def report(days=None):
     by_mode, by_key, by_phase, by_model, by_provider = {}, {}, {}, {}, {}
     local_tokens = cloud_tokens = 0
     total, spend_rows, simulated_rows = 0.0, 0, 0
+    artifacts_reused, reuse_tokens_by_basis = 0, {}
     for r in runs:
+        reuse = r.get("artifact_reuse")
+        reuse = reuse if isinstance(reuse, dict) else {}
+        artifacts_reused += _nonnegative_int(reuse.get("artifacts_reused"))
+        basis_rows = reuse.get("tokens_by_basis")
+        basis_rows = basis_rows if isinstance(basis_rows, dict) else {}
+        for basis in ("reported", "estimated"):
+            tokens = _nonnegative_int(basis_rows.get(basis))
+            if tokens:
+                reuse_tokens_by_basis[basis] = reuse_tokens_by_basis.get(basis, 0) + tokens
         run_cost = 0.0
         for p in r["phases"]:
             s = p["spend"]
@@ -201,6 +219,12 @@ def report(days=None):
                 k for k, v in by_provider.items() if v["bases"].get("unknown")),
             "phase_cache_hits": cache_hits,
             "phase_cache_savings_usd": cache_savings,
+            # B3 stays separate from phase-cache dollars. Tokens are the work
+            # unit the durable artifact actually avoided and retain their
+            # reported/estimated basis; no synthetic dollar claim is made.
+            "artifacts_reused": artifacts_reused,
+            "artifact_reuse_tokens_avoided": sum(reuse_tokens_by_basis.values()),
+            "artifact_reuse_tokens_by_basis": reuse_tokens_by_basis,
             "openhands_payload_chars": oh_payload_chars,
             "openhands_payload_est_tokens": oh_payload_chars // 4}
 
@@ -271,6 +295,13 @@ def to_markdown(rep):
     sav = rep["phase_cache_savings_usd"]
     lines.append(f"Phase-cache hits: {rep['phase_cache_hits']} — estimated saving: "
                  + (f"${sav:.4f}" if sav is not None else "n/a (no measured runs yet)"))
+    bases = ", ".join(
+        f"{tokens} {basis}" for basis, tokens in sorted(
+            (rep.get("artifact_reuse_tokens_by_basis") or {}).items()))
+    lines.append(
+        f"Artifacts reused: {rep.get('artifacts_reused', 0)} — "
+        f"tokens avoided: {rep.get('artifact_reuse_tokens_avoided', 0)}"
+        + (f" ({bases})" if bases else " (none recorded)"))
     if rep["openhands_payload_chars"]:
         lines.append(f"OpenHands launch payloads: ~{rep['openhands_payload_est_tokens']}"
                      f" tokens (estimated; billed on the OpenHands side, not here)")

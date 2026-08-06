@@ -345,7 +345,30 @@ def explain(key=None, run_id=None, root=ROOT):
             caveat="This is a bounded PROPOSAL only; generation authors changes "
                    "and the deterministic gate alone commits them."))
 
-    # --- 8. the gate ---------------------------------------------------------
+    # --- 8. durable artifact reuse -------------------------------------------
+    artifact_reuse = (rec or {}).get("artifact_reuse") or {}
+    reuse_events = artifact_reuse.get("events") or []
+    reuse_events = ([event for event in reuse_events if isinstance(event, dict)][:25]
+                    if isinstance(reuse_events, list) else [])
+    if reuse_events:
+        hits = [event for event in reuse_events if event.get("outcome") == "hit"]
+        because = []
+        for event in reuse_events:
+            detail = f"{event.get('phase', '?')}: {event.get('outcome', '?')} — " \
+                     f"{event.get('reason') or 'no reason recorded'}"
+            if event.get("outcome") == "hit":
+                detail += (f"; {event.get('tokens_avoided', 0)} tokens avoided "
+                           f"({event.get('token_basis') or 'estimated'})")
+            because.append(detail)
+        decisions.append(_decision(
+            "artifact-reuse", "Were durable artifacts reused, missed, or refused?",
+            f"{len(hits)} artifact(s) reused; "
+            f"{artifact_reuse.get('tokens_avoided', 0)} tokens avoided",
+            because, "run record `artifact_reuse`",
+            caveat="Phase-cache-owned hits are named but count as zero artifact "
+                   "reuse; generate/validate are always refused."))
+
+    # --- 9. the gate ---------------------------------------------------------
     gates = (rec or {}).get("gates") or []
     if gates:
         because = []

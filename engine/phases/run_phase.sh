@@ -62,13 +62,24 @@ FINAL_MODEL=$(AIQE_PHASE_MODEL="$MODEL" AIQE_MAP_PROVIDER="$PROVIDER" python3 -c
 import os, sys; sys.path.insert(0, 'engine/lib')
 import llm_runner
 print(llm_runner.map_model(os.environ['AIQE_MAP_PROVIDER'], os.environ['AIQE_PHASE_MODEL']))")
+ARTIFACT_MODEL="$PROVIDER:$FINAL_MODEL"
 # Content-addressed reuse: if this exact phase, model, prompt and context set has been
 # run before, restore the result instead of paying for it again. The key is the whole
 # input, so a stale hit is impossible; `generate`/`validate` are excluded because their
 # product is files in the test repos, not the contract (see phase_cache.py).
 if python3 engine/lib/phase_cache.py lookup "$PHASE" "$OUT" "${PROVIDER}:${FINAL_MODEL}" "$PROMPT" \
      "${KEY:-}" "$@" 2>/dev/null; then
+  # Attribution is disjoint: when the phase cache owns the avoided call, B3
+  # records only that reason and never increments artifacts_reused.
+  python3 engine/lib/artifact_reuse.py phase-cache "$PHASE" >/dev/null 2>&1 || true
   echo "[cache] $PHASE reused a previous result for identical inputs (no LLM call)"
+  exit 0
+fi
+# B3's durable second-level cache is consulted only AFTER the local phase cache
+# misses. It uses the same pure-phase allowlist and refuses workspace/git phases.
+if python3 engine/lib/artifact_reuse.py restore "$PHASE" "$OUT" \
+     "$ARTIFACT_MODEL" "$PROMPT" "${RUN_ID:-manual}" "${KEY:-}" "$@"; then
+  echo "[artifact-reuse] $PHASE restored from durable identical-input evidence"
   exit 0
 fi
 
@@ -123,3 +134,6 @@ fi
 # must not fail a phase that already succeeded.
 python3 engine/lib/phase_cache.py store "$PHASE" "$OUT" "${PROVIDER}:${FINAL_MODEL}" "$PROMPT" \
   "${KEY:-}" "$@" >/dev/null 2>&1 || true
+python3 engine/lib/artifact_reuse.py store "$PHASE" "$OUT" \
+  "$ARTIFACT_MODEL" "$PROMPT" "${RUN_ID:-manual}" "${KEY:-}" "$@" \
+  >/dev/null 2>&1 || true
