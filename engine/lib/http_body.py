@@ -38,14 +38,23 @@ Measured after the fix, against the same running receiver:
                                         (was: held forever)
     3 MB on /hooks/ci/results     200   (under that route's 5 MB limit)
 
-Two limits of the design, stated rather than glossed. A body that overshoots by
-more than the drain bound (say 3x a 1 MB limit) still ends in a connection reset
-rather than a readable 413 — draining it all is the thing being refused. And a
-sub-limit lie is bounded by the socket timeout, not refused immediately: 30
-seconds of one thread, not forever.
+An oversize declaration is drained first ONLY when the overage is plausible
+(<= DRAIN_MAX_MULTIPLE x limit), so a real CI job that already sent a slightly
+too-big body can read the 413 instead of being reset. Beyond that the refusal is
+immediate and undrained: waiting on a claim is the thread-holding this guard
+exists to stop. Measured against the deployed receiver — a declared 10 MB with a
+25-byte body answered 413 at once, where draining it had stopped answering at all.
+
+Two limits stated rather than glossed. A gross overage sees a connection reset
+rather than a readable 413 — that is the trade for not waiting. And a SUB-limit
+lie is still bounded by the socket timeout, not refused instantly: 30 seconds of
+one thread, not forever.
 """
 
 DEFAULT_MAX = 1 * 1024 * 1024          # a TaskEvent is a few hundred bytes
+# Above this multiple of the limit, a declaration is not a body in flight —
+# it is a claim we refuse without waiting for.
+DRAIN_MAX_MULTIPLE = 2
 _CHUNK = 64 * 1024
 
 
@@ -80,21 +89,25 @@ def read_body(handler, limit=DEFAULT_MAX):
         return None, (400, {"error": "negative Content-Length"})
     if n > limit:
         # Refuse BEFORE reading it all — refusing after allocating is not
-        # refusing. But a client still mid-send gets its connection reset and
-        # never reads the 413, so a CI job posting a 6 MB results file would see
-        # a transport error instead of the reason. Drain a BOUNDED amount first
-        # (never more than we were already willing to read, in chunks, discarded)
-        # so realistic overages get a clean answer, while an absurd declaration
-        # is still capped. The socket timeout bounds how long this can take.
-        # Drain up to TWICE the limit, not just the limit. A body that
-        # overshoots by a little — a 5 MB + 7 byte JUnit post against a 5 MB cap
-        # — is the common real case, and draining only `limit` left the last
-        # bytes unread, so the client raced between reading the 413 and getting
-        # its connection reset. That showed up as an INTERMITTENT failure in
-        # test_oversize_payload_is_refused: green alone, red once under a full
-        # suite. Still bounded (chunked and discarded, and the socket timeout
-        # caps the wait), so a 5 GB declaration is still refused for free.
-        _drain(handler, min(n, 2 * limit))
+        # refusing. Two failure modes pull in opposite directions here, and the
+        # size of the OVERAGE is what separates them:
+        #
+        #   a MODEST overage (a 6 MB JUnit post against a 5 MB cap) is a real CI
+        #   job that has already sent its body. Answering without reading it
+        #   resets the connection and it never sees the 413 — measured as an
+        #   intermittent failure in test_oversize_payload_is_refused. So drain
+        #   it, bounded and discarded, then answer.
+        #
+        #   a GROSS overage (10 MB declared against a 1 MB cap) is the lying
+        #   Content-Length this guard exists for. Draining there means waiting
+        #   for bytes that will never arrive, holding a worker thread until the
+        #   socket timeout — measured against the DEPLOYED receiver, where a
+        #   declared 10 MB with a 25-byte body stopped answering entirely where
+        #   it had previously returned 413 at once.
+        #
+        # So drain only when the client plausibly has the body in flight.
+        if n <= DRAIN_MAX_MULTIPLE * limit:
+            _drain(handler, n)
         return None, (413, {"error": f"request body over {limit // 1024} KB"})
     if n == 0:
         return b"", None
