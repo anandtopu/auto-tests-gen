@@ -41,7 +41,10 @@ def merge(phase, out_dir, repos):
             continue
         for t in data.get("tests") or []:
             if isinstance(t, dict):
-                tests.append({**t, "repo": t.get("repo") or repo})
+                # The fan-out source is trusted routing state; a model-authored
+                # `repo` field is not. Always overwrite it so downstream gates
+                # can safely use this stamp as the repository boundary.
+                tests.append({**t, "repo": repo})
         for q in data.get("open_questions") or []:
             if isinstance(q, str) and q.strip():
                 questions.append(f"[{repo}] {q.strip()}")

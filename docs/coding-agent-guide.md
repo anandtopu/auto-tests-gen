@@ -50,6 +50,21 @@ Runs the full suite (~12 min): pytest, adapter conformance, seven adversarial
 suites, replay, context check, scorecard. **Run it before claiming anything
 works.** A single pytest file is `python3 -m pytest registry/tests/test_x.py -q`.
 
+`make python-coverage` writes the branch-aware terminal/XML report for Python
+under `engine/lib` and `bin`; `make python-coverage-html` writes the browsable
+HTML report. `make python-coverage-check` enforces the measured baseline and is
+part of `make review`. Raise that floor when coverage improves—never lower it to
+make a regression pass. Shell and subprocess behavior remains covered by the
+conformance and adversarial suites, outside Python's line metric.
+
+`make test-unit` runs only pytest. `make python-coverage` produces branch-aware
+terminal and `reports/coverage.xml` reports for `engine/lib` and `bin`, while
+`make python-coverage-check` applies the measured baseline threshold. This is
+Python-process coverage: shell adapters and Python launched in uninstrumented
+subprocesses remain outside the number, so it supplements rather than replaces
+`make review`. The existing `make coverage` is intentionally different: it
+reports E2E catalog mapping coverage.
+
 `make demo-pr` and `make demo-jira` run the whole pipeline end to end with mock
 LLM phases and a real gate — no API spend.
 

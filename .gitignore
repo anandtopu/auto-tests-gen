@@ -10,6 +10,9 @@ reports/exports/
 eval/results/
 .idea/
 .pytest_cache/
+.coverage
+htmlcov/
+reports/coverage.xml
 reports/inline/
 reports/catalog.db
 reports/knowledge-index/

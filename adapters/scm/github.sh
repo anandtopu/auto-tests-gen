@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 VERB=${1:?verb}; shift || true
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+HELPER="!bash \"${AIQE_ROOT:-$HERE}/adapters/scm/git-credential-aiqe.sh\" github"
+
+clone_with_token() {
+  local depth="$1" url="$2" target="$3"
+  : "${GITHUB_TOKEN:?GITHUB_TOKEN not set}"
+  GIT_TERMINAL_PROMPT=0 \
+  GIT_CONFIG_COUNT=1 \
+  GIT_CONFIG_KEY_0=credential.helper \
+  GIT_CONFIG_VALUE_0="$HELPER" \
+    git clone $depth "$url" "$target"
+}
 
 # Scm port: clone_ro | clone_rw | changed_files | diff | comment | open_pr | set_status
 case "$VERB" in
@@ -9,8 +21,9 @@ case "$VERB" in
   set_status)  # set_status <repo> <sha> <success|failure|pending> <description>
     gh api "repos/org/$1/statuses/$2" -f state="$3" -f context="ai-qe" \
       -f description="$4" >/dev/null && echo ok ;;
-  clone_ro)  git clone --depth 1 "https://x-access-token:${GITHUB_TOKEN}@github.com/org/$1.git" "$2" ;;
-  clone_rw)  git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/org/$1.git" "$2" \
+  clone_ro)  clone_with_token "--depth 1" "https://github.com/org/$1.git" "$2" ;;
+  clone_rw)  clone_with_token "" "https://github.com/org/$1.git" "$2" \
+             && git -C "$2" config credential.helper "$HELPER" \
              && git -C "$2" checkout -B "$3" ;;
   comment)   gh pr comment "$2" --repo "org/$1" --body "$3" ;;
   # fetch_file <repo> <path> [ref] — raw file without cloning.

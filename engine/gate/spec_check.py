@@ -112,14 +112,25 @@ def check(key, test_repo, changed):
 
     findings = []
     changed_set = set(changed)
+    # A run-level generate contract can contain tests from several fan-out
+    # agents.  Repo metadata is authoritative when present, and the file must
+    # still be in THIS gate's changed set: a stale contract entry is not proof
+    # that this checkout implements anything.  Legacy/single-agent contracts
+    # have no repo field, so changed-file membership is their repo identity.
+    def belongs_to_this_gate(test):
+        repo = test.get("repo")
+        return (not repo or repo == test_repo) and test.get("file") in changed_set
+
+    scoped_tests = [t for t in tests if belongs_to_this_gate(t)]
+
     # 1. forged/stale scenario ids on files this gate is about to commit
-    for t in tests:
+    for t in scoped_tests:
         sid = t.get("scenario_id")
-        if t.get("file") in changed_set and sid and sid not in approved_ids:
+        if sid and sid not in approved_ids:
             findings.append(f"UNAPPROVED_SCENARIO: {t.get('file')} claims "
                             f"'{sid}' which is not in the approved spec")
     # 2. coverage-or-waiver for every approved scenario (this repo's only)
-    covered = {t.get("scenario_id") for t in tests}
+    covered = {t.get("scenario_id") for t in scoped_tests}
     this_repo = {s["id"] for s in spec.get("scenarios", [])
                  if isinstance(s, dict) and s.get("target_repo") == test_repo}
     for sid in sorted(this_repo):

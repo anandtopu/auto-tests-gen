@@ -52,12 +52,15 @@ def test_merge_stamps_the_repo_onto_every_test(tmp_path):
     """Before fan-out the contract never said which repo a test belonged to. It must
     now, or the PR comment and the run record can't tell three repos' work apart."""
     _write(tmp_path / "generate-api.contract.json",
-           {"tests": [{"file": "a.spec.js", "action": "created"}], "open_questions": []})
+           {"tests": [{"file": "a.spec.js", "action": "created",
+                       "repo": "ui"}], "open_questions": []})
     _write(tmp_path / "generate-ui.contract.json",
            {"tests": [{"file": "b.spec.js", "action": "updated"}], "open_questions": []})
     m = merge_contracts.merge("generate", tmp_path, ["api", "ui"])
     assert [(t["file"], t["repo"]) for t in m["tests"]] == \
         [("a.spec.js", "api"), ("b.spec.js", "ui")]
+    assert m["tests"][0]["repo"] == "api", \
+        "model-authored repo identity must not override the fan-out source"
     assert m["fanout"] == {"repos": ["api", "ui"], "skipped": []}
 
 

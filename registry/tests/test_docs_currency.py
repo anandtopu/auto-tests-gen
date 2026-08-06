@@ -13,6 +13,8 @@ other. They are cheap, and each one has already been wrong at least once.
 import pathlib
 import re
 
+import yaml
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
@@ -58,6 +60,23 @@ def test_the_architecture_version_line_describes_the_latest_section():
     header = src[:src.index("**Scope:**")]
     assert f"**v{ver}**" in header, \
         f"the header never explains what v{ver} added"
+
+
+def test_architecture_current_estate_marker_matches_the_registry():
+    """Historical rollout counts may remain, but the current-estate marker
+    must agree with the registry that drives runtime discovery."""
+    registry = yaml.safe_load(_read("registry/repo-registry.yaml"))
+    sources = registry.get("source_repositories", [])
+    tests = registry.get("test_repositories", [])
+    api = sum(repo.get("layer") == "api" for repo in tests)
+    ui = sum(repo.get("layer") == "ui" for repo in tests)
+    marker = re.search(
+        r"checked-in reference estate.*?declares \*\*(\d+) source repositories "
+        r"and (\d+) test repositories \((\d+) API, (\d+) UI\)\*\*",
+        _read("docs/architecture.md"), re.I,
+    )
+    assert marker, "architecture.md has no parseable current-estate marker"
+    assert tuple(map(int, marker.groups())) == (len(sources), len(tests), api, ui)
 
 
 def test_diagrams_contents_line_reaches_the_last_diagram():
@@ -129,7 +148,7 @@ _VIEW_CLAIM = re.compile(
 def _view_claims():
     """Every stated view count in the user-facing docs, as (file, line, n)."""
     files = sorted(ROOT.joinpath("docs").rglob("*.md"))
-    files += [ROOT / "docs/demo-deck.html", ROOT / "README.md"]
+    files += [ROOT / "docs/demo-deck.html", ROOT / "README.md", ROOT / "REVIEW.md"]
     for p in files:
         if not p.exists():
             continue
@@ -150,6 +169,35 @@ def test_every_stated_view_count_matches_the_dashboard():
     assert not wrong, (
         f"the dashboard has {actual} views; these say otherwise: "
         + ", ".join(f"{f}:{ln} says {n}" for f, ln, n in wrong))
+
+
+def test_readme_roadmap_shipped_count_matches_the_roadmap_summary():
+    """The README said 12 shipped while the roadmap said 14. Both statements
+    looked authoritative; neither named that two deliveries were only partial."""
+    readme = re.search(
+        r"(\d+) items are fully shipped and (\d+) are partially shipped",
+        _read("README.md"), re.I,
+    )
+    roadmap_text = _read("docs/product-roadmap.md")
+    roadmap = re.search(
+        r"(\w+) are fully shipped and (\w+) are partially shipped",
+        roadmap_text, re.I,
+    )
+    assert readme and roadmap, "the shipped-count summaries are no longer parseable"
+    count_words = {
+        "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+        "five": 5, "six": 6, "seven": 7, "eight": 8,
+        **_NUMBER_WORDS,
+    }
+    full = count_words.get(roadmap.group(1).lower())
+    partial = count_words.get(roadmap.group(2).lower())
+    assert full is not None and partial is not None
+    section = roadmap_text.split("## 0a.", 1)[1].split("\n## 1.", 1)[0]
+    rows = re.findall(r"^\|\s*\d+\.\d+\s*\|.*$", section, re.M)
+    computed_partial = sum("(partial)" in row.lower() for row in rows)
+    computed_full = len(rows) - computed_partial
+    assert (full, partial) == (computed_full, computed_partial)
+    assert (int(readme.group(1)), int(readme.group(2))) == (full, partial)
 
 
 def test_no_document_contains_an_empty_code_block():

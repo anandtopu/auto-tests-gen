@@ -1,0 +1,21 @@
+[run]
+branch = True
+source =
+    engine/lib
+    bin
+omit =
+    registry/tests/*
+    demo/*
+    workspace/*
+
+[report]
+show_missing = True
+skip_covered = True
+precision = 1
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:
+    raise NotImplementedError
+
+[xml]
+output = reports/coverage.xml

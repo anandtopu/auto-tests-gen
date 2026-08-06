@@ -71,10 +71,12 @@ def _run_get_item(tmp_path, issue):
     (stub / "curl").write_text(f'#!/usr/bin/env bash\ncat "{payload.as_posix()}"\n',
                                encoding="utf-8")
     os.chmod(stub / "curl", 0o755)
-    env = {**os.environ, "PATH": f"{stub}{os.pathsep}{os.environ['PATH']}",
-           "JIRA_URL": "https://jira.example.com", "ATLASSIAN_MCP_TOKEN": "tok"}
-    return subprocess.run([work_queue.bash_exe(), str(ROOT / "adapters/tracker/jira.sh"),
-                           "get_item", issue["key"]], cwd=ROOT, capture_output=True,
+    command, env = work_queue.git_bash_command(
+        ROOT / "adapters/tracker/jira.sh", "get_item", issue["key"],
+        prepend=[stub], JIRA_URL="https://jira.example.com",
+        ATLASSIAN_MCP_TOKEN="tok",
+    )
+    return subprocess.run(command, cwd=ROOT, capture_output=True,
                           text=True, encoding="utf-8", errors="replace",
                           stdin=subprocess.DEVNULL, env=env)
 

@@ -45,10 +45,13 @@ Also verified: env teardown guaranteed via trap even on failure paths; idempoten
 | Post-onboard regression (goldens + both fixtures) | ✅ all green with 6 source + 3 test repos registered |
 | Templates + onboarding docs updated to new `test_env` schema | ✅ |
 
-## Pass 5 — Real-LLM parity run (July 2026, closes open item 1)
+## Pass 5 — Historical real-LLM parity run (July 2026; Pass-5 revision)
 Executed via `make parity-pr` / `make parity-jira` (`AIQE_MOCK=1 AIQE_REAL_LLM=1`: real
 `claude -p` phases — Haiku triage, Sonnet 4.6 generate/plan/validate — against the demo
 estate with mock adapters). **Both workflows green end-to-end**; total LLM cost ≈ $1.90.
+
+This proves the Pass-5 revision only. Later engine and provider changes require a
+fresh, version-stamped parity run before making current-head quality or cost claims.
 
 | Check | Result |
 |---|---|
@@ -124,7 +127,8 @@ fixed-string, quote-delimited JSON-value match.
 
 **Docs audit (22 findings, all applied):** exit-code table corrected (7 = PUSH_FAILED,
 77 = BUDGET_EXCEEDED documented), Trace view documented across user-guide/README/
-getting-started/architecture/diagrams, dashboard view counts unified at nine, budget
+getting-started/architecture/diagrams, dashboard view counts unified against the
+rendered view set at that revision, budget
 enforcement + PR comment added to the workflow diagrams (order fixed: set_status then
 comment), factory reset + properties layering + SSO documented in user-guide/deployment/
 diagrams, adapter verb lists completed (7 verbs), stale KPI rows and persona text in
@@ -187,11 +191,11 @@ hazard — cache reset on error); non-string JSON fields crashed the
 capped at 20KB. Suite: 451 passing.
 
 ## Open items (ticketed, not blocking)
-1. ~~Real-LLM parity run~~ — **done, Pass 5 above.** Full `AIQE_MOCK=0` (real adapters) still needs estate credentials.
+1. **Historical Claude parity completed for Pass 5.** Full `AIQE_MOCK=0` rollout still needs estate credentials, and current HEAD still needs a parity refresh.
 2. ~~Mock stubs bypass `extract_contract.py`~~ — **closed 2026-08-05.** The mock harness now wraps each stub's contract as a provider-shaped reply (prose around a fenced JSON block, `out/<phase>.mockresult.json`) and runs the SAME extractor + schema check the real path uses. A stub that drifts from its schema fails the demo loudly instead of silently: measured by renaming a required key in the analyze stub, `make demo-jira` goes from exit 0 to exit 2 with `CONTRACT REJECTED ... fix the stub, not this check`. The wrapper is deliberately NOT named `out/<phase>.json` — `budget.record()` harvests that when present, and a mock file would be recorded with basis `reported`, i.e. a simulated run reporting a MEASURED $0. Pins: test_mock_contract_extraction.py (9).
 3. Playwright execution unproven in this sandbox (browser CDN blocked) — framework abstraction verified via node-test; validate Playwright path in week 1 of real rollout.
 4. OpenHands Path-1 live wiring (weeks 3–4 of the delivery plan); Path-2 mechanics fully proven.
-5. **BACKLOG — real-LLM parity run for the three quality claims mock cannot test.**
+5. **BACKLOG — refresh real-LLM parity on current HEAD for the three quality claims mock cannot test.**
 
    *Status (re-checked 2026-08-05): still blocked, same error.* A single-call probe returns
    `Failed to authenticate: OAuth session expired and could not be refreshed`.
@@ -215,7 +219,7 @@ capped at 20KB. Suite: 451 passing.
 
    Run all three together — they share the same two commands.
 
-**Verdict: build phases B1–B5 complete; five review passes green including real-LLM parity; PoC is integration-ready by demonstration, not assertion.**
+**Verdict: build phases B1–B5 complete; the mechanical suite is green and historical Pass-5 parity was green. A current-head real-LLM quality refresh remains blocked on authentication.**
 
 ## Pass 7 — end-to-end UAT (2026-07-30, ~70 adversarial probes)
 

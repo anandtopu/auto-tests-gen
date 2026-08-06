@@ -99,9 +99,9 @@ def test_every_shell_suite_in_make_review_redirects_the_log_too():
     chain tomorrow is covered without editing this list.
     """
     mk = (ROOT / "Makefile").read_text(encoding="utf-8")
-    line = next(l for l in mk.split("\n")
-                if l.strip().startswith("python3 -m pytest registry/tests -q &&"))
-    scripts = re.findall(r"bash (\S+\.sh)", line)
+    recipe = re.search(r"^review:\n(.*?)(?=\n[a-z])", mk, re.S | re.M)
+    assert recipe, "could not read the review target out of the Makefile"
+    scripts = re.findall(r"bash (\S+\.sh)", recipe.group(1))
     assert scripts, "could not read the review chain out of the Makefile"
     missing = [s for s in scripts
                if "AIQE_EVENTS_DIR" not in (ROOT / s).read_text(encoding="utf-8",

@@ -3,7 +3,8 @@
 
 **Version:** 2.9 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md). **v2.5** adds §5.17 (the transaction log, alert rules and notifications). **v2.6** adds §5.18 (spec-driven adoption — the workflow as a state machine, a generated governance page, coverage subtraction that counts but refuses to price, and two UI-layer defects found by driving the served page). **v2.7** adds §5.19 (the dominant defect class — an inability to establish a fact reported as an established negative — promoted to constitution clause C13). **v2.8** adds §5.20 (the operator-facing layer — progress with an explicit `unknown` state, explanation from what was recorded, rate-limited retry, and selective approval that never claims a committed test is gone) and §5.21 (the efficiency inventory: what is held with evidence, what is unmeasured and why). **v2.9** adds §5.22 (the deployed shape: entry points nothing executed, manifests that disagreed with the scripts they were meant to run, the untrusted request boundary in front of the trigger ingress, and the test suite that was writing into the operator's estate — C13 at deployment scale)
 **Author:** QA / AI Quality Engineering Team
-**Scope:** Proof of Concept — Agentic SDLC test generation workflow across a **multi-repository estate**: multiple UI repos, multiple backend/API repos, and **6 existing E2E test repositories (3 API, 3 UI) whose tests are currently unmapped to any application repository or feature**. v2.0 adds the **Test Catalog & Mapping subsystem** (bootstrap + continuous mapping of existing tests) and a **pluggable Integration & Extensibility layer** (Jira, Bitbucket, GitHub, Slack, Splunk, and future tools), and restructures the solution as a reusable, customizable platform. v2.1 extends the integration layer with **Confluence (knowledge source + publishing)**, **Jenkins (CI/CD trigger, execution, and results feedback)**, and a documented onboarding pattern for any additional SDLC tool.
+**Estate note:** The original design target assumed six E2E repositories (3 API, 3 UI). The checked-in reference estate is registry-driven; at this revision `registry/repo-registry.yaml` declares **5 source repositories and 3 test repositories (2 API, 1 UI)**. Fixed six-repository counts below describe the original rollout plan, not a platform limit.
+**Scope:** Proof of Concept — Agentic SDLC test generation workflow across a **multi-repository estate**: multiple UI repos, multiple backend/API repos, and an original target estate of 6 E2E test repositories (3 API, 3 UI). The checked-in reference estate is summarized above and runtime inventory comes from the registry. v2.0 adds the **Test Catalog & Mapping subsystem** (bootstrap + continuous mapping of existing tests) and a **pluggable Integration & Extensibility layer** (Jira, Bitbucket, GitHub, Slack, Splunk, and future tools), and restructures the solution as a reusable, customizable platform. v2.1 extends the integration layer with **Confluence (knowledge source + publishing)**, **Jenkins (CI/CD trigger, execution, and results feedback)**, and a documented onboarding pattern for any additional SDLC tool.
 
 ---
 
@@ -14,9 +15,9 @@ This document defines the design, architecture, and implementation plan for a Pr
 - **Workflow A — PR-Triggered Test Sync:** When a developer commits code and opens a pull request, an agent analyzes the diff and creates or updates end-to-end (E2E) tests to keep the test suite in sync with the change.
 - **Workflow B — JIRA-Triggered Test Authoring:** The agent reads a JIRA ticket, analyzes requirements and acceptance criteria, then produces a test plan, test data, and E2E tests; validates the tests by executing them; and commits the artifacts to the feature branch.
 
-The system operates over a **multi-repository estate**: several UI repositories, several backend/API repositories, and **six pre-existing E2E test repositories (3 API, 3 UI)**. A **Repository Registry + Repo Resolution phase** (§5.8) determines, per trigger, which source repositories to analyze and which test repositories receive the generated artifacts — including cross-repo impact (e.g., an API contract change that requires updates in both API E2E and consumer-UI E2E repos).
+The system is designed for a **multi-repository estate**. The original rollout target assumed six pre-existing E2E repositories (3 API, 3 UI); actual repositories are discovered from the **Repository Registry**. A **Repo Resolution phase** (§5.8) determines, per trigger, which source repositories to analyze and which test repositories receive the generated artifacts — including cross-repo impact (e.g., an API contract change that requires updates in both API E2E and consumer-UI E2E repos).
 
-Because the existing E2E tests are **not currently mapped to any application repository or feature**, v2.0 introduces the **Test Catalog & Mapping subsystem** (§5.9): an agent-driven bootstrap that inventories all six test repos, correlates each test with application repos/services/features using static analysis, contract matching, git/JIRA history, and LLM classification (confidence-scored, human-reviewed), then keeps the catalog current automatically on every subsequent run. The catalog — not hand-written config — becomes the source of the registry's coverage map and the foundation for update-vs-create decisions, duplicate prevention, and requirement traceability.
+The original target estate began without recorded mappings, so v2.0 introduces the **Test Catalog & Mapping subsystem** (§5.9): an agent-driven bootstrap that inventories every test repository registered for the deployment, correlates each test with application repos/services/features using static analysis, contract matching, git/JIRA history, and LLM classification (confidence-scored, human-reviewed), then keeps the catalog current automatically on every subsequent run. The catalog — not hand-written config — becomes the source of the registry's coverage map and the foundation for update-vs-create decisions, duplicate prevention, and requirement traceability.
 
 The solution is packaged as a **reusable platform** (§5.10): a tool-agnostic core engine with six narrow ports and adapter-based integrations — SCM (GitHub *and Bitbucket*), tracker (Jira), **knowledge (Confluence)**, **CI/CD (Jenkins, GitHub Actions, Bitbucket Pipelines)**, notifications (Slack), and telemetry (Splunk) — extensible to further SDLC tools via an MCP-first onboarding pattern, with a layered customization model (platform defaults → organization → per-repo overrides).
 
@@ -72,7 +73,7 @@ The design prioritizes four qualities requested for this PoC:
 | FR-11 | **Repo Resolution:** given a trigger (PR in any source repo, or a JIRA ticket), determine the set of source repos to analyze and the set of target test repos to write into, with a confidence score and rationale |
 | FR-12 | **Cross-repo impact analysis:** detect when a change in one repo (e.g., API contract change) requires test updates in multiple test repos (API E2E + consumer UI E2E) |
 | FR-13 | **Coordinated multi-repo commits:** create a consistently named branch (`test/{KEY}-ai-qe`) in every affected test repo, commit artifacts per repo, and post one aggregated summary (PR/JIRA comment) linking all branches/PRs |
-| FR-14 | **Test inventory bootstrap:** crawl all 6 existing E2E test repos and produce a structured Test Catalog (every test with its file, title, tags, endpoints/routes exercised, selectors/page objects used) |
+| FR-14 | **Test inventory bootstrap:** crawl every registered E2E test repo and produce a structured Test Catalog (every test with its file, title, tags, endpoints/routes exercised, selectors/page objects used) |
 | FR-15 | **Test-to-repo/feature mapping:** map each cataloged test to application repo(s), service(s), domain, and (where evidence exists) JIRA epic/feature, with a confidence score and evidence trail; route low-confidence mappings to a human review queue |
 | FR-16 | **Continuous catalog maintenance:** every agent-generated test is born mapped; new/changed tests from humans are auto-classified on merge; drift and unmapped-test reports are produced on a schedule |
 | FR-17 | **Update-vs-create intelligence:** before generating a new test, query the catalog for existing tests covering the same behavior; prefer updating/extending over duplicating |
@@ -643,7 +644,7 @@ The safety properties mirror the advisory critic and are structural:
 
 ### 5.9 Test Catalog & Mapping Subsystem (new in v2.0)
 
-**The problem this solves:** six existing E2E test repos (3 API, 3 UI) contain tests with no recorded relationship to application repositories or features. Without that mapping, the platform cannot (a) route triggers to the right test repo, (b) decide update-vs-create (leading to duplicate tests), or (c) report requirement coverage. The registry's `covers:` map in §5.8.1 is therefore **derived from the catalog**, not hand-authored.
+**The problem this solves:** E2E test repositories can contain tests with no recorded relationship to application repositories or features. Without that mapping, the platform cannot (a) route triggers to the right test repo, (b) decide update-vs-create (leading to duplicate tests), or (c) report requirement coverage. The registry's `covers:` map in §5.8.1 is therefore **derived from the catalog**, not hand-authored.
 
 #### 5.9.1 Test Catalog — the data model
 
@@ -675,7 +676,7 @@ A structured index, stored as versioned JSONL in `ai-qe-control/catalog/` (query
 Mapping uses **cheap deterministic evidence first, LLM classification last**, mirroring the resolution philosophy of §5.8.2:
 
 ```
- For each of the 6 test repos (parallelizable, one sandbox each):
+ For every registered test repo (parallelizable, one sandbox each):
 
  Stage 1  EXTRACT (deterministic — AST/static analysis, no LLM)
           Parse every spec: titles, tags, describe blocks; HTTP calls
@@ -736,7 +737,7 @@ The reuse check asks for the **artifact**, not the directory: `[ -d workspace/sr
 | Pipeline point | Catalog usage |
 |---|---|
 | Phase 0 Resolve | Coverage maps are catalog-derived; resolution can also target *specific existing suites/files*, not just repos ("this PR affects `suites/orders/*` in e2e-api-tests-1") |
-| Triage (Workflow A) | "Existing tests covering the changed endpoints/routes" retrieved from catalog → precise update-vs-create decision (FR-17); prevents duplicates across the 3 API repos / 3 UI repos |
+| Triage (Workflow A) | "Existing tests covering the changed endpoints/routes" retrieved from catalog → precise update-vs-create decision (FR-17); prevents duplicates across registered API and UI test suites |
 | Test Plan (Workflow B) | Plan lists **existing coverage** per AC before proposing new scenarios — reviewers see delta, not a from-scratch plan |
 | Validate | Only the affected existing tests + new tests execute (catalog gives the exact file list) |
 | Reporting | Requirement traceability (JIRA epic → tests → last run status) becomes a query, enabling coverage dashboards in Splunk |
@@ -1546,6 +1547,9 @@ an auto-route. Pinned by `registry/tests/test_phase_inventory.py`.
 
 ## 10. Implementation Plan (8 weeks)
 
+This is the historical eight-week plan for the original six-test-repository target
+estate; it is not the current registry inventory.
+
 | Week | Milestone | Exit criteria |
 |---|---|---|
 | 1 | Foundations: `ai-qe-control` platform template (ports/adapters skeleton, TaskEvent schema, org-config); registry for pilot slice (2 UI + 2 API app repos, 1 API + 1 UI test repo); per-repo `CLAUDE.md`/skills; gates; sandbox image; credentials (incl. Atlassian MCP covering Jira+Bitbucket) | Registry golden tests pass; `claude -p` headless in sandbox; gates green on manual changes |
@@ -1553,7 +1557,7 @@ an auto-route. Pinned by `registry/tests/test_phase_inventory.py`.
 | 2 | Workflow A happy path via GH Actions (Path 2): **resolve → triage → generate → validate → gate** on labeled PRs, incl. one **contract-change PR that fans into both API and UI test repos** | 3 sample PRs (1 UI-repo, 1 API-repo, 1 contract-change) produce passing committed tests in the correct test repos |
 | 3 | OpenHands integration (Path 1): GitHub App/resolver trigger, sandbox provisioning, PR comment feedback; `@openhands` re-trigger loop | Same 3 PRs succeed via OpenHands; feedback comment round-trip works |
 | 4 | Workflow B: JIRA webhook, Atlassian MCP, resolve (component map + clarification path) → plan → shared data → per-repo tests → validate → commit; aggregated JIRA comment | 3 tickets (1 clean-mapped, 1 cross-layer, 1 ambiguous→clarification) produce artifacts in correct repos |
-| 5 | Catalog integration in pipeline: update-vs-create via catalog, born-mapped commits, merge-hook classification, catalog gate check; extend bootstrap to remaining 4 test repos | Duplicate-prevention demo (PR whose behavior is already covered → agent updates, doesn't duplicate); all 6 repos cataloged |
+| 5 | Catalog integration in pipeline: update-vs-create via catalog, born-mapped commits, merge-hook classification, catalog gate check; extend bootstrap to the remaining 4 target repos | Duplicate-prevention demo (PR whose behavior is already covered → agent updates, doesn't duplicate); all 6 target repos cataloged |
 | 6 | Integrations: Slack notifications + clarification flow; Splunk HEC ingestion + starter dashboard; Bitbucket trigger parity on one pilot repo; **Confluence inbound context (linked-page retrieval in Workflow B) + one-way test-plan mirroring; Jenkins Path-3 trigger + post-merge job trigger/results ingest on one test repo** | Slack + Splunk live; Bitbucket-triggered run succeeds; ticket with linked Confluence PRD yields richer plan (before/after comparison); Jenkins round-trip (trigger → run → results in catalog) works |
 | 7 | Hardening: idempotency, retries, budgets, quarantine path, prompt-injection red-team pass, flaky-test rerun logic, drift-detection job | Failure-mode test matrix passes; concurrent runs (5) stable |
 | 8 | Evaluation: replay benchmark set (10 PRs + 10 tickets); scorecard incl. mapping quality & routing accuracy; cost/latency comparison Path 1 vs Path 2; reusability check (dry-run onboarding a second team from the template); final report & go/no-go | Scorecard complete; second-team onboarding ≤1 day; demo to stakeholders |

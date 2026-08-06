@@ -381,6 +381,7 @@ fi
 
 # Multi-clone workspace: read-only sources, writable test repos (§5.8.3)
 for r in $(python3 -c "import json;print(' '.join(json.load(open('out/resolve.contract.json'))['source_repos']))"); do
+  python3 engine/lib/checkout_workspace.py prepare src "$r" >/dev/null
   SCM clone_ro "$r" "workspace/src/$r"
 done
 # Partial success starts HERE (§5.8.5): one test repo whose clone fails — bad
@@ -390,6 +391,11 @@ done
 : > out/cloned-tests.txt
 : > out/clone_failures.tsv
 for t in $(python3 -c "import json;print(' '.join(json.load(open('out/resolve.contract.json'))['test_repos']))"); do
+  if ! python3 engine/lib/checkout_workspace.py prepare tests "$t" >/dev/null; then
+    echo "[warn] unsafe or unavailable checkout destination for test repo '$t' — skipping it"
+    printf '%s\tclone_failed\t1\t\n' "$t" >> out/clone_failures.tsv
+    continue
+  fi
   if SCM clone_rw "$t" "workspace/tests/$t" "test/${KEY}-ai-qe"; then
     echo "$t" >> out/cloned-tests.txt
   else

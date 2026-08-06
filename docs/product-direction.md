@@ -153,7 +153,7 @@ acceptance ≥70% and zero gate escapes.*
 | Escaped noise (critic) | ≤ 10% | 0% |
 | Routing accuracy | ≥ 95% | 100% |
 | Commit rate | informational | 100% of 215 runs |
-| Cost per run | ≤ $2 single / $4 cross-repo | enforced — pre-phase guard, exit-77 abort, metered to `out/cost.tsv` (~$0.25/run observed in parity runs) |
+| Cost per run | ≤ $2 single / $4 cross-repo | enforced — pre-phase guard, exit-77 abort, metered to `out/cost.tsv`; ~$0.25 was a historical Pass-5 observation, not a current-head measured baseline |
 | Cycle time vs manual authoring | ≥ 50% reduction | measure in pilot |
 
 ## 7. Top risks and mitigations

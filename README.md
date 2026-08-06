@@ -19,7 +19,7 @@ JIRA-triggered test authoring (Workflow B) across a multi-repo estate, powered b
 | [docs/data-portability.md](docs/data-portability.md) | Durability matrix, portable state bundle (export/inspect/import), OpenHands request traceability |
 | [docs/multi-llm-providers.md](docs/multi-llm-providers.md) | Multi-LLM provider design (5 epics / 14 stories): LLM Runner port (Ollama, Claude Code, Codex, OpenHands-delegated), capability matrix, Settings switch, provider-aware cost tracking |
 | [docs/spec-driven-stories.md](docs/spec-driven-stories.md) · [docs/spec-driven-architecture.md](docs/spec-driven-architecture.md) | Spec-driven development backlog (6 epics / 17 stories) and design: EARS requirements, schema'd scenario specs humans sign, spec-satisfaction gate mode, drift detection, machine-readable constitution |
-| [docs/product-roadmap.md](docs/product-roadmap.md) · [docs/roadmap-architecture.md](docs/roadmap-architecture.md) | Feature roadmap by persona/theme and the per-feature designs; 12 of the items are shipped |
+| [docs/product-roadmap.md](docs/product-roadmap.md) · [docs/roadmap-architecture.md](docs/roadmap-architecture.md) | Feature roadmap by persona/theme and the per-feature designs; 12 items are fully shipped and 2 are partially shipped |
 | [docs/onboarding-new-team.md](docs/onboarding-new-team.md) | Adopting the platform for a new estate (≤1 day) |
 | [docs/onboarding-new-tool.md](docs/onboarding-new-tool.md) | Adding a new SDLC tool behind the six ports |
 | [implementation-plan.md](implementation-plan.md) · [REVIEW.md](REVIEW.md) | Build phases B1–B5 and the multi-pass review record |
@@ -55,6 +55,9 @@ make demo-bootstrap             # catalog bootstrap on the demo estate
 make demo-pr                    # Workflow A end-to-end (mock LLM, real gate/env/git)
 make demo-jira                  # Workflow B end-to-end
 make review                     # full regression: goldens + conformance + gate attacks + eval
+make test-unit                  # pytest unit/integration suite only
+make python-coverage            # branch-aware Python coverage (engine/lib + bin)
+make python-coverage-check      # same report with the measured baseline threshold
 
 # Real runs (cp .env.example .env, fill credentials)
 make parity-pr / parity-jira    # real claude -p phases against the demo estate (~$2)

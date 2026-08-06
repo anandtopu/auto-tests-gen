@@ -114,13 +114,14 @@ def stubbed(tmp_path, monkeypatch):
 
 
 def _run_adapter(stub, verb, *args):
-    env = {**os.environ, "PATH": f"{stub}{os.pathsep}{os.environ['PATH']}",
-           "AIQE_ROOT": str(ROOT), "STASH_URL": "https://stash.example.com",
-           "STASH_TOKEN": "tok", "STASH_PROJECT": "DEFAULT"}
     # bash from the same place the platform uses (WSL stub avoidance)
     import work_queue
-    return subprocess.run([work_queue.bash_exe(), str(ROOT / "adapters/scm/stash.sh"),
-                           verb, *args], cwd=ROOT, capture_output=True, text=True,
+    command, env = work_queue.git_bash_command(
+        ROOT / "adapters/scm/stash.sh", verb, *args, prepend=[stub],
+        AIQE_ROOT=ROOT, STASH_URL="https://stash.example.com",
+        STASH_TOKEN="tok", STASH_PROJECT="DEFAULT",
+    )
+    return subprocess.run(command, cwd=ROOT, capture_output=True, text=True,
                           encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL,
                           env=env)
 

@@ -372,11 +372,12 @@ def curl_stub(tmp_path):
 
 
 def _fetch(stub, **env_extra):
-    env = {**os.environ, "PATH": f"{stub}{os.pathsep}{os.environ['PATH']}",
-           "STASH_URL": "https://stash.example.com", "STASH_TOKEN": "t",
-           "STASH_PROJECT": "ENG", "AIQE_ROOT": str(ROOT), **env_extra}
-    return _run([BASH, str(ROOT / "adapters/scm/stash.sh"),
-                 "fetch_file", "zz-slug", "AGENTS.md"], env=env)
+    command, env = work_queue.git_bash_command(
+        ROOT / "adapters/scm/stash.sh", "fetch_file", "zz-slug", "AGENTS.md",
+        prepend=[stub], STASH_URL="https://stash.example.com", STASH_TOKEN="t",
+        STASH_PROJECT="ENG", AIQE_ROOT=ROOT, **env_extra,
+    )
+    return _run(command, env=env)
 
 
 def test_fetch_file_404_with_visible_repo_is_exit_3(curl_stub):

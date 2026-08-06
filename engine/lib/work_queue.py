@@ -43,6 +43,60 @@ def bash_exe():
     return "bash"
 
 
+def git_bash_path(path, env=None):
+    """Return ``path`` in the mount syntax used by the selected Git Bash.
+
+    ``Path.as_posix()`` leaves a Windows drive colon (``C:/...``), which Bash
+    interprets as a PATH separator. Asking the runtime itself also handles
+    non-default MSYS mounts and UNC paths.
+    """
+    result = subprocess.run(
+        [bash_exe(), "-c", "pwd"], cwd=path, env=env or os.environ.copy(),
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        stdin=subprocess.DEVNULL, check=True,
+    )
+    return result.stdout.strip()
+
+
+def git_bash_env(prepend=(), env=None, **extra):
+    """Build an environment whose PATH is valid inside Git Bash.
+
+    Python tests start with a native, semicolon-delimited Windows PATH. Merely
+    prepending a temporary stub directory produces a mixed PATH and lets real
+    network tools bypass the stub. Normalize both the inherited PATH and every
+    prepended directory through the same Bash runtime.
+    """
+    result_env = dict(os.environ if env is None else env)
+    runtime = subprocess.run(
+        [bash_exe(), "-c", 'printf "%s" "$PATH"'], env=result_env,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        stdin=subprocess.DEVNULL, check=True,
+    ).stdout
+    prefixes = [git_bash_path(pathlib.Path(p).resolve(), result_env)
+                for p in prepend]
+    result_env["PATH"] = ":".join([*prefixes, runtime])
+    result_env.update({k: str(v) for k, v in extra.items()})
+    return result_env
+
+
+def git_bash_command(script, *args, prepend=(), env=None, **extra):
+    """Return ``(argv, env)`` for a script with a deterministic Bash PATH.
+
+    Git for Windows prepends its own tool directories while starting Bash,
+    even when the supplied environment already contains a valid POSIX PATH.
+    Assigning PATH after that startup step is the only reliable way for test
+    doubles (or other explicit tool overrides) to win command lookup.
+    """
+    result_env = git_bash_env(prepend, env, **extra)
+    result_env["AIQE_BASH_PATH"] = result_env["PATH"]
+    argv = [
+        bash_exe(), "-c",
+        'PATH="$AIQE_BASH_PATH"; export PATH; exec "$BASH" "$@"',
+        "aiqe-git-bash", str(script), *(str(arg) for arg in args),
+    ]
+    return argv, result_env
+
+
 def load():
     # Guarded: corrupt -> quarantined + empty queue, not a crash (see fs_lock).
     return fs_lock.read_json_guarded(FILE, [])

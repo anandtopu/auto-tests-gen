@@ -7,12 +7,13 @@ harvested contracts/route tables (workspace/src/ first, demo/ fallback), org-con
 Regenerated automatically by: pipeline runs, bin/onboard.sh, bin/repos.py,
 bin/qa.py mapping edits, and catalog bootstrap. Manual: make agents.
 """
-import json, pathlib, re, sys, time
+import json, os, pathlib, re, sys, time
 
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import app_paths                      # R12: mutable paths resolve here
+import fs_lock
 from registry import load_registry, load_org_config
 import coverage_gaps, repo_admin
 
@@ -201,7 +202,19 @@ L.append(f"- Catalog auto-accept ≥ {org['catalog']['auto_accept_confidence']};
 L.append("")
 
 out = app_paths.agents_file(ROOT)
-out.write_text("\n".join(L) + "\n", encoding="utf-8", newline="\n")
+out.parent.mkdir(parents=True, exist_ok=True)
+tmp = out.with_name(f".{out.name}.{os.getpid()}.tmp")
+try:
+    tmp.write_text("\n".join(L) + "\n", encoding="utf-8", newline="\n")
+    # Readers include dashboards, agents and indexers. On Windows any of those
+    # can transiently block replacement; use the same retried atomic primitive
+    # as the registry instead of failing a repository mutation after it landed.
+    fs_lock.replace_atomic(tmp, out)
+finally:
+    try:
+        tmp.unlink(missing_ok=True)
+    except OSError:
+        pass
 print(f"AGENTS.md written: {len(reg['source_repositories'])} app repos, "
       f"{len(reg['test_repositories'])} test repos, {len(catalog)} cataloged tests")
 

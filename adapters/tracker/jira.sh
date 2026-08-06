@@ -15,7 +15,7 @@ J="${JIRA_URL:-https://your-domain.atlassian.net}/rest/api/${JIRA_API_VERSION:-2
 # AIQE_HTTPS_PROXY / AIQE_NO_PROXY by settings_store.load_env_into() or by
 # pipeline.sh which sources .env). curl reads these automatically, so internal
 # hosts listed in NO_PROXY are reached directly without needing explicit -x flags.
-CURL_FLAGS=(-s)
+CURL_FLAGS=(-s --fail-with-body)
 if [[ "${AIQE_SSL_VERIFY:-1}" == "0" ]]; then CURL_FLAGS+=(-k); fi
 
 case "$VERB" in

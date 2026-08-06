@@ -1179,10 +1179,11 @@ knowing about if you are reading older notes:
   now fails the demo instead of passing silently. Verified by renaming a required
   key in the analyze stub: `make demo-jira` exits 2 with `CONTRACT REJECTED`, where
   it previously exited 0.
-- Prompt *quality* on real models remains unmeasured here. `make parity-pr` /
-  `parity-jira` are blocked on `claude` CLI authentication (`claude login`, or
-  `ANTHROPIC_API_KEY` in `.env`), so nothing in this repo should be read as evidence
-  about output quality from a real provider — only about mechanics.
+- Prompt *quality on current HEAD* remains unmeasured here. A historical Pass-5
+  parity run succeeded (see REVIEW.md), but `make parity-pr` / `parity-jira` refreshes
+  are blocked on `claude` CLI authentication (`claude login`, or
+  `ANTHROPIC_API_KEY` in `.env`). Treat Pass 5 as historical evidence, not a current
+  provider-quality baseline.
 
 ## 9. Command index
 

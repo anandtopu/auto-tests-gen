@@ -32,9 +32,8 @@ req() {
   SLUG="${SLUG:-$repo}"
   S="${STASH_URL:?STASH_URL not set}/rest/api/1.0/projects/${PROJ}"
   AUTH=(-H "Authorization: Bearer ${STASH_TOKEN:?STASH_TOKEN not set}")
-  # bash pattern substitution — a token containing sed metachars (#, &, \) must
-  # not corrupt the clone URL or the credential
-  CLONE_BASE="${STASH_URL/:\/\//:\/\/x-token-auth:${STASH_TOKEN}@}/scm/${PROJ}"
+  CLONE_BASE="${STASH_URL}/scm/${PROJ}"
+  HELPER="!bash \"${AIQE_ROOT:-$HERE}/adapters/scm/git-credential-aiqe.sh\" stash"
   # Corporate CA networks: AIQE_SSL_VERIFY=0 disables certificate verification.
   # `if` (not `&&`) so req can never return non-zero from a false test — under
   # `set -e` that would abort the caller before it reached git/curl.
@@ -47,13 +46,22 @@ req() {
   PROXY_FLAG=()
 }
 
+clone_with_token() {
+  local depth="$1" url="$2" target="$3"
+  GIT_TERMINAL_PROMPT=0 \
+  GIT_CONFIG_COUNT=1 \
+  GIT_CONFIG_KEY_0=credential.helper \
+  GIT_CONFIG_VALUE_0="$HELPER" \
+    git clone $depth "$url" "$target"
+}
+
 case "$VERB" in
   changed_files) req "$1"
     # PR diff file list (paged; limit=1000 covers PoC-scale PRs)
     curl -s "${SSL_FLAG[@]}" "${PROXY_FLAG[@]}" "${AUTH[@]}" "$S/repos/$SLUG/pull-requests/$2/changes?limit=1000" \
       | python3 -c "import json,sys;[print(v['path']['toString']) for v in json.load(sys.stdin)['values']]" ;;
   clone_ro) req "$1"
-    git clone --depth 1 "${CLONE_BASE}/$SLUG.git" "$2" ;;
+    clone_with_token "--depth 1" "${CLONE_BASE}/$SLUG.git" "$2" ;;
   # fetch_file <repo> <path> [ref] — raw file without cloning (Server raw endpoint).
   # Exit 3 = FILE absent (HTTP 404 on the file, with the REPO confirmed reachable).
   # Everything else exits 1: callers (guidance_sync) treat 3 as "remote deleted it"
@@ -76,7 +84,8 @@ case "$VERB" in
     if [ "$HTTP" != "200" ]; then echo "FETCH_FAILED (HTTP $HTTP): $1:$2" >&2; exit 1; fi
     cat "$BODY" ;;
   clone_rw) req "$1"
-    git clone "${CLONE_BASE}/$SLUG.git" "$2" \
+    clone_with_token "" "${CLONE_BASE}/$SLUG.git" "$2" \
+      && git -C "$2" config credential.helper "$HELPER" \
       && git -C "$2" checkout -B "$3" ;;
   diff) req "$1"
     # Server's diff API is JSON; flatten hunks to unified-style text for the phases
@@ -96,11 +105,11 @@ for f in d.get('diffs', []):
                 print(p + ln.get('line', ''))" ;;
   set_status) req "$1"  # set_status <repo> <sha> <success|failure|pending> <description>
     STATE=$(case "$3" in success) echo SUCCESSFUL;; failure) echo FAILED;; *) echo INPROGRESS;; esac)
-    curl -s "${SSL_FLAG[@]}" "${PROXY_FLAG[@]}" "${AUTH[@]}" -H 'Content-Type: application/json' \
+    curl -s --fail-with-body "${SSL_FLAG[@]}" "${PROXY_FLAG[@]}" "${AUTH[@]}" -H 'Content-Type: application/json' \
       -d "$(python3 -c "import json,sys;print(json.dumps({'key':'ai-qe','state':sys.argv[1],'name':'AI QE','description':sys.argv[2],'url':sys.argv[3]}))" "$STATE" "$4" "${AIQE_STATUS_URL:-https://ai-qe.invalid}")" \
       "${STASH_URL}/rest/build-status/1.0/commits/$2" >/dev/null && echo ok ;;
   comment) req "$1"
-    curl -s "${SSL_FLAG[@]}" "${PROXY_FLAG[@]}" "${AUTH[@]}" -H 'Content-Type: application/json' \
+    curl -s --fail-with-body "${SSL_FLAG[@]}" "${PROXY_FLAG[@]}" "${AUTH[@]}" -H 'Content-Type: application/json' \
       -d "$(python3 -c "import json,sys;print(json.dumps({'text':sys.argv[1]}))" "$3")" \
       "$S/repos/$SLUG/pull-requests/$2/comments" >/dev/null && echo ok ;;
   *) echo "unknown verb $VERB"; exit 64 ;;

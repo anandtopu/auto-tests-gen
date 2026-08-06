@@ -80,7 +80,7 @@ def test_other_repos_scenarios_are_not_this_gates_business(estate):
     seed, tmp = estate
     seed(tests=[{"file": "a.spec.js", "scenario_id": "K-1-S1"},
                 {"file": "b.spec.js", "scenario_id": "K-1-S2"}])
-    findings, _ = sc.check("K-1", "repo-x", [])
+    findings, _ = sc.check("K-1", "repo-x", ["a.spec.js", "b.spec.js"])
     assert not any("K-1-S3" in f for f in findings)
 
 
@@ -89,12 +89,12 @@ def test_waiver_covers_expired_does_not(estate):
     seed(tests=[{"file": "a.spec.js", "scenario_id": "K-1-S1"}],
          waivers=[{"scenario": "K-1-S2", "reason": "upstream", "by": "lead",
                    "expires": "2099-01-01"}])
-    findings, _ = sc.check("K-1", "repo-x", [])
+    findings, _ = sc.check("K-1", "repo-x", ["a.spec.js"])
     assert findings == [], "a live waiver satisfies the contract"
     seed(tests=[{"file": "a.spec.js", "scenario_id": "K-1-S1"}],
          waivers=[{"scenario": "K-1-S2", "reason": "old", "by": "lead",
                    "expires": "2020-01-01"}])
-    findings, _ = sc.check("K-1", "repo-x", [])
+    findings, _ = sc.check("K-1", "repo-x", ["a.spec.js"])
     assert len(findings) == 1 and "EXPIRED_WAIVER: K-1-S2" in findings[0]
 
 
@@ -108,6 +108,42 @@ def test_forged_scenario_id_is_a_violation(estate):
     findings, _ = sc.check("K-1", "repo-x", ["evil.spec.js"])
     assert any("UNAPPROVED_SCENARIO" in f and "K-1-S99" in f
                for f in findings)
+
+
+def test_another_repos_test_cannot_satisfy_this_repos_scenario(estate):
+    """The merged fan-out contract is global, but each gate is independent.
+    Repo OTHER implementing the same signed scenario must not make repo-x pass."""
+    seed, _ = estate
+    seed(tests=[
+        {"repo": "OTHER", "file": "other.spec.js", "scenario_id": "K-1-S1"},
+        {"repo": "repo-x", "file": "b.spec.js", "scenario_id": "K-1-S2"},
+    ])
+    findings, _ = sc.check("K-1", "repo-x", ["b.spec.js"])
+    assert any("UNCOVERED_SCENARIO: K-1-S1" in f for f in findings)
+
+
+def test_repo_metadata_wins_even_when_file_paths_collide(estate):
+    """Two repositories may both have tests/shared.spec.js. A path collision
+    must not erase the repository boundary stamped by merge_contracts.py."""
+    seed, _ = estate
+    seed(tests=[
+        {"repo": "OTHER", "file": "shared.spec.js", "scenario_id": "K-1-S1"},
+        {"repo": "repo-x", "file": "b.spec.js", "scenario_id": "K-1-S2"},
+    ])
+    findings, _ = sc.check(
+        "K-1", "repo-x", ["shared.spec.js", "b.spec.js"]
+    )
+    assert any("UNCOVERED_SCENARIO: K-1-S1" in f for f in findings)
+
+
+def test_stale_contract_entry_does_not_count_as_changed_coverage(estate):
+    seed, _ = estate
+    seed(tests=[
+        {"repo": "repo-x", "file": "stale.spec.js", "scenario_id": "K-1-S1"},
+        {"repo": "repo-x", "file": "b.spec.js", "scenario_id": "K-1-S2"},
+    ])
+    findings, _ = sc.check("K-1", "repo-x", ["b.spec.js"])
+    assert any("UNCOVERED_SCENARIO: K-1-S1" in f for f in findings)
 
 
 def test_unapproved_or_absent_spec_is_exempt(estate):

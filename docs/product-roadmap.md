@@ -34,21 +34,21 @@ and reviewing), **LEAD** (QA team lead owning coverage and quality), **EM**
 
 ## 0a. Already shipped since this roadmap was written
 
-The tables below are the *original* proposal and are kept as written — they record
-what was wanted and why. Fourteen of those items have since been built, so read the
+The tables below preserve the proposal's intended outcomes and now annotate partial
+delivery where needed. Twelve are fully shipped and two are partially shipped, so read the
 tables with this list in hand: proposing work that already exists is the expensive
 direction for a roadmap to be stale in.
 
 | # | Shipped as | Where it lives |
 |---|---|---|
 | 1.1 | CI results auto-ingest | `POST /hooks/ci/results` (token-gated, 5 MB cap), `make ingest-results` |
-| 1.2 | Flake quarantine workflow | `bin/qa.py flaky` / `quarantine` / `unquarantine` over `catalog/health.json` |
+| 1.2 | Flake quarantine proposal (partial) | CLI lists flaky tests and records/removes a catalog quarantine tag; dashboard actions, CI exclusion, and repair enqueue remain open |
 | 1.5 | Reviewer assignment & review debt | `review.reviewers` rota in `engine/lib/review_state.py`; review-debt card on Overview |
 | 2.1 | Extend-vs-create scout | `engine/lib/extend_scout.py` |
 | 3.1 | Traceability matrix | `make trace-matrix`, `GET /api/trace-matrix`, Trace view |
 | 3.2 | Risk-weighted gap ranking | `engine/lib/coverage_gaps.py` |
 | 3.4 | Coverage drift alarm | `engine/lib/coverage_drift.py`, run by `make maintain` |
-| 4.1 | In-UI diff review | Artifacts view (rendered code + before/after) |
+| 4.1 | In-UI diff review (partial) | Artifacts renders generated code/unified before-after diff and supports a run-level note + decision; side-by-side layout and per-hunk comments remain open |
 | 4.2 | Plan versioning + diff-since-approval | `engine/lib/plan_state.py`, plan editor |
 | 4.3 | Batch review | Runs & reviews view — filter a release, approve the remaining set in one confirmed pass |
 | 4.5 | Adversary verdicts in the plan reviewer | plan editor cards |
@@ -58,9 +58,10 @@ direction for a roadmap to be stale in.
 
 **1.4 (real cost dashboard) is half-shipped and the half that is missing is the
 important one.** The Cost view, the by-phase/by-provider rollups and the regression
-alarm all exist; what does not exist is *measured* data, because `make parity-*`
-remains blocked on Claude CLI auth. Every figure this estate can currently show is
-simulated, and is labelled as such.
+alarm all exist; what does not exist is a fresh measured baseline for current HEAD.
+A historical Pass-5 parity run measured about $1.90, but later engine/provider
+changes mean it is not the current baseline; current-head dashboard data is simulated
+and labelled as such.
 
 Four capability areas shipped that this roadmap never proposed, and they have their
 own documents: the [LLM Runner port](multi-llm-providers.md) (provider
@@ -79,9 +80,9 @@ claim downstream depends on this theme.
 | # | Feature | What it is | Builds on | Personas | Effort |
 |---|---|---|---|---|---|
 | 1.1 | **CI results auto-ingest** | A webhook/poller that feeds JUnit results from Jenkins/GitHub Actions into `catalog/health.json` on every CI run, instead of the manual `make ingest-results` nobody runs. Turns `test health: n/a` into a live number. | `test_health.py`, TaskEvent receiver | LEAD, EM | S |
-| 1.2 | **Flake quarantine workflow** | `FLAKY_BAND` already computes flakiness but nothing acts on it. Add: a Flaky view listing sometimes-passing tests, one-click "quarantine" (tag + exclude from gating) and "propose repair" (queue a validate-style repair run scoped to the flaky spec). | 1.1, health ingest, work queue | QA, LEAD | M |
+| 1.2 | **Flake quarantine workflow** | **Status: partial.** CLI triage/tagging and an exclusion proposal shipped. Remaining: a Flaky view, one-click quarantine enforced by repo-owned CI policy, and a queued validate-style repair run scoped to the flaky spec. | 1.1, health ingest, work queue | QA, LEAD | M |
 | 1.3 | **Generated-test survival tracking** | For every test the gate commits, track its lifetime: does it still exist in the repo N weeks later, was it modified by humans, deleted, or still passing? "Survival rate" is the truest measure of generation quality — better than any critic score. | run records + guidance sync's `fetch_file` | EM, LEAD | M |
-| 1.4 | **Real cost dashboard** | Once `parity-*` is unblocked (Claude CLI auth — REVIEW.md item 5), surface per-run/per-phase/per-repo real spend, cache-hit savings and model-tier mix in the Overview. The plumbing (budget ledger, cache stats) exists; only the display and the real data are missing. | budget.py, phase_cache | EM | S |
+| 1.4 | **Real cost dashboard** | The display, budget ledger, cache stats, and provider/phase rollups exist. The remaining work is a fresh version-stamped parity corpus and measured baseline for current HEAD (REVIEW.md item 5). | budget.py, phase_cache | EM | S |
 | 1.5 | **Acceptance-rate nudges** | The review board has never recorded a decision because nothing pushes reviewers to it. Add reviewer assignment on commit (round-robin or CODEOWNERS-style per test repo), SLA aging on the digest email, and a "review debt" tile on Overview. | review_state, email digests | LEAD, EM | S |
 
 ## 2. Make generated tests better (quality of the core artifact)
@@ -108,7 +109,7 @@ claim downstream depends on this theme.
 
 | # | Feature | What it is | Builds on | Personas | Effort |
 |---|---|---|---|---|---|
-| 4.1 | **In-UI diff review with inline comments** | Today reviewing means reading an archived diff. Render the gate diff side-by-side in Runs/Artifacts with per-hunk comments that land on the review-board note, and Approve/Request-changes at the same surface. One screen from generated code to decision. | artifacts view, review_state | QA, LEAD | M |
+| 4.1 | **In-UI diff review with inline comments** | **Status: partial.** Runs/Artifacts renders a coloured unified diff with a run-level note and same-surface Approve/Request-changes. Remaining: side-by-side rendering and comments anchored to a file/hunk. | artifacts view, review_state | QA, LEAD | M |
 | 4.2 | **Plan versioning + diff** | Plans are edited and re-approved but only the latest text survives. Keep per-edit snapshots (plan state already has history entries — attach content), show "what changed since I approved," and make re-approval show exactly the delta. | plan_state history | QA, LEAD | S/M |
 | 4.3 | **Batch review** | A release's worth of keys reviewed in one pass: filter by release, walk diffs with keyboard next/prev, approve-all-remaining with one confirmation. The release field already exists on the board. | review board, releases | QA LEAD | S |
 | 4.4 | **Slack interactive approvals** | The notify port posts summaries; add action buttons (Approve / Request changes / Open) so a LEAD can clear review debt from Slack. Decisions still land in review_state with the actor recorded. | notify port, review API | LEAD | M |
@@ -159,8 +160,8 @@ real-LLM parity run (Claude CLI auth) to be *measurable*, though buildable befor
 | 3 | 2.1 Extend-vs-create scout ◐ | The catalog is finally in context; make the decision explicit |
 | 4 | 4.5 Adversary verdicts in UI | The challenge already happens; showing it is a small lift with big reviewer trust |
 | 5 | 3.2 Risk-weighted gaps | Turns the gap list into a prioritized work source; small |
-| 6 | 4.1 In-UI diff review | Biggest single reviewer-productivity win |
-| 7 | 1.2 Flake quarantine | Uses 1.1; protects trust in the suite the platform builds |
+| 6 | 4.1 Finish inline diff review | Biggest single reviewer-productivity win |
+| 7 | 1.2 Finish flake quarantine automation/UI | Uses 1.1; protects trust in the suite the platform builds |
 | 8 | 3.1 Traceability matrix | The EM/audit artifact; mostly a join over existing data |
 | 9 | 5.4 Scheduled maintenance | Converts a hand-run demo into an unattended service |
 | 10 | 6.1 Similar-plan retrieval | The knowledge moat starts compounding here |

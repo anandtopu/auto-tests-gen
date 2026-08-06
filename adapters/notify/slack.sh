@@ -18,7 +18,7 @@ case "$VERB" in
                  "NOTIFY_KIND=email|both." >&2
             exit 1
           fi
-          curl -s -X POST -H 'Content-type: application/json' \
+          curl -s --fail-with-body -X POST -H 'Content-type: application/json' \
           -d "$(python3 -c "import json,sys;print(json.dumps({'text':sys.argv[1]}))" "$MSG")" \
           "${SLACK_WEBHOOK_URL}" >/dev/null && echo ok ;;
   digest) bash "$0" post "$(cat "$1")" ;;

@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: deps test-routing bootstrap run-pr run-jira eval conformance \
+.PHONY: deps test-routing test-unit python-coverage python-coverage-check python-coverage-html bootstrap run-pr run-jira eval conformance \
         status coverage dashboard review-queue reviews repos agents parity-pr parity-jira \
         serve queue-run export-plan publish-plan attach-plan hook-server prune \
         gaps catalog-db ingest-results smoke-openhands clear-demo report critic \
@@ -17,6 +17,20 @@ deps:
 
 test-routing:
 	python3 -m pytest registry/tests -q
+
+PY_COVERAGE_MIN ?= 67
+
+test-unit:
+	python3 -m pytest registry/tests -q
+
+python-coverage:
+	python3 -m pytest registry/tests -q --cov=engine/lib --cov=bin --cov-branch --cov-report=term-missing --cov-report=xml:reports/coverage.xml
+
+python-coverage-check:
+	python3 -m pytest registry/tests -q --cov=engine/lib --cov=bin --cov-branch --cov-report=term-missing --cov-report=xml:reports/coverage.xml --cov-fail-under=$(PY_COVERAGE_MIN)
+
+python-coverage-html:
+	python3 -m pytest registry/tests -q --cov=engine/lib --cov=bin --cov-branch --cov-report=term-missing --cov-report=html
 
 bootstrap:
 	bash catalog/bootstrap/run_bootstrap.sh $(REPO)
@@ -94,7 +108,7 @@ parity-compare:
 	python3 engine/lib/parity_compare.py $(DAYS)
 
 review:
-	python3 -m pytest registry/tests -q && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash tests/provider-adversarial.sh && bash tests/state-adversarial.sh && bash tests/routing-adversarial.sh && bash tests/observability-adversarial.sh && bash tests/bootstrap-smoke.sh && bash tests/entrypoint-smoke.sh && bash eval/replay.sh && python3 eval/context_check.py && python3 eval/scorecard.py
+	$(MAKE) python-coverage-check && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash tests/provider-adversarial.sh && bash tests/state-adversarial.sh && bash tests/routing-adversarial.sh && bash tests/observability-adversarial.sh && bash tests/bootstrap-smoke.sh && bash tests/entrypoint-smoke.sh && bash eval/replay.sh && python3 eval/context_check.py && python3 eval/scorecard.py
 
 # --- QA monitoring & mapping management ---
 status:

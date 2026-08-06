@@ -180,7 +180,7 @@ parameters), and check the PR comment + `make status` in the control repo.
 | Symptom | Check |
 |---|---|
 | 401 on `changed_files` | Cloud: token vs app-password auth style; Server: token sent as `Authorization: Bearer` and not expired |
-| Clone prompts for password | Token not embedded in clone URL — adapter builds it; check `STASH_TOKEN`/`BITBUCKET_TOKEN` exported in the trigger env |
+| Clone prompts for password | The token-free origin uses the AI-QE Git credential helper; check `STASH_TOKEN`/`BITBUCKET_TOKEN` is exported in the trigger environment and `adapters/scm/git-credential-aiqe.sh` is available |
 | `PUSH_SKIPPED` in gate output | Expected in demo mode (no remote); in real runs check test-repo `REPO_WRITE`/branch permissions on `test/*` |
 | Wrong adapter used | `SCM_KIND` env var in the trigger (github default) — must be `bitbucket` or `stash` |
 | PR comment missing | Comment scope on the token (`pullrequest:write` / `REPO_READ`+comment); check adapter output in the run log |
