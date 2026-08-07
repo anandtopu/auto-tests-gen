@@ -455,6 +455,11 @@ Every button drives an **existing** endpoint (`/api/queue`, `/api/plans/status`,
 visibility, never a second code path. `python3 engine/lib/wizard_status.py <KEY>
 [pr|jira]` prints the same status on the CLI.
 
+A visible ladder belongs to exactly one target. Editing any PR or ticket field
+clears that ladder and its artifact links immediately; a late status response for
+the previous target is discarded, so rejected or rapidly changed submissions
+cannot display another key's successful result.
+
 ### Interactive dashboard: fetch by release & manual work queue
 
 ```bash

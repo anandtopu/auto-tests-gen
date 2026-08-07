@@ -206,3 +206,29 @@ def test_wizard_view_is_present_in_the_page():
     for endpoint in ("/api/queue", "/api/plans/status", "/api/plans/generate",
                      "/api/plans/comment"):
         assert endpoint in html, f"wizard should drive {endpoint}"
+
+
+def test_changing_a_wizard_target_clears_the_previous_result():
+    """A result belongs to one target and must disappear when that target changes.
+
+    Without this, a rejected second submission leaves the first PR's successful
+    ladder and generated files beside the second PR's inputs, making the old
+    evidence look like the new target's outcome.
+    """
+    r = subprocess.run([sys.executable, str(ROOT / "bin/dashboard.py")],
+                       cwd=ROOT, capture_output=True, text=True,
+                       encoding="utf-8", stdin=subprocess.DEVNULL, timeout=300)
+    assert r.returncode == 0, r.stderr
+    html = (ROOT / "reports/dashboard.html").read_text(encoding="utf-8")
+    assert "function wzResetTarget()" in html
+    for field in ("wz-repo", "wz-pr", "wz-pr-ticket", "wz-key"):
+        assert f"$('#{field}').addEventListener('input', wzResetTarget)" in html, \
+            f"editing {field} can leave another target's result visible"
+    assert "$('#wz-steps').innerHTML = ''" in html
+    assert "$('#wz-result').innerHTML = ''" in html
+    assert "wzRevision += 1" in html
+    assert "revision !== wzRevision" in html, \
+        "an in-flight poll can repaint the previous target after reset"
+    assert "function wzSetPrSubmitting(disabled)" in html
+    assert html.count("finally { wzSetPrSubmitting(false); }") == 2, \
+        "both direct and plan-first PR intake must release their target lock"

@@ -1489,7 +1489,7 @@ $('#run-queue').addEventListener('click', async () => {
 });
 
 // ---- guided run (wizard): sequences the EXISTING endpoints, polls one status
-let wzTimer = null, wzKey = '', wzMode = 'pr';
+let wzTimer = null, wzKey = '', wzMode = 'pr', wzRevision = 0;
 function wzRender(d) {
   const steps = (d.steps || []).map(s =>
     '<li class="' + escHtml(s.state) + '"><div><div class="wz-lb">' +
@@ -1512,11 +1512,32 @@ function wzRender(d) {
     ? 'Working… this runs asynchronously; you can leave this page and come back.'
     : (d.overall ? 'Last run: ' + d.overall : 'Idle.');
 }
+function wzResetTarget() {
+  // A ladder and its artifacts are evidence for exactly one key. As soon as
+  // any target field changes they are stale; leaving them visible beside the
+  // new inputs can make a rejected submission look successfully completed.
+  clearTimeout(wzTimer); wzTimer = null; wzKey = ''; wzRevision += 1;
+  $('#wz-steps').innerHTML = '';
+  $('#wz-result').innerHTML = '';
+  $('#wz-hint').textContent =
+    'Pick a flow, fill in the target, and start. Progress refreshes automatically while work is running.';
+}
+function wzSetPrSubmitting(disabled) {
+  // Lock only for the two intake requests, not for the background run. This
+  // closes the gap where an old enqueue response could claim a newly edited
+  // form, while still letting users leave or change targets during generation.
+  ['wz-repo', 'wz-pr', 'wz-pr-ticket', 'wz-start-pr', 'wz-start-pr-plan']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = disabled; });
+}
 async function wzPoll() {
   if (!wzKey) return;
+  const requestedKey = wzKey, requestedMode = wzMode, revision = wzRevision;
   try {
-    const d = await api('/api/wizard/status?key=' + encodeURIComponent(wzKey) +
-                        '&mode=' + wzMode);
+    const d = await api('/api/wizard/status?key=' + encodeURIComponent(requestedKey) +
+                        '&mode=' + requestedMode);
+    // Resetting a target cannot abort a request already on the wire. Discard
+    // its late response instead of repainting evidence for the previous key.
+    if (revision !== wzRevision || requestedKey !== wzKey || requestedMode !== wzMode) return;
     wzRender(d);
     clearTimeout(wzTimer);
     // Poll only while work is in flight — an idle wizard costs nothing.
@@ -1528,9 +1549,13 @@ if ($('#wz-mode')) {
     wzMode = $('#wz-mode').value;
     $('#wz-pr-inputs').classList.toggle('hidden', wzMode !== 'pr');
     $('#wz-jira-inputs').classList.toggle('hidden', wzMode !== 'jira');
-    $('#wz-steps').innerHTML = ''; $('#wz-result').innerHTML = ''; wzKey = '';
+    wzResetTarget();
   };
   $('#wz-mode').addEventListener('change', syncFlow);
+  $('#wz-repo').addEventListener('input', wzResetTarget);
+  $('#wz-pr').addEventListener('input', wzResetTarget);
+  $('#wz-pr-ticket').addEventListener('input', wzResetTarget);
+  $('#wz-key').addEventListener('input', wzResetTarget);
   syncFlow();
 
   $('#wz-start-pr').addEventListener('click', async () => {
@@ -1542,6 +1567,7 @@ if ($('#wz-mode')) {
     const isUrl = repo.includes('pull-requests') || repo.includes('/pull/');
     if (!repo || (!pr && !isUrl)) {
       toast('Enter the app repo and PR number — or paste the pull-request URL'); return; }
+    wzSetPrSubmitting(true);
     try {
       const r = await api('/api/queue', { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1556,6 +1582,7 @@ if ($('#wz-mode')) {
       toast('Analyzing ' + wzKey + ' — generation runs in the background');
       wzPoll();
     } catch (err) { toast(err.message); }   // api() already folds in any hint
+    finally { wzSetPrSubmitting(false); }
   });
 
   if ($('#wz-start-pr-plan')) {
@@ -1566,6 +1593,7 @@ if ($('#wz-mode')) {
     const isUrl = repo.includes('pull-requests') || repo.includes('/pull/');
     if (!repo || (!pr && !isUrl)) {
       toast('Enter the app repo and PR number — or paste the pull-request URL'); return; }
+    wzSetPrSubmitting(true);
     try {
       const r = await api('/api/queue', { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1576,6 +1604,7 @@ if ($('#wz-mode')) {
       toast('Authoring the PR plan for ' + wzKey + ' — it stops for your approval');
       wzPoll();
     } catch (err) { toast(err.message); }
+    finally { wzSetPrSubmitting(false); }
   });
 
   $('#wz-pr-approve').addEventListener('click', async () => {

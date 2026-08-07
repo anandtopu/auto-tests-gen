@@ -5,28 +5,29 @@ iteration exercises one coherent feature slice against the served application,
 records reproducible findings, fixes verified bugs, and pushes the iteration
 before advancing.
 
-Status values: `not started`, `in progress`, `passed`, `bug fixed`, `blocked`.
+Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
+`blocked`, `not-applicable`.
 
 ## Feature inventory
 
 | Order | Feature slice | Surfaces | Status | Last evidence | Next focus |
 | ---: | --- | --- | --- | --- | --- |
-| 1 | Dashboard shell, startup, Overview, navigation | `make serve`, Overview KPIs, attention cards, theme, sidebar, queue header | passed | 2026-08-07: 15/15 primary destinations opened; no console warnings or loader failures; Overview catalog deep link and persisted theme cycle passed; queue badge semantics verified against six failed items | — |
-| 2 | Guided PR run | PR form/URL parsing, validation, queue, progress, artifacts | not started | — | Happy path plus missing/invalid repo and PR inputs |
-| 3 | Guided JIRA plan-first run | ticket input, draft plan, approval gate, generation, ticket link | not started | — | Happy path, invalid key, generate-before-approval |
-| 4 | Intake and work queue | release fetch, inline ticket, plan-only, requeue/remove, drain | not started | — | Seed isolated queued/failed/done items and exercise lifecycle |
-| 5 | Run progress and run review | phase state, failure details, release filters, reviewer decisions | not started | — | Seed committed/refused/quarantined runs; validate review transitions |
-| 6 | Test plans | author, edit, versions, approve/request changes, export/link | not started | — | Boundary validation and stale-version behavior |
-| 7 | Spec workflow | acceptance criteria, scenarios, waivers, drift and verification | not started | — | Waiver expiry/unmatched cases and release gate effects |
-| 8 | Trace | PR/JIRA chronology, phase links, empty/unknown keys | not started | — | Cross-check trace with run/plan/artifact records |
-| 9 | Cost | measured/simulated spend, caching savings, filters | not started | — | Empty data, simulated-only, mixed measured data |
-| 10 | Artifacts | plan/data/tests/diff/code view, coverage report, export/publish | not started | — | Missing/corrupt artifacts and safe rendering |
-| 11 | Activity and alerts | transaction filters, degraded log, rule evaluation, acknowledgement | not started | — | Seed success/failure/refusal/corrupt events |
-| 12 | Test catalog | search, repo/status filters, mapping, CI health, orphan/quarantine | not started | — | Existing four-row seed plus empty/no-match searches |
-| 13 | Repositories | app/test repo CRUD, scopes, curated guidance, contracts/routes | not started | — | Isolated synthetic repo; required-field and dependency checks |
-| 14 | Settings and integrations | flags, adapters, credentials metadata, SSO/token modes | not started | — | Safe non-secret fixtures, invalid endpoints, clear/reset behavior |
-| 15 | API and CLI parity | dashboard APIs, `bin/qa.py`, hooks/TaskEvent receiver | not started | — | Compare UI outcomes with supported API/CLI paths |
-| 16 | Bootstrap/deployment/upgrade | onboarding, manifests, state bundle, migration/rollback checks | not started | — | Fresh isolated estate and compatibility smoke checks |
+| 1 | Dashboard shell, startup, Overview, navigation | `make serve`, Overview KPIs, attention cards, theme, sidebar, queue header | explored-pass | 2026-08-07: 15/15 primary destinations opened; no console warnings or loader failures; Overview catalog deep link and persisted theme cycle passed; queue badge semantics verified against six failed items | — |
+| 2 | Guided PR run | PR form/URL parsing, validation, queue, progress, artifacts | fixed-retested | 2026-08-07: mock `orders-api#201` committed end to end; five invalid-input cases rejected before queueing; stale prior-target results and enqueue/poll races fixed and browser-retested | — |
+| 3 | Guided JIRA plan-first run | ticket input, draft plan, approval gate, generation, ticket link | untested | — | Happy path, invalid key, generate-before-approval |
+| 4 | Intake and work queue | release fetch, inline ticket, plan-only, requeue/remove, drain | untested | — | Seed isolated queued/failed/done items and exercise lifecycle |
+| 5 | Run progress and run review | phase state, failure details, release filters, reviewer decisions | untested | — | Seed committed/refused/quarantined runs; validate review transitions |
+| 6 | Test plans | author, edit, versions, approve/request changes, export/link | untested | — | Boundary validation and stale-version behavior |
+| 7 | Spec workflow | acceptance criteria, scenarios, waivers, drift and verification | untested | — | Waiver expiry/unmatched cases and release gate effects |
+| 8 | Trace | PR/JIRA chronology, phase links, empty/unknown keys | untested | — | Cross-check trace with run/plan/artifact records |
+| 9 | Cost | measured/simulated spend, caching savings, filters | untested | — | Empty data, simulated-only, mixed measured data |
+| 10 | Artifacts | plan/data/tests/diff/code view, coverage report, export/publish | untested | — | Missing/corrupt artifacts and safe rendering |
+| 11 | Activity and alerts | transaction filters, degraded log, rule evaluation, acknowledgement | untested | — | Seed success/failure/refusal/corrupt events |
+| 12 | Test catalog | search, repo/status filters, mapping, CI health, orphan/quarantine | untested | — | Existing four-row seed plus empty/no-match searches |
+| 13 | Repositories | app/test repo CRUD, scopes, curated guidance, contracts/routes | untested | — | Isolated synthetic repo; required-field and dependency checks |
+| 14 | Settings and integrations | flags, adapters, credentials metadata, SSO/token modes | untested | — | Safe non-secret fixtures, invalid endpoints, clear/reset behavior |
+| 15 | API and CLI parity | dashboard APIs, `bin/qa.py`, hooks/TaskEvent receiver | untested | — | Compare UI outcomes with supported API/CLI paths |
+| 16 | Bootstrap/deployment/upgrade | onboarding, manifests, state bundle, migration/rollback checks | untested | — | Fresh isolated estate and compatibility smoke checks |
 
 ## Iteration log
 
@@ -54,3 +55,31 @@ Status values: `not started`, `in progress`, `passed`, `bug fixed`, `blocked`.
   shell checks passed. Detailed review: `docs/reviews/exploratory-e2e-iteration-001.md`.
 - Next slice: Guided PR run, including missing/invalid input and a safe synthetic
   queue seed before any full pipeline execution.
+
+### 2026-08-07 — Iteration 2: Guided PR run
+
+- Seed data: existing deterministic mock SCM fixture `orders-api#201`; no new
+  seed files, credentials, PII, or production services were used.
+- Happy path: the Guided run UI queued and drained the real mock pipeline,
+  produced run `1786125125-15894`, displayed the generated spec and coverage
+  link, and ended `committed` with team review pending.
+- Negative and boundary paths: empty form, repo without PR number, unregistered
+  repo, nonnumeric PR, multiple optional ticket keys, and an unregistered GitHub
+  PR URL all produced actionable errors before invalid work was queued.
+- Finding `E2E-EXP-002` (P2): after a successful PR, editing the form and
+  submitting an invalid second target left the first target's committed ladder
+  and generated file visible beside the new inputs.
+- Fix: target edits now clear the keyed ladder/artifacts, cancel future polling,
+  discard late responses by revision/key/mode, and briefly lock PR inputs while
+  enqueue/start requests are in flight to close the pre-poll race. Both direct
+  and plan-first PR intake share the submission lock.
+- Regression evidence: the new focused test failed before the fix and passed
+  afterward; the original browser reproduction and an immediate-edit race were
+  retested with zero console warnings/errors.
+- Broad verification: 1,574 pytest/coverage checks passed at 70.19%; all adapter
+  conformance, adversarial, bootstrap, entrypoint, replay, context, discovery,
+  retrieval, reviewer, and scorecard checks passed through Git Bash. The default
+  WSL launcher timed out before those shell stages, so the same scripts were run
+  directly with the repository-supported Git Bash runtime.
+- Review: `docs/reviews/exploratory-e2e-iteration-002.md`.
+- Next slice: Guided JIRA plan-first run.
