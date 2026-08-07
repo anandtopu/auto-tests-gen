@@ -131,6 +131,52 @@ def test_jira_flow_gates_on_human_approval():
         "the JIRA flow must end at the ticket-linking step"
 
 
+def test_reauthored_plan_hides_stale_generation_summary(monkeypatch, tmp_path):
+    """Re-authoring invalidates the old generated run as one atomic UI fact.
+
+    The ladder already hid the old tests and gate when ``generated_run`` was
+    cleared, but it still surfaced the old run id, overall result, and agent
+    review.  That made a new draft say ``Last run: committed`` even though the
+    approval gate correctly blocked generation.
+    """
+    runs = tmp_path / "reports/runs"
+    plans = tmp_path / "reports/plans"
+    runs.mkdir(parents=True)
+    plans.mkdir(parents=True)
+    old = {
+        "run_id": "old-generated-run", "ts": 10,
+        "trigger": {"type": "jira", "key": "PROJ-301"},
+        "overall": "committed",
+        "review": {"verdict": "pass", "findings": [], "unresolved": [],
+                   "policy": "warn"},
+        "phases": [{"name": "generate", "contract": {"tests": [
+            {"file": "old.spec.js", "action": "created"}]}}],
+        "gates": [{"test_repo": "e2e-api-tests-1", "status": "committed"}],
+    }
+    (runs / "old.json").write_text(json.dumps(old), encoding="utf-8")
+    (runs / "queue.json").write_text("[]", encoding="utf-8")
+    (runs / "reviews.json").write_text("{}", encoding="utf-8")
+    (plans / "state.json").write_text(json.dumps({
+        "PROJ-301": {"status": "draft", "generated_run": None}
+    }), encoding="utf-8")
+
+    monkeypatch.setattr(wizard_status, "ROOT", tmp_path)
+    import plan_state
+    import review_state
+    import work_queue
+    monkeypatch.setattr(plan_state, "FILE", plans / "state.json")
+    monkeypatch.setattr(review_state, "FILE", runs / "reviews.json")
+    monkeypatch.setattr(work_queue, "FILE", runs / "queue.json")
+
+    d = wizard_status.build("PROJ-301", "jira")
+    assert d["run_id"] == "" and d["overall"] == ""
+    assert d["tests"] == []
+    states = _states(d)
+    assert states["Generate E2E tests"] == "pending"
+    assert states["Agent review"] == "pending"
+    assert states["Quality gate"] == "pending"
+
+
 # ------------------------------------------------------------- endpoint + UI
 
 def _free_port():

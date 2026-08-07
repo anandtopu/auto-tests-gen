@@ -124,20 +124,20 @@ def build(key, mode="pr"):
     # source there, and it is correct.
     if plan_first:
         gen_run = (plan_state.get(key) or {}).get("generated_run")
-        if not gen_run:
-            # THE GATE GOES WITH IT. Clearing only `tests` moved the same lie one
-            # step down the ladder: "Generate: pending" above "Quality gate:
-            # done", which reads as tests having been committed without being
-            # generated. Both steps describe ONE run, so they answer from one.
-            tests, gates = [], []
-        else:
-            match = next((r for r in runs if r.get("run_id") == gen_run), None)
-            if match:
-                latest = match
-                tests = ({p.get("name"): (p.get("contract") or {})
-                          for p in match.get("phases", [])}
-                         .get("generate", {}).get("tests", []) or [])
-                gates = match.get("gates", []) or []
+        match = next((r for r in runs if r.get("run_id") == gen_run), None) \
+            if gen_run else None
+        # All generated-run evidence is one correlated fact.  Clearing only
+        # tests/gates left the old run id, overall result and agent review in the
+        # page ("Last run: committed" on a newly drafted plan).  A dangling
+        # generated_run reference must also fail closed instead of falling back
+        # to whichever historical run happened to be newest.
+        latest = match
+        tests, gates = [], []
+        if match:
+            tests = ({p.get("name"): (p.get("contract") or {})
+                      for p in match.get("phases", [])}
+                     .get("generate", {}).get("tests", []) or [])
+            gates = match.get("gates", []) or []
     if tests:
         created = sum(1 for t in tests if t.get("action") == "created")
         updated = len(tests) - created

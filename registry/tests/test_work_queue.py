@@ -94,3 +94,38 @@ def test_search_release_mock_adapter():
 
 def test_bash_exe_never_wsl():
     assert "system32" not in work_queue.bash_exe().lower()
+
+
+def test_queue_runner_normalizes_pipeline_path_for_git_bash(monkeypatch, tmp_path):
+    """Dashboard runs must not pass a native Windows PATH straight to Bash.
+
+    In that environment Git Bash can resolve ``python3`` to the Microsoft Store
+    WindowsApps shim, then fail to execute the translated path with exit 127.
+    ``git_bash_command`` is the repository's single normalization boundary.
+    """
+    _, queue_file = _seed(tmp_path, "queued")
+    monkeypatch.setattr(work_queue, "FILE", queue_file)
+    seen = {}
+
+    def normalized(script, *args, env=None, **extra):
+        seen["script"] = str(script)
+        seen["args"] = args
+        seen["prepend"] = extra.get("prepend")
+        return ["normalized-git-bash", str(script), *args], {
+            **(env or {}), "PATH": "/normalized/python"
+        }
+
+    def completed(command, **kwargs):
+        assert command[0] == "normalized-git-bash"
+        assert kwargs["env"]["PATH"] == "/normalized/python"
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(work_queue, "git_bash_command", normalized)
+    monkeypatch.setattr(work_queue.subprocess, "run", completed)
+    work_queue.run_all()
+
+    assert pathlib.Path(seen["script"]).as_posix().endswith("engine/pipeline.sh")
+    assert seen["args"] == ("jira", "PROJ-9")
+    assert tuple(map(pathlib.Path, seen["prepend"])) == (
+        pathlib.Path(sys.executable).parent,)
+    assert json.loads(queue_file.read_text(encoding="utf-8"))[0]["status"] == "done"

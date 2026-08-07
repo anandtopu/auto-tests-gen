@@ -14,7 +14,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | ---: | --- | --- | --- | --- | --- |
 | 1 | Dashboard shell, startup, Overview, navigation | `make serve`, Overview KPIs, attention cards, theme, sidebar, queue header | explored-pass | 2026-08-07: 15/15 primary destinations opened; no console warnings or loader failures; Overview catalog deep link and persisted theme cycle passed; queue badge semantics verified against six failed items | — |
 | 2 | Guided PR run | PR form/URL parsing, validation, queue, progress, artifacts | fixed-retested | 2026-08-07: mock `orders-api#201` committed end to end; five invalid-input cases rejected before queueing; stale prior-target results and enqueue/poll races fixed and browser-retested | — |
-| 3 | Guided JIRA plan-first run | ticket input, draft plan, approval gate, generation, ticket link | untested | — | Happy path, invalid key, generate-before-approval |
+| 3 | Guided JIRA plan-first run | ticket input, draft plan, approval gate, generation, ticket link | fixed-retested | 2026-08-07: mock `PROJ-301` completed author → approve → generate → committed gate → ticket link; empty/malformed keys and generate-before-approval rejected; stale historical success and Windows queue interpreter failures fixed and browser-retested | — |
 | 4 | Intake and work queue | release fetch, inline ticket, plan-only, requeue/remove, drain | untested | — | Seed isolated queued/failed/done items and exercise lifecycle |
 | 5 | Run progress and run review | phase state, failure details, release filters, reviewer decisions | untested | — | Seed committed/refused/quarantined runs; validate review transitions |
 | 6 | Test plans | author, edit, versions, approve/request changes, export/link | untested | — | Boundary validation and stale-version behavior |
@@ -83,3 +83,31 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   directly with the repository-supported Git Bash runtime.
 - Review: `docs/reviews/exploratory-e2e-iteration-002.md`.
 - Next slice: Guided JIRA plan-first run.
+
+### 2026-08-07 — Iteration 3: Guided JIRA plan-first run
+
+- Seed data: existing deterministic mock JIRA fixture `PROJ-301`; no new seed
+  files, credentials, PII, or production services were used.
+- Negative and boundary paths: every action rejected an empty ticket; malformed
+  `bad key!` failed server validation without queueing; generation from a draft
+  plan was blocked with the required approval action.
+- Happy path: the served UI authored the draft, recorded dashboard approval,
+  generated one API spec through the real mock pipeline, committed its quality
+  gate, exposed the generated artifact/coverage link, and linked the plan/tests
+  summary to the mock ticket.
+- Finding `E2E-EXP-003` (P2): after a plan was re-authored and
+  `generated_run` cleared, the wizard hid old tests/gates but still rendered an
+  older run id, `Last run: committed`, and agent-review result. The status
+  aggregator now treats all generated-run evidence as one correlation and
+  fails closed for missing or dangling references.
+- Finding `E2E-EXP-004` (P2): background generation launched by the Windows
+  dashboard inherited a native PATH that resolved `python3` to an unexecutable
+  Microsoft Store WindowsApps shim, failing the supported flow with exit 127.
+  Queue execution now crosses the existing normalized Git Bash command boundary
+  and explicitly prioritizes the running project interpreter directory.
+- Regression evidence: both focused tests failed before their fixes. The queue
+  and wizard suites then passed (19 tests); 47 adjacent plan-first, dashboard,
+  and environment compatibility tests also passed. The original live browser
+  reproduction completed with run `1786127890-16836` and a committed gate.
+- Review: `docs/reviews/exploratory-e2e-iteration-003.md`.
+- Next slice: Intake and work queue lifecycle.

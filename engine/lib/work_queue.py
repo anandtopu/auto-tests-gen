@@ -386,17 +386,25 @@ def run_all():
                 _mark(items, item, status="running")
         if item is None:
             break
-        cmd = [bash_exe(), "engine/pipeline.sh", item["mode"], item["target"]]
+        pipeline_args = [item["mode"], item["target"]]
         if item["mode"] == "pr" or (item["mode"] == "plan" and item.get("pr")):
-            cmd.append(item["pr"])
+            pipeline_args.append(item["pr"])
         item_env = {**env}
         if item.get("inline_file"):                # pasted JIRA context, not a real ticket
             item_env["AIQE_INLINE_FILE"] = item["inline_file"]
         if item.get("ticket"):                     # explicit PR -> ticket linkage (A1)
             item_env["AIQE_PR_TICKET"] = item["ticket"]
+        # Normalize PATH inside Git Bash before invoking the pipeline.  Passing
+        # the dashboard's native Windows PATH directly can resolve ``python3``
+        # to the Microsoft Store WindowsApps shim, which Bash translates to an
+        # unexecutable path and reports as exit 127.  The same helper already
+        # protects adapter/test subprocesses and is the single MSYS boundary.
+        cmd, item_env = git_bash_command(
+            ROOT / "engine/pipeline.sh", *pipeline_args,
+            prepend=(pathlib.Path(sys.executable).parent,), env=item_env)
         r = subprocess.run(cmd, cwd=ROOT, env=item_env, stdin=subprocess.DEVNULL,
                            capture_output=True, text=True,
-                           encoding="utf-8", errors="replace")
+                           encoding="utf-8", errors="replace", check=False)
         with fs_lock.lock(FILE):
             items = load()
             cur = next((i for i in items if i["id"] == item["id"]), None)
