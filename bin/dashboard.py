@@ -3058,6 +3058,14 @@ const RP_MARK = { done: 'ok', running: '>>', failed: 'X', skipped: '-',
                   pending: '.', unknown: '?' };
 let rpTimer = null;
 
+function rpClearResult() {
+  document.querySelector('#rp-steps').innerHTML = '';
+  document.querySelector('#rp-fail').innerHTML = '';
+  document.querySelector('#rp-retry').innerHTML = '';
+  document.querySelector('#rp-why').innerHTML = '';
+  document.querySelector('#rp-why-wrap').style.display = 'none';
+}
+
 function rpRender(p) {
   const src = document.querySelector('#rp-src');
   src.textContent = p.source === 'live' ? 'live'
@@ -3065,8 +3073,7 @@ function rpRender(p) {
   const body = document.querySelector('#rp-body');
   if (p.source === 'none') {
     body.textContent = p.detail || 'No run recorded for that key.';
-    document.querySelector('#rp-steps').innerHTML = '';
-    document.querySelector('#rp-fail').innerHTML = '';
+    rpClearResult();
     return;
   }
   body.textContent = (p.key || '') + ' - mode ' + (p.mode || '?')
@@ -3134,6 +3141,9 @@ async function rpLoad(polling) {
     // loadFailed writes a table row and this view has no table, so say it here.
     // An unchanged ladder would look like the run simply had not moved.
     if (!polling && mine === rpSeq) {
+      if (rpTimer) { clearTimeout(rpTimer); rpTimer = null; }
+      rpClearResult();
+      document.querySelector('#rp-src').textContent = 'load failed';
       document.querySelector('#rp-body').textContent =
         'Could not load run progress - ' + String((e && e.message) || e)
         + '. This is a display failure, not an empty result: retry, and check the '
@@ -3209,6 +3219,7 @@ document.addEventListener('click', async function (ev) {
   if (!ev.target || ev.target.id !== 'rp-retry-go') return;
   const key = (document.querySelector('#rp-key').value || '').trim();
   const msg = document.querySelector('#rp-retry-msg');
+  let queued = false;
   ev.target.disabled = true;
   try {
     const r = await fetch('/api/runs/retry', {
@@ -3221,13 +3232,24 @@ document.addEventListener('click', async function (ev) {
     } else if (!r.ok) {
       msg.textContent = j.error || ('retry failed (HTTP ' + r.status + ')');
     } else {
-      msg.textContent = 'Queued. ' + ((j.retry && j.retry.reason) || '');
-      rpLoad(false);
+      const confirmation = 'Queued. ' + ((j.retry && j.retry.reason) || '');
+      await rpLoad(false);
+      // rpLoad re-renders the retry bar. Reapply the outcome to the NEW nodes;
+      // otherwise success disappears and a fresh enabled button invites a
+      // duplicate submission even though the retry is already in the queue.
+      const refreshedMsg = document.querySelector('#rp-retry-msg');
+      const refreshedButton = document.querySelector('#rp-retry-go');
+      if (refreshedMsg) refreshedMsg.textContent = confirmation;
+      if (refreshedButton) {
+        refreshedButton.textContent = 'Retry queued';
+        refreshedButton.disabled = true;
+      }
+      queued = true;
     }
   } catch (e) {
     msg.textContent = 'Could not reach the server - ' + String((e && e.message) || e);
   } finally {
-    ev.target.disabled = false;
+    if (!queued) ev.target.disabled = false;
   }
 });
 

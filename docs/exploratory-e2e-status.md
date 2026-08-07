@@ -16,7 +16,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 2 | Guided PR run | PR form/URL parsing, validation, queue, progress, artifacts | fixed-retested | 2026-08-07: mock `orders-api#201` committed end to end; five invalid-input cases rejected before queueing; stale prior-target results and enqueue/poll races fixed and browser-retested | — |
 | 3 | Guided JIRA plan-first run | ticket input, draft plan, approval gate, generation, ticket link | fixed-retested | 2026-08-07: mock `PROJ-301` completed author → approve → generate → committed gate → ticket link; empty/malformed keys and generate-before-approval rejected; stale historical success and Windows queue interpreter failures fixed and browser-retested | — |
 | 4 | Intake and work queue | release fetch, inline ticket, plan-only, requeue/remove, drain | fixed-retested | 2026-08-07: known/empty releases, inline validation/dedupe, mode-aware queueing, failed retry, concurrent drain, successful drain and removal exercised; three P2 defects fixed and browser/API-retested | — |
-| 5 | Run progress and run review | phase state, failure details, release filters, reviewer decisions | untested | — | Seed committed/refused/quarantined runs; validate review transitions |
+| 5 | Run progress and run review | phase state, failure details, release filters, reviewer decisions | blocked | 2026-08-07: committed/quarantined/unknown/malformed progress and retry paths partially exercised; two stale/erased-state P2s fixed, but review-filter/decision coverage stopped after the unsafe demo-data CLI incident removed the ignored run corpus | Rebuild an isolated run corpus, then resume release filters and review transitions |
 | 6 | Test plans | author, edit, versions, approve/request changes, export/link | untested | — | Boundary validation and stale-version behavior |
 | 7 | Spec workflow | acceptance criteria, scenarios, waivers, drift and verification | untested | — | Waiver expiry/unmatched cases and release gate effects |
 | 8 | Trace | PR/JIRA chronology, phase links, empty/unknown keys | untested | — | Cross-check trace with run/plan/artifact records |
@@ -140,3 +140,33 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   and rendered `done` before removal.
 - Review: `docs/reviews/exploratory-e2e-iteration-004.md`.
 - Next slice: Run progress and run review.
+
+### 2026-08-07 — Iteration 5: Run progress partial / demo-data safety incident
+
+- Progress scenarios exercised before the stop: committed and quarantined run
+  ladders, exit-code meaning and log tail, explainability evidence, unknown key,
+  malformed key, and retry queueing. Temporary quarantined/reviewer-refused
+  fixtures and isolated review/queue stores were synthetic and PII-free.
+- Finding `E2E-EXP-008` (P2): after viewing a failed run, an unknown or malformed
+  key retained the prior Retry action and could retain prior failure evidence.
+  No-result and load-error paths now clear the ladder, failure panel, retry bar,
+  explanation, and stale source badge.
+- Finding `E2E-EXP-009` (P2): successful retry queueing immediately re-rendered
+  away its confirmation and exposed a new enabled Retry button. The refreshed
+  nodes now retain the confirmation and disable duplicate submission.
+- Incident `E2E-EXP-010` (P1): invoking `engine/lib/demo_data.py --help` during
+  seed discovery did not parse help; it entered the destructive default clear
+  and stopped only after reaching a locked directory. The ignored run corpus
+  fell from 593 committed records to the one Git-tracked baseline record (592
+  ignored run records lost), with generated plan/review/guidance caches removed
+  as well. Git-tracked state was reconstructed from HEAD; ignored runtime
+  evidence cannot be recovered from Git.
+- Safety fix: the CLI now parses all flags with `argparse` before calling
+  `clear()`. `--help` exits 0 without touching state, unknown flags fail closed,
+  and the existing human/JSON modes retain their prior output/exit contracts.
+- Validation: 45 settings/progress tests and 91 adjacent review/dashboard/API
+  adversarial tests passed; Python compilation and high-signal Ruff checks also
+  passed. The real `demo_data.py --help` command returned usage text at exit 0.
+- The Run progress/review slice is `blocked`, not complete: release filters,
+  team-review transitions, and batch approval still need a rebuilt isolated
+  corpus. Review: `docs/reviews/exploratory-e2e-iteration-005.md`.

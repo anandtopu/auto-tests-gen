@@ -146,6 +146,18 @@ def test_clear_demo_dry_run_touches_nothing(tmp_path):
     assert (root / "reports/runs/1-x.json").exists()
 
 
+def test_demo_data_help_exits_before_clear(monkeypatch, capsys):
+    """``--help`` must never fall through to the destructive default action."""
+    def must_not_clear(**_kwargs):
+        raise AssertionError("help invoked clear")
+
+    monkeypatch.setattr(demo_data, "clear", must_not_clear)
+    with pytest.raises(SystemExit) as exc:
+        demo_data.main(["--help"])
+    assert exc.value.code == 0
+    assert "usage:" in capsys.readouterr().out.lower()
+
+
 def test_clear_demo_refuses_while_a_run_looks_active(tmp_path):
     root = _demo_tree(tmp_path)
     (root / "out/.pipeline.lock").mkdir(parents=True)

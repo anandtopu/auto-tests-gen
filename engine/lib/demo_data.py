@@ -13,7 +13,7 @@ prompts, and knowledge/repos team notes. After a clear,
 
 Refuses to run while a pipeline run holds out/.pipeline.lock.
 """
-import contextlib, os, pathlib, shutil, stat, subprocess, sys, time
+import argparse, contextlib, os, pathlib, shutil, stat, subprocess, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -265,34 +265,50 @@ def clear(root=None, dry=False, force=False, factory=False):
     return {"removed": removed, "targets": targets, "factory": factory}
 
 
-if __name__ == "__main__":
+def main(argv=None):
+    """CLI entry point. Parse every option before calling the destructive action."""
     import json as _json
-    sys.stdout.reconfigure(encoding="utf-8")
-    dry = "--dry" in sys.argv
-    if "--json" in sys.argv:
+    parser = argparse.ArgumentParser(
+        description="Clear generated AI-QE demo data while preserving estate configuration.")
+    parser.add_argument("--dry", action="store_true",
+                        help="preview the generated files that would be removed")
+    parser.add_argument("--force", action="store_true",
+                        help="clear even when a recent pipeline lock exists")
+    parser.add_argument("--factory", action="store_true",
+                        help="also remove registered repositories and curated guidance")
+    parser.add_argument("--json", action="store_true",
+                        help="emit the machine-readable dashboard response")
+    args = parser.parse_args(argv)
+    if args.json:
         # Machine mode for the dashboard server, which runs this as a SUBPROCESS so a
         # long-lived server always executes the current clear targets — an in-process
         # `import demo_data` froze the list at server start, and a server started
         # before a fix kept clearing the old, incomplete set while the (freshly
         # rendered) page promised the new behaviour.
         try:
-            r = clear(dry=dry, force="--force" in sys.argv, factory="--factory" in sys.argv)
+            r = clear(dry=args.dry, force=args.force, factory=args.factory)
             print(_json.dumps({"ok": True, **r}))
-            sys.exit(0)
+            return 0
         except SystemExit as e:                        # a run looks active — refusal
             if isinstance(e.code, int):
                 raise
             print(_json.dumps({"ok": False, "error": str(e), "can_force": True}))
-            sys.exit(9)
-    r = clear(dry=dry, force="--force" in sys.argv, factory="--factory" in sys.argv)
-    verb = "would remove" if dry else "removed"
+            return 9
+    r = clear(dry=args.dry, force=args.force, factory=args.factory)
+    verb = "would remove" if args.dry else "removed"
     print(f"{verb} {r['removed']} generated file(s):")
     for t in r["targets"]:
         print(f"  {t}")
-    if not dry:
+    if not args.dry:
         print("estate kept: registry (repo config — remove repos in the "
               "Repositories view), catalog/bootstrap code, AGENTS.md, demo repos, "
               "knowledge/repos team notes.")
         print("Rebuild demo state with: make demo-bootstrap && make demo-pr")
         print("Repo guidance: knowledge/generated/ rebuilds itself on the next "
               "AGENTS.md regeneration; re-pull repo-owned files with make sync-guidance")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.stdout.reconfigure(encoding="utf-8")
+    raise SystemExit(main())

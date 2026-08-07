@@ -269,6 +269,30 @@ def test_the_view_reports_a_load_failure_in_its_own_words():
     assert "display failure, not an empty result" in body
 
 
+def test_no_result_or_load_failure_clears_prior_run_actions_and_evidence():
+    """A new key must never inherit the previous run's retry or failure UI."""
+    js = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert "function rpClearResult()" in js
+    none = js[js.index("if (p.source === 'none') {"):]
+    none = none[:none.index("return;")]
+    assert "rpClearResult();" in none
+    failure = js[js.index("if (!polling && mine === rpSeq) {"):]
+    failure = failure[:failure.index("\n    }")]
+    assert "rpClearResult();" in failure
+    assert "clearTimeout(rpTimer)" in failure, "a prior live-run poll can survive the error"
+    assert "load failed" in failure, "the source badge can still name the old run"
+
+
+def test_successful_retry_keeps_confirmation_after_progress_refresh():
+    """Refreshing progress must not erase success and offer a duplicate retry."""
+    js = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    start = js.index("if (!ev.target || ev.target.id !== 'rp-retry-go') return;")
+    block = js[start:js.index('\n});', start)]
+    assert "await rpLoad(false);" in block
+    assert "const refreshedMsg" in block
+    assert "Retry queued" in block
+
+
 def test_every_view_that_fetches_reports_a_load_failure():
     """Driving the served page with a failing `fetch` showed the QUEUE view
     silently keeping whatever it had. `runViewLoaders` swallows a rejected
