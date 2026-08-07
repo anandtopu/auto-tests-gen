@@ -21,6 +21,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -33,14 +34,29 @@ SPEC_DIR = app_paths.specs_dir(ROOT)       # AIQE_SPEC_DIR > AIQE_STATE_DIR > RO
 SCHEMA = ROOT / "engine/phases/contracts/spec.schema.json"
 
 STRUCTURED_FIELDS = ("steps", "verification")
+KEY_RE = re.compile(r"[A-Za-z0-9_](?:[A-Za-z0-9_.-]{0,198}[A-Za-z0-9_])?")
 
 
 def enabled():
     return env_flag.flag("AIQE_SPEC_MODE", True)
 
 
+def validate_key(key):
+    """Return a filesystem-safe structured-spec key.
+
+    Ticket keys become directory names under ``SPEC_DIR``.  Every derived spec
+    path goes through this guard so API, CLI and library callers share the same
+    containment rule instead of relying on authentication or endpoint checks.
+    """
+    if not isinstance(key, str) or not KEY_RE.fullmatch(key):
+        raise ValueError(
+            "invalid spec key: use 1-200 letters, digits or underscores; "
+            "dots and hyphens are allowed only inside the key")
+    return key
+
+
 def spec_path(key):
-    return SPEC_DIR / key / "testplan.yaml"
+    return SPEC_DIR / validate_key(key) / "testplan.yaml"
 
 
 def is_structured(contract):
@@ -117,7 +133,10 @@ def write_from_contract(key, contract):
 def load(key):
     """The spec dict, or None. Guarded: a torn/invalid file is None, never an
     exception — callers fall back to the free-form path."""
-    p = spec_path(key)
+    try:
+        p = spec_path(key)
+    except ValueError:
+        return None
     if not p.exists():
         return None
     try:
@@ -130,10 +149,10 @@ def load(key):
 
 def sha(key):
     """Hash of the canonical spec bytes — what an approval signs (1.3)."""
-    p = spec_path(key)
     try:
+        p = spec_path(key)
         return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else ""
-    except OSError:
+    except (OSError, ValueError):
         return ""
 
 
@@ -208,7 +227,7 @@ def diff_scenarios(old_spec, new_spec):
 
 # ---------------------------------------------------------------- SDD 2.1
 def requirements_path(key):
-    return SPEC_DIR / key / "requirements.yaml"
+    return SPEC_DIR / validate_key(key) / "requirements.yaml"
 
 
 def validate_requirements(spec):
@@ -274,7 +293,10 @@ def write_requirements_from_contract(key, contract):
 
 def load_requirements(key):
     """The requirements spec dict, or None. Guarded like load()."""
-    p = requirements_path(key)
+    try:
+        p = requirements_path(key)
+    except ValueError:
+        return None
     if not p.exists():
         return None
     try:
@@ -303,7 +325,7 @@ def ambiguities(key):
 
 # ---------------------------------------------------------------- SDD 3.2/3.3
 def waivers_path(key):
-    return SPEC_DIR / key / "waivers.yaml"
+    return SPEC_DIR / validate_key(key) / "waivers.yaml"
 
 
 def load_waivers(key):
@@ -311,7 +333,10 @@ def load_waivers(key):
     (reason, who, expiry) — reading is total; expired waivers are returned
     with expired=True so callers render them honestly rather than hiding
     them."""
-    p = waivers_path(key)
+    try:
+        p = waivers_path(key)
+    except ValueError:
+        return {}
     if not p.exists():
         return {}
     try:

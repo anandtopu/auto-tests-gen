@@ -2018,9 +2018,12 @@ if ($('#wv-add')) $('#wv-add').addEventListener('click', async () => {
   const key = ($('#rq-key') && $('#rq-key').value.trim()) || '';
   if (!key) { wvMsg('enter a ticket key in the Requirements panel first', true); return; }
   try {
-    const r = await api('/api/waivers/save', {
-      key: key, scenario: ($('#wv-sid') || {}).value, reason: ($('#wv-reason') || {}).value,
-      expires: ($('#wv-exp') || {}).value });
+    const r = await api('/api/waivers/save', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        key: key, scenario: ($('#wv-sid') || {}).value,
+        reason: ($('#wv-reason') || {}).value, by: ($('#wv-by') || {}).value,
+        expires: ($('#wv-exp') || {}).value }) });
     // Saved, but possibly inert. Reported at the moment of saving, not only in
     // the row: the person who just typed the id is the one who can fix it, and
     // "Waiver saved." alone reads as "you are covered".
@@ -2036,7 +2039,9 @@ document.addEventListener('click', async e => {
   if (!e.target.classList.contains('wv-del')) return;
   const key = ($('#rq-key') && $('#rq-key').value.trim()) || '';
   try {
-    await api('/api/waivers/remove', { key: key, scenario: e.target.dataset.sid });
+    await api('/api/waivers/remove', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: key, scenario: e.target.dataset.sid }) });
     wvMsg('Waiver removed — the gate will refuse this scenario until it is covered.');
     loadWaivers();
   } catch (err) { wvMsg('Remove failed: ' + err.message, true); }
@@ -2087,7 +2092,9 @@ if ($('#rq-approve')) $('#rq-approve').addEventListener('click', async () => {
   const key = ($('#rq-key') && $('#rq-key').value.trim()) || '';
   if (!key) { rqMsg('enter a ticket key first', true); return; }
   try {
-    const r = await api('/api/requirements/status', { key: key, status: 'approved' });
+    const r = await api('/api/requirements/status', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: key, status: 'approved' }) });
     rqMsg('Approved — the requirements hash is now signed.');
     loadRequirements(); refreshSpecFlow();
   } catch (e) {
@@ -3528,6 +3535,7 @@ page = f"""<!doctype html>
       <div style="padding:0 14px 12px" class="card-h">
         <label class="f">Scenario <input id="wv-sid" class="h32" placeholder="S-1" style="width:110px"></label>
         <label class="f">Reason <input id="wv-reason" class="h32" placeholder="why is this shipping uncovered?" style="min-width:260px"></label>
+        <label class="f">Owner <input id="wv-by" class="h32" placeholder="username" style="width:120px"></label>
         <label class="f">Expires <input id="wv-exp" class="h32" type="date" style="width:150px"></label>
         <button class="btn btn-sm" id="wv-add">Add waiver</button>
       </div>

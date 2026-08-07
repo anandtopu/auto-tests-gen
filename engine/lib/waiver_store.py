@@ -52,6 +52,11 @@ def path(key):
     return spec_store.waivers_path(key)
 
 
+def validate_key(key):
+    """Expose the spec store's containment rule to API callers."""
+    return spec_store.validate_key(key)
+
+
 def list_for(key):
     """Every waiver for one ticket, annotated with days remaining.
 

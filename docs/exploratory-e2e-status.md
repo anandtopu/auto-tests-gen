@@ -18,7 +18,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 4 | Intake and work queue | release fetch, inline ticket, plan-only, requeue/remove, drain | fixed-retested | 2026-08-07: known/empty releases, inline validation/dedupe, mode-aware queueing, failed retry, concurrent drain, successful drain and removal exercised; three P2 defects fixed and browser/API-retested | — |
 | 5 | Run progress and run review | phase state, failure details, release filters, reviewer decisions | fixed-retested | 2026-08-07: isolated committed/quarantined/refused corpus covered release/review filters, individual and batch decisions, restart persistence, retry/stale cleanup, and API/CLI parity; one in-place filter-coherence P2 fixed and retested | — |
 | 6 | Test plans | author, edit, versions, approve/request changes, export/link | fixed-retested | 2026-08-07: isolated served UI covered author queue, approval/generation gate, edit/review lifecycle, signed diff, mock link, four exports and missing/malformed boundaries; plan-key traversal and concurrent stale-edit/decision defects fixed and retested | — |
-| 7 | Spec workflow | acceptance criteria, scenarios, waivers, drift and verification | untested | — | Waiver expiry/unmatched cases and release gate effects |
+| 7 | Spec workflow | acceptance criteria, scenarios, waivers, drift and verification | fixed-retested | 2026-08-07: isolated UI/API/CLI covered requirements approval, three structured scenarios, waiver add/remove, expiry/unmatched disclosure, drift, verification and off/warn/strict gates; traversal and three inert UI mutations fixed | — |
 | 8 | Trace | PR/JIRA chronology, phase links, empty/unknown keys | untested | — | Cross-check trace with run/plan/artifact records |
 | 9 | Cost | measured/simulated spend, caching savings, filters | untested | — | Empty data, simulated-only, mixed measured data |
 | 10 | Artifacts | plan/data/tests/diff/code view, coverage report, export/publish | untested | — | Missing/corrupt artifacts and safe rendering |
@@ -240,3 +240,39 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   targeted and adjacent gates remained green. Detailed review:
   `docs/reviews/exploratory-e2e-iteration-007.md`.
 - Next slice: Spec workflow.
+
+### 2026-08-07 — Iteration 8: Spec workflow
+
+- Seed data: the tracked synthetic `PROJ-301` structured requirements/spec was
+  copied into mutable stores under ignored `out/exploratory-e2e-iter8`. Two
+  one-day waivers represented a matching scenario and a typoed unmatched
+  scenario. The seed was deterministic, credential-free, PII-free, mock-only,
+  and never targeted production or customer services.
+- Happy paths: the served UI loaded two EARS requirements and three structured
+  scenarios, signed the requirements hash, created and removed a waiver, and
+  rendered the matching waiver as `1d left` while the typoed waiver read
+  `MATCHES NOTHING`. The real workflow and drift CLIs reported the six-state
+  board and a clean surface comparison. Verification's no-catalog-mapping path
+  returned its documented non-zero result instead of claiming tests ran.
+- Negative and boundary paths: missing waiver owner returned actionable 422;
+  unmatched waiver save returned an immediate warning; a one-day expiry was
+  accepted; expired/live and strict/warn/off gate behavior, stale drift, and
+  unverifiable verification remained covered by the adjacent suites.
+- Finding `E2E-EXP-014` (P1): an authenticated waiver save accepted
+  `../escaped-waiver` and wrote `waivers.yaml` outside `AIQE_SPEC_DIR`.
+  Structured-spec keys are now validated centrally before every derived path;
+  invalid read paths stay total, and waiver GET/save/remove return safe 4xx
+  responses. The real HTTP reproduction changed from 200 plus an escaped file
+  to 400 with no file.
+- Finding `E2E-EXP-015` (P2): Add waiver, Remove waiver, and Approve requirements
+  passed payloads directly as `fetch` options, silently issuing GET requests to
+  POST-only endpoints. Add waiver also supplied no owner outside SSO mode. All
+  three controls now send JSON POSTs; the form captures an owner while trusted
+  SSO identity continues to override it. Live browser retests created, removed,
+  and approved successfully.
+- Validation: both focused regressions failed before their fixes. Afterward,
+  204 Spec workflow, gate, drift, verification, UI, API-adversarial, event-log,
+  and requirements-gate tests passed; compilation and high-signal Ruff checks
+  passed. Detailed review:
+  `docs/reviews/exploratory-e2e-iteration-008.md`.
+- Next slice: Trace chronology and empty/unknown-key behavior.

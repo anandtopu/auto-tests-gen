@@ -18,6 +18,7 @@ Auth is checked BEFORE routing in do_GET/do_POST, so the unauthenticated cases
 below hold even for a path that does not exist; the authenticated cases assert
 "not 200" / "below 500", which a 404 satisfies honestly.
 """
+import datetime
 import json
 import os
 import pathlib
@@ -67,6 +68,7 @@ def live_server(tmp_path_factory):
                AIQE_MOCK="1", AIQE_UI_PORT=str(port), AIQE_UI_TOKEN=TOKEN,
                AIQE_PLAN_DIR=str(d / "plans"),
                AIQE_TESTPLAN_DIR=str(d / "testplans"),
+               AIQE_SPEC_DIR=str(d / "specs"),
                AIQE_REVIEWS_FILE=str(d / "runs/reviews.json"),
                AIQE_QUEUE_FILE=str(d / "runs/queue.json"),
                AIQE_OPENHANDS_DIR=str(d / "openhands"))
@@ -206,6 +208,31 @@ def test_plan_save_rejects_a_key_that_escapes_the_plan_directory(live_server):
 
     assert status == 409, text
     assert not escaped.exists(), "plan markdown escaped AIQE_TESTPLAN_DIR"
+
+
+def test_waiver_save_rejects_a_key_that_escapes_the_spec_directory(live_server):
+    """A waiver key is also a directory name under AIQE_SPEC_DIR.
+
+    Unlike plan writes, this endpoint previously accepted ``../`` and wrote a
+    valid waivers.yaml outside the configured spec store.  Authentication is
+    not containment: a compromised reviewer session must not become an
+    arbitrary filesystem writer.
+    """
+    base, d = live_server
+    escaped = d / "escaped-waiver" / "waivers.yaml"
+    expires = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+    status, text = _request(
+        f"{base}/api/waivers/save", method="POST",
+        body=json.dumps({
+            "key": "../escaped-waiver",
+            "scenario": "ADV-S1",
+            "reason": "temporary upstream dependency",
+            "by": "exploratory",
+            "expires": expires,
+        }), headers=_auth())
+
+    assert status == 400, text
+    assert not escaped.exists(), "waivers.yaml escaped AIQE_SPEC_DIR"
 
 
 def test_plan_save_rejects_a_stale_editor_revision(live_server):

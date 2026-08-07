@@ -704,3 +704,24 @@ def test_two_dashboards_cannot_quietly_share_a_port():
         "the dashboard may bind a port another server already holds"
     # And the bind failure must be actionable rather than a raw WinError.
     assert "cannot bind" in src and "AIQE_UI_PORT" in src
+
+
+@pytest.mark.parametrize("endpoint", [
+    "/api/waivers/save",
+    "/api/waivers/remove",
+    "/api/requirements/status",
+])
+def test_spec_workflow_mutations_are_real_json_posts(endpoint):
+    """The Spec workflow buttons must reach their POST-only handlers.
+
+    Passing a payload object directly as ``fetch`` options silently performs a
+    GET: the page then reports ``not found`` and none of Add waiver, Remove, or
+    Approve requirements can work.  Pin both the verb and JSON serialization.
+    """
+    source = _ui()
+    call = source.split(f"api('{endpoint}'", 1)[1].split(");", 1)[0]
+    assert "method: 'POST'" in call, f"{endpoint} defaults to GET"
+    assert "body: JSON.stringify(" in call, f"{endpoint} does not send JSON"
+    if endpoint == "/api/waivers/save":
+        assert 'id="wv-by"' in source, "non-SSO users have no owner input"
+        assert "by: ($('#wv-by')" in call, "the waiver owner is not submitted"

@@ -235,6 +235,26 @@ def test_waivers_load_and_flag_expiry(store):
     assert s.load_waivers("NOPE") == {}
 
 
+@pytest.mark.parametrize("path_fn", [
+    ss.spec_path,
+    ss.requirements_path,
+    ss.waivers_path,
+])
+def test_structured_spec_paths_reject_traversal(store, path_fn):
+    s, _, tmp = store
+    with pytest.raises(ValueError, match="invalid spec key"):
+        path_fn("../escaped")
+    assert not (tmp / "escaped").exists()
+
+
+def test_invalid_spec_reads_remain_total(store):
+    s, _, _ = store
+    assert s.load("../escaped") is None
+    assert s.sha("../escaped") == ""
+    assert s.load_requirements("../escaped") is None
+    assert s.load_waivers("../escaped") == {}
+
+
 def test_trace_matrix_carries_requirements_and_waivers():
     import trace_matrix
     assert "requirements" in trace_matrix.FIELDS

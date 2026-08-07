@@ -345,6 +345,11 @@ class Handler(BaseHTTPRequestHandler):
             # SDD adoption S4. Expired waivers are INCLUDED — a lapsed exception
             # is the most interesting row on the page, not one to hide.
             key = (urllib.parse.parse_qs(url.query).get("key", [""])[0] or "").strip()
+            if key:
+                try:
+                    key = waiver_store.validate_key(key)
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)})
             self._send(200, {"key": key,
                              "waivers": waiver_store.list_for(key) if key else [],
                              "attention": waiver_store.attention(),
@@ -833,6 +838,10 @@ class Handler(BaseHTTPRequestHandler):
             key = str(p.get("key") or "").strip()
             if not key:
                 return self._send(400, {"error": "key required"})
+            try:
+                key = waiver_store.validate_key(key)
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
             actor = (self.headers.get(SSO_HEADER) if SSO_HEADER else None) or p.get("by") or ""
             rec, problems = waiver_store.save(key, p.get("scenario"), p.get("reason"),
                                               actor, p.get("expires"))
@@ -859,7 +868,11 @@ class Handler(BaseHTTPRequestHandler):
                 p = json.loads(body or b"{}")
             except ValueError:
                 return self._send(400, {"error": "invalid JSON"})
-            gone = waiver_store.remove(str(p.get("key") or ""), str(p.get("scenario") or ""))
+            try:
+                key = waiver_store.validate_key(str(p.get("key") or "").strip())
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
+            gone = waiver_store.remove(key, str(p.get("scenario") or ""))
             return self._send(200 if gone else 404, {"ok": gone})
         if self.path == "/api/requirements/status":
             # Approve (signs the yaml's sha) or send back to draft. The same

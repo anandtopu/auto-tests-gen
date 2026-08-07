@@ -105,6 +105,12 @@ Start there if you are new. The two views most people miss are **Spec workflow**
 — where each ticket is in the six-state process and what is blocking it — and
 **Activity**, the transaction log of who did what.
 
+In Spec workflow, a waiver needs the scenario id, a durable reason, an owner,
+and an expiry. Enter the owner explicitly in local/token mode; behind trusted
+SSO the configured identity header overrides the typed owner. Add/remove and
+requirements approval are authenticated JSON mutations, while simply loading
+the board, requirements, or waivers is read-only.
+
 ## 3. Configuration reference
 
 Three layers, each overriding the previous (§5.10): platform defaults → org config →
