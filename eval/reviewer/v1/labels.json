@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "owner": {
+    "team": "QE Platform",
+    "maintainer_role": "QE Lead"
+  },
+  "version": "2026-08-06.v1",
+  "fixtures": {
+    "file": "fixtures.json",
+    "sha256": "b74d75000df3fb4d4c3addba2040aa4c5ea3fb9eff6697cb3141fe868d44bbf0"
+  },
+  "m3_target_catch_rate": 1.0,
+  "labels": [
+    {
+      "id": "vacuous-status-only",
+      "expected_verdict": "needs_work",
+      "expected_categories": ["vacuous_assertion"],
+      "expected_file": "suites/orders/discount-boundary.spec.js",
+      "expected_test": "rejects a discount above the cap",
+      "required_finding_terms": ["total", "unchanged"]
+    },
+    {
+      "id": "uncovered-acceptance-criterion",
+      "expected_verdict": "needs_work",
+      "expected_categories": ["missing_coverage"],
+      "expected_file": "<missing>",
+      "expected_test": "<missing>",
+      "required_finding_terms": ["total", "unchanged"]
+    },
+    {
+      "id": "ticket-contradiction",
+      "expected_verdict": "needs_work",
+      "expected_categories": ["ticket_mismatch"],
+      "expected_file": "suites/orders/discount-invalid.spec.js",
+      "expected_test": "rejects an invalid code",
+      "required_finding_terms": ["400", "422"]
+    },
+    {
+      "id": "repository-convention-breach",
+      "expected_verdict": "needs_work",
+      "expected_categories": ["convention_violation"],
+      "expected_file": "tests/checkout/payment.spec.js",
+      "expected_test": "opens payment",
+      "required_finding_terms": ["css", "login"]
+    },
+    {
+      "id": "clean-boundary-coverage",
+      "expected_verdict": "approve",
+      "expected_categories": [],
+      "expected_file": null,
+      "expected_test": null,
+      "required_finding_terms": []
+    }
+  ]
+}

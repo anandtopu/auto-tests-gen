@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-.PHONY: deps test-routing test-unit python-coverage python-coverage-check python-coverage-html bootstrap run-pr run-jira eval discovery-eval retrieval-eval conformance \
+.PHONY: deps test-routing test-unit python-coverage python-coverage-check python-coverage-html bootstrap run-pr run-jira eval discovery-eval retrieval-eval reviewer-eval reviewer-eval-real conformance \
         status coverage dashboard review-queue reviews repos agents parity-pr parity-jira \
         serve queue-run export-plan publish-plan attach-plan hook-server prune \
         gaps catalog-db ingest-results smoke-openhands clear-demo report critic \
@@ -42,13 +42,21 @@ run-jira:
 	bash engine/pipeline.sh jira $(KEY)
 
 eval:
-	bash eval/replay.sh && python3 eval/context_check.py && python3 eval/discovery_quality.py && python3 eval/retrieval_quality.py && python3 eval/scorecard.py
+	bash eval/replay.sh && python3 eval/context_check.py && python3 eval/discovery_quality.py && python3 eval/retrieval_quality.py && python3 eval/reviewer_quality.py && python3 eval/scorecard.py
 
 discovery-eval:
 	python3 eval/discovery_quality.py
 
 retrieval-eval:
 	python3 eval/retrieval_quality.py
+
+reviewer-eval:
+	python3 eval/reviewer_quality.py
+
+# Explicit and potentially billable. Never part of `eval`/`review`: it invokes
+# the configured real reviewer provider and requires the same auth as parity.
+reviewer-eval-real:
+	python3 eval/reviewer_quality.py --real
 
 conformance:
 	bash adapters/conformance/test_adapters.sh
@@ -100,7 +108,7 @@ demo-jira:
 
 # Real-LLM parity: real phases, demo estate + mock adapters (REVIEW.md item 1).
 # LLM_PROVIDER=ollama|codex|claude routes the phases at a provider (multi-LLM
-# 2.5) so the SAME three quality claims can be measured per provider before
+# 2.5) so the SAME four quality claims can be measured per provider before
 # anyone trusts a cheaper model with judgement work. Empty = org-config default.
 parity-pr:
 	AIQE_MOCK=1 AIQE_REAL_LLM=1 AIQE_LLM_PROVIDER=$(LLM_PROVIDER) bash engine/pipeline.sh pr orders-api 201
@@ -114,7 +122,7 @@ parity-compare:
 	python3 engine/lib/parity_compare.py $(DAYS)
 
 review:
-	$(MAKE) python-coverage-check && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash tests/provider-adversarial.sh && bash tests/state-adversarial.sh && bash tests/routing-adversarial.sh && bash tests/observability-adversarial.sh && bash tests/bootstrap-smoke.sh && bash tests/entrypoint-smoke.sh && bash eval/replay.sh && python3 eval/context_check.py && python3 eval/discovery_quality.py && python3 eval/retrieval_quality.py && python3 eval/scorecard.py
+	$(MAKE) python-coverage-check && bash adapters/conformance/test_adapters.sh && bash tests/gate-adversarial.sh && bash tests/provider-adversarial.sh && bash tests/state-adversarial.sh && bash tests/routing-adversarial.sh && bash tests/observability-adversarial.sh && bash tests/bootstrap-smoke.sh && bash tests/entrypoint-smoke.sh && bash eval/replay.sh && python3 eval/context_check.py && python3 eval/discovery_quality.py && python3 eval/retrieval_quality.py && python3 eval/reviewer_quality.py && python3 eval/scorecard.py
 
 # --- QA monitoring & mapping management ---
 status:

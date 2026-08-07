@@ -195,7 +195,7 @@ capped at 20KB. Suite: 451 passing.
 2. ~~Mock stubs bypass `extract_contract.py`~~ — **closed 2026-08-05.** The mock harness now wraps each stub's contract as a provider-shaped reply (prose around a fenced JSON block, `out/<phase>.mockresult.json`) and runs the SAME extractor + schema check the real path uses. A stub that drifts from its schema fails the demo loudly instead of silently: measured by renaming a required key in the analyze stub, `make demo-jira` goes from exit 0 to exit 2 with `CONTRACT REJECTED ... fix the stub, not this check`. The wrapper is deliberately NOT named `out/<phase>.json` — `budget.record()` harvests that when present, and a mock file would be recorded with basis `reported`, i.e. a simulated run reporting a MEASURED $0. Pins: test_mock_contract_extraction.py (9).
 3. Playwright execution unproven in this sandbox (browser CDN blocked) — framework abstraction verified via node-test; validate Playwright path in week 1 of real rollout.
 4. OpenHands Path-1 live wiring (weeks 3–4 of the delivery plan); Path-2 mechanics fully proven.
-5. **BACKLOG — refresh real-LLM parity on current HEAD for the three quality claims mock cannot test.**
+5. **BACKLOG — refresh real-LLM parity on current HEAD for the four quality claims mock cannot test.**
 
    *Status (re-checked 2026-08-05): still blocked, same error.* A single-call probe returns
    `Failed to authenticate: OAuth session expired and could not be refreshed`.
@@ -208,7 +208,7 @@ capped at 20KB. Suite: 451 passing.
    run, and write a **quarantined run record** — trading the estate's 100% commit
    rate for a reproduction of a known error.
 
-   Three claims ride on this run. Each is proven *mechanically* under `AIQE_MOCK=1`
+   Four claims ride on this run. Each is proven *mechanically* under `AIQE_MOCK=1`
    and unproven *qualitatively*, because the mock phases return fixed output:
 
    | Claim | Mock proves | Only a real run can show |
@@ -216,8 +216,10 @@ capped at 20KB. Suite: 451 passing.
    | Existing-approach exemplars | `out/repo-conventions.md` is built and passed to every generate AND validate call | that a generated spec actually imports the repo's own helpers and matches its assertion style — and that the critic raises no `new-approach` findings |
    | Per-repo generation fan-out (§5.8.8) | labeled contracts, the merge, containment of a per-repo failure, the off-switch | that an agent confined to one repo mirrors that repo more faithfully than one holding three repos' conventions at once — the correctness argument the fan-out was built on |
    | Adversarial plan review (§5.8.9) | adversary → arbiter → plan contract replacement, and that a failure leaves the authored plan standing | that the adversary raises gaps a real author genuinely missed. The mock returns the same two gaps every time: that is plumbing, not judgment |
+   | Generated-test reviewer (§5.8.10, B6) | the production contract boundary catches all four scripted defect classes and approves the clean control; every number is labelled `SIMULATED` | the configured reviewer catches the same seeded defects without false-rejecting the clean fixture; run `make reviewer-eval-real` after the same parity authentication is restored |
 
-   Run all three together — they share the same two commands.
+   Run the first three together with the parity commands. Measure the fourth on
+   the identical authentication path with explicit `make reviewer-eval-real`.
 
 **Verdict: build phases B1–B5 complete; the mechanical suite is green and historical Pass-5 parity was green. A current-head real-LLM quality refresh remains blocked on authentication.**
 

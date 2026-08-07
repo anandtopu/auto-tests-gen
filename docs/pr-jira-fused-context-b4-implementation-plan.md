@@ -44,6 +44,7 @@ Branch: codex/test-knowledge-a1-a2
 
 ## Residual work
 
-B6 is next and owns seeded-defect catch rates, clean-control false-positive
-measurement, and simulated versus real-model labelling. B2/B3 later populate
-repair loops and enforce `off|warn|require`; B4 only records and renders them.
+B6 now owns and implements seeded-defect catch rates, the clean-control check,
+and strict simulated versus real-model labelling. B2 is next; B2/B3 populate
+repair loops and enforce `off|warn|require`, while B4 only records and renders
+them.

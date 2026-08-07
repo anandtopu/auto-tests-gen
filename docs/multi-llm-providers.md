@@ -231,7 +231,7 @@ model/tokens/turns/cost and renders the Cost view. Provider support adds:
   the client — the adapter does, which is exactly what the port boundary is
   for.
 - **2.5 (S)** Per-provider parity harness: `make parity-pr
-  LLM_PROVIDER=ollama` etc. — the same three quality claims measured per
+  LLM_PROVIDER=ollama` etc. — the same four quality claims measured per
   provider before anyone trusts a cheap model with judgement phases.
   *As built:* plus `make parity-compare`, which puts providers side by side on
   commit rate / critic score / $ per run / turns from the run records, groups a

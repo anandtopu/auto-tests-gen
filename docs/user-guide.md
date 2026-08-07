@@ -958,7 +958,12 @@ coverage regenerates → `make test-routing` still pins routing behavior.
 - **Scorecard metrics:** `python3 eval/scorecard.py` (also at the end of `make review`)
   now reports routing accuracy, **commit rate**, average **repair loops**,
   **update-vs-create share** (duplicate-prevention proxy), **team acceptance rate**
-  (from review decisions), and **test health/flakiness**.
+  (from review decisions), **test health/flakiness**, and reviewer attack quality.
+  `make reviewer-eval` is deterministic and always labels its seeded-contract
+  catch rates **SIMULATED** (plumbing, not judgement). `make reviewer-eval-real`
+  explicitly invokes the configured provider against the same pinned attacks;
+  it may incur provider cost and fails with real quality **unmeasured** when the
+  same authentication required by parity runs is unavailable.
 - **SQLite catalog index:** `make catalog-db` builds `reports/catalog.db` (gitignored;
   JSONL stays the committed source of truth) — rebuilt automatically by bootstrap,
   mapping edits, and results ingest. Ad-hoc queries:

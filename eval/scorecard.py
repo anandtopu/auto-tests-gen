@@ -81,6 +81,42 @@ try:
 except (OSError, ValueError, KeyError, TypeError):
     print("Retrieval quality: n/a — run `make retrieval-eval`")
 
+# --- generated-test reviewer attack quality (PRD B6) ---------------------------
+try:
+    reviewer_quality = json.load(
+        open("eval/results/reviewer-quality.json", encoding="utf-8")
+    )
+    simulated = reviewer_quality.get("simulated") or {}
+    print(
+        f"Reviewer quality (SIMULATED): "
+        f"{simulated.get('overall', 'unknown').upper()}; catch rate "
+        f"{simulated.get('caught', 0)}/{simulated.get('total', 0)} "
+        f"({simulated.get('catch_rate', 0):.0%}); clean control "
+        f"{'PASS' if (simulated.get('clean_control') or {}).get('passed') else 'FAIL'}"
+    )
+    for category, row in sorted((simulated.get("per_defect_class") or {}).items()):
+        print(
+            f"  {category}: {row.get('caught', 0)}/{row.get('total', 0)} "
+            f"({row.get('catch_rate', 0):.0%})"
+        )
+    real = reviewer_quality.get("real_model") or {}
+    real_detail = real.get("reason", "no measurement reason recorded")
+    if real.get("state") == "measured":
+        clean = (real.get("clean_control") or {}).get("passed")
+        real_detail = (
+            f"{real.get('overall', 'unknown').upper()}; catch rate "
+            f"{real.get('caught', 0)}/{real.get('total', 0)} "
+            f"({real.get('catch_rate', 0):.0%}); clean control "
+            f"{'PASS' if clean else 'FAIL'}; provider={real.get('provider', 'unknown')} "
+            f"model={real.get('model', 'unknown')}"
+        )
+    print(
+        f"Reviewer quality (REAL MODEL): {real.get('state', 'unavailable').upper()}"
+        f" — {real_detail}"
+    )
+except (OSError, ValueError, KeyError, TypeError):
+    print("Reviewer quality: n/a — run `make reviewer-eval`")
+
 # --- run outcomes + generation behavior (persisted run records) -----------------
 runs = []
 for f in glob.glob(str(ROOT / "reports/runs/*.json")):

@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "id": "vacuous-status-only",
+      "defect_class": "vacuous_assertion",
+      "context": {
+        "requirements": ["A rejected discount leaves the order total unchanged."],
+        "conventions": ["Assert status and the business fields affected by the scenario."],
+        "generated_test": {
+          "file": "suites/orders/discount-boundary.spec.js",
+          "name": "rejects a discount above the cap",
+          "source": "test('rejects a discount above the cap', async () => { const response = await applyDiscount('95'); expect(response.status).toBe(422); });"
+        }
+      },
+      "scripted_contract": {
+        "verdict": "needs_work",
+        "findings": [{
+          "severity": "high",
+          "category": "vacuous_assertion",
+          "file": "suites/orders/discount-boundary.spec.js",
+          "test": "rejects a discount above the cap",
+          "finding": "The status-only assertion never verifies that the rejected request left the order total unchanged.",
+          "fix": "Fetch the order and assert its total remains the pre-request value."
+        }],
+        "simulated": true
+      }
+    },
+    {
+      "id": "uncovered-acceptance-criterion",
+      "defect_class": "missing_coverage",
+      "context": {
+        "requirements": ["Reject discounts above 90%.", "A rejected discount leaves the order total unchanged."],
+        "conventions": ["One spec per behavior."],
+        "generated_test": {
+          "file": "suites/orders/discount-boundary.spec.js",
+          "name": "rejects a discount above the cap",
+          "source": "test('rejects a discount above the cap', async () => { expect((await applyDiscount('95')).status).toBe(422); });"
+        }
+      },
+      "scripted_contract": {
+        "verdict": "needs_work",
+        "findings": [{
+          "severity": "high",
+          "category": "missing_coverage",
+          "file": "<missing>",
+          "test": "<missing>",
+          "finding": "No generated test covers the acceptance criterion that rejection preserves the existing order total.",
+          "fix": "Add a scenario that records the total, submits the invalid discount, and verifies the total is unchanged."
+        }],
+        "simulated": true
+      }
+    },
+    {
+      "id": "ticket-contradiction",
+      "defect_class": "ticket_mismatch",
+      "context": {
+        "requirements": ["Invalid discount codes return 422."],
+        "conventions": ["Discount failures use the documented API status."],
+        "generated_test": {
+          "file": "suites/orders/discount-invalid.spec.js",
+          "name": "rejects an invalid code",
+          "source": "test('rejects an invalid code', async () => { expect((await applyDiscount('NOPE')).status).toBe(400); });"
+        }
+      },
+      "scripted_contract": {
+        "verdict": "needs_work",
+        "findings": [{
+          "severity": "high",
+          "category": "ticket_mismatch",
+          "file": "suites/orders/discount-invalid.spec.js",
+          "test": "rejects an invalid code",
+          "finding": "The test expects 400 while the ticket requires 422 for an invalid discount code.",
+          "fix": "Assert status 422 and retain the response-body validation."
+        }],
+        "simulated": true
+      }
+    },
+    {
+      "id": "repository-convention-breach",
+      "defect_class": "convention_violation",
+      "context": {
+        "requirements": ["The checkout payment route is reachable for a seeded user."],
+        "conventions": ["Select elements by data-testid only.", "Use the loginAs(user) fixture instead of driving the login form."],
+        "generated_test": {
+          "file": "tests/checkout/payment.spec.js",
+          "name": "opens payment",
+          "source": "test('opens payment', async ({ page }) => { await page.locator('.login-button').click(); await page.goto('/checkout/payment'); });"
+        }
+      },
+      "scripted_contract": {
+        "verdict": "needs_work",
+        "findings": [{
+          "severity": "med",
+          "category": "convention_violation",
+          "file": "tests/checkout/payment.spec.js",
+          "test": "opens payment",
+          "finding": "The test uses a CSS-class selector and drives login despite both repository conventions forbidding those patterns.",
+          "fix": "Use loginAs(user) and the route's data-testid selector."
+        }],
+        "simulated": true
+      }
+    },
+    {
+      "id": "clean-boundary-coverage",
+      "defect_class": null,
+      "context": {
+        "requirements": ["Invalid discount codes return 422 and leave the order total unchanged."],
+        "conventions": ["Assert status and body shape through the shared API client."],
+        "generated_test": {
+          "file": "suites/orders/discount-invalid.spec.js",
+          "name": "rejects invalid code without changing total",
+          "source": "test('rejects invalid code without changing total', async () => { const before = await getOrder(); const response = await applyDiscount('NOPE'); expect(response.status).toBe(422); expect(response.body).toMatchObject({ error: expect.any(String) }); expect((await getOrder()).total).toBe(before.total); });"
+        }
+      },
+      "scripted_contract": {
+        "verdict": "approve",
+        "findings": [],
+        "simulated": true
+      }
+    }
+  ]
+}

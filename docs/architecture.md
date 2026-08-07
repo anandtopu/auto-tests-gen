@@ -677,6 +677,18 @@ policy honestly as `not_recorded`. The human board remains isolated in
 `review_state`; no renderer invokes its status transition. Repairs, delivery
 enforcement, and quality evaluation remain B2/B3/B6.
 
+B6 evaluates this reviewer by attack. A versioned QE-owned label set pins one
+fixture for each closed finding category plus one clean control to the fixture
+bytes with SHA-256. `make reviewer-eval` passes the fixtures' scripted contracts
+through the same `normalize_repo_contract` boundary used by runs and reports
+catch rate per defect class. Those figures are always labelled **SIMULATED**:
+they prove normalization, classification accounting, and scorecard plumbing,
+not model judgement. `make reviewer-eval-real` is a separate explicit,
+potentially billable path that invokes the configured reviewer against the same
+attacks. It never runs inside `make eval` or `make review`; when parity
+authentication is unavailable, the result and scorecard say **BLOCKED** and
+**unmeasured** rather than recycling scripted numbers as model quality.
+
 ### 5.9 Test Catalog & Mapping Subsystem (new in v2.0)
 
 **The problem this solves:** E2E test repositories can contain tests with no recorded relationship to application repositories or features. Without that mapping, the platform cannot (a) route triggers to the right test repo, (b) decide update-vs-create (leading to duplicate tests), or (c) report requirement coverage. The registry's `covers:` map in §5.8.1 is therefore **derived from the catalog**, not hand-authored.

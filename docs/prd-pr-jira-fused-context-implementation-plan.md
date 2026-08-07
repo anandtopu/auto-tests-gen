@@ -12,8 +12,8 @@ Source: [prd-pr-jira-fused-context-multi-agent.md](prd-pr-jira-fused-context-mul
 | 3 | A4 Discovery evaluation | S2 | A1 | Implemented | Hash-pinned QE labels, validation-aware per-signal precision/recall, correct-refusal accounting, simulated evidence labelling, and `make eval` integration |
 | 4 | B1 Test reviewer | S3 | none; schedule after S2 | Implemented | Read-only per-repo pre-gate reviewer, strict contracts, deterministic skip, unavailable state, and simulated mock evidence |
 | 5 | B4 Verdict surfaces | S3 | B1 | Implemented | Canonical run snapshot, board columns, PR/JIRA lines, Agent review progress, and evidence-based explain output |
-| 6 | B6 Reviewer evaluation | S3 | B1 | Next eligible | Seeded defects, clean control, simulated/real-model labelling |
-| 7 | B2 Bounded repair | S4 | B1, B6 | Planned | One separately metered findings-driven repair/revalidate/rereview loop |
+| 6 | B6 Reviewer evaluation | S3 | B1 | Implemented | Hash-pinned seeded defects, clean control, per-class catch rates, and separate simulated/real-model evidence |
+| 7 | B2 Bounded repair | S4 | B1, B6 | Next eligible | One separately metered findings-driven repair/revalidate/rereview loop |
 | 8 | B3 Delivery policy | S4 | B1, B2, B4 | Planned | `off|warn|require`, pre-gate refusal, unavailable policy, constitution pins |
 | 9 | B5 Cost containment | S3/S4 | B1–B3 | Planned | Judgement-tier pin, budget-envelope uplift, reviewer-panel deferral trigger |
 | 10 | A3 Plan-first from PR | S5 | A1, A2, B1–B4 | Planned | Extend the existing plan-state lifecycle to PR keys and PR intake |
@@ -80,6 +80,16 @@ then drives the PR and JIRA summary lines, CLI and dashboard review-board
 columns, wizard and run-progress steps, and `make explain`. Human review state
 remains a separate store and transition path. Detailed acceptance and evidence
 are in [pr-jira-fused-context-b4-implementation-plan.md](pr-jira-fused-context-b4-implementation-plan.md).
+
+B6 is implemented as an attack harness over a versioned, SHA-pinned QE-owned
+fixture set. The default evaluator sends scripted fixture contracts through the
+production reviewer boundary and labels its 100% M3 result `SIMULATED`—proof of
+plumbing, not judgement. It also checks one clean approve control. A separate,
+explicit and potentially billable `make reviewer-eval-real` command attacks the
+same fixtures through the configured provider; until parity authentication is
+restored, every renderer says that real-model quality is blocked and unmeasured.
+Detailed acceptance and evidence are in
+[pr-jira-fused-context-b6-implementation-plan.md](pr-jira-fused-context-b6-implementation-plan.md).
 
 ### B2, B3, B5 — Repair and require slice
 
