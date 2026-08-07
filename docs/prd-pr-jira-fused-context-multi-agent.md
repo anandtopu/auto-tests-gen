@@ -145,8 +145,8 @@ ticket**. `TRACKER get_item` is called only in the `jira|plan|tests` modes; the
 > four adapters, conformance-tested), and it validates with three states
 > (`valid | invalid | unavailable`) where v1's A1.2 had two — including
 > treating a tracker that answers with a *different issue* as unavailable
-> evidence. The ACs below are updated to codify what shipped; A2 is in flight;
-> A3 is not started and carries the two SDD decisions added in v2.
+> evidence. The ACs below are updated to codify what shipped. A1-A4 and B1-B6
+> are now implemented; A3 landed last with both v2 SDD decisions pinned.
 
 ### A1. Ticket discovery from a pull request
 
@@ -487,7 +487,7 @@ behaviour byte-for-byte (pinned per slice).
 | **S2 — Discovery eval** | A4 | — (eval always on) | fixture set incl. conflict + invalid cases; precision/recall in `make eval`; M1 met in mock |
 | **S3 — Reviewer, advisory** | B1, B4, B6 | `AIQE_TEST_REVIEWER` (default 0) + `review.agent_gate: warn` | read-only reviewer; verdict on every surface incl. explain; skip-on-zero-tests; seeded-defect eval green |
 | **S4 — Repair + require** | B2, B3, constitution clause | `review.agent_gate: require` (opt-in) | bounded repair via `review-repair.md`, metered; pre-gate refusal with named fix; org-config-only override (B3.1a); new clause + pins landed incl. CLAUDE.md rendering sync; critic/reviewer distinctness pinned |
-| **S5 — Plan-from-PR** | A3 | `AIQE_PR_PLAN` (default 0) | full plan-first lifecycle on a PR key through existing plan_state; requirements-gate exemption (A3.5) and spec-gate enforcement decision (A3.6) both landed WITH their pins; wizard/queue entry points; prior-PRD D7 closed with a pointer here |
+| **S5 — Plan-from-PR** | A3 | `AIQE_PR_PLAN` (default 0) | full plan-first lifecycle on a PR key through existing plan_state; requirements-gate exemption (A3.5) and spec-gate enforcement decision (A3.6) both landed WITH their pins; wizard/queue entry points; prior-PRD D7 closed with a pointer here. **Status: implemented** |
 
 S5 deliberately last: fusion (S1) makes a PR-authored plan worth reading, and
 the reviewer (S3/S4) is what makes the resumed generation trustworthy.

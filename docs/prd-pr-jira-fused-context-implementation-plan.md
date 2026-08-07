@@ -16,7 +16,7 @@ Source: [prd-pr-jira-fused-context-multi-agent.md](prd-pr-jira-fused-context-mul
 | 7 | B2 Bounded repair | S4 | B1, B6 | Implemented | Bounded per-repo repair, revalidation, rereview, metering, and unresolved-finding history |
 | 8 | B3 Delivery policy | S4 | B1, B2, B4 | Implemented | `off|warn|require`, strict pre-gate refusal evidence, unavailable policy, no per-run bypass, cross-surface outcome, C14 pins; detailed mapping in [pr-jira-fused-context-b3-implementation-plan.md](pr-jira-fused-context-b3-implementation-plan.md) |
 | 9 | B5 Cost containment | S3/S4 | B1–B3 | Implemented | Judgement-tier pin, shared effective-envelope uplift, honest queue warning, and reviewer-panel deferral trigger |
-| 10 | A3 Plan-first from PR | S5 | A1, A2, B1–B4 | Next eligible | Extend the existing plan-state lifecycle to PR keys and PR intake |
+| 10 | A3 Plan-first from PR | S5 | A1, A2, B1–B4 | Implemented | Existing signed plan lifecycle on PR keys; diff + fused context; dual comments; queue/wizard; explicit requirements/spec decisions |
 
 The order follows the PRD delivery slices. A3 remains last because the PRD makes
 fusion and reviewer delivery prerequisites for a useful, trustworthy PR plan.
@@ -125,10 +125,11 @@ are in
 
 ### A3 — Plan-first from PR
 
-Teach plan intake to carry a PR target while reusing `plan_state` and existing
+Implemented by teaching plan intake to carry a PR target while reusing `plan_state` and existing
 approval revocation/resume rules. Author from diff plus A2 fused context, comment
 the ticket when present and the PR always, omit plan-only run records, and add
-the same option to the wizard and queue.
+the same option to the wizard and queue. Detailed acceptance and evidence are in
+[pr-jira-fused-context-a3-implementation-plan.md](pr-jira-fused-context-a3-implementation-plan.md).
 
 ## Iteration gate
 

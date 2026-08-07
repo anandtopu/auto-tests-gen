@@ -107,8 +107,17 @@ def save(items):
 
 
 def key_of(item):
-    return (f"PR-{item['target']}-{item['pr']}" if item["mode"] == "pr"
+    """Stable workflow key. A PR plan is still keyed by the PR, not its repo."""
+    return (f"PR-{item['target']}-{item['pr']}"
+            if item["mode"] == "pr" or
+            (item["mode"] == "plan" and item.get("pr"))
             else item["target"])
+
+
+def _pr_plan_enabled():
+    """S5 is opt-in and fail-closed for unrecognized values."""
+    return os.environ.get("AIQE_PR_PLAN", "0").strip().lower() in \
+        ("1", "true", "yes", "on")
 
 
 def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
@@ -116,8 +125,12 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
     # "tests" resumes generation from an approved test plan (pipeline.sh tests <KEY>)
     if mode not in ("pr", "jira", "plan", "tests"):
         sys.exit("mode must be pr|jira|plan|tests")
+    pr_target = mode == "pr" or (mode == "plan" and bool(pr))
     if mode == "pr" and not pr:
         sys.exit("pr mode needs a PR number")
+    if mode == "plan" and pr and not _pr_plan_enabled():
+        sys.exit("plan-first from PR is disabled — set AIQE_PR_PLAN=1 to enable "
+                 "the opt-in S5 workflow")
     # ...and it must BE a PR number. `target` was validated against the registry
     # right below with the comment "Validate at INTAKE, not minutes later in a
     # background runner nobody watches" — but `pr` was not validated at all, so
@@ -128,7 +141,7 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
     # background process, for input that was wrong at the moment it was typed.
     # Every SCM we speak numbers PRs from 1 (pr_url.py parses `num` out of the
     # URL as digits), so this is the whole domain, not a guess at a limit.
-    if mode == "pr":
+    if pr_target:
         import re as _re
         if not _re.fullmatch(r"[1-9][0-9]{0,8}", str(pr).strip()):
             sys.exit(f"'{pr}' is not a pull-request number — PRs are numbered "
@@ -137,7 +150,7 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
     # Validate at INTAKE, not minutes later in a background runner nobody watches.
     # The pasted-URL path already refuses an unregistered repo with a hint; the
     # plain name+number path (wizard form, API, TaskEvent webhook) must match it.
-    if mode == "pr":
+    if pr_target:
         try:
             import repo_admin
             registered = repo_admin.is_registered(target)
@@ -155,7 +168,7 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
             ticket = normalized
     else:
         if ticket:
-            sys.exit("an explicit PR ticket can only be supplied in pr mode")
+            sys.exit("an explicit PR ticket can only be supplied in pr mode or a PR plan")
         # Same charset the pipeline enforces (INVALID_KEY, exit 64) — fail here
         # with a message instead of queueing work that dies on arrival.
         import re
@@ -170,8 +183,9 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
         # documented tool for an intentional re-author).
         try:
             import plan_state
-            if plan_state.get(target).get("status") == "approved":
-                sys.exit(f"the test plan for {target} is APPROVED — re-authoring "
+            plan_key = f"PR-{target}-{pr}" if pr else target
+            if plan_state.get(plan_key).get("status") == "approved":
+                sys.exit(f"the test plan for {plan_key} is APPROVED — re-authoring "
                          f"would reset it to draft and destroy the sign-off. Read "
                          f"it (make plan-show KEY={target}), edit it (which "
                          f"deliberately revokes approval), or pass force=true to "
@@ -217,7 +231,7 @@ def _envelope_warning(mode, target, pr=None):
         if cap <= 0:
             return ""
         import cost_report
-        key = f"PR-{target}-{pr}" if mode == "pr" and pr else str(target)
+        key = f"PR-{target}-{pr}" if pr and mode in ("pr", "plan") else str(target)
         for e in cost_report.report(None).get("by_key_top10", []):
             if e.get("key") == key and e.get("cost_usd", 0) > cap:
                 review_note = (f" = ${base:.2f} base + "
@@ -373,7 +387,7 @@ def run_all():
         if item is None:
             break
         cmd = [bash_exe(), "engine/pipeline.sh", item["mode"], item["target"]]
-        if item["mode"] == "pr":
+        if item["mode"] == "pr" or (item["mode"] == "plan" and item.get("pr")):
             cmd.append(item["pr"])
         item_env = {**env}
         if item.get("inline_file"):                # pasted JIRA context, not a real ticket

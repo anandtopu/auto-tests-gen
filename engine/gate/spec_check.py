@@ -11,9 +11,10 @@ spec, verifies the signed contract is being HONOURED, not just reported:
      run's contract, or carries a NON-EXPIRED waiver.
 
 Modes (org-config `spec.enforce`): off = check absent; warn = findings print,
-exit 0; strict = exit 8 (a NEW gate code — distinct from 2..7). Exemptions by
-construction: no structured spec for the key (PR-path or free-form plans) or a
-spec not APPROVED yet -> exit 0 silently. The check ADDS a verdict, never a
+exit 0; strict = exit 8 (a NEW gate code — distinct from 2..7). A3.6 makes the
+boundary deliberate: no structured spec for the key (ordinary PR path or a
+free-form plan) is exempt; once a PR-keyed structured plan is signed, it is
+enforced exactly like a ticket-keyed spec. The check ADDS a verdict, never a
 writer.
 
 Usage (gate.sh): spec_check.py <KEY> <test_repo> <changed_files_file>

@@ -45,6 +45,12 @@ trepos = reg["test_repositories"]
 reviews = review_state.load()
 health = test_health.load()
 queue = work_queue.load()
+pr_plan_enabled = os.environ.get("AIQE_PR_PLAN", "0").strip().lower() in \
+    ("1", "true", "yes", "on")
+pr_plan_buttons = ('''<button class="btn" id="wz-start-pr-plan">Plan first</button>
+          <button class="btn" id="wz-pr-approve">Approve plan</button>
+          <button class="btn" id="wz-pr-generate">Generate from plan</button>'''
+                   if pr_plan_enabled else "")
 try:
     _org = yaml.safe_load((ROOT / "registry/org-config.yaml").read_text(
         encoding="utf-8")) or {}
@@ -1188,6 +1194,7 @@ pre { margin:0; background:var(--sr-bg-muted); border:1px solid var(--sr-border)
 # ---------------------------------------------------------------- client JS
 JS = """
 const served = location.protocol.startsWith('http');
+const PR_PLAN_ENABLED = __PR_PLAN_ENABLED__;
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 // Every client-rendered cell goes through this — queue items and fetched JIRA
 // summaries are external data and must never reach innerHTML unescaped.
@@ -1411,7 +1418,10 @@ applyCatFilters();
 // ---- queue
 const chipMap = { queued: ['queued', 'info'], running: ['● running', 'warning'],
   done: ['✓ done', 'success'], failed: ['✗ failed', 'danger'] };
-function keyOf(i) { return i.mode === 'pr' ? 'PR-' + i.target + '-' + i.pr : i.target; }
+function keyOf(i) {
+  return (i.mode === 'pr' || (i.mode === 'plan' && i.pr))
+    ? 'PR-' + i.target + '-' + i.pr : i.target;
+}
 async function refreshQueue() {
   if (!served) return;
   // A failed fetch used to reject straight out of here; runViewLoaders swallows
@@ -1548,6 +1558,50 @@ if ($('#wz-mode')) {
     } catch (err) { toast(err.message); }   // api() already folds in any hint
   });
 
+  if ($('#wz-start-pr-plan')) {
+  $('#wz-start-pr-plan').addEventListener('click', async () => {
+    if (needsServer()) return;
+    const repo = $('#wz-repo').value.trim(), pr = $('#wz-pr').value.trim();
+    const ticket = $('#wz-pr-ticket').value.trim();
+    const isUrl = repo.includes('pull-requests') || repo.includes('/pull/');
+    if (!repo || (!pr && !isUrl)) {
+      toast('Enter the app repo and PR number — or paste the pull-request URL'); return; }
+    try {
+      const r = await api('/api/queue', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'plan', target: repo, pr: pr, ticket: ticket }) });
+      wzKey = 'PR-' + r.item.target + '-' + r.item.pr;
+      wzMode = 'pr-plan';
+      await api('/api/queue/run', { method: 'POST' });
+      toast('Authoring the PR plan for ' + wzKey + ' — it stops for your approval');
+      wzPoll();
+    } catch (err) { toast(err.message); }
+  });
+
+  $('#wz-pr-approve').addEventListener('click', async () => {
+    if (needsServer() || !wzKey || wzMode !== 'pr-plan') {
+      toast('Start or reopen a PR plan first'); return; }
+    try {
+      await api('/api/plans/status', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: wzKey, status: 'approved' }) });
+      toast('PR plan approved — you can generate tests now'); wzPoll();
+    } catch (err) { toast(err.message); }
+  });
+
+  $('#wz-pr-generate').addEventListener('click', async () => {
+    if (needsServer() || !wzKey || wzMode !== 'pr-plan') {
+      toast('Start or reopen a PR plan first'); return; }
+    try {
+      await api('/api/plans/generate', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: wzKey }) });
+      await api('/api/queue/run', { method: 'POST' });
+      toast('Generating tests from the approved PR plan'); wzPoll();
+    } catch (err) { toast(err.message); }
+  });
+  }
+
   const wzJiraKey = () => {
     const k = $('#wz-key').value.trim();
     if (!k) { toast('Enter a ticket key'); return null; }
@@ -1626,7 +1680,7 @@ $('#fetch-btn').addEventListener('click', async () => {
       '<td class="strong">' + escHtml(i.key) + '</td><td>' + escHtml(i.summary) + '</td>' +
       '<td class="mono sm muted">' + escHtml(i.release || '—') + '</td>' +
       '<td class="right">' +
-      (i.mode === 'jira'
+      (i.mode === 'jira' || (i.mode === 'pr' && PR_PLAN_ENABLED)
         ? '<button class="btn btn-sm fq" data-n="' + n + '" data-mode="plan" ' +
           (i.plan_queued ? 'disabled' : '') + '>' +
           (i.plan_queued ? 'Plan queued' : 'Plan only') + '</button> '
@@ -3142,6 +3196,7 @@ document.addEventListener('click', async function (ev) {
 });
 
 """
+JS = JS.replace("__PR_PLAN_ENABLED__", "true" if pr_plan_enabled else "false")
 
 # ---------------------------------------------------------------- page assembly
 page = f"""<!doctype html>
@@ -3264,6 +3319,7 @@ page = f"""<!doctype html>
             placeholder="PROJ-301" style="width:130px"
             title="Explicit ticket linkage wins over branch/title/commit discovery"></label>
           <button class="btn btn-primary" id="wz-start-pr">Analyze PR &amp; generate tests</button>
+          {pr_plan_buttons}
         </div>
         <div class="wz-row hidden" id="wz-jira-inputs">
           <label class="f">Ticket <input id="wz-key" class="h32"

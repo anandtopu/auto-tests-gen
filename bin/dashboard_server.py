@@ -671,8 +671,8 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(url.query)
             key = q.get("key", [""])[0]
             mode = q.get("mode", ["pr"])[0]
-            if not re.fullmatch(r"[\w.-]+", key or "") or mode not in ("pr", "jira"):
-                self._send(400, {"error": "key (word chars) and mode=pr|jira required"})
+            if not re.fullmatch(r"[\w.-]+", key or "") or mode not in ("pr", "jira", "pr-plan"):
+                self._send(400, {"error": "key (word chars) and mode=pr|jira|pr-plan required"})
                 return
             self._send(200, wizard_status.build(key, mode))
         elif url.path == "/api/trace":
@@ -921,7 +921,9 @@ class Handler(BaseHTTPRequestHandler):
                 # what the user actually has in hand. Asking for a registry name plus
                 # a PR number instead is what makes a Stash run fail on a project the
                 # user never knew they had to configure.
-                parsed = pr_url.parse(target) if p.get("mode") == "pr" else None
+                parsed = pr_url.parse(target) if (p.get("mode") == "pr" or
+                                                   (p.get("mode") == "plan" and
+                                                    (pr or "/pull" in target))) else None
                 if parsed:
                     target, pr = parsed["slug"], parsed["pr"]
                     if not repo_admin.is_registered(target):

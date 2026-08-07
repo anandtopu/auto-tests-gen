@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Core pipeline entry (Path 1/2/3 all call this). architecture §5.3, §5.8
 # Usage: pipeline.sh pr <source_repo> <pr_number> | pipeline.sh jira <KEY>
-#        pipeline.sh plan  <KEY>   author the test plan ONLY, then stop for human
+#        pipeline.sh plan  <KEY> | <source_repo> <pr_number>
+#                                  author the test plan ONLY, then stop for human
 #                                  review/edit/approval (no test code, no commit)
 #        pipeline.sh tests <KEY>   resume from an APPROVED plan: data -> generate ->
 #                                  validate -> gate
@@ -463,9 +464,44 @@ PR_TICKET_CONTEXT=()
 PR_TRIAGE_FUSION_CONTEXT=()
 PR_GENERATE_FUSION_CONTEXT=()
 PR_TICKET_FUSED=0
-if [ "$MODE" = "pr" ]; then
+DISCOVERED_TICKET=""
+PLAN_TICKET=""
+PR_PLAN=0
+STORED_PLAN_TICKET=""
+if [ "$MODE" = "plan" ] && [ "$#" -ge 3 ]; then
+  case "$(printf '%s' "${AIQE_PR_PLAN:-0}" | tr 'A-Z' 'a-z')" in
+    1|true|yes|on) PR_PLAN=1 ;;
+    0|false|no|off) echo "PR_PLAN_DISABLED: set AIQE_PR_PLAN=1 to enable plan-first from PR"; exit 64 ;;
+    *) echo "PR_PLAN_DISABLED: AIQE_PR_PLAN is not a recognized boolean; using OFF"; exit 64 ;;
+  esac
   REPO=$2; PR=$3; export KEY="PR-${REPO}-${PR}"
+  [[ "$PR" =~ ^[1-9][0-9]{0,8}$ ]] || {
+    echo "INVALID_PR: $PR (expected 1-9 digits starting at 1)"; exit 64; }
+elif [ "$MODE" = "tests" ]; then
+  export KEY=$2
+  case "$KEY" in *[!A-Za-z0-9._-]*|"") echo "INVALID_KEY: $KEY"; exit 64;; esac
+  # The existing approval gate remains the single resume authority for both
+  # ticket and PR plans. Target metadata only tells this run where to fetch and
+  # report; it does not create another state machine.
+  python3 engine/lib/plan_state.py require-approved "$KEY"
+  PLAN_TARGET_KIND=$(python3 -c "import sys;sys.path.insert(0,'engine/lib');import plan_state;print((plan_state.get('$KEY').get('target') or {}).get('kind',''))")
+  if [ "$PLAN_TARGET_KIND" = "pr" ]; then
+    case "$(printf '%s' "${AIQE_PR_PLAN:-0}" | tr 'A-Z' 'a-z')" in
+      1|true|yes|on) PR_PLAN=1 ;;
+      *) echo "PR_PLAN_DISABLED: set AIQE_PR_PLAN=1 to resume this PR plan"; exit 64 ;;
+    esac
+    REPO=$(python3 -c "import sys;sys.path.insert(0,'engine/lib');import plan_state;print(plan_state.get('$KEY')['target']['repo'])")
+    PR=$(python3 -c "import sys;sys.path.insert(0,'engine/lib');import plan_state;print(plan_state.get('$KEY')['target']['pr'])")
+    STORED_PLAN_TICKET=$(python3 -c "import sys;sys.path.insert(0,'engine/lib');import plan_state;print(plan_state.get('$KEY')['target'].get('ticket',''))")
+    [ "$KEY" = "PR-${REPO}-${PR}" ] || { echo "INVALID_PR_PLAN_TARGET: stored target does not match $KEY"; exit 64; }
+  fi
+fi
+if [ "$MODE" = "pr" ] || [ "$PR_PLAN" = "1" ]; then
+  if [ "$MODE" = "pr" ]; then REPO=$2; PR=$3; export KEY="PR-${REPO}-${PR}"; fi
   case "$KEY" in *[!A-Za-z0-9._-]*) echo "INVALID_KEY: $KEY"; exit 64;; esac
+  if [ "$PR_PLAN" = "1" ]; then
+    python3 engine/lib/plan_state.py require-requirements "$KEY" --pr
+  fi
   # Shared scratch survives process crashes and later runs. Clear every fixed
   # A1/A2 artifact before consulting the flag so an OFF/no-selection retry can
   # never inherit a prior run's ticket, guidance, provenance, or prompt tail.
@@ -483,6 +519,13 @@ if [ "$MODE" = "pr" ]; then
     0|false|no|off) ;;
     *) echo "[config] AIQE_PR_TICKET_CONTEXT is not a recognized boolean — using OFF" >&2 ;;
   esac
+  # Resume keeps delivery symmetry even if the operator did not repeat the
+  # discovery flag: the validated ticket captured with the approved plan is
+  # revalidated through the same A1/A2 path.
+  if [ -n "$STORED_PLAN_TICKET" ]; then
+    PR_TICKET_ENABLED=1
+    export AIQE_PR_TICKET="$STORED_PLAN_TICKET"
+  fi
   if [ "$PR_TICKET_ENABLED" = "1" ]; then
     if ! SCM pr_context "$REPO" "$PR" > out/pr-context.json 2>/dev/null; then
       printf '%s\n' '{"state":"unavailable","reason":"SCM PR metadata unavailable"}' \
@@ -547,12 +590,19 @@ if [ "$MODE" = "pr" ]; then
       SCM comment "$REPO" "$PR" "AI-QE ticket discovery was ambiguous (${DISCOVERY_KEYS}). Generation continues without ticket context; requeue with an explicit ticket key." || true
     fi
   fi
+  PLAN_TICKET=${DISCOVERED_TICKET:-$STORED_PLAN_TICKET}
   SCM changed_files "$REPO" "$PR" > out/changed.txt
   # P0: the actual patch, not just the file list — triage reviews real hunks
   SCM diff "$REPO" "$PR" > out/pr.diff 2>/dev/null || : > out/pr.diff
   python3 engine/phases/resolve.py pr "$REPO" --changed-files out/changed.txt > out/resolve.contract.json
+  if [ "$PR_PLAN" = "1" ]; then
+    [ -f out/issue-guidance.md ] || cp prompts/issue-types/Story.md out/issue-guidance.md
+    : > out/confluence.md
+    python3 -c 'import json,sys;json.dump({"kind":"pr","repo":sys.argv[1],"pr":sys.argv[2],"ticket":sys.argv[3]},open("out/plan-target.json","w",encoding="utf-8"),indent=2)' \
+      "$REPO" "$PR" "$PLAN_TICKET"
+  fi
 else
-  export KEY=$2
+  export KEY=${KEY:-$2}
   case "$KEY" in *[!A-Za-z0-9._-]*|"") echo "INVALID_KEY: $KEY"; exit 64;; esac
   # Generation from a plan is gated on human approval — check BEFORE any clone/LLM work
   if [ "$MODE" = "tests" ]; then
@@ -738,7 +788,15 @@ elif [ "$MODE" = "tests" ]; then
   fi
   GENERATE "$(CTX generate)" out/issue-guidance.md out/testplan.contract.json out/testdata.contract.json "$AIQE_P_TESTPLANS/${KEY}.md" out/catalog-slice.jsonl "${IMPACT_CONTEXT[@]}" out/repo-conventions.md
 else
-  PHASE analyze  jira-analyze.md "$(CTX analyze)" out/issue-guidance.md out/ticket.json out/confluence.md
+  if [ "$PR_PLAN" = "1" ]; then
+    # A3 plan authoring is driven by the actual patch. The validated fused
+    # ticket, when present, enriches intent but never replaces diff authority.
+    PHASE analyze jira-analyze.md "$(CTX analyze)" out/issue-guidance.md \
+      out/pr.diff out/changed.txt "${PR_TICKET_CONTEXT[@]}" \
+      "${PR_GENERATE_FUSION_CONTEXT[@]}"
+  else
+    PHASE analyze jira-analyze.md "$(CTX analyze)" out/issue-guidance.md out/ticket.json out/confluence.md
+  fi
   # SDD (story 2.1): persist the EARS requirements spec the analyze contract
   # carries — the trace matrix's requirement end, and what a human validates
   # when the requirements gate (2.2) is on. Best-effort; legacy contracts
@@ -766,7 +824,12 @@ else
   if BLOCKING=$(python3 engine/lib/spec_store.py blocking "$KEY" 2>/dev/null); then
     CL_MSG="AI-QE NEEDS CLARIFICATION for ${KEY} before planning: $(echo "$BLOCKING" | tr '
 ' ' ') — answer on the ticket, then re-run."
-    { TRACKER comment "$KEY" "$CL_MSG"; } || true
+    if [ "$PR_PLAN" = "1" ]; then
+      SCM comment "$REPO" "$PR" "$CL_MSG" || true
+      if [ -n "$PLAN_TICKET" ]; then TRACKER comment "$PLAN_TICKET" "$CL_MSG" || true; fi
+    else
+      { TRACKER comment "$KEY" "$CL_MSG"; } || true
+    fi
     NOTIFY post "$CL_MSG" || true
     echo "NEEDS_CLARIFICATION: $(echo "$BLOCKING" | head -1)"
     exit 65
@@ -837,12 +900,22 @@ else
   if [ "$MODE" = "plan" ]; then
     # STOP: the plan awaits human review/edit/approval. No test code, no commit.
     relocate_artifacts
-    python3 engine/lib/plan_state.py record "$KEY" out/testplan.contract.json "$ADVERSARY_LINE" > /dev/null
+    if [ "$PR_PLAN" = "1" ]; then
+      python3 engine/lib/plan_state.py record "$KEY" out/testplan.contract.json \
+        "$ADVERSARY_LINE" out/plan-target.json > /dev/null
+    else
+      python3 engine/lib/plan_state.py record "$KEY" out/testplan.contract.json "$ADVERSARY_LINE" > /dev/null
+    fi
     MSG="AI-QE authored a test plan for ${KEY} (testplans/${KEY}.md) — awaiting review/approval. Approve with: make plan-approve KEY=${KEY}"
     # Tell the reviewer the plan was challenged and how it was resolved — an
     # invisible arbitration is worth nothing to the human doing the approving.
     if [ -n "$ADVERSARY_LINE" ]; then MSG="${MSG} (${ADVERSARY_LINE})"; fi
-    { TRACKER comment "$KEY" "$MSG"; } || true
+    if [ "$PR_PLAN" = "1" ]; then
+      SCM comment "$REPO" "$PR" "$MSG" || true
+      if [ -n "$PLAN_TICKET" ]; then TRACKER comment "$PLAN_TICKET" "$MSG" || true; fi
+    else
+      { TRACKER comment "$KEY" "$MSG"; } || true
+    fi
     NOTIFY post "$MSG" || true
     echo "PLAN_STATUS=DRAFT testplans/${KEY}.md"
     echo "$MSG"
@@ -887,9 +960,13 @@ if [ "$REVIEW_POLICY_RC" -eq 78 ]; then
   echo "[reviewer] $REVIEW_POLICY_LINE"
   python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY" \
     | tee "reports/runs/${RUN_ID}.json" | TELEM emit_event
-  case "$MODE" in jira|tests) TRACKER comment "$KEY" "$SUMMARY" || true ;; esac
+  if [ "$MODE" = "tests" ] && [ "$PR_PLAN" = "1" ]; then
+    if [ -n "$PLAN_TICKET" ]; then TRACKER comment "$PLAN_TICKET" "$SUMMARY" || true; fi
+  else
+    case "$MODE" in jira|tests) TRACKER comment "$KEY" "$SUMMARY" || true ;; esac
+  fi
   NOTIFY post "$SUMMARY" || true
-  if [ "$MODE" = "pr" ]; then
+  if [ "$MODE" = "pr" ] || { [ "$MODE" = "tests" ] && [ "$PR_PLAN" = "1" ]; }; then
     HEAD_SHA=$(git -C "workspace/src/$REPO" rev-parse HEAD 2>/dev/null || echo "")
     if [ -n "$HEAD_SHA" ]; then SCM set_status "$REPO" "$HEAD_SHA" failure "AI-QE run ${RUN_ID}" || true; fi
     PR_COMMENT=$(python3 engine/lib/pr_comment.py "$RUN_ID" "$KEY" 2>/dev/null || true)
@@ -1006,10 +1083,14 @@ fi
 # Best-effort notifications: an unreachable tracker/Slack must not abort the run
 # before the run record, build status, and review-state transition are persisted.
 # tests mode is the plan-first resume of a JIRA ticket — the ticket gets the summary too
-case "$MODE" in jira|tests) TRACKER comment "$KEY" "$SUMMARY" || true ;; esac
+if [ "$MODE" = "tests" ] && [ "$PR_PLAN" = "1" ]; then
+  if [ -n "$PLAN_TICKET" ]; then TRACKER comment "$PLAN_TICKET" "$SUMMARY" || true; fi
+else
+  case "$MODE" in jira|tests) TRACKER comment "$KEY" "$SUMMARY" || true ;; esac
+fi
 NOTIFY post "$SUMMARY" || true
 # P0: surface the outcome as a build status on the PR head (merge-gate visibility)
-if [ "$MODE" = "pr" ]; then
+if [ "$MODE" = "pr" ] || { [ "$MODE" = "tests" ] && [ "$PR_PLAN" = "1" ]; }; then
   HEAD_SHA=$(git -C "workspace/src/$REPO" rev-parse HEAD 2>/dev/null || echo "")
   STATE=success; echo "$SUMMARY" | grep -q quarantined && STATE=failure
   if [ -n "$HEAD_SHA" ]; then SCM set_status "$REPO" "$HEAD_SHA" "$STATE" "AI-QE run ${RUN_ID}" || true; fi

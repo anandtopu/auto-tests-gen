@@ -77,7 +77,8 @@ def build(key, mode="pr"):
         gates = latest.get("gates", []) or []
 
     steps = []
-    if mode == "jira":
+    plan_first = mode in ("jira", "pr-plan")
+    if plan_first:
         plan = plan_state.get(key)
         status = plan.get("status", "")
         plan_pending = [i for i in pending if i["mode"] == "plan"]
@@ -121,7 +122,7 @@ def build(key, mode="pr"):
     #
     # PR keys have no plan, so their run-record inference stays: it is the only
     # source there, and it is correct.
-    if mode == "jira":
+    if plan_first:
         gen_run = (plan_state.get(key) or {}).get("generated_run")
         if not gen_run:
             # THE GATE GOES WITH IT. Clearing only `tests` moved the same lie one

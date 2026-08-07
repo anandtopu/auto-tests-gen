@@ -129,7 +129,7 @@ def _duplicate_warnings():
         return {}
 
 
-def record_plan(key, contract=None, by="pipeline", adversary=""):
+def record_plan(key, contract=None, by="pipeline", adversary="", target=None):
     """Called by the pipeline after the testplan phase: snapshot the contract and put
     the plan in `draft` awaiting human review. Preserves prior history.
 
@@ -152,6 +152,20 @@ def record_plan(key, contract=None, by="pipeline", adversary=""):
                   # Advisory only. Persisting the warning does not alter the
                   # scenario contract or approval state.
                   "duplicate_warnings": _duplicate_warnings()})
+        # A3: PR plans use this SAME entry and state machine. The target is only
+        # resume/delivery metadata; it is not a second lifecycle or authority.
+        if isinstance(target, dict) and target.get("kind") == "pr":
+            repo, pr = str(target.get("repo") or ""), str(target.get("pr") or "")
+            if (key != f"PR-{repo}-{pr}" or not repo or not pr.isdigit()
+                    or not (1 <= int(pr) <= 999_999_999)
+                    or str(int(pr)) != pr):
+                raise SystemExit("invalid PR plan target metadata")
+            e["target"] = {"kind": "pr", "repo": repo, "pr": pr,
+                           "ticket": str(target.get("ticket") or "")}
+        elif target is not None:
+            raise SystemExit("plan target metadata must describe a PR")
+        else:
+            e.pop("target", None)
         # Reuse provenance (cost-reduction 3.3): same out/-is-scratch pattern as
         # the adversary detail — record time is the last moment the marker
         # exists. A FRESH authoring clears any stale provenance from a prior
@@ -416,10 +430,16 @@ def set_requirements_status(key, status, by=""):
     return state[key]
 
 
-def require_requirements(key):
+def require_requirements(key, pr_target=False):
     """Gate for planning (SDD 2.2): when org-config `spec.requirements_gate`
     is on, a plan may only be authored over VALIDATED requirements. Gate off =
     no-op — today's flow, byte for byte (pinned)."""
+    # A3.5 is deliberate, not an accidental absence of requirements state: a
+    # PR has no requirements-authoring mode. Its requirements are the fused
+    # ticket's, while the PR diff remains the change authority.
+    if pr_target:
+        return {"exempt": True,
+                "reason": "PR-keyed plans use diff + fused ticket context"}
     if not _requirements_gate_on():
         return None
     st = get(key).get("requirements_status")
@@ -480,7 +500,14 @@ if __name__ == "__main__":
             except (json.JSONDecodeError, OSError):
                 contract = None
         # Optional 4th arg: the adversarial-review summary line for this plan.
-        print(json.dumps(record_plan(a[1], contract, adversary=a[3] if len(a) > 3 else ""),
+        target = None
+        if len(a) > 4 and pathlib.Path(a[4]).exists():
+            try:
+                target = json.load(open(a[4], encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                raise SystemExit("invalid plan target metadata")
+        print(json.dumps(record_plan(a[1], contract,
+                         adversary=a[3] if len(a) > 3 else "", target=target),
                          indent=2))
     elif a[0] == "requirements-record":         # SDD 2.2: pipeline stop point
         print(json.dumps(requirements_record(a[1]), indent=2))
@@ -488,7 +515,9 @@ if __name__ == "__main__":
         print(json.dumps(set_requirements_status(
             a[1], a[2], a[3] if len(a) > 3 else ""), indent=2))
     elif a[0] == "require-requirements":        # SDD 2.2: planning gate
-        require_requirements(a[1])
+        result = require_requirements(a[1], pr_target="--pr" in a[2:])
+        if result and result.get("exempt"):
+            print(f"{a[1]}: requirements gate exemption — {result['reason']}")
     elif a[0] == "generated":
         print(json.dumps(mark_generated(a[1], a[2]), indent=2))
     elif a[0] == "list":

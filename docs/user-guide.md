@@ -811,6 +811,24 @@ make plan-tests KEY=PROJ-301      # 6. generate E2E tests from the APPROVED plan
 make plans                        # every plan + status, linked, generating run
 ```
 
+The same signed lifecycle can start from a pull request when the default-off
+S5 flag is enabled:
+
+```bash
+AIQE_PR_PLAN=1 AIQE_PR_TICKET_CONTEXT=1 \
+  bash engine/pipeline.sh plan orders-api 201
+make plan-show KEY=PR-orders-api-201
+make plan-approve KEY=PR-orders-api-201 BY=you
+AIQE_PR_PLAN=1 make plan-tests KEY=PR-orders-api-201
+```
+
+The PR diff is authoritative and a validated discovered ticket enriches it. The
+draft link is always posted on the PR and also on that ticket when present. PR
+plans are explicitly exempt from the requirements gate because there is no PR
+requirements-authoring mode; an approved structured PR plan is still enforced
+by the spec gate exactly like a signed ticket plan. Guided run offers the same
+Plan first → Approve → Generate ladder without changing normal PR intake.
+
 Lifecycle: `draft → in_review → approved` (or `changes_requested`), tracked in
 `reports/plans/state.json` with an append-only history of who did what.
 
