@@ -80,7 +80,8 @@ def test_judgement_phases_never_downgrade_in_run_phase():
     judgement phase — a silently cheaper plan is worse than no plan."""
     src = (ROOT / "engine/phases/run_phase.sh").read_text(encoding="utf-8")
     assert "triage|analyze|testdata|critic|validate|resolve)" in src
-    for phase in ("testplan", "planadversary", "planarbiter", "generate"):
+    for phase in ("testplan", "planadversary", "planarbiter", "generate",
+                  "reviewer", "reviewrepair"):
         import re
         m = re.search(r"case \"\$PHASE\" in\s*\n\s*([^)]*)\)", src)
         assert m and phase not in m.group(1), \

@@ -32,7 +32,8 @@ test.describe("checkout", () => {
 def _git(repo, *args):
     result = subprocess.run(["git", "-C", str(repo), *args],
                             capture_output=True, text=True, check=True,
-                            encoding="utf-8", errors="replace")
+                            encoding="utf-8", errors="replace",
+                            stdin=subprocess.DEVNULL)
     return result.stdout.strip()
 
 

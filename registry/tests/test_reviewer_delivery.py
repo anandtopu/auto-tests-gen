@@ -192,7 +192,8 @@ def test_settings_explains_consequences_and_no_bypass():
 def test_pipeline_shell_remains_valid():
     result = subprocess.run(
         [work_queue.bash_exe(), "-n", "engine/pipeline.sh"],
-        cwd=ROOT, text=True, capture_output=True, check=False,
+        cwd=ROOT, text=True, capture_output=True,
+        stdin=subprocess.DEVNULL, check=False,
     )
     assert result.returncode == 0, result.stderr
 

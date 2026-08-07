@@ -146,7 +146,8 @@ def test_bounded_phases_are_not_on_the_authoring_tier():
     for cheap in ("triage", "analyze", "testdata", "critic", "validate"):
         assert "haiku" in models[cheap], f"{cheap} does not need the authoring tier"
     # Judgement-grade work stays on the capable tier — cheap models agree too easily.
-    for rich in ("testplan", "planadversary", "generate", "reviewrepair"):
+    for rich in ("testplan", "planadversary", "generate", "reviewer",
+                 "reviewrepair"):
         assert "haiku" not in models[rich], f"{rich} must stay judgement-grade"
 
 

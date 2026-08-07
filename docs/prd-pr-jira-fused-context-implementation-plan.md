@@ -15,8 +15,8 @@ Source: [prd-pr-jira-fused-context-multi-agent.md](prd-pr-jira-fused-context-mul
 | 6 | B6 Reviewer evaluation | S3 | B1 | Implemented | Hash-pinned seeded defects, clean control, per-class catch rates, and separate simulated/real-model evidence |
 | 7 | B2 Bounded repair | S4 | B1, B6 | Implemented | Bounded per-repo repair, revalidation, rereview, metering, and unresolved-finding history |
 | 8 | B3 Delivery policy | S4 | B1, B2, B4 | Implemented | `off|warn|require`, strict pre-gate refusal evidence, unavailable policy, no per-run bypass, cross-surface outcome, C14 pins; detailed mapping in [pr-jira-fused-context-b3-implementation-plan.md](pr-jira-fused-context-b3-implementation-plan.md) |
-| 9 | B5 Cost containment | S3/S4 | B1–B3 | Next eligible | Judgement-tier pin, budget-envelope uplift, reviewer-panel deferral trigger |
-| 10 | A3 Plan-first from PR | S5 | A1, A2, B1–B4 | Planned | Extend the existing plan-state lifecycle to PR keys and PR intake |
+| 9 | B5 Cost containment | S3/S4 | B1–B3 | Implemented | Judgement-tier pin, shared effective-envelope uplift, honest queue warning, and reviewer-panel deferral trigger |
+| 10 | A3 Plan-first from PR | S5 | A1, A2, B1–B4 | Next eligible | Extend the existing plan-state lifecycle to PR keys and PR intake |
 
 The order follows the PRD delivery slices. A3 remains last because the PRD makes
 fusion and reviewer delivery prerequisites for a useful, trustworthy PR plan.
@@ -110,7 +110,18 @@ phase caches. Detailed acceptance and evidence are in
 Implemented as an estate-only `off|warn|require` decision after bounded repair
 and before critic/gate. Required needs-work exits 78 with strict run evidence
 and named fixes; C14 keeps reviewer, gate, critic, and human disposition
-separate. B5 now owns the remaining judgement-tier and envelope-cost work.
+separate.
+
+### B5 - Cost containment
+
+Implemented with reviewer/reviewrepair pinned to the capable tier and excluded
+from degradation. A shared effective-envelope calculation adds a provisional
+$0.75 planning allowance only when generated-test review runs, while runtime
+and queue intake consume the same cap and explicit environment limits retain
+precedence. The panel is declaratively deferred for one real 90-day quarter
+until Product sets E4's escape-rate threshold. Detailed acceptance and evidence
+are in
+[pr-jira-fused-context-b5-implementation-plan.md](pr-jira-fused-context-b5-implementation-plan.md).
 
 ### A3 — Plan-first from PR
 

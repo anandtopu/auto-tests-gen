@@ -341,6 +341,40 @@ def _cross_repo():
         return False
 
 
+def workflow_envelope(mode, cfg=None):
+    """Return (effective, base, review_uplift) for one workflow.
+
+    The B5 uplift is planning headroom, not a measured cost claim. It applies
+    only when the generated-test reviewer can actually run; default-disabled
+    review therefore preserves the original envelope byte-for-byte. Keeping
+    this calculation here gives runtime enforcement and queue intake one
+    answer instead of two config interpretations that can drift.
+    """
+    try:
+        import yaml
+        cfg = cfg if isinstance(cfg, dict) else (
+            yaml.safe_load(open(ROOT / "registry/org-config.yaml",
+                                encoding="utf-8")) or {}
+        )
+        budgets = cfg.get("budgets") or {}
+        base = (budgets.get("envelopes") or {}).get(mode)
+        if (isinstance(base, bool) or not isinstance(base, (int, float))
+                or base <= 0):
+            return 0.0, 0.0, 0.0
+        uplift = 0.0
+        if mode in {"pr", "jira", "tests"}:
+            import test_reviewer
+            review_cfg = cfg.get("review") or {}
+            raw = (budgets.get("review_uplift_usd") or {}).get(mode, 0)
+            if (test_reviewer.enabled(review_cfg)
+                    and not isinstance(raw, bool)
+                    and isinstance(raw, (int, float)) and raw > 0):
+                uplift = float(raw)
+        return float(base) + uplift, float(base), uplift
+    except Exception:
+        return 0.0, 0.0, 0.0
+
+
 def limits():
     """(cost_limit_usd, wallclock_min, cost_source). A limit of 0 disables it."""
     env = os.environ.get("MAX_COST_USD_PER_RUN", "").strip()
@@ -361,10 +395,12 @@ def limits():
             # get a JIRA plan+generate chain's allowance. Explicit env still
             # wins (checked above) — the layering rule everywhere.
             mode = os.environ.get("AIQE_RUN_MODE", "").strip()
-            env_map = b.get("envelopes") or {}
-            v = env_map.get(mode)
-            if isinstance(v, (int, float)):
-                cost_limit, source = float(v), f"org-config envelopes.{mode}"
+            effective, _base, uplift = workflow_envelope(mode, cfg)
+            if effective > 0:
+                cost_limit = effective
+                source = f"org-config envelopes.{mode}"
+                if uplift:
+                    source += " + review uplift"
             else:
                 key = ("max_cost_usd_cross_repo" if _cross_repo()
                        else "max_cost_usd_single_suite")
@@ -386,10 +422,11 @@ def grade(start_epoch=0):
     drop to the cheap tier), 'degrade_context' (80-100%: scoped context budgets
     halve as well), 'abort' (>100%; `check` turns this into exit 77).
 
-    Judgement phases (testplan, adversary pair, generate) NEVER downgrade —
-    they run full-quality or the run aborts; a silently cheaper plan is worse
-    than no plan. Cost grading needs a metered phase, like `check`; wall-clock
-    is not graded (a slow run is aborted, not degraded).
+    Judgement phases (testplan, adversary pair, generate, reviewer and
+    reviewrepair) NEVER downgrade — they run full-quality or the run aborts;
+    a silently cheaper plan or rubber-stamping reviewer is worse than no
+    result. Cost grading needs a metered phase, like check; wall-clock is not
+    graded (a slow run is aborted, not degraded).
     """
     cost_limit, _, _ = limits()
     tot, metered, _ = total()

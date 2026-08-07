@@ -104,8 +104,11 @@ JIRA context for a ticket that does not exist yet. A pasted Stash/Bitbucket/
 GitHub PR URL is parsed into its project and slug — on Stash the URL carries the
 project key, which is otherwise a per-repo registry field you would have to know.
 
-Queue intake **warns** when a key's measured history exceeds its budget envelope.
-It does not refuse: the envelope is a planning number, not a permission.
+Queue intake **warns** when a key's measured history exceeds its effective
+budget envelope. When generated-test review is active, the warning spells out
+the base cap plus provisional agent-review uplift; plan-only and disabled/off
+review retain the base. It does not refuse: the envelope is a planning number,
+not a permission.
 
 ## Test plans
 

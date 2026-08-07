@@ -738,6 +738,24 @@ and the critic remains the separate C2 advisory signal. C14 pins each of those
 claims. Rollout is warn first, require only after measured clean controls; there
 is no per-run consequence bypass.
 
+B5 treats both `reviewer` and `reviewrepair` as judgement work. They use the
+capable model tier and are absent from the degradation ladder's cheap-phase
+allow-list: near-budget review either runs at full quality or the existing
+exit-77 guard stops the run. Active review adds a provisional $0.75 planning
+uplift to the PR, JIRA and approved-plan-resume (`tests`) envelopes. The base
+caps remain unchanged and the uplift is absent for plan-only work or when
+review is disabled/off. `budget.workflow_envelope` is the single calculation
+used by both enforcement and queue warnings, which render base plus uplift.
+This allowance is not a measured cost claim and must be recalibrated from real
+parity data, especially if `review.max_loops` changes.
+
+A multi-reviewer panel is deliberately not implemented. Org config records it
+as disabled/deferred with the trigger metric `reviewer_escape_rate`, a
+90-day real-evidence window, and no threshold until Product closes PRD E4.
+Adopt a panel only when an agreed threshold is exceeded over a complete real
+quarter; until human findings are captured sufficiently to calculate that
+rate, the trigger is unmeasured rather than assumed clear.
+
 ### 5.9 Test Catalog & Mapping Subsystem (new in v2.0)
 
 **The problem this solves:** E2E test repositories can contain tests with no recorded relationship to application repositories or features. Without that mapping, the platform cannot (a) route triggers to the right test repo, (b) decide update-vs-create (leading to duplicate tests), or (c) report requirement coverage. The registry's `covers:` map in §5.8.1 is therefore **derived from the catalog**, not hand-authored.
@@ -917,8 +935,8 @@ levers: [cost-optimization.md](cost-optimization.md)):
 1. **Deliberate model tiers.** Every phase names its model in org-config `models:`;
    a test fails if any phase falls back implicitly. Bounded, structured phases
    (triage, analyze, testdata, critic, validate) run the cheap tier; judgement-grade
-   phases (testplan, adversary/arbiter, generate) run the capable tier; `escalate`
-   exists for repeated generate failures.
+   phases (testplan, adversary/arbiter, generate, reviewer, reviewrepair) run
+   the capable tier.
 2. **Cache-ordered prompts.** `run_phase.sh` sends the prompt template VERBATIM and
    appends run parameters last, so prompt + shared context form a byte-identical,
    provider-cacheable prefix across runs. The same most-stable-first ordering
@@ -976,9 +994,11 @@ measured results and per-layer summary: [cost-optimization.md](cost-optimization
    testplan contexts pull PRIOR ART under an explicit data-framing heading.
 6. **Spend controls** (stories 5.x). No-op phases are skipped deterministically
    (recorded, rendered distinct from failure); per-workflow budget envelopes
-   with a queue-intake warning; a degradation ladder (60% of envelope → cheap
-   tier for non-judgement phases, 80% → halved context budgets, 100% → the
-   §5.8 exit-77 abort) — judgement phases never downgrade.
+   with a queue-intake warning; active generated-test review adds a provisional
+   $0.75 planning uplift to PR/JIRA/tests while disabled/off and plan-only
+   workflows retain their base caps. A degradation ladder (60% of effective
+   envelope → cheap tier for non-judgement phases, 80% → halved context
+   budgets, 100% → the §5.8 exit-77 abort) never downgrades judgement phases.
 7. **Advisory near-duplicate detection** (`duplicate_detector.py`, PRD A4).
    Proposed JIRA scenarios and PR-generated test contracts are compared with
    A1 testcase chunks using independent semantic/lexical thresholds. Results

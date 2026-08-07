@@ -17,7 +17,7 @@ MODEL=$(python3 -c "import yaml;c=yaml.safe_load(open('$CFG'));m=c['models'];pri
 # Degradation ladder (cost-reduction 5.3): near the budget envelope,
 # NON-JUDGEMENT phases drop to the cheap tier (validate's — haiku) and, one
 # rung later, scoped contexts halve. Judgement/write phases (testplan, the adversary
-# pair, generate, reviewrepair) never downgrade — they run full-quality or the run aborts at
+# pair, generate, reviewer, reviewrepair) never downgrade — they run full-quality or the run aborts at
 # 100% via the existing exit-77 guard. Every rung is recorded for the run
 # record: a reduced-cost result must say so.
 GRADE=$(python3 engine/lib/budget.py grade 2>/dev/null || echo ok)

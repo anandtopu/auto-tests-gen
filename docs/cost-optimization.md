@@ -45,7 +45,7 @@ is gone — a test fails if any phase is unlisted.
 | Tier | Phases | Why |
 |---|---|---|
 | Haiku | `triage`, `analyze`, `testdata`, `critic`, `validate`, `resolve*` | bounded, structured jobs: classify a diff, extract behaviours from a ticket, emit fixtures from a fixed schema, score advisory quality, run specs and repair narrowly |
-| Sonnet | `testplan`, `planadversary`, `planarbiter`, `generate` | judgement-grade. The plan is what a human signs off; the adversary's entire value is catching what a competent author missed, and cheap models agree too easily; `generate` writes the code that gets committed |
+| Sonnet | `testplan`, `planadversary`, `planarbiter`, `generate`, `reviewer`, `reviewrepair` | judgement-grade. The plan and generated tests are what humans act on; cheap reviewers agree too easily, while generation/repair writes code that may be committed |
 | Opus | `escalate` | only after two failed generate attempts |
 
 **5 of 10 phases moved off the authoring tier**, up from 1.
@@ -171,9 +171,10 @@ mechanism has a kill switch (Settings → "Cost levers") and its pins.
   everywhere. Exemplars rank semantically (legacy penalty first); testdata/
   testplan contexts pull PRIOR ART under an explicit data-framing heading.
 - **Spend controls**: no-op phase skips; per-workflow budget envelopes with a
-  queue-intake warning; a degradation ladder (60% → cheap tier for
+  queue-intake warning and a provisional active-review uplift; a degradation ladder (60% → cheap tier for
   non-judgement phases, 80% → halved context budgets, 100% → the existing
-  exit-77 abort). Judgement phases never downgrade.
+  exit-77 abort). Judgement phases, including reviewer and review repair, never
+  downgrade.
 - **Prompt caching**: `make cache-probe` measures whether provider caching
   engages on our prefix shape before anyone builds a fallback; `cost-report`
   tracks per-phase hit rates against an optional floor.

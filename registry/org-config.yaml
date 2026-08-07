@@ -13,7 +13,7 @@ models:
   triage: claude-haiku-4-5-20251001     # classify a diff's impact — bounded
   analyze: claude-haiku-4-5-20251001    # extract behaviors from a ticket — extraction
   testdata: claude-haiku-4-5-20251001   # emit fixtures from a fixed schema
-  reviewer: claude-haiku-4-5-20251001   # provisional; B6 measures review quality
+  reviewer: claude-sonnet-4-6           # judgement tier; a cheap reviewer rubber-stamps
   reviewrepair: claude-sonnet-4-6        # edits code that may be committed; authoring tier
   critic: claude-haiku-4-5-20251001     # advisory score, never gates a commit
   validate: claude-haiku-4-5-20251001   # run specs, read failures, repair narrowly
@@ -107,6 +107,16 @@ review:
   on_unavailable: proceed
   max_loops: 1
   reviewers: []
+  # Multiple reviewer lenses multiply cost before real evidence says they help.
+  # Product must set the escape-rate threshold after one real 90-day quarter;
+  # until then there is no panel phase to enable or silently invoke.
+  panel:
+    status: deferred
+    enabled: false
+    trigger:
+      metric: reviewer_escape_rate
+      observation_days: 90
+      threshold: null
 resolution:
   confidence_threshold: 0.8
   clarify_channels: [tracker, notify]   # post question to Jira + Slack when below threshold
@@ -189,6 +199,14 @@ budgets:
     jira: 4.00
     plan: 1.00
     tests: 3.00
+  # Provisional PLANNING allowance, not measured spend: one initial reviewer
+  # call plus at most one repair and rereview at the default max_loops=1.
+  # budget.workflow_envelope applies it only when review actually runs; revisit
+  # from real cost evidence together with any max_loops change.
+  review_uplift_usd:
+    pr: 0.75
+    jira: 0.75
+    tests: 0.75
   # Embedding spend guard (cost-reduction 3.2): the vector index stops
   # refreshing past the daily cap (queries fall back to TF-IDF); price is the
   # $/M-token estimate used for the day ledger, not a billed figure.

@@ -334,6 +334,7 @@ its fixture; a skip stub never counts as a failed phase.
 ```yaml
 budgets:
   envelopes: {pr: 1.50, jira: 4.00, plan: 1.00, tests: 3.00}
+  review_uplift_usd: {pr: 0.75, jira: 0.75, tests: 0.75}
 ```
 
 `budget.py check` resolves the envelope from `AIQE_RUN_MODE` (pipeline exports
@@ -342,13 +343,21 @@ it); explicit `MAX_COST_USD_PER_RUN` still wins (layering rule). Queue intake
 already over its envelope — the warning lands in the item and the wizard shows
 it. **Pins**: envelope resolution precedence; warning path.
 
+PRD v2 B5 keeps those four values as the base envelope. When the generated-test
+reviewer actually runs, `budget.workflow_envelope` adds the configured
+provisional $0.75 planning allowance to PR/JIRA/tests and exposes the same
+effective cap to queue intake. Disabled/off review and plan-only work add zero;
+an explicit `MAX_COST_USD_PER_RUN` still wins. The allowance is not a measured
+cost claim and must be recalibrated after real reviewer traffic.
+
 ### 5.3 Degradation ladder
 
 `budget.py check` gains graded results: `ok | degrade_tier | degrade_context |
 abort` at 60/80/100% of the envelope. `run_phase.sh` consults it: `degrade_tier`
 maps non-judgement phases (`triage,analyze,testdata,critic,validate`) to the
 haiku tier if not already there; `degrade_context` halves `context_budget` for
-scoped phases. Judgement phases ignore degradation and abort at 100% as today.
+scoped phases. Judgement phases, including `reviewer` and `reviewrepair`,
+ignore degradation and abort at 100% as today.
 Every rung: run-record entry + wizard chip ("reduced-cost mode"). **Pins**: rung
 thresholds; judgement phases never downgrade; run record carries the ladder.
 

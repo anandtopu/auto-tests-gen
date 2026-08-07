@@ -1128,6 +1128,14 @@ live in org-config `budgets:`; a run that degraded says so on the wizard's
 generate step. After real runs exist, `make cost-baseline` freezes per-phase
 medians and `make maintain` alarms on >25% regressions.
 
+Generated-test review is judgement work: `reviewer` and `reviewrepair` stay
+on the capable tier even near the envelope. When review actually runs, the
+effective PR, JIRA, or `tests` envelope is its unchanged base plus the
+configured `review_uplift_usd` (currently a provisional $0.75 planning
+allowance, not measured spend). Plan-only and disabled/off review receive no
+uplift. Queue warnings show both parts of the effective cap, while an explicit
+`MAX_COST_USD_PER_RUN` continues to override it.
+
 `AIQE_ARTIFACT_REUSE=1` enables the durable second-level cache in addition to its
 existing duplicate/learning preview behavior. The local phase cache is always
 asked first; only its miss can become an artifact reuse. Identical prompt,

@@ -287,7 +287,8 @@ def test_pipeline_and_mock_shell_remain_syntactically_valid():
     for path in ("engine/pipeline.sh", "engine/phases/mock_phase.sh"):
         result = subprocess.run(
             [work_queue.bash_exe(), "-n", path],
-            cwd=ROOT, text=True, capture_output=True, check=False
+            cwd=ROOT, text=True, capture_output=True,
+            stdin=subprocess.DEVNULL, check=False
         )
         assert result.returncode == 0, result.stderr
 

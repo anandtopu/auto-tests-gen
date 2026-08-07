@@ -245,8 +245,10 @@ ceiling. Add the entry named in the message.
 **Cost levers**, each with its own kill switch: phase cache, retrieval-scoped
 context, budget envelopes per workflow, and a degradation ladder that drops
 non-judgement phases to a cheaper tier at 60% of envelope. Judgement phases
-(plan, adversary, generate) never downgrade — they run full quality or the run
-aborts.
+(plan, adversary, generate, reviewer, review repair) never downgrade — they
+run full quality or the run aborts. Active generated-test review adds the
+configured provisional allowance to PR/JIRA/tests envelopes; queue warnings
+show the effective base-plus-review cap.
 
 ---
 
