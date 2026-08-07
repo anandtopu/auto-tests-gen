@@ -17,6 +17,7 @@ CLI:
   cost_report.py report [--days N] [--md]
 """
 import json
+import math
 import pathlib
 import sys
 import time
@@ -30,12 +31,57 @@ RUNS = ROOT / "reports/runs"
 # The run-history directory holds more than run records — the invariant every
 # glob in this codebase honours.
 SKIP = ("reviews.json", "queue.json", "hooks-seen.json")
+MAX_WINDOW_DAYS = 36500
+_SPEND_INTS = ("input_tokens", "output_tokens", "cache_read_tokens",
+               "cache_creation_tokens", "turns_used", "max_turns")
+_SPEND_LABELS = ("provider", "model", "cost_basis")
+
+
+def _window_days(days):
+    """Return a bounded positive reporting window, or ``None`` for all time."""
+    if days is None:
+        return None
+    try:
+        value = int(days)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("days must be a whole number") from exc
+    if value < 1 or value > MAX_WINDOW_DAYS:
+        raise ValueError(f"days must be between 1 and {MAX_WINDOW_DAYS}")
+    return value
+
+
+def _clean_spend(spend):
+    """Normalize a persisted spend mapping, refusing shape-corrupt rows."""
+    clean = dict(spend)
+    try:
+        cost = float(spend.get("cost_usd") or 0)
+        if not math.isfinite(cost) or cost < 0:
+            return None
+        clean["cost_usd"] = cost
+        for field in _SPEND_INTS:
+            value = int(spend.get(field) or 0)
+            if value < 0:
+                return None
+            clean[field] = value
+    except (TypeError, ValueError, OverflowError):
+        return None
+    for field in _SPEND_LABELS:
+        value = spend.get(field)
+        if value is not None and not isinstance(value, str):
+            return None
+        clean[field] = value or ""
+    simulated = spend.get("simulated", False)
+    if not isinstance(simulated, bool):
+        return None
+    clean["simulated"] = simulated
+    return clean
 
 
 def collect(days=None):
     """[{run_id, key, mode, ts, phases: [{name, spend}...]}] oldest-first,
     spend-carrying phases only. Torn records are skipped, never fatal."""
-    cutoff = time.time() - days * 86400 if days else 0
+    days = _window_days(days)
+    cutoff = time.time() - days * 86400 if days is not None else 0
     out = []
     if not RUNS.is_dir():
         return out
@@ -48,15 +94,37 @@ def collect(days=None):
                 rec = json.load(open(f, encoding="utf-8"))
             except Exception:
                 continue
-        if not isinstance(rec, dict) or rec.get("ts", 0) < cutoff:
+        if not isinstance(rec, dict):
             continue
-        phases = [{"name": p.get("name", ""), "spend": p["spend"]}
-                  for p in rec.get("phases", [])
-                  if isinstance(p, dict) and isinstance(p.get("spend"), dict)]
+        trigger = rec.get("trigger")
+        phase_rows = rec.get("phases", [])
+        try:
+            ts = float(rec.get("ts", 0))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if (not math.isfinite(ts) or ts < cutoff
+                or not isinstance(trigger, dict)
+                or not isinstance(phase_rows, list)):
+            continue
+        phases = []
+        corrupt_spend = False
+        for phase in phase_rows:
+            if not isinstance(phase, dict) or not isinstance(phase.get("spend"), dict):
+                continue
+            name = phase.get("name", "")
+            spend = _clean_spend(phase["spend"])
+            if not isinstance(name, str) or spend is None:
+                corrupt_spend = True
+                break
+            phases.append({"name": name, "spend": spend})
+        if corrupt_spend:
+            continue
+        key, mode = trigger.get("key", ""), trigger.get("type", "")
+        if not isinstance(key, str) or not isinstance(mode, str):
+            continue
         out.append({"run_id": rec.get("run_id", f.stem),
-                    "key": (rec.get("trigger") or {}).get("key", ""),
-                    "mode": (rec.get("trigger") or {}).get("type", ""),
-                    "ts": rec.get("ts", 0), "phases": phases,
+                    "key": key, "mode": mode,
+                    "ts": ts, "phases": phases,
                     "artifact_reuse": rec.get("artifact_reuse") or {}})
     return out
 
@@ -415,9 +483,13 @@ def main(argv):
             pass
         return 1
     days = None
-    if "--days" in argv:
-        days = int(argv[argv.index("--days") + 1])
-    rep = report(days)
+    try:
+        if "--days" in argv:
+            days = int(argv[argv.index("--days") + 1])
+        rep = report(days)
+    except (IndexError, ValueError, OverflowError) as exc:
+        print(f"cost report: invalid window: {exc}", file=sys.stderr)
+        return 2
     if "--json" in argv:
         print(json.dumps(rep, indent=1))
     else:

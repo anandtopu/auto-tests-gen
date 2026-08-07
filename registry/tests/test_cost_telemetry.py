@@ -147,6 +147,38 @@ def test_store_files_never_summed(records, tmp_path):
     assert rep["runs"] == 1
 
 
+def test_wrong_shaped_records_do_not_hide_valid_spend(records, tmp_path):
+    cr = records
+    runs = tmp_path / "runs"
+    _run(runs, "valid", "K-1", "pr", [("triage", _spend(0.01))])
+    (runs / "bad-phases.json").write_text(json.dumps({
+        "run_id": "bad-phases", "ts": time.time(),
+        "trigger": {"type": "pr", "key": "K-BAD"}, "phases": None,
+    }), encoding="utf-8")
+    (runs / "bad-trigger.json").write_text(json.dumps({
+        "run_id": "bad-trigger", "ts": time.time(),
+        "trigger": ["not", "a", "mapping"], "phases": [],
+    }), encoding="utf-8")
+    (runs / "bad-ts.json").write_text(json.dumps({
+        "run_id": "bad-ts", "ts": "not-a-timestamp",
+        "trigger": {"type": "pr", "key": "K-BAD"}, "phases": [],
+    }), encoding="utf-8")
+    (runs / "bad-spend.json").write_text(json.dumps({
+        "run_id": "bad-spend", "ts": time.time(),
+        "trigger": {"type": "pr", "key": "K-BAD"},
+        "phases": [{"name": ["not", "text"], "spend": {
+            "provider": {}, "model": [], "cost_usd": {},
+            "input_tokens": [], "turns_used": {}, "max_turns": "many",
+            "cost_basis": [],
+        }}],
+    }), encoding="utf-8")
+
+    rep = cr.report()
+    assert rep["runs"] == 1
+    assert rep["total_cost_usd"] == pytest.approx(0.01)
+    assert rep["by_key_top10"][0]["key"] == "K-1"
+
+
 # ---------------------------------------------------------------- 1.5 turns
 def test_turn_calibration_suggests_from_p95(records, tmp_path):
     cr = records

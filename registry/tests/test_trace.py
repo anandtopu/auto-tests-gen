@@ -93,6 +93,10 @@ def test_unknown_key_gives_an_empty_chain_not_an_exception(estate):
 def test_malformed_key_and_well_formed_corrupt_records_are_total(estate):
     runs = estate / "reports/runs"
     (runs / "array.json").write_text("[]", encoding="utf-8")
+    (runs / "none-phases.json").write_text(json.dumps({
+        "run_id": "none-phases", "trigger": {"type": "jira", "key": "BAD-1"},
+        "ts": 1240, "phases": None,
+    }), encoding="utf-8")
     (runs / "partial.json").write_text(json.dumps({
         "run_id": "partial", "trigger": {"type": "jira", "key": "T-9"},
         "ts": 1250, "phases": [{}],

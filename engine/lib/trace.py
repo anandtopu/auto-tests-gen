@@ -35,7 +35,9 @@ def _run_records():
             record = json.load(open(f, encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
-        if isinstance(record, dict) and isinstance(record.get("trigger"), dict):
+        if (isinstance(record, dict)
+                and isinstance(record.get("trigger"), dict)
+                and isinstance(record.get("phases", []), list)):
             out.append(record)
     return out
 

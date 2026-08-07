@@ -20,7 +20,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 6 | Test plans | author, edit, versions, approve/request changes, export/link | fixed-retested | 2026-08-07: isolated served UI covered author queue, approval/generation gate, edit/review lifecycle, signed diff, mock link, four exports and missing/malformed boundaries; plan-key traversal and concurrent stale-edit/decision defects fixed and retested | — |
 | 7 | Spec workflow | acceptance criteria, scenarios, waivers, drift and verification | fixed-retested | 2026-08-07: isolated UI/API/CLI covered requirements approval, three structured scenarios, waiver add/remove, expiry/unmatched disclosure, drift, verification and off/warn/strict gates; traversal and three inert UI mutations fixed | — |
 | 8 | Trace | PR/JIRA chronology, phase links, empty/unknown keys | fixed-retested | 2026-08-07: served UI/API/CLI/CSV cross-checked PR and JIRA timelines, uncovered scenarios, gate commits, unknown/malformed keys and restart persistence; legacy join and malformed-input defects fixed | — |
-| 9 | Cost | measured/simulated spend, caching savings, filters | untested | — | Empty data, simulated-only, mixed measured data |
+| 9 | Cost | measured/simulated spend, caching savings, filters | fixed-retested | 2026-08-07: deterministic mixed-basis corpus covered reported, estimated, local, simulated and unpriced spend, turn/cache calibration, reuse evidence, filters and corrupt-state resilience; four disclosure/reliability defects fixed | — |
 | 10 | Artifacts | plan/data/tests/diff/code view, coverage report, export/publish | untested | — | Missing/corrupt artifacts and safe rendering |
 | 11 | Activity and alerts | transaction filters, degraded log, rule evaluation, acknowledgement | untested | — | Seed success/failure/refusal/corrupt events |
 | 12 | Test catalog | search, repo/status filters, mapping, CI health, orphan/quarantine | untested | — | Existing four-row seed plus empty/no-match searches |
@@ -310,3 +310,44 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   passed. Detailed review:
   `docs/reviews/exploratory-e2e-iteration-009.md`.
 - Next slice: Cost reporting, measured/simulated spend and cache savings.
+
+### 2026-08-07 — Iteration 10: Cost
+
+- Seed data: one ignored numeric run record added a deterministic synthetic mix
+  of provider-reported, list-price-estimated, local, simulated and unpriced
+  phases plus two artifact reuses (800 reported and 200 estimated avoided
+  tokens). A second ignored record deliberately used `phases: null`. Both were
+  PII-free, credential-free, local-only and removed after retest.
+- Happy paths: CLI, authenticated API and the served Cost view agreed on the
+  $2.2000 priced subtotal, 92% simulated share, five provider bases, local/cloud
+  token split, workflow/key/phase rollups, cache hit rate, turn p50/p95 and
+  suggested ceilings. A one-day filter returned 200 and the view survived
+  regeneration and server restart.
+- Finding `E2E-EXP-018` (P1): the API identified one unpriced cloud call, but
+  the browser still presented `$2.2000` as an unqualified total. The Cost badge
+  and summary now say `incomplete`, name the unpriced provider and state that
+  those calls are excluded.
+- Finding `E2E-EXP-019` (P2): the report contained two artifact reuses and 1,000
+  avoided tokens, but the Cost view showed only phase-cache hits. It now renders
+  both reuse mechanisms separately and retains reported/estimated token bases
+  without inventing dollar savings.
+- Finding `E2E-EXP-020` (P1): one well-formed JSON run with a wrong-shaped
+  `phases` or spend field closed the Cost API connection and could abort static
+  dashboard generation; the same `phases: null` row also escaped Trace's total
+  reader. All three readers now validate record, timestamp, trigger, phase and
+  spend shapes, skip only corrupt evidence, and preserve valid runs.
+- Finding `E2E-EXP-021` (P2): `days=-1` returned a misleading empty report and
+  a sufficiently large integer closed the connection. API/library/CLI windows
+  are now bounded to 1–36,500 days, invalid input returns actionable 400/exit 2,
+  and the next request stays healthy.
+- Review finding fixed before commit: malformed numeric or label values inside
+  an otherwise mapping-shaped spend row could still crash aggregation. Spend
+  fields are now normalized only after finite, non-negative and type checks;
+  a focused regression failed before this hardening and passed afterward.
+- Validation: the three initial focused regressions failed before the fix; the
+  spend-field review regression also failed before hardening. Browser/API/CLI
+  reproductions then passed, including dashboard regeneration with corrupt
+  state present. The final 270-test adjacent cost/budget/cache/provider/artifact/
+  UI/API/Trace suite, compilation and high-signal Ruff checks passed. Detailed
+  review: `docs/reviews/exploratory-e2e-iteration-010.md`.
+- Next slice: Artifacts, including missing/corrupt bundles and safe rendering.

@@ -247,6 +247,17 @@ def test_trace_rejects_a_malformed_key_without_dropping_the_connection(live_serv
     assert status == 200, "the malformed trace request killed the server connection"
 
 
+def test_cost_report_rejects_out_of_range_windows_without_dropping_connection(live_server):
+    base, _ = live_server
+    for days in ("-1", "9" * 1000):
+        status, text = _request(
+            f"{base}/api/cost-report?days={days}", headers=_auth())
+        assert status == 400, text
+
+    status, _ = _request(f"{base}/api/items", headers=_auth())
+    assert status == 200, "the invalid cost window killed the server connection"
+
+
 def test_plan_save_rejects_a_stale_editor_revision(live_server):
     """Two reviewers must not get a successful last-write-wins data loss."""
     base, _ = live_server

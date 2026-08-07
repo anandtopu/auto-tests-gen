@@ -587,10 +587,11 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(url.query)
             try:
                 days = int(q.get("days", [""])[0]) if q.get("days", [""])[0] else None
-            except ValueError:
-                self._send(400, {"error": "days must be a number"})
+                report = cost_report.report(days)
+            except (ValueError, OverflowError) as e:
+                self._send(400, {"error": _err(e)})
                 return
-            self._send(200, cost_report.report(days))
+            self._send(200, report)
         elif url.path == "/api/trace-matrix":
             # Requirement traceability (roadmap 3.1): key -> scenario -> spec ->
             # gate commit -> CI health, one row per scenario. ?format=csv downloads.

@@ -641,6 +641,27 @@ def test_entering_a_view_reloads_it():
         assert f"onEnter('{view}'" in s, f"{view} does not reload on entry"
 
 
+def test_cost_view_discloses_incomplete_totals_and_artifact_reuse():
+    """Cost must not present a partial bill as complete or hide reuse evidence."""
+    source = _ui()
+    cost = source[source.index("async function refreshCost()"):
+                  source.index("// ---- batch review")]
+    assert "d.unpriced_calls" in cost and "d.unpriced_providers" in cost, \
+        "the dashboard hides that its headline total excludes unpriced calls"
+    assert "d.artifacts_reused" in cost
+    assert "d.artifact_reuse_tokens_avoided" in cost
+    assert "d.artifact_reuse_tokens_by_basis" in cost
+
+
+def test_dashboard_filters_wrong_shaped_run_records_before_rendering():
+    source = _ui()
+    loader = source[source.index("# ---------------------------------------------------------------- data loading"):
+                    source.index("catalog = []")]
+    assert 'isinstance(record.get("trigger"), dict)' in loader
+    assert 'isinstance(record.get("phases", []), list)' in loader
+    assert "math.isfinite(timestamp)" in loader
+
+
 def test_a_failed_loader_says_so_instead_of_rendering_an_empty_table():
     """An empty table is indistinguishable from "there is genuinely nothing
     here" — and on the activity and alert views those two readings lead to

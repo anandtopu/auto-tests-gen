@@ -8,7 +8,7 @@ status chips, a needs-attention feed, and toast feedback. Self-contained HTML,
 server-rendered from real state; interactive actions light up when served by
 bin/dashboard_server.py (make serve). Regenerate: make dashboard.
 """
-import glob, html, json, pathlib, sys, time
+import glob, html, json, math, pathlib, sys, time
 import os
 import yaml
 
@@ -28,9 +28,21 @@ for f in glob.glob(str(ROOT / "reports/runs/*.json")):
     if pathlib.Path(f).name in ("reviews.json", "queue.json", "hooks-seen.json"):
         continue
     try:
-        runs.append(json.load(open(f, encoding="utf-8")))
+        record = json.load(open(f, encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        pass
+        continue
+    if (not isinstance(record, dict)
+            or not isinstance(record.get("trigger"), dict)
+            or not isinstance(record.get("phases", []), list)):
+        continue
+    try:
+        timestamp = float(record.get("ts", 0))
+    except (TypeError, ValueError, OverflowError):
+        continue
+    if not math.isfinite(timestamp):
+        continue
+    record["ts"] = timestamp
+    runs.append(record)
 runs.sort(key=lambda r: r.get("ts", 0), reverse=True)
 
 catalog = []
@@ -2326,13 +2338,19 @@ async function refreshCost() {
       : sim === 0 ? '<span class="chip chip-ok">measured</span>'
       : sim === 1 ? '<span class="chip chip-warning">all simulated</span>'
       : '<span class="chip chip-warning">' + Math.round(sim * 100) + '% simulated</span>';
+    const incomplete = d.unpriced_calls
+      ? ' <span class="chip chip-danger">incomplete · ' + d.unpriced_calls +
+        ' unpriced call(s): ' + escHtml((d.unpriced_providers || []).join(', ')) + '</span>'
+      : '';
     const el = document.getElementById('cost-badge');
-    if (el) el.innerHTML = badge;
+    if (el) el.innerHTML = badge + incomplete;
     const modes = Object.entries(d.by_mode || {}).map(([m, v]) =>
       escHtml(m) + ': ' + v.runs + ' run(s) $' + v.cost_usd.toFixed(4)).join(' · ');
     const sum = document.getElementById('cost-summary');
     if (sum) sum.innerHTML = '<b>Total $' + (d.total_cost_usd || 0).toFixed(4) +
-      '</b> across ' + d.runs + ' run(s)' + (modes ? ' — ' + modes : '');
+      '</b> across ' + d.runs + ' run(s)' + (modes ? ' — ' + modes : '') +
+      (d.unpriced_calls ? ' · <b>incomplete:</b> excludes ' + d.unpriced_calls +
+        ' call(s) without pricing' : '');
     const pt = document.querySelector('#cost-phase-table tbody');
     if (pt) pt.innerHTML = Object.entries(d.by_phase || {}).sort().map(([k, v]) =>
       '<tr><td class="mono sm">' + escHtml(k) + '</td><td>' + v.calls + '</td>' +
@@ -2369,13 +2387,20 @@ async function refreshCost() {
       '<td>$' + e.cost_usd.toFixed(4) + '</td></tr>').join('') ||
       '<tr><td colspan="3"><div class="empty">No keyed spend yet.</div></td></tr>';
     const sv = document.getElementById('cost-savings');
-    if (sv) sv.textContent = 'Phase-cache hits: ' + (d.phase_cache_hits || 0) +
-      ' — estimated saving: ' + (d.phase_cache_savings_usd != null
-        ? '$' + d.phase_cache_savings_usd.toFixed(4)
-        : 'n/a (no measured runs yet)') +
-      (d.openhands_payload_est_tokens
-        ? ' · OpenHands payloads ~' + d.openhands_payload_est_tokens +
-          ' tokens (billed on the OpenHands side)' : '');
+    if (sv) {
+      const reuseBasis = Object.entries(d.artifact_reuse_tokens_by_basis || {})
+        .map(([basis, tokens]) => tokens + ' ' + basis).join(' + ');
+      sv.textContent = 'Phase-cache hits: ' + (d.phase_cache_hits || 0) +
+        ' — estimated saving: ' + (d.phase_cache_savings_usd != null
+          ? '$' + d.phase_cache_savings_usd.toFixed(4)
+          : 'n/a (no measured runs yet)') +
+        ' · Artifacts reused: ' + (d.artifacts_reused || 0) +
+        ' — tokens avoided: ' + (d.artifact_reuse_tokens_avoided || 0) +
+        (reuseBasis ? ' (' + reuseBasis + ')' : '') +
+        (d.openhands_payload_est_tokens
+          ? ' · OpenHands payloads ~' + d.openhands_payload_est_tokens +
+            ' tokens (billed on the OpenHands side)' : '');
+    }
   } catch (err) { /* advisory view — never block the dashboard */ }
 }
 refreshCost();
