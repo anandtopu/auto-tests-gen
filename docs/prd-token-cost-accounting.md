@@ -2,7 +2,7 @@
 
 |  |  |
 |---|---|
-| **Status** | Draft for review |
+| **Status** | Draft v2 — revised after adversarial gap review (Appendix B) |
 | **Author** | Product Management (QE Platform) |
 | **Date** | 2026-08-06 |
 | **Doc** | `docs/prd-token-cost-accounting.md` |
@@ -37,7 +37,7 @@ provider's bill.
 
 | # | Gap | Evidence |
 |---|---|---|
-| **G1** | **Plan-first and requirements requests leave no durable spend record.** `plan` mode runs 4 real LLM phases (analyze, testplan, adversary, arbiter — judgement-tier, the expensive ones) then exits at `pipeline.sh:922`, *before* the run-record writes at `:961`/`:1105`. The spend exists only in `out/cost.tsv` — which `pipeline.sh:145` wipes at the next run's start. `requirements` mode exits the same way (`:504–506`). The deliberate design "plan mode writes no run record" (correct — it protects commit-rate honesty) silently took the spend record down with it | `cost_report.py:29` reads only `reports/runs/*.json`; nothing else persists cost |
+| **G1** | **Requests can leave no durable spend record — and not only plan-first.** `plan` mode runs 4 real LLM phases (analyze, testplan, adversary, arbiter — judgement-tier, the expensive ones) then exits at `pipeline.sh:922`, *before* the run-record writes at `:961`/`:1105`. `requirements` mode exits the same way (`:504–506`). **And the exit-77 budget abort loses spend on *every* mode**: `_budget_guard` comments, notifies, emits `run.aborted` and exits — no run record — so a pr/jira run refused at its ceiling loses the spend of every phase that *did* complete, and the runs closest to the ceiling are precisely the expensive ones. In all cases the spend exists only in `out/cost.tsv`, which `pipeline.sh:145` wipes at the next run's start. The deliberate design "plan mode writes no run record" (correct — it protects commit-rate honesty) silently took the spend record down with it | `cost_report.py:29` reads only `reports/runs/*.json`; the guard's abort path (`pipeline.sh:148–157`) contains no `run_record.py` call |
 | **G2** | **Consumers the report cannot see.** Embedding spend (`embed-spend.json`) is read only by `vector_index` for its own daily cap — no report includes it. `make cache-probe` makes real billed calls whose cost lands nowhere durable. OpenHands-provider phases are honestly `unknown` in ledger rows, but no report line says "N tasks ran on an account we cannot meter" | grep: `embed-spend` referenced only by `vector_index.py` |
 | **G3** | **"Authentic" currently means internally honest, not externally verified.** The four bases guarantee the report never lies about *what kind* of number it shows — but nothing compares the sum of `reported` rows against what the provider actually billed. Telemetry drift (a missed harvest, a double count, a CLI format change) would be invisible until the invoice | no provider usage/billing API is called anywhere |
 | **G4** | **A crashed phase's spend vanishes while the provider still bills it.** A phase killed mid-call never writes its result JSON, so `budget.record()` harvests nothing — zero rows, which reads as "spent nothing" (C13) | `phase_usage()` returns zeros for unreadable input |
@@ -99,13 +99,48 @@ exit 65 clarification, exit 77 budget abort, phase failure).
   an exit-path flush (shell `trap`, so the draft-stop and abort paths are
   covered by construction, not by remembering to add a call at each `exit`).
   Rows carry: run id, mode, key, phase, provider, model, basis, the four token
-  counts, turns, cost. Content is `out/cost.tsv`'s — the flush makes durable
-  what metering already produced.
-- **A1.2** — `cost_report` SHALL read the **union** of ledger entries and
-  run-record spend blocks, deduplicated by (run id, phase) — and the
-  no-double-count property SHALL be pinned with a fixture where both sources
-  carry the same run. The prior PRDs' single-count rule applies: a total that
-  counts one call twice is a lie in the flattering direction.
+  counts, turns, cost, and an attribution stamp (A1.7/B1.2). Content is
+  `out/cost.tsv`'s — the flush makes durable what metering already produced.
+  Naming note, because the obvious name is taken: **`AIQE_COST_LEDGER` already
+  exists** (`budget.py:34`) as the *path* of the per-run metering file — the
+  durable store's knobs are `AIQE_SPEND_LEDGER` (enable, default on) and
+  `AIQE_COSTS_DIR` (location/isolation), and nothing may overload the existing
+  variable.
+- **A1.1a** — **The flush shares one EXIT handler with the run lock.**
+  `pipeline.sh:72` already traps EXIT to release `out/.pipeline.lock`, and
+  bash traps *replace*, they do not stack — a second `trap … EXIT` would
+  silently disable lock release and every run would strand a stale lock, the
+  90-minute-stall class this platform already fought once. Therefore: one
+  chained handler, flush **then** release, the flush SHALL never alter the
+  run's exit code, RUN_ID is resolved at fire time (it is born at `:452`,
+  after the trap installs at `:72`) with an unset RUN_ID meaning skip
+  cleanly — and lock-release-on-every-exit-path SHALL be pinned, so a cost
+  feature can never quietly break the run lock.
+- **A1.2** — All spend consumers SHALL read through **one accessor**
+  (`spend_rows()` — the union of ledger entries and run-record spend blocks),
+  deduplicated by (run id, phase), with the run-record block **winning** when
+  both exist (it carries the enriched basis fields; the ledger fills the gaps
+  run records never see). The no-double-count property SHALL be pinned with a
+  fixture where both sources carry the same run. The prior PRDs' single-count
+  rule applies: a total that counts one call twice is a lie in the flattering
+  direction.
+- **A1.2a** — The consumers, enumerated — because the catalog taught this
+  exact lesson (twelve readers, one honoured the knob, and the estate
+  knowledge described a catalog nobody was writing to):
+
+  | Consumer | Decision |
+  |---|---|
+  | `cost_report` (report, statement, by-provider) | union |
+  | `work_queue` envelope warning | union — today it **under-warns**, since plan-run and aborted-run spend is invisible to it |
+  | `cost-baseline` / `check-regression` | union — the alarm and the report must see the same history or they disagree about "measured" |
+  | team report LLM-spend line, Overview tile | union (they render `cost_report` output) |
+  | `parity_compare` | union; its simulated-exclusion rule unchanged |
+  | `pr_comment`, `qa.py artifacts` | per-run views — run record for completed runs, ledger for abort-only runs |
+  | `budget.py` (per-run enforcement) | **unchanged** — it meters the live run from `out/cost.tsv`; the ledger is history, not enforcement |
+
+  A pin SHALL assert no production module resolves spend sources itself
+  (the `test_catalog_paths` invariant pattern), so the ninth consumer is
+  caught by the build.
 - **A1.3** — Scorecard, commit-rate and every run-metrics consumer SHALL be
   unaffected: they read run records, the ledger is not one, and a pin SHALL
   assert `plan`-mode invocations still produce **no** run record while now
@@ -117,13 +152,30 @@ exit 65 clarification, exit 77 budget abort, phase failure).
   `AIQE_COSTS_DIR` honoured from day one, redirected by conftest, covered by
   the class-level estate-leak pin. It joins the state bundle (a migration that
   loses the cost history loses the answer to finance's first question) and
-  `make prune`'s retention (same KEEP policy as run records).
+  `make prune`'s retention (same KEEP policy as run records). Estate hygiene,
+  each an existing mechanism the ledger must join rather than a new one:
+  a `.gitignore` rule **by name shape** (`reports/costs/[0-9]*.json` — the
+  blanket-glob-swallows-the-next-named-state-file trap is documented and
+  applies verbatim), and membership in `clear-demo`/`--factory` (mock runs
+  write simulated entries on every demo; a factory reset that leaves cost
+  records behind did not reset).
 - **A1.5** — WHEN a phase started but no result JSON exists (crash, kill,
   timeout — G4), the ledger SHALL carry a row for it with basis
   **`unrecorded`**: tokens unknown, cost unknown, never zero. The provider
   billed *something*; "0" claims we know it was nothing. Totals that include
   unrecorded rows render the existing "**this total is incomplete**" banner,
   naming the runs affected.
+- **A1.5a** — "Started" SHALL be a recorded fact, not an inference: the
+  `PHASE` wrapper writes a start marker before invoking the provider, and the
+  flush classifies three ways — **never-started** (no marker: no row at all),
+  **started-unrecorded** (marker, no result: the `unrecorded` row),
+  **recorded**. The distinction is load-bearing at exit 77: the budget guard
+  aborts *before* the next phase starts, so the guarded phase gets no row —
+  an `unrecorded` row there would claim the provider billed for a call that
+  was never made, which is the same lie as zero, pointed the other way.
+- **A1.7** — Rows SHALL carry an attribution stamp (`user` by default), set
+  from the environment by callers that are not user requests — so a
+  measurement run is never mistaken for a user's task (B1.2).
 
 ### A2. Proof of coverage
 
@@ -142,8 +194,11 @@ exit 65 clarification, exit 77 budget abort, phase failure).
   priced from config, never silently $0). The embedding cap stays enforced
   where it is; this is reporting, not a second enforcement point.
 - **B1.2** — `make cache-probe` (real billed calls by design) SHALL flush its
-  spend through the same ledger path, attributed `probe`, so a measurement run
-  is visible as what it cost.
+  spend through the same ledger path, attributed `probe` via the A1.7 stamp —
+  the mechanism matters because probe runs execute real pipeline runs under a
+  real key: without the stamp they are indistinguishable from user runs, and a
+  measurement would silently inflate that key's cost statement. Statements
+  list probe rows separately, outside the task total.
 - **B1.3** — The report SHALL carry an **unmeterable line**: N phases/tasks ran
   via providers whose spend cannot be metered (OpenHands basis `unknown`),
   with N counted. Absence of a number is information; absence of the *line*
@@ -181,6 +236,19 @@ own usage/cost API for the same window, and alarm on drift.
   secret); `make cost-reconcile [DAYS=N]`, and a `make maintain` step (subject
   to maintenance's ok/DEGRADED/failed discipline — an unreachable billing API
   is `DEGRADED`, named, never fatal, and never `ok`).
+- **C2.1a** — **The provider figure comes through the port, never a direct
+  call.** The engine never imports a vendor — a constitution clause, and
+  `cost-reconcile` reaching for a vendor billing API from engine code would
+  violate it in the module whose whole subject is trustworthiness. The LLM
+  adapter family gains a `usage <window>` verb (conformance-tested; a mock
+  answers with fixture figures so the drift arithmetic is provable in mock
+  with no credentials; an adapter that cannot answer says so — `unavailable`,
+  never zero). This also settles Q3: providers join reconciliation by
+  implementing the verb, not by the engine growing per-vendor branches.
+- **C2.1b** — Windows SHALL be aligned to the **provider's bucketing** (UTC
+  days for Anthropic) before comparison. Ledger timestamps are local epoch; an
+  unaligned window manufactures phantom drift at every boundary — a false
+  alarm from the feature whose one job is telling true figures from false.
 - **C2.2** — Scope honesty: only `reported`-basis rows are reconcilable, and
   the output SHALL say what fraction of total spend that is. An estate running
   mostly estimated/local/simulated gets "reconcilable: 12% of recorded spend"
@@ -202,7 +270,7 @@ own usage/cost API for the same window, and alarm on drift.
 
 | # | Metric | Baseline | Target | Method |
 |---|---|---|---|---|
-| M1 | Pipeline invocations with ≥1 LLM phase leaving a durable spend record | **plan/requirements: 0%** (G1); pr/jira/tests: 100% | **100% across all five modes and abort paths** | A2.1 instrumented sweep in `make eval` |
+| M1 | Pipeline invocations with ≥1 LLM phase leaving a durable spend record | **plan/requirements: 0%; budget-aborted runs (any mode): 0%; completed pr/jira/tests: 100%** — v1 claimed a flat "pr/jira/tests: 100%" baseline nobody had measured; the abort path was verified record-less during the v2 review | **100% across all five modes and abort paths** | A2.1 instrumented sweep in `make eval` |
 | M2 | Token consumers visible in the report | phases only | phases + embeddings + probes + unmeterable line — enumerated, and the enumeration is the pin | report fixture asserting each section exists |
 | M3 | Double-count rate under the union | n/a (new) | 0, pinned with a both-sources fixture | A1.2 pin |
 | M4 | Reconciliation drift (reported-basis, window-matched) | unmeasurable today | <10% once parity auth unblocks real runs; until then the metric renders `not reconciled` | C2, gated on credentials — **not** on this PRD |
@@ -217,11 +285,11 @@ provable in mock; M4 is a real-money property and says so.
 
 | Slice | Scope | Flag / knob | Exit criteria |
 |---|---|---|---|
-| **S1 — Ledger + flush** | A1 | `AIQE_COST_LEDGER` (default **on** — recording spend is not an experiment; off exists for isolation only) | trap-based flush on all exit paths; A1.3/A1.4 pins; prune + bundle wired |
+| **S1 — Ledger + flush** | A1 | `AIQE_SPEND_LEDGER` (default **on** — recording spend is not an experiment; off exists for isolation only). **Not `AIQE_COST_LEDGER`**, which v1 proposed and which is already the metering-file *path* variable (`budget.py:34`) — overloading it would have made `=1` a filename | single chained EXIT handler with the run lock, pinned (A1.1a); flush on all exit paths; A1.3/A1.4 pins; hygiene (gitignore, clear-demo) + prune + bundle wired |
 | **S2 — Coverage proof** | A2 | — (eval) | five-mode + abort-path sweep green; M1 at 100% |
 | **S3 — Union report + statement** | A1.2, C1 | — | dedupe pinned; statement CLI/API/panel; CSV export |
 | **S4 — All consumers** | B1 | — | embeddings/probe/unmeterable sections; per-basis rendering unchanged |
-| **S5 — Reconciliation** | C2 | `ANTHROPIC_ADMIN_KEY` present = on | three-state badge; drift alarm through Notify; maintenance step DEGRADED-capable |
+| **S5 — Reconciliation** | C2 | `ANTHROPIC_ADMIN_KEY` present = on | `usage` verb on the adapter family incl. mock, conformance-tested (C2.1a); UTC-bucket-aligned windows (C2.1b); three-state badge; drift alarm through Notify; maintenance step DEGRADED-capable |
 
 ---
 
@@ -243,7 +311,7 @@ provable in mock; M4 is a real-money property and says so.
 |---|---|---|---|
 | Q1 | Retention: same KEEP as run records, or longer (finance may want quarters)? | EM + Finance | S1 |
 | Q2 | Should the statement roll a PR key and its discovered ticket's key into one task view once fused-context ships? | Product | S3 |
-| Q3 | Reconciliation provider scope: Anthropic first; OpenAI-compatible usage APIs vary — per-adapter `usage` verb, or Anthropic-only until asked? | EM | S5 |
+| Q3 | ~~Reconciliation provider scope~~ **Resolved in v2 (C2.1a):** per-adapter `usage` verb through the port, conformance-tested; providers join by implementing it | EM | ~~S5~~ done |
 
 ---
 
@@ -288,3 +356,24 @@ Before this PRD, run 1 — the plan authoring, the part the human actually
 reviewed — appeared in no report at all, and the aborted run's generate phase
 read as free. The statement's honesty lines are the feature: what is known is
 itemised, what is unknown is counted, and nothing unknown pretends to be zero.
+
+---
+
+## Appendix B — Revision history
+
+**v2 (2026-08-06)** — after an adversarial gap review of v1, ten findings, all
+verified against the code. The two largest were defects in the PRD itself,
+which is the pattern of this document series and the reason the reviews exist.
+
+| Change | Driven by |
+|---|---|
+| S1 flag renamed `AIQE_SPEND_LEDGER` | Finding 1 — v1 proposed `AIQE_COST_LEDGER`, which **already exists** as the metering-file path variable (`budget.py:34`, `pipeline.sh:145`); under v1's semantics `=1` would have become a literal filename. A PRD about cost integrity proposing a name collision in the cost namespace |
+| G1 widened to exit-77 aborts on every mode; M1 baseline corrected | Finding 2 — the budget-guard abort path was verified record-less; v1's "pr/jira/tests: 100%" baseline was a claimed measurement nobody made, in the PRD about honest accounting |
+| A1.1a: one chained EXIT handler, flush-then-release, exit code preserved, lock release pinned | Finding 3 — `pipeline.sh:72` already traps EXIT for the run lock and bash traps replace, not stack; a naïve flush trap would strand a stale lock on every run, resurrecting the 90-minute-stall class as a side effect of a cost feature |
+| C2.1a: reconciliation through a conformance-tested `usage` adapter verb | Finding 4 — v1 had engine code calling a vendor billing API, against the engine-never-imports-a-vendor clause, in the feature whose subject is trustworthiness. Also resolves Q3 |
+| A1.2/A1.2a: single `spend_rows()` accessor + enumerated per-consumer table + no-self-resolution pin | Finding 5 — v1 re-pointed one of eight-plus spend readers; the catalog's twelve-readers lesson repeated verbatim, including that the envelope warning currently under-warns |
+| A1.5a: recorded start marker; never-started ≠ started-unrecorded ≠ recorded | Finding 6 — v1's `unrecorded` had no mechanism, and at exit 77 the guarded phase never starts: an `unrecorded` row there would claim the provider billed a call never made — zero's lie, pointed the other way |
+| A1.4: gitignore by name shape + clear-demo/factory membership | Finding 7 |
+| A1.2: run-record block wins over ledger on collision | Finding 8 |
+| A1.7 + B1.2: attribution stamp, probe rows outside task totals | Finding 9 — probe runs execute under real keys and would silently inflate a key's statement |
+| C2.1b: UTC-bucket-aligned reconciliation windows | Finding 10 — unaligned windows manufacture phantom drift at every boundary |
