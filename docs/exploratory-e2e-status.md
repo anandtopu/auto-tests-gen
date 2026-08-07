@@ -15,7 +15,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 1 | Dashboard shell, startup, Overview, navigation | `make serve`, Overview KPIs, attention cards, theme, sidebar, queue header | explored-pass | 2026-08-07: 15/15 primary destinations opened; no console warnings or loader failures; Overview catalog deep link and persisted theme cycle passed; queue badge semantics verified against six failed items | — |
 | 2 | Guided PR run | PR form/URL parsing, validation, queue, progress, artifacts | fixed-retested | 2026-08-07: mock `orders-api#201` committed end to end; five invalid-input cases rejected before queueing; stale prior-target results and enqueue/poll races fixed and browser-retested | — |
 | 3 | Guided JIRA plan-first run | ticket input, draft plan, approval gate, generation, ticket link | fixed-retested | 2026-08-07: mock `PROJ-301` completed author → approve → generate → committed gate → ticket link; empty/malformed keys and generate-before-approval rejected; stale historical success and Windows queue interpreter failures fixed and browser-retested | — |
-| 4 | Intake and work queue | release fetch, inline ticket, plan-only, requeue/remove, drain | untested | — | Seed isolated queued/failed/done items and exercise lifecycle |
+| 4 | Intake and work queue | release fetch, inline ticket, plan-only, requeue/remove, drain | fixed-retested | 2026-08-07: known/empty releases, inline validation/dedupe, mode-aware queueing, failed retry, concurrent drain, successful drain and removal exercised; three P2 defects fixed and browser/API-retested | — |
 | 5 | Run progress and run review | phase state, failure details, release filters, reviewer decisions | untested | — | Seed committed/refused/quarantined runs; validate review transitions |
 | 6 | Test plans | author, edit, versions, approve/request changes, export/link | untested | — | Boundary validation and stale-version behavior |
 | 7 | Spec workflow | acceptance criteria, scenarios, waivers, drift and verification | untested | — | Waiver expiry/unmatched cases and release gate effects |
@@ -111,3 +111,32 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   reproduction completed with run `1786127890-16836` and a committed gate.
 - Review: `docs/reviews/exploratory-e2e-iteration-003.md`.
 - Next slice: Intake and work queue lifecycle.
+
+### 2026-08-07 — Iteration 4: Intake and work queue
+
+- Seed data: existing mock release ticket `PROJ-301` and PR
+  `PR-orders-api-201`, plus isolated synthetic inline ticket
+  `EXPLORE-QUEUE-1` and missing ticket `NO-SUCH-1`. Queue/review stores were
+  redirected under ignored `out/exploratory-e2e`; all temporary data was
+  credential-free, PII-free, and removed after the run.
+- Happy and boundary paths: known and unknown release fetch, empty/malformed and
+  valid inline intake, duplicate suppression, plan-only/full-run eligibility,
+  remove/requeue, failed retry, simultaneous drain requests, and a successful
+  queued → running → done PR drain were exercised through the served UI and API.
+- Finding `E2E-EXP-005` (P2): release fetch invoked the tracker with an
+  unnormalised Windows runtime and converted exit 127 into a plausible empty
+  release. The adapter now uses the shared Git Bash/runtime boundary and returns
+  an actionable 502 for process, JSON, or response-shape failures.
+- Finding `E2E-EXP-006` (P2): removing or requeueing an item refreshed the queue
+  table but left fetched release actions stale. Queue mutations now also refresh
+  an already-open fetched-results card.
+- Finding `E2E-EXP-007` (P2): two simultaneous run requests both passed a
+  `locked()` check and returned `200 started`. The request thread now acquires
+  the singleton runner lock atomically, releases it in every worker/launch exit,
+  and returns 409 to the competing request.
+- Regression evidence: four focused tests passed; the live reproductions changed
+  from empty release to `PROJ-301`, stale `Queued` to restored actions, and
+  `200/200` concurrent drains to `200/409`. The success seed completed at exit 0
+  and rendered `done` before removal.
+- Review: `docs/reviews/exploratory-e2e-iteration-004.md`.
+- Next slice: Run progress and run review.

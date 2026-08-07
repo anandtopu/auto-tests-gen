@@ -154,14 +154,22 @@ run_lock = threading.Lock()
 
 
 def jira_items(release):
-    r = subprocess.run([work_queue.bash_exe(), str(TRACKER), "search_release", release],
-                       cwd=ROOT, capture_output=True, text=True,
+    cmd, env = work_queue.git_bash_command(
+        TRACKER, "search_release", release,
+        prepend=(pathlib.Path(sys.executable).parent,))
+    r = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True,
                        encoding="utf-8", errors="replace",
-                       stdin=subprocess.DEVNULL)
+                       stdin=subprocess.DEVNULL, check=False)
+    if r.returncode:
+        detail = (r.stderr or r.stdout or "no output captured").strip()[-500:]
+        raise RuntimeError(
+            f"tracker search_release failed (exit {r.returncode}): {detail}")
     try:
         tickets = json.loads(r.stdout.strip().splitlines()[-1])
-    except (json.JSONDecodeError, IndexError):
-        tickets = []
+    except (json.JSONDecodeError, IndexError) as e:
+        raise RuntimeError("tracker search_release returned invalid JSON") from e
+    if not isinstance(tickets, list):
+        raise RuntimeError("tracker search_release returned a non-list response")
     return [{"mode": "jira", "target": t["key"], "pr": None, "key": t["key"],
              "summary": t.get("summary", ""),
              "release": ",".join(t.get("fix_versions", []))} for t in tickets]
@@ -438,7 +446,11 @@ class Handler(BaseHTTPRequestHandler):
             pending = [i for i in work_queue.load()
                        if i["status"] in ("queued", "running")]
             queued = {(i["mode"], work_queue.key_of(i)) for i in pending}
-            items = jira_items(rel) + pr_items(rel)
+            try:
+                items = jira_items(rel) + pr_items(rel)
+            except RuntimeError as e:
+                self._send(502, {"error": _err(e)})
+                return
             for i in items:
                 i["queued"] = (i["mode"], i["key"]) in queued
                 i["plan_queued"] = ("plan", i["key"]) in queued
@@ -1239,14 +1251,23 @@ class Handler(BaseHTTPRequestHandler):
             else:                                       # refusal: a run looks active
                 self._send(409, out)
         elif self.path == "/api/queue/run":
-            if run_lock.locked():
+            # Reserve the runner in the request thread. Checking ``locked()``
+            # and acquiring inside the background thread leaves a race where
+            # concurrent requests can both report that they started a drain.
+            if not run_lock.acquire(blocking=False):
                 self._send(409, {"error": "queue is already running"})
                 return
             def drain():
-                with run_lock:
+                try:
                     subprocess.run([sys.executable, str(ROOT / "engine/lib/work_queue.py"),
                                     "run"], cwd=ROOT, stdin=subprocess.DEVNULL)
-            threading.Thread(target=drain, daemon=True).start()
+                finally:
+                    run_lock.release()
+            try:
+                threading.Thread(target=drain, daemon=True).start()
+            except Exception:
+                run_lock.release()
+                raise
             self._send(200, {"started": True})
         elif self.path == "/api/openhands/agent":
             # Launch a NAMED agent preset (pr-review, test-plan, …) — the same

@@ -1472,7 +1472,13 @@ document.addEventListener('click', async e => {
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id }) });
     toast((b.dataset.act === 'requeue' ? 'Re-queued ' : 'Removed ') + b.dataset.id);
   } catch (err) { toast(err.message); }
-  refreshQueue();
+  await refreshQueue();
+  // Queue state also controls the fetched release row's Queue/Plan-only
+  // eligibility. Refreshing only the table below left a removed item disabled
+  // above as "Queued" until the operator manually fetched the release again.
+  if (!$('#fetched-wrap').classList.contains('hidden')) {
+    await refreshFetchedItems();
+  }
 });
 $('#run-queue').addEventListener('click', async () => {
   if (needsServer()) return;
@@ -1697,7 +1703,7 @@ if ($('#wz-mode')) {
 }
 
 // ---- fetch work
-$('#fetch-btn').addEventListener('click', async () => {
+async function refreshFetchedItems() {
   if (needsServer()) return;
   const btn = $('#fetch-btn');
   btn.disabled = true; btn.textContent = 'Fetching…';
@@ -1732,7 +1738,8 @@ $('#fetch-btn').addEventListener('click', async () => {
     }));
   } catch (err) { toast('Fetch failed: ' + err.message); }
   btn.disabled = false; btn.textContent = 'Fetch items';
-});
+}
+$('#fetch-btn').addEventListener('click', refreshFetchedItems);
 
 // ---- inline ticket
 $('#inl-queue').addEventListener('click', async () => {

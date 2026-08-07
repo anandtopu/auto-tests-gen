@@ -2,6 +2,8 @@
 the tracker search_release verb feeding the dashboard's fetch-by-release."""
 import json, os, pathlib, subprocess, sys
 
+import pytest
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 WQ = str(ROOT / "engine/lib/work_queue.py")
 
@@ -37,6 +39,8 @@ def test_pr_mode_requires_number(tmp_path):
 
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import work_queue
+sys.path.insert(0, str(ROOT / "bin"))
+import dashboard_server
 
 
 def _seed(tmp_path, status):
@@ -90,6 +94,54 @@ def test_search_release_mock_adapter():
     r = subprocess.run([bash, "adapters/mock/tracker.sh", "search_release", "1999.01"],
                        capture_output=True, text=True, cwd=ROOT, stdin=subprocess.DEVNULL)
     assert json.loads(r.stdout.strip().splitlines()[-1]) == []
+
+
+def test_dashboard_release_fetch_normalizes_tracker_runtime(monkeypatch):
+    """The served UI must launch tracker adapters through the MSYS boundary.
+
+    A dashboard process can have no usable ``python3`` on its inherited PATH;
+    the mock tracker uses Python for release filtering and previously failed
+    with exit 127 while the API silently returned an empty item list.
+    """
+    seen = {}
+
+    def normalized(script, *args, env=None, **extra):
+        seen["script"] = pathlib.Path(script)
+        seen["args"] = args
+        seen["prepend"] = extra.get("prepend")
+        return ["normalized-tracker", str(script), *args], {
+            **(env or {}), "PATH": "/normalized/python"
+        }
+
+    def completed(command, **kwargs):
+        assert command[0] == "normalized-tracker"
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps([{
+                "key": "PROJ-301", "summary": "synthetic",
+                "fix_versions": ["2026.08"]
+            }]), stderr="")
+
+    monkeypatch.setattr(work_queue, "git_bash_command", normalized)
+    monkeypatch.setattr(dashboard_server.subprocess, "run", completed)
+    rows = dashboard_server.jira_items("2026.08")
+
+    assert seen["script"] == dashboard_server.TRACKER
+    assert seen["args"] == ("search_release", "2026.08")
+    assert tuple(map(pathlib.Path, seen["prepend"])) == (
+        pathlib.Path(sys.executable).parent,)
+    assert rows[0]["key"] == "PROJ-301"
+
+
+def test_dashboard_release_fetch_does_not_hide_adapter_failure(monkeypatch):
+    def normalized(script, *args, **kwargs):
+        return ["normalized-tracker"], {"PATH": "/normalized/python"}
+
+    monkeypatch.setattr(work_queue, "git_bash_command", normalized)
+    monkeypatch.setattr(dashboard_server.subprocess, "run", lambda *a, **kw:
+                        subprocess.CompletedProcess(a[0], 127, stdout="",
+                                                    stderr="python3: not found"))
+    with pytest.raises(RuntimeError, match="tracker search_release failed"):
+        dashboard_server.jira_items("2026.08")
 
 
 def test_bash_exe_never_wsl():

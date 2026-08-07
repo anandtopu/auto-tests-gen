@@ -289,3 +289,34 @@ def test_every_view_that_fetches_reports_a_load_failure():
         "the queue loader no longer reports a failed load"
     assert "not current" in body, \
         "the count must say the list is stale, not just leave a number standing"
+
+
+def test_queue_mutations_refresh_fetched_item_eligibility():
+    """Removing/re-queueing changes which release-row actions are legal.
+
+    The Queue table used to refresh alone, leaving a removed plan's fetched row
+    disabled as ``Queued`` until the operator manually fetched the release again.
+    """
+    js = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert "async function refreshFetchedItems()" in js
+    start = js.index("const b = e.target.closest('button.qact');")
+    handler = js[start:js.index("$('#run-queue')", start)]
+    assert "await refreshFetchedItems();" in handler
+    assert "fetched-wrap" in handler, \
+        "do not fetch release work when the fetched-results card was never opened"
+
+
+def test_queue_run_reserves_the_single_runner_before_starting_a_thread():
+    """Two concurrent drain requests must not both report ``started``.
+
+    A ``locked()`` check followed by acquisition inside the new thread has a
+    gap in which both request threads see an unlocked runner and return 200.
+    """
+    src = (ROOT / "bin/dashboard_server.py").read_text(encoding="utf-8")
+    start = src.index('elif self.path == "/api/queue/run":')
+    block = src[start:src.index('elif self.path == "/api/openhands/agent":', start)]
+    acquire = block.index("run_lock.acquire(blocking=False)")
+    launch = block.index("threading.Thread(target=drain")
+    assert acquire < launch, "the runner is not reserved before the worker starts"
+    assert "finally:" in block and "run_lock.release()" in block
+    assert "except Exception:" in block, "a failed thread launch would strand the lock"
