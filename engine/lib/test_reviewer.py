@@ -20,6 +20,8 @@ DEFAULTS = {
     "on_unavailable": "proceed",
     "max_loops": 1,
 }
+POLICIES = {"off", "warn", "require"}
+UNAVAILABLE_POLICIES = {"proceed", "hold"}
 VERDICTS, STATES = {"approve", "needs_work"}, {"reviewed", "skipped", "unavailable"}
 SEVERITIES = {"low", "med", "high"}
 CATEGORIES = {
@@ -64,12 +66,31 @@ def config():
         return dict(DEFAULTS)
 
 
+def policy(cfg=None):
+    candidate = str((cfg or config()).get("agent_gate", "warn")).strip().lower()
+    return candidate if candidate in POLICIES else "warn"
+
+
+def unavailable_policy(cfg=None):
+    candidate = str((cfg or config()).get("on_unavailable", "proceed")).strip().lower()
+    return candidate if candidate in UNAVAILABLE_POLICIES else "proceed"
+
+
 def enabled(cfg=None):
+    cfg = cfg or config()
+    consequence = policy(cfg)
+    # The estate-wide delivery policy outranks the rollout flag in both safety
+    # directions. off suppresses inherited enabling variables; require cannot
+    # be bypassed by a per-run reviewer-disable variable.
+    if consequence == "off":
+        return False
+    if consequence == "require":
+        return True
     value = os.environ.get("AIQE_TEST_REVIEWER")
     return (
         env_flag.flag("AIQE_TEST_REVIEWER", False)
         if value is not None
-        else bool((cfg or config()).get("enabled", False))
+        else bool(cfg.get("enabled", False))
     )
 
 
@@ -585,8 +606,7 @@ def surface(signal=None, cfg=None, policy=None, assume_enabled=None):
     """Return B4's durable, run-scoped reviewer snapshot."""
     cfg = cfg or config()
     if policy is None:
-        candidate = str(cfg.get("agent_gate", DEFAULTS["agent_gate"])).lower()
-        policy = candidate if candidate in {"off", "warn", "require"} else "warn"
+        policy = globals()["policy"](cfg)
     if signal is not None:
         try:
             signal = normalize_merged_contract(signal)
@@ -623,6 +643,103 @@ def surface(signal=None, cfg=None, policy=None, assume_enabled=None):
         "simulated": signal["simulated"],
         **({"iterations": repair["iterations"]} if repair else {}),
     }
+
+
+def delivery(signal=None, cfg=None, assume_enabled=None):
+    """Decide whether generated tests may reach the deterministic gate."""
+    cfg = cfg or config()
+    consequence = policy(cfg)
+    outage = unavailable_policy(cfg)
+    snapshot = surface(signal, cfg=cfg, policy=consequence,
+                       assume_enabled=assume_enabled)
+    verdict = snapshot["verdict"]
+    refused = consequence == "require" and (
+        verdict == "needs_work" or (verdict == "unavailable" and outage == "hold")
+    )
+    fixes = []
+    if verdict == "needs_work":
+        for finding in snapshot.get("findings") or []:
+            fix = str(finding.get("fix") or "").strip()
+            if fix and fix not in fixes:
+                fixes.append(fix[:MAX_TEXT])
+    if refused and verdict == "needs_work":
+        reason = "final agent review still needs work; resolve the refusing findings"
+    elif refused:
+        reason = "agent review is unavailable and review.on_unavailable is hold"
+        fixes = ["Restore the reviewer, or set review.on_unavailable: proceed estate-wide."]
+    else:
+        reason = {
+            "off": "review.agent_gate is off; reviewer did not run",
+            "warn": "review.agent_gate is warn; reviewer evidence is advisory",
+            "require": "required agent review allows delivery",
+        }[consequence]
+    return {
+        "artifact": "test-review-delivery", "schema": 1,
+        "policy": consequence, "on_unavailable": outage,
+        "outcome": "refused" if refused else "proceed",
+        "verdict": verdict, "reason": reason[:MAX_TEXT],
+        "fixes": fixes[:MAX_FINDINGS],
+    }
+
+
+def normalize_delivery(raw):
+    if (not isinstance(raw, dict)
+            or raw.get("artifact") != "test-review-delivery"
+            or raw.get("schema") != 1):
+        raise ReviewInputError("review delivery has invalid artifact")
+    consequence = raw.get("policy")
+    outage = raw.get("on_unavailable")
+    outcome, verdict = raw.get("outcome"), raw.get("verdict")
+    if consequence not in POLICIES or outage not in UNAVAILABLE_POLICIES:
+        raise ReviewInputError("review delivery policy is invalid")
+    if outcome not in {"proceed", "refused"}:
+        raise ReviewInputError("review delivery outcome is invalid")
+    if verdict not in VERDICTS | {"skipped", "unavailable"}:
+        raise ReviewInputError("review delivery verdict is invalid")
+    should_refuse = consequence == "require" and (
+        verdict == "needs_work" or (verdict == "unavailable" and outage == "hold")
+    )
+    if (outcome == "refused") != should_refuse:
+        raise ReviewInputError("review delivery outcome is inconsistent")
+    fixes = raw.get("fixes")
+    if not isinstance(fixes, list) or len(fixes) > MAX_FINDINGS:
+        raise ReviewInputError("review delivery fixes must be bounded")
+    clean_fixes = [_history_text(fix, "review delivery fix") for fix in fixes]
+    if outcome == "refused" and not clean_fixes:
+        raise ReviewInputError("review refusal must name a fix")
+    return {
+        "artifact": "test-review-delivery", "schema": 1,
+        "policy": consequence, "on_unavailable": outage,
+        "outcome": outcome, "verdict": verdict,
+        "reason": _history_text(raw.get("reason"), "review delivery reason"),
+        "fixes": clean_fixes,
+    }
+
+
+def write_delivery(source=None, target=None):
+    source = pathlib.Path(source or CONTRACT)
+    value = delivery(load(source), assume_enabled=True if source.exists() else None)
+    value = normalize_delivery(value)
+    pathlib.Path(target or OUT / "review-delivery.json").write_text(
+        json.dumps(value, indent=2), encoding="utf-8"
+    )
+    return value
+
+
+def load_delivery(path=None):
+    try:
+        return normalize_delivery(_read_json(path or OUT / "review-delivery.json"))
+    except ReviewInputError:
+        return None
+
+
+def delivery_line(value):
+    value = normalize_delivery(value)
+    clean = lambda text: str(text).replace("\r", " ").replace("\n", " ")[:MAX_TEXT]
+    if value["outcome"] == "refused":
+        return ("delivery refused before gate — " + clean(value["reason"])
+                + "; fix: " + "; ".join(clean(fix) for fix in value["fixes"][:4]))
+    return "delivery proceeds — " + clean(value["reason"])
 
 
 def recorded(record):
@@ -687,6 +804,12 @@ def main(argv):
             print(summary_line(surface(load(path),
                                        assume_enabled=True if path.exists() else None)))
             return 0
+        if cmd == "enforce" and len(argv) in (2, 3, 4):
+            source = pathlib.Path(argv[2]) if len(argv) >= 3 else CONTRACT
+            target = pathlib.Path(argv[3]) if len(argv) == 4 else OUT / "review-delivery.json"
+            value = write_delivery(source, target)
+            print(delivery_line(value))
+            return 78 if value["outcome"] == "refused" else 0
     except NoTests as exc:
         print(str(exc), file=sys.stderr)
         return 3
@@ -694,7 +817,7 @@ def main(argv):
         print(str(exc), file=sys.stderr)
         return 2
     print(
-        "usage: test_reviewer.py enabled | prepare REPO OUT | validate REPO IN [OUT] | merge STATUS OUT | summary [CONTRACT]",
+        "usage: test_reviewer.py enabled | prepare REPO OUT | validate REPO IN [OUT] | merge STATUS OUT | summary [CONTRACT] | enforce [CONTRACT [OUT]]",
         file=sys.stderr,
     )
     return 64

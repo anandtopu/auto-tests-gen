@@ -129,8 +129,9 @@ for f in glob.glob(str(ROOT / "reports/runs/*.json")):
 if runs:
     committed = sum(1 for r in runs if r.get("overall") == "committed")
     quarantined = sum(1 for r in runs if r.get("overall") == "quarantined")
+    review_refused = sum(1 for r in runs if r.get("overall") == "review_refused")
     print(f"Commit rate: {pct(committed / len(runs))} of {len(runs)} runs "
-          f"({quarantined} quarantined)")
+          f"({quarantined} quarantined, {review_refused} review-refused)")
     loops, validated, created, updated = [], 0, 0, 0
     for r in runs:
         for p in r.get("phases", []):

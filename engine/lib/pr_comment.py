@@ -38,6 +38,7 @@ def build(out_dir=".", run_id="", key=""):
     validate = _load(out / "out/validate.contract.json")
     duplicates = _load(out / "out/duplicate-warnings.json")
     discovery = _load(out / "out/ticket-discovery.json")
+    delivery = reviewer_lib.load_delivery(out / "out/review-delivery.json")
 
     gates = []
     tsv = out / "out/gate_results.tsv"
@@ -68,7 +69,7 @@ def build(out_dir=".", run_id="", key=""):
     except Exception:
         pass
     return _compose(triage, gen, validate, gates, critic_sig, review_sig, cost, run_id, key,
-                    duplicates, discovery)
+                    duplicates, discovery, delivery)
 
 
 def from_record(record):
@@ -90,7 +91,8 @@ def from_record(record):
                     record.get("run_id", ""),
                     record.get("trigger", {}).get("key", ""),
                     record.get("duplicate_warnings") or {},
-                    record.get("ticket_discovery") or {})
+                    record.get("ticket_discovery") or {},
+                    record.get("review_delivery"))
 
 
 def _safe_code(value):
@@ -99,7 +101,7 @@ def _safe_code(value):
 
 
 def _compose(triage, gen, validate, gates, critic_sig, review_sig, cost, run_id, key,
-             duplicates=None, discovery=None):
+             duplicates=None, discovery=None, delivery=None):
     tests = gen.get("tests", []) or []
     tests = run_progress.dict_rows(tests)
     created = [t for t in tests if t.get("action") == "created"]
@@ -174,6 +176,11 @@ def _compose(triage, gen, validate, gates, critic_sig, review_sig, cost, run_id,
                      f"{failed} failed"
                      + (f", {validate.get('repair_loops')} repair loop(s)"
                         if validate.get("repair_loops") else ""))
+
+    if isinstance(delivery, dict) and delivery.get("outcome") == "refused":
+        lines.append("**Delivery:** refused before the deterministic gate; nothing was committed.")
+        for fix in (delivery.get("fixes") or [])[:4]:
+            lines.append(f"- Fix: {_safe_code(fix)}")
 
     for g in gates:
         mark = {"committed": "✅", "no_changes": "➖", "quarantined": "❌"}.get(

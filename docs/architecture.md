@@ -662,10 +662,13 @@ input rejection, or bad output becomes explicit per-repo unavailable; zero
 generated tests becomes skipped through SKIP_PHASE. Aggregation records every
 repo and never calls an outage approval.
 
-B1 is advisory by structure: the phase has only Read, REVIEW_TESTS is total,
-nothing under engine/gate reads reviewer output, and run-record overall remains
-derived only from gates. AIQE_TEST_REVIEWER=1 enables it; default is off. Mock
-verdicts carry simulated true and prove routing/persistence only.
+B1 is read-only by structure: the phase has only Read, REVIEW_TESTS is total,
+and nothing under engine/gate reads reviewer output. Under the default `warn`
+delivery policy, run-record overall remains derived from gates.
+AIQE_TEST_REVIEWER=1 enables that measured rollout; `off` suppresses even an
+inherited enabling variable, while `require` forces review on so a per-run
+disable variable cannot bypass the estate consequence. Mock verdicts carry
+simulated true and prove routing/persistence only.
 
 B4 projects that phase evidence into a total run-level block:
 `review: {verdict, findings, loops, unresolved, policy}`. `policy` snapshots the
@@ -676,8 +679,8 @@ history when its bounded loop runs. The projection—not
 ephemeral scratch—drives PR/JIRA comments, review-board columns, guided and
 run-progress steps, and explain output. Legacy B1 records render their missing
 policy honestly as `not_recorded`. The human board remains isolated in
-`review_state`; no renderer invokes its status transition. Delivery enforcement
-and quality evaluation remain B3/B6.
+`review_state`; no renderer invokes its status transition. B6 owns quality
+evaluation; B3's delivery boundary is described below.
 
 B6 evaluates this reviewer by attack. A versioned QE-owned label set pins one
 fixture for each closed finding category plus one clean control to the fixture
@@ -691,8 +694,8 @@ attacks. It never runs inside `make eval` or `make review`; when parity
 authentication is unavailable, the result and scorecard say **BLOCKED** and
 **unmeasured** rather than recycling scripted numbers as model quality.
 
-B2 adds a bounded mutation path without changing that advisory delivery
-boundary. When the merged verdict is `needs_work`, `REPAIR_FROM_REVIEW` selects
+B2 adds a bounded mutation path before the delivery decision. When the merged
+verdict is `needs_work`, `REPAIR_FROM_REVIEW` selects
 only repositories with unresolved findings and invokes the named
 `reviewrepair` phase with that repo's generated source, conventions, catalog
 slice, and review evidence. The phase has `Read,Edit`, may update only files
@@ -716,8 +719,24 @@ it and the next review did not raise the same identity. Thus an empty repair or
 a later approve response cannot launder an unresolved finding. Run records and
 all B4 surfaces expose this same evidence. `reviewrepair`, like generate and
 validate, is denied from local and durable phase reuse because its product is
-workspace state, not merely JSON. B3 alone decides whether the surviving
-advisory verdict can stop delivery.
+workspace state, not merely JSON.
+
+B3 evaluates the final B2/B4 surface immediately after repair and before both
+critic and deterministic gate. `review.agent_gate: off|warn|require` is the
+only consequence switch: off skips review, warn records and proceeds, and
+require turns final `needs_work` into exit 78 before any gate process starts.
+The strict run-scoped `review-delivery.json` prevents a persisted refusal from
+being relabelled proceed; the run record uses `overall: review_refused`, retains
+the findings/fixes, and run progress marks Agent review failed and Quality gate
+skipped. PR/ticket comments name the fixes. Under require, reviewer outage obeys
+the independent estate policy `review.on_unavailable: proceed|hold`.
+
+This authority stays outside the gate: `engine/gate/` never reads reviewer
+output, reviewer tools stay Read-only, and refusal never calls the human
+`review_state` transition. Post-commit disposition therefore remains human,
+and the critic remains the separate C2 advisory signal. C14 pins each of those
+claims. Rollout is warn first, require only after measured clean controls; there
+is no per-run consequence bypass.
 
 ### 5.9 Test Catalog & Mapping Subsystem (new in v2.0)
 

@@ -357,6 +357,7 @@ ls reports/<KEY>-<test_repo>.log         # the gate's own log
 | 65 | needs clarification | the ticket was ambiguous — answer and re-run |
 | 75 | pipeline busy / unwritable | `PIPELINE_BUSY` = another run holds the lock; `PIPELINE_UNWRITABLE` = the scratch dir is not writable (a volume or permissions problem, NOT contention) |
 | 77 | over budget | cost or wall-clock ceiling hit before the gate |
+| 78 | agent review refused | required review still needs work, or unavailable policy holds; fix the named finding and re-run |
 
 **A run that seems stuck** is usually waiting on the run lock. A killed run
 leaves `out/.pipeline.lock` for up to 90 minutes; that is deliberate, so a live

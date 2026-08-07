@@ -176,8 +176,8 @@ generate_fanout:   # one generate agent per resolved test repo
                             # resolved repo takes the original single-call path.
 review:            # generated-test semantic reviewer after validate
   enabled: false            # AIQE_TEST_REVIEWER=1 enables it for one run
-  agent_gate: warn          # recorded per run; B3 will enforce delivery policy
-  on_unavailable: proceed   # outage is recorded, never mistaken for approval
+  agent_gate: warn          # off=no review; warn=surface+gate; require=pre-gate refusal
+  on_unavailable: proceed   # under require: proceed or hold before the gate
   max_loops: 1              # bounded reviewer repair/revalidate/rereview loops
   reviewers: []             # optional human review assignment rota
 resolution:
@@ -195,6 +195,14 @@ budgets:           # per-run cost ceilings — ENFORCED: the pipeline checks cos
                    # record's cost_usd.
 adapters:          # which adapter script serves each port
 ```
+
+Roll out agent review in two steps: enable and measure it under `warn`, then
+change the estate-wide `review.agent_gate` to `require` only after clean controls
+and false-refusal rates are acceptable. Final `needs_work` under `require` exits
+78 before the deterministic gate and names the fixes on the run record and
+PR/ticket comment. There is no per-run consequence bypass; changing behavior
+requires an audited org-config edit. `off` always suppresses the reviewer, while
+`require` cannot be neutralized with `AIQE_TEST_REVIEWER=0`.
 
 ### `registry/repo-registry.yaml` (routing)
 

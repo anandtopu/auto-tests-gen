@@ -10,6 +10,7 @@ bin/dashboard_server.py (make serve). Regenerate: make dashboard.
 """
 import glob, html, json, pathlib, sys, time
 import os
+import yaml
 
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -44,10 +45,23 @@ trepos = reg["test_repositories"]
 reviews = review_state.load()
 health = test_health.load()
 queue = work_queue.load()
+try:
+    _org = yaml.safe_load((ROOT / "registry/org-config.yaml").read_text(
+        encoding="utf-8")) or {}
+except (OSError, yaml.YAMLError):
+    _org = {}
+_review_cfg = _org.get("review") if isinstance(_org.get("review"), dict) else {}
+review_agent_gate = str(_review_cfg.get("agent_gate", "warn")).lower()
+if review_agent_gate not in ("off", "warn", "require"):
+    review_agent_gate = "warn"
+review_unavailable = str(_review_cfg.get("on_unavailable", "proceed")).lower()
+if review_unavailable not in ("proceed", "hold"):
+    review_unavailable = "proceed"
 
 # ---------------------------------------------------------------- aggregates
 n_committed = sum(1 for r in runs if r.get("overall") == "committed")
 n_quar = sum(1 for r in runs if r.get("overall") == "quarantined")
+n_review_refused = sum(1 for r in runs if r.get("overall") == "review_refused")
 by_status = {}
 for e in catalog:
     by_status[e["mapping"]["status"]] = by_status.get(e["mapping"]["status"], 0) + 1
@@ -68,6 +82,7 @@ CHIP = {  # status -> (label, css class)
     "committed":   ("✓ committed", "success"),
     "no_changes":  ("no changes", "muted"),
     "quarantined": ("⚠ quarantined", "danger"),
+    "review_refused": ("✗ review refused", "danger"),
     "pending_review":    ("✎ awaiting review", "warning"),
     "in_review":         ("✎ in review", "warning"),
     "approved":          ("✓ approved", "success"),
@@ -151,6 +166,7 @@ tiles = [
     (len(runs), "pipeline runs", "runs", False),
     (n_committed, "runs committed", "runs", False),
     (n_quar, "runs quarantined", "runs", n_quar > 0),
+    (n_review_refused, "runs refused by agent review", "runs", n_review_refused > 0),
     (len(catalog), "tests cataloged", "catalog", False),
     (mapped, "mapped (auto + confirmed)", "catalog", False),
     (len(orphans), "orphan tests", "catalog", len(orphans) > 0),
@@ -240,6 +256,12 @@ for r in quarantined_runs:
     attention.append(("quarantined", "danger",
                       f"{r['trigger']['key']} was quarantined by the gate — generated "
                       f"tests failed validation and were not pushed.", "Inspect run", "runs"))
+review_refused_runs = [r for r in runs if r.get("overall") == "review_refused"][:3]
+for r in review_refused_runs:
+    attention.append(("review", "danger",
+                      (f"{r['trigger']['key']} was refused by required agent review before "
+                       f"the gate — fix the named findings and re-run."),
+                      "Inspect run", "runs"))
 if pending_review_keys:
     attention.append(("review", "warning",
                       f"{len(pending_review_keys)} key(s) committed AI-generated tests "
@@ -590,7 +612,8 @@ for _tk in trace_lib.keys()[:12]:
         extra = ""
         if ev["kind"] == "run":
             m = ev["meta"]
-            dot = {"committed": "success", "quarantined": "danger"}.get(
+            dot = {"committed": "success", "quarantined": "danger",
+                   "review_refused": "danger"}.get(
                 m.get("overall"), "muted")
             _gcls = {"committed": "success", "no_changes": "muted",
                      "quarantined": "danger"}
@@ -3762,6 +3785,26 @@ page = f"""<!doctype html>
   </div>
 
   <div data-view="settings">
+    <section class="card">
+      <div class="card-h"><div><h2>Agent review delivery policy</h2>
+        <div class="sub">Current estate policy:
+          <code>{esc(review_agent_gate)}</code>; reviewer unavailable:
+          <code>{esc(review_unavailable)}</code>. This is owned in
+          <code>registry/org-config.yaml</code>, not by a per-run bypass.</div></div>
+      </div>
+      <div class="card-b sm">
+        <p><b>Off</b> — the agent reviewer does not run.</p>
+        <p><b>Warn (default rollout)</b> — findings are recorded and surfaced,
+        then the deterministic gate still runs.</p>
+        <p><b>Require</b> — final needs-work findings refuse delivery before the
+        gate, so nothing is committed. An unavailable reviewer follows
+        <code>review.on_unavailable: proceed|hold</code>.</p>
+        <p><b>Roll out in two steps:</b> measure the reviewer under
+        <code>warn</code>, then change the estate to <code>require</code> only
+        after clean controls and false-refusal rates are acceptable. Turning on
+        require first teaches people to bypass the reviewer.</p>
+      </div>
+    </section>
     <section class="card">
       <div class="card-h"><div><h2>Integrations</h2>
         <div class="sub">Stored in the gitignored <code>.env</code> — the same file

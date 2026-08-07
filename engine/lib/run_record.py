@@ -67,6 +67,7 @@ for f in sorted(glob.glob("out/*.contract.json")):
         entry["spend"] = spend_by_phase[name]
     phases.append(entry)
 
+delivery = reviewer_lib.load_delivery("out/review-delivery.json")
 gates = []
 malformed_gate_lines = 0
 if os.path.exists("out/gate_results.tsv"):
@@ -94,16 +95,19 @@ if os.path.exists("out/gate_results.tsv"):
                       "log": f"reports/{key}-{repo}.log",
                       "diff": diff if os.path.exists(diff) else None})
 
-overall = ("quarantined" if any(g["status"] in ("quarantined", "clone_failed")
+overall = ("review_refused" if delivery and delivery["outcome"] == "refused"
+           else "quarantined" if any(g["status"] in ("quarantined", "clone_failed")
                                 for g in gates)
            else "committed" if any(g["status"] == "committed" for g in gates)
            else "no_changes")
 # Advisory critic score lifted to the top level so the scorecard and dashboard don't
-# have to dig through phases[]. `overall` above is computed purely from gate outcomes —
-# the critic never contributes to it (openhands-review §3.2).
+# have to dig through phases[]. `overall` is gate-derived except for B3's explicit
+# pre-gate refusal; the critic never contributes to it (openhands-review §3.2).
 record = {"run_id": run_id, "trigger": {"type": mode, "key": key},
           "ts": time.time(), "overall": overall,
           "gates": gates, "phases": phases}
+if delivery:
+    record["review_delivery"] = delivery
 # Successor PRD A1 discovery provenance. Optional and total: malformed scratch
 # cannot cost the otherwise durable gate record.
 try:
@@ -203,10 +207,13 @@ signal = critic_lib.load()
 if signal:
     record["critic"] = signal
 reviewer = reviewer_lib.load()
-# B4: total, run-scoped evidence even when the opt-in phase was skipped or
-# unavailable. Gate-derived `overall` and human review state remain untouched.
+# B4/B3: total, run-scoped evidence even when the phase was skipped or
+# unavailable. Human review state remains untouched; B3 alone may set the
+# pre-gate `review_refused` overall above.
 record["review"] = reviewer_lib.surface(
-    reviewer, assume_enabled=True if os.path.exists("out/reviewer.contract.json") else None
+    reviewer,
+    policy=delivery["policy"] if delivery else None,
+    assume_enabled=True if os.path.exists("out/reviewer.contract.json") else None,
 )
 # Spend from the budget ledger (real phases meter; mock runs record 0/simulated).
 try:

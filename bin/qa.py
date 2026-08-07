@@ -110,11 +110,12 @@ def cmd_status(args):
     if not runs:
         print("no run records yet - run a pipeline (make demo-pr / demo-jira) first")
         return
-    ICON = {"committed": "OK ", "no_changes": "-- ", "quarantined": "!! "}
+    ICON = {"committed": "OK ", "no_changes": "-- ", "quarantined": "!! ",
+            "review_refused": "RV "}
     reviews = review_state.load()
     with_cost = getattr(args, "cost", False)
     cost_col = f" {'cost':<9}" if with_cost else ""
-    print(f"{'run_id':<18} {'trigger':<22} {'overall':<12} {'team review':<18} {'release':<10}{cost_col} gates")
+    print(f"{'run_id':<18} {'trigger':<22} {'overall':<18} {'team review':<18} {'release':<10}{cost_col} gates")
     for r in runs[: args.n]:
         gates = ", ".join(
             f"{g['test_repo']}={g['status']}"
@@ -134,11 +135,14 @@ def cmd_status(args):
             # `~` marks a figure containing simulated components — a simulated
             # number must never read as a measured dollar.
             cost_cell = f" {('~' if sim else '') + f'${tot:.4f}' if spends else '-':<9}"
-        print(f"{r['run_id']:<18} {trig:<22} {ICON.get(r['overall'], '') + r['overall']:<12} "
+        print(f"{r['run_id']:<18} {trig:<22} {ICON.get(r['overall'], '') + r['overall']:<18} "
               f"{rev:<18} {rel:<10}{cost_cell} {gates}")
     quarantined = [r for r in runs[: args.n] if r["overall"] == "quarantined"]
     if quarantined:
         print(f"\n{len(quarantined)} quarantined run(s) need attention - logs under reports/")
+    refused = [r for r in runs[: args.n] if r["overall"] == "review_refused"]
+    if refused:
+        print(f"\n{len(refused)} run(s) refused before the gate - fix the agent-review findings")
     pending = [k for k, v in reviews.items() if v.get("status") in ("pending_review", "in_review")]
     if pending:
         print(f"awaiting team review: {', '.join(sorted(pending))}   "

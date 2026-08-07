@@ -263,9 +263,13 @@ def test_latest_review_supersedes_history_without_manufacturing_weight(
 def test_pipeline_and_run_record_order_the_learning_hook_before_finalization():
     pipeline = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
     hook = 'testcase_learning.py index "$RUN_ID" "$KEY"'
+    record = 'python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY"'
     assert hook in pipeline
-    assert pipeline.index(hook) < pipeline.index(
-        'python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY"')
+    # B3 adds a separate pre-gate refusal record. The learning hook belongs only
+    # to a run whose gate committed; preserve its order against the NORMAL final
+    # record rather than incorrectly requiring every early-abort record to wait
+    # for a post-commit hook whose input cannot exist.
+    assert pipeline.index(record) < pipeline.index(hook) < pipeline.rindex(record)
     run_record = (ROOT / "engine/lib/run_record.py").read_text(encoding="utf-8")
     assert 'record["testcase_learning"] = learning' in run_record
     source = (ROOT / "engine/lib/testcase_learning.py").read_text(encoding="utf-8")

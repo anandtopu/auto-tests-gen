@@ -134,6 +134,8 @@ EXIT_MEANINGS = {
          "not writable."),
     77: ("BUDGET_EXCEEDED", "The run hit its cost or wall-clock ceiling and was aborted "
          "BEFORE the gate, so nothing was committed."),
+    78: ("AGENT_REVIEW_REFUSED", "The required agent review still found work, or the "
+         "configured unavailable policy held delivery. Fix the named findings and re-run."),
 }
 
 
@@ -323,11 +325,15 @@ def _steps_from_record(rec, root=ROOT):
     skipped = {s.get("phase"): s.get("reason", "")
                for s in rec.get("skipped_phases") or [] if isinstance(s, dict)}
     gates = rec.get("gates") or []
+    refused = (rec.get("review_delivery") or {}).get("outcome") == "refused"
     steps = []
     for st in chain:
         s = dict(st)
         if st["id"] == "gate":
-            if not gates:
+            if refused:
+                s.update(state="skipped",
+                         detail="Required agent review refused delivery before the gate.")
+            elif not gates:
                 s.update(state="unknown",
                          detail="No gate result was recorded. The run ended before the "
                                 "gate - check the earlier steps.")
@@ -351,7 +357,8 @@ def _steps_from_record(rec, root=ROOT):
             s.update(state="skipped",
                      detail=skipped[st["id"]] or "no work for this phase")
         elif st["id"] in done:
-            s.update(state="done", detail=_summarize(st["id"], done[st["id"]]))
+            s.update(state="failed" if st["id"] == "review" and refused else "done",
+                     detail=_summarize(st["id"], done[st["id"]]))
         else:
             # The record is complete, so a phase with no contract genuinely did
             # not run - but WHY is not recorded, so it is not "pending" either.

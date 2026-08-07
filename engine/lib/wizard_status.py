@@ -166,11 +166,12 @@ def build(key, mode="pr"):
     # B4 keeps the machine judgement visibly separate from Team review. A
     # needs_work/unavailable verdict is evidence, not a human board transition.
     agent_review = (latest or {}).get("review") or (latest or {}).get("reviewer")
+    review_refused = ((latest or {}).get("review_delivery") or {}).get("outcome") == "refused"
     if isinstance(agent_review, dict):
         findings = agent_review.get("findings") or []
         unresolved = agent_review.get("unresolved") or []
         steps.append(_step(
-            "done", "Agent review",
+            "failed" if review_refused else "done", "Agent review",
             f"{agent_review.get('verdict', 'unavailable')} · {len(findings)} finding(s) · "
             f"{len(unresolved)} unresolved · policy {agent_review.get('policy', 'not recorded')}"
         ))
@@ -185,6 +186,9 @@ def build(key, mode="pr"):
         steps.append(_step("failed" if bad and not ok else "done", "Quality gate",
                            ", ".join(f"{g.get('test_repo')}: {g.get('status')}"
                                      for g in gates)))
+    elif review_refused:
+        steps.append(_step("blocked", "Quality gate",
+                           "required agent review refused delivery before the gate"))
     else:
         steps.append(_step("pending", "Quality gate", ""))
 

@@ -263,6 +263,11 @@ rather than naming a mode:
   and still commits, `strict` makes the gate refuse (exit 8) on an uncovered,
   unwaived scenario. Roll out in that order. Turning on `strict` first just
   teaches people to bypass the gate.
+- **Agent review delivery** — `off` does not run the reviewer; `warn` records
+  and surfaces findings while the deterministic gate still runs; `require`
+  refuses before the gate on final needs-work findings (exit 78), so nothing is
+  committed. Measure under `warn` before changing the estate-wide org-config
+  policy to `require`; there is no per-run bypass.
 
 The Danger zone clears generated demo data; factory reset additionally empties
 the registry and team notes. Both refuse while a pipeline lock looks live.

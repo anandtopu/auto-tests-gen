@@ -865,6 +865,42 @@ relocate_artifacts
 REVIEW_TESTS
 REPAIR_FROM_REVIEW
 
+# B3 delivery policy lives immediately before the gate boundary. The gate never
+# reads reviewer output; under require, this pipeline stops before critic/gate,
+# persists the refusal, and names the fixes on the same PR/ticket surfaces.
+rm -f out/review-delivery.json
+REVIEW_POLICY_RC=0
+REVIEW_POLICY_LINE=""
+# Preserve S3's default-off artifact parity: warn/off with no reviewer result
+# creates no new delivery sidecar. Require forces REVIEW_TESTS on, so its
+# approve/needs-work/unavailable evidence always reaches this decision.
+if [ -f out/reviewer.contract.json ]; then
+  REVIEW_POLICY_LINE=$(python3 engine/lib/test_reviewer.py enforce \
+    out/reviewer.contract.json out/review-delivery.json) || REVIEW_POLICY_RC=$?
+fi
+if [ "$REVIEW_POLICY_RC" -eq 78 ]; then
+  mkdir -p reports/runs
+  REVIEW_LINE=$(python3 engine/lib/test_reviewer.py summary out/reviewer.contract.json || echo "")
+  SUMMARY="AI-QE run ${RUN_ID} for ${KEY}: agent review refused delivery before the gate."
+  if [ -n "$REVIEW_LINE" ]; then SUMMARY+=$'\n'"- ${REVIEW_LINE}"; fi
+  SUMMARY+=$'\n'"- ${REVIEW_POLICY_LINE}"
+  echo "[reviewer] $REVIEW_POLICY_LINE"
+  python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY" \
+    | tee "reports/runs/${RUN_ID}.json" | TELEM emit_event
+  case "$MODE" in jira|tests) TRACKER comment "$KEY" "$SUMMARY" || true ;; esac
+  NOTIFY post "$SUMMARY" || true
+  if [ "$MODE" = "pr" ]; then
+    HEAD_SHA=$(git -C "workspace/src/$REPO" rev-parse HEAD 2>/dev/null || echo "")
+    if [ -n "$HEAD_SHA" ]; then SCM set_status "$REPO" "$HEAD_SHA" failure "AI-QE run ${RUN_ID}" || true; fi
+    PR_COMMENT=$(python3 engine/lib/pr_comment.py "$RUN_ID" "$KEY" 2>/dev/null || true)
+    if [ -n "$PR_COMMENT" ]; then SCM comment "$REPO" "$PR" "$PR_COMMENT" || true; fi
+  fi
+  exit 78
+elif [ "$REVIEW_POLICY_RC" -ne 0 ]; then
+  echo "AGENT_REVIEW_POLICY_ERROR: delivery decision could not be persisted; refusing before gate"
+  exit 78
+fi
+
 # Critic (§5.8.7): an ADVISORY second opinion on test quality — vacuous assertions,
 # duplicates, brittleness — which the deterministic gate structurally cannot judge.
 # It runs read-only (org-config gives it no Write/Edit), it cannot repair, and NOTHING

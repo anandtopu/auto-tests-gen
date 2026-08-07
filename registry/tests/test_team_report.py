@@ -113,6 +113,23 @@ def test_markdown_has_all_sections():
     assert "Pipeline runs" in md and "Tests generated" in md
 
 
+def test_review_refusal_is_not_reported_as_no_changes(estate):
+    runs = estate / "reports/runs"
+    now = time.time()
+    rec = _record("PR-orders-api-10", "pr", now, "review_refused")
+    rec["review_delivery"] = {
+        "outcome": "refused", "fixes": ["Add the missing boundary case."]}
+    (runs / "review-refused.json").write_text(json.dumps(rec), encoding="utf-8")
+    d = team_report.build()
+    assert d["totals"]["runs"] == 5
+    assert d["totals"]["review_refused"] == 1
+    assert d["totals"]["no_changes"] == 1
+    assert d["review_refused"][0]["key"] == "PR-orders-api-10"
+    md = team_report.to_markdown()
+    assert "Agent-review refusals" in md
+    assert "Add the missing boundary case." in md
+
+
 def test_render_all_formats():
     md, _ = team_report.render("md")
     assert md.decode("utf-8").startswith("# QA Team Report")

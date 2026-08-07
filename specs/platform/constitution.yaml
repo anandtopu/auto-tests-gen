@@ -143,3 +143,19 @@ clauses:
         test: test_an_invalid_enforcement_value_is_never_silently_off
       - file: registry/tests/test_env_flag.py
         test: test_an_unusable_value_lands_on_the_safe_side_and_says_so
+  - id: C14
+    statement: >-
+      The generated-test reviewer may stop a run only before the deterministic
+      gate. The gate never reads reviewer output, the reviewer itself remains
+      read-only, and its verdict never moves human review-board status. The
+      post-commit critic remains the distinct advisory signal governed by C2.
+    category: safety
+    pins:
+      - file: registry/tests/test_reviewer_delivery.py
+        test: test_required_refusal_is_before_the_gate
+      - file: registry/tests/test_reviewer_delivery.py
+        test: test_the_gate_never_reads_reviewer_delivery
+      - file: registry/tests/test_reviewer_delivery.py
+        test: test_reviewer_stays_read_only_and_never_moves_human_status
+      - file: registry/tests/test_reviewer_delivery.py
+        test: test_critic_and_reviewer_constitution_rules_stay_distinct

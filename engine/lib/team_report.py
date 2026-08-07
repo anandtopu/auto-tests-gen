@@ -55,7 +55,7 @@ def build(days=None, release=None):
     runs = [r for r in _runs() if r.get("ts", 0) >= cutoff
             and (not release or rel_of(r["trigger"]["key"]) == release)]
 
-    completed, quarantined = [], []
+    completed, quarantined, review_refused = [], [], []
     n_tests, n_created, n_updated, repair_loops = 0, 0, 0, []
     for r in runs:
         key = r["trigger"]["key"]
@@ -72,6 +72,7 @@ def build(days=None, release=None):
         row = {"key": key, "type": r["trigger"]["type"], "ts": r.get("ts", 0),
                "release": rel_of(key),
                "review": reviews.get(key, {}).get("status", ""),
+               "review_fixes": ((r.get("review_delivery") or {}).get("fixes") or [])[:4],
                "gates": [{"repo": g["test_repo"], "status": g["status"],
                           "commit": (g.get("commit") or "")[:7]}
                          for g in r.get("gates", [])]}
@@ -79,6 +80,8 @@ def build(days=None, release=None):
             completed.append(row)
         elif r.get("overall") == "quarantined":
             quarantined.append(row)
+        elif r.get("overall") == "review_refused":
+            review_refused.append(row)
 
     pending = sorted(
         ({"key": k, "status": e["status"], "release": e.get("release", ""),
@@ -91,13 +94,17 @@ def build(days=None, release=None):
                 and (not release or e.get("release", "") == release)]
 
     by_release = {}
-    for row in completed + quarantined:
+    for row in completed + quarantined + review_refused:
         b = by_release.setdefault(row["release"] or "(none)",
-                                  {"committed": 0, "quarantined": 0, "pending": 0})
-        b["committed" if row in completed else "quarantined"] += 1
+                                  {"committed": 0, "quarantined": 0,
+                                   "review_refused": 0, "pending": 0})
+        bucket = ("committed" if row in completed else
+                  "quarantined" if row in quarantined else "review_refused")
+        b[bucket] += 1
     for p in pending:
         by_release.setdefault(p["release"] or "(none)",
-                              {"committed": 0, "quarantined": 0, "pending": 0})["pending"] += 1
+                              {"committed": 0, "quarantined": 0,
+                               "review_refused": 0, "pending": 0})["pending"] += 1
 
     per_day = {}
     for r in runs:
@@ -116,12 +123,15 @@ def build(days=None, release=None):
     return {"generated": now, "days": days, "release": release,
             "totals": {"runs": len(runs), "committed": len(completed),
                        "quarantined": len(quarantined),
-                       "no_changes": len(runs) - len(completed) - len(quarantined),
+                       "review_refused": len(review_refused),
+                       "no_changes": (len(runs) - len(completed) - len(quarantined)
+                                      - len(review_refused)),
                        "tests_generated": n_tests, "tests_created": n_created,
                        "tests_updated": n_updated,
                        "avg_repair_loops": (round(sum(repair_loops) / len(repair_loops), 2)
                                             if repair_loops else 0)},
             "completed": completed, "quarantined": quarantined,
+            "review_refused": review_refused,
             "pending_review": pending, "approved_in_period": sorted(approved),
             "queue": work_queue.load(), "by_release": by_release,
             "per_day": dict(sorted(per_day.items(), reverse=True)),
@@ -162,6 +172,7 @@ def to_markdown(days=None, release=None):
          f"| Pipeline runs | {t['runs']} |",
          f"| Committed (tests pushed) | {t['committed']} ({rate}) |",
          f"| Quarantined by the gate | {t['quarantined']} |",
+         f"| Refused before the gate by required agent review | {t['review_refused']} |",
          f"| No changes needed | {t['no_changes']} |",
          f"| Tests generated | {t['tests_generated']} "
          f"({t['tests_created']} new, {t['tests_updated']} extended existing) |",
@@ -192,6 +203,16 @@ def to_markdown(days=None, release=None):
             when_r = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"]))
             L.append(f"| {r['key']} | {r['type']} | {when_r} | {r['release'] or '—'} |")
 
+    if d["review_refused"]:
+        L += ["", "## Agent-review refusals (fix and re-run)", "",
+              "| key | type | when | release | fixes |",
+              "| --- | --- | --- | --- | --- |"]
+        for r in d["review_refused"]:
+            when_r = time.strftime("%Y-%m-%d %H:%M", time.localtime(r["ts"]))
+            fixes = "; ".join(str(f).replace("|", "\\|") for f in r["review_fixes"])
+            L.append(f"| {r['key']} | {r['type']} | {when_r} | {r['release'] or '—'} "
+                     f"| {fixes or 'see run record'} |")
+
     L += ["", "## Awaiting team review", ""]
     if d["pending_review"]:
         L += ["| key | status | release | waiting |", "| --- | --- | --- | --- |"]
@@ -214,11 +235,12 @@ def to_markdown(days=None, release=None):
 
     if d["by_release"]:
         L += ["", "## By release", "",
-              "| release | committed | quarantined | awaiting review |",
-              "| --- | --- | --- | --- |"]
+              "| release | committed | quarantined | review refused | awaiting review |",
+              "| --- | --- | --- | --- | --- |"]
         for rel in sorted(d["by_release"]):
             b = d["by_release"][rel]
-            L.append(f"| {rel} | {b['committed']} | {b['quarantined']} | {b['pending']} |")
+            L.append(f"| {rel} | {b['committed']} | {b['quarantined']} "
+                     f"| {b['review_refused']} | {b['pending']} |")
 
     if d["per_day"]:
         L += ["", "## Throughput (runs per day)", "", "| day | runs |", "| --- | --- |"]

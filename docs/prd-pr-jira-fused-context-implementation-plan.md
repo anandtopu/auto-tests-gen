@@ -14,8 +14,8 @@ Source: [prd-pr-jira-fused-context-multi-agent.md](prd-pr-jira-fused-context-mul
 | 5 | B4 Verdict surfaces | S3 | B1 | Implemented | Canonical run snapshot, board columns, PR/JIRA lines, Agent review progress, and evidence-based explain output |
 | 6 | B6 Reviewer evaluation | S3 | B1 | Implemented | Hash-pinned seeded defects, clean control, per-class catch rates, and separate simulated/real-model evidence |
 | 7 | B2 Bounded repair | S4 | B1, B6 | Implemented | Bounded per-repo repair, revalidation, rereview, metering, and unresolved-finding history |
-| 8 | B3 Delivery policy | S4 | B1, B2, B4 | Next eligible | `off|warn|require`, pre-gate refusal, unavailable policy, constitution pins |
-| 9 | B5 Cost containment | S3/S4 | B1–B3 | Planned | Judgement-tier pin, budget-envelope uplift, reviewer-panel deferral trigger |
+| 8 | B3 Delivery policy | S4 | B1, B2, B4 | Implemented | `off|warn|require`, strict pre-gate refusal evidence, unavailable policy, no per-run bypass, cross-surface outcome, C14 pins; detailed mapping in [pr-jira-fused-context-b3-implementation-plan.md](pr-jira-fused-context-b3-implementation-plan.md) |
+| 9 | B5 Cost containment | S3/S4 | B1–B3 | Next eligible | Judgement-tier pin, budget-envelope uplift, reviewer-panel deferral trigger |
 | 10 | A3 Plan-first from PR | S5 | A1, A2, B1–B4 | Planned | Extend the existing plan-state lifecycle to PR keys and PR intake |
 
 The order follows the PRD delivery slices. A3 remains last because the PRD makes
@@ -105,10 +105,12 @@ approve. Write-enabled repair products are structurally excluded from both
 phase caches. Detailed acceptance and evidence are in
 [pr-jira-fused-context-b2-implementation-plan.md](pr-jira-fused-context-b2-implementation-plan.md).
 
-### B3, B5 — Require and cost slice
+### B3 — Delivery policy
 
-Implement `off|warn|require` before the gate, amend and pin the constitution,
-keep critic and reviewer distinct, and document consequence/cost language.
+Implemented as an estate-only `off|warn|require` decision after bounded repair
+and before critic/gate. Required needs-work exits 78 with strict run evidence
+and named fixes; C14 keeps reviewer, gate, critic, and human disposition
+separate. B5 now owns the remaining judgement-tier and envelope-cost work.
 
 ### A3 — Plan-first from PR
 
