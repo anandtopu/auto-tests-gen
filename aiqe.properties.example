@@ -213,3 +213,5 @@ MAX_WALLCLOCK_MIN=25
 AIQE_REQUIREMENTS_GATE=
 # Spec satisfaction at the gate: off | warn | strict
 AIQE_SPEC_ENFORCE=
+# Read-only semantic review after validation; empty uses org-config (default off).
+AIQE_TEST_REVIEWER=

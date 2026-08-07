@@ -275,6 +275,12 @@ SPEC = [
                                 "uncovered, unwaived scenario"]],
          "help": "Start at warn. Strict blocks a commit when an approved "
                  "scenario has no test and no unexpired waiver."},
+        {"env": "AIQE_TEST_REVIEWER", "label": "Generated-test reviewer",
+         "options": [["", "use org-config (default: off)"],
+                     ["0", "off — validation proceeds directly to gate"],
+                     ["1", "on — run a read-only semantic review after validation"]],
+         "help": "Advisory in B1. A reviewer failure is recorded as unavailable "
+                 "and never changes the gate outcome."},
      ]},
 ]
 

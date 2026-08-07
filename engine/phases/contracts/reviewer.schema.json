@@ -1,0 +1,7 @@
+{
+  "required": ["verdict", "findings"],
+  "properties": {
+    "verdict": {"enum": ["approve", "needs_work"]},
+    "findings": {"type": "array"}
+  }
+}

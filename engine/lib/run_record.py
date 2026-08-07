@@ -11,6 +11,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import critic as critic_lib
+import test_reviewer as reviewer_lib
 import artifact_reuse
 import env_flag                     # AIQE_MOCK means what it says
 import task_bundle
@@ -201,6 +202,10 @@ if os.path.exists("out/context-retries.tsv"):
 signal = critic_lib.load()
 if signal:
     record["critic"] = signal
+reviewer = reviewer_lib.load()
+if reviewer:
+    # Advisory in B1: gate-derived overall above is intentionally untouched.
+    record["reviewer"] = reviewer
 # Spend from the budget ledger (real phases meter; mock runs record 0/simulated).
 try:
     import budget

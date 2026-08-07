@@ -174,6 +174,12 @@ generate_fanout:   # one generate agent per resolved test repo
                             # contract change fanning out to an API repo plus consumer
                             # UI repos cannot cross-wire their approaches. A single
                             # resolved repo takes the original single-call path.
+review:            # generated-test semantic reviewer after validate
+  enabled: false            # AIQE_TEST_REVIEWER=1 enables it for one run
+  agent_gate: warn          # reserved for B3 policy; B1 remains advisory
+  on_unavailable: proceed   # outage is recorded, never mistaken for approval
+  max_loops: 1              # repair loops are introduced separately by B2
+  reviewers: []             # optional human review assignment rota
 resolution:
   confidence_threshold: 0.8   # below this the pipeline asks a human instead of guessing
 catalog:

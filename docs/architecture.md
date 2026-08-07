@@ -642,6 +642,32 @@ The safety properties mirror the advisory critic and are structural:
 
 `engine/lib/plan_adversary.py` normalizes the signal (unknown categories and severities are coerced, not trusted) and is total against missing or malformed contracts. Its one-line summary is stored on the plan state entry — `out/` is per-run scratch, so without that the reviewer opening the plan tomorrow would have no idea it was ever challenged — and surfaces in the ticket comment, the Test plans view and the Guided run wizard. `AIQE_PLAN_ADVERSARY=0` skips it for a run; `plan_adversary.enabled: false` disables it estate-wide.
 
+#### 5.8.10 Generated-test reviewer — read-only semantic review
+
+The B1 reviewer runs after validation and before the per-repository gates. It
+may report only uncovered plan/ticket behavior, vacuous assertions,
+ticket-versus-diff mismatches, and repository-convention violations execution
+cannot reveal. It must not run tests or re-litigate the approved plan.
+
+Review mirrors generation fan-out. For each resolved test repository,
+engine/lib/test_reviewer.py selects only tests stamped for that repo, confines
+every source path below workspace/tests/&lt;repo&gt;, applies source-size bounds,
+and creates one untrusted-data bundle. The phase also sees validation, either
+plan or triage evidence, optional fused ticket/diff data, and only that repo
+conventions and catalog slice. Unstamped multi-repo tests are rejected.
+
+The contract has closed verdict, severity, and category sets. Approve with
+findings or needs_work without findings is malformed. Phase failure, timeout,
+input rejection, or bad output becomes explicit per-repo unavailable; zero
+generated tests becomes skipped through SKIP_PHASE. Aggregation records every
+repo and never calls an outage approval.
+
+B1 is advisory by structure: the phase has only Read, REVIEW_TESTS is total,
+nothing under engine/gate reads reviewer output, and run-record overall remains
+derived only from gates. AIQE_TEST_REVIEWER=1 enables it; default is off. Mock
+verdicts carry simulated true and prove routing/persistence only. Repairs,
+delivery policy, human surfaces, and quality evaluation remain B2/B3/B4/B6.
+
 ### 5.9 Test Catalog & Mapping Subsystem (new in v2.0)
 
 **The problem this solves:** E2E test repositories can contain tests with no recorded relationship to application repositories or features. Without that mapping, the platform cannot (a) route triggers to the right test repo, (b) decide update-vs-create (leading to duplicate tests), or (c) report requirement coverage. The registry's `covers:` map in §5.8.1 is therefore **derived from the catalog**, not hand-authored.

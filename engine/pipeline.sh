@@ -314,6 +314,72 @@ GENERATE() {
   return 0
 }
 
+# PRD v2 B1: one read-only reviewer call per resolved test repository after
+# validation and before any gate. The reviewer is advisory in B1: every failure
+# is converted to explicit unavailable evidence, and this function always
+# returns zero. B2/B3 own repair and enforcement policy; neither is hidden here.
+REVIEW_TESTS() {
+  rm -f out/reviewer.contract.json out/reviewer-*.contract.json \
+        out/reviewer-*.input.json out/reviewer-status.tsv
+  python3 engine/lib/test_reviewer.py enabled || return 0
+  local repos repo input conv slice rc label
+  local ctx=()
+  repos=$(python3 -c "import json;print(' '.join(json.load(open('out/resolve.contract.json'))['test_repos']))" 2>/dev/null || echo "")
+  : > out/reviewer-status.tsv
+  for repo in $repos; do
+    input="out/reviewer-${repo}.input.json"
+    rc=0
+    python3 engine/lib/test_reviewer.py prepare "$repo" "$input" || rc=$?
+    if [ "$rc" -eq 3 ]; then
+      SKIP_PHASE "reviewer-$repo" "no generated tests to review"
+      printf '%s\tskipped\t%s\n' "$repo" "no generated tests to review" >> out/reviewer-status.tsv
+      continue
+    elif [ "$rc" -ne 0 ]; then
+      printf '%s\tunavailable\t%s\n' "$repo" "review input unavailable" >> out/reviewer-status.tsv
+      continue
+    fi
+
+    conv="out/repo-conventions-${repo}.md"
+    if [ ! -s "$conv" ]; then
+      python3 engine/lib/spec_exemplars.py "$conv" "$repo" >/dev/null 2>&1 || : > "$conv"
+    fi
+    [ -f "$conv" ] || : > "$conv"
+    slice="out/catalog-slice-${repo}.jsonl"
+    if [ ! -f "$slice" ]; then
+      python3 engine/lib/catalog_slice.py out/resolve.contract.json "$repo" \
+        > "$slice" 2>/dev/null || cp out/catalog-slice.jsonl "$slice" 2>/dev/null || : > "$slice"
+    fi
+    ctx=("$input" out/validate.contract.json "$conv" "$slice")
+    if [ -f out/testplan.contract.json ]; then ctx+=(out/testplan.contract.json)
+    elif [ -f out/triage.contract.json ]; then ctx+=(out/triage.contract.json); fi
+    for extra in out/ticket.json out/pr.diff out/changed.txt; do
+      [ -f "$extra" ] && ctx+=("$extra")
+    done
+
+    label="reviewer-$repo"
+    export AIQE_PHASE_LABEL="$label" AIQE_TARGET_REPO="$repo"
+    rc=0
+    _ARCHIVE_INPUTS "$RUN_ID" "$KEY" "$label" initial prompts/test-reviewer.md "${ctx[@]}"
+    _PHASE_IMPL reviewer test-reviewer.md "${ctx[@]}" || rc=$?
+    python3 engine/lib/budget.py record "$label" "out/${label}.json" || true
+    unset AIQE_PHASE_LABEL AIQE_TARGET_REPO
+    if [ "$rc" -eq 0 ] && python3 engine/lib/test_reviewer.py validate \
+        "$repo" "out/${label}.contract.json"; then
+      printf '%s\treviewed\t\n' "$repo" >> out/reviewer-status.tsv
+    else
+      echo "[reviewer] $repo unavailable — generated tests continue to gate"
+      rm -f "out/${label}.contract.json"
+      printf '%s\tunavailable\t%s\n' "$repo" "reviewer failed or returned malformed output" >> out/reviewer-status.tsv
+    fi
+  done
+  python3 engine/lib/test_reviewer.py merge out/reviewer-status.tsv \
+    out/reviewer.contract.json || {
+      printf '%s\n' '{"artifact":"test-reviewer","schema":1,"state":"unavailable","verdict":"unavailable","repos":[{"repo":"reviewer","state":"unavailable","reason":"review result merge failed"}],"findings":[],"simulated":false}' \
+        > out/reviewer.contract.json
+    }
+  return 0
+}
+
 RUN_ID=$(date +%s)-$RANDOM
 # Observability slice 1 (story 1.2). Runs previously emitted telemetry ONCE, at
 # the very end, so an abort, a gate refusal or a mid-phase death produced
@@ -724,6 +790,11 @@ fi
 PHASE validate validate-repair.md out/generate.contract.json out/repo-conventions.md
 
 relocate_artifacts
+
+# Read-only semantic review of the generated source. Deliberately outside PHASE:
+# a reviewer outage after paid generation/validation must not trigger a budget
+# abort or suppress gate evidence. REVIEW_TESTS is total and never edits tests.
+REVIEW_TESTS
 
 # Critic (§5.8.7): an ADVISORY second opinion on test quality — vacuous assertions,
 # duplicates, brittleness — which the deterministic gate structurally cannot judge.

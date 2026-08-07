@@ -166,6 +166,20 @@ EOF
   validate)
     echo '{"passed":2,"failed":0,"repair_loops":0,"flaky_reruns":0}' > out/validate.contract.json
     ;;
+  reviewer)
+    if [ "${AIQE_MOCK_REVIEWER_MALFORMED:-0}" = "1" ]; then
+      echo '{"verdict":"approve","findings":[{"severity":"critical"}],"simulated":true}' > "out/${OUT}.contract.json"
+    elif [ "${AIQE_MOCK_REVIEWER_VERDICT:-approve}" = "needs_work" ]; then
+      cat > "out/${OUT}.contract.json" << EOF
+{"verdict":"needs_work","findings":[{"severity":"high","category":"vacuous_assertion","file":"suites/orders/${KEY}-discount-boundary.spec.js","test":"${KEY}: rejects discount above 90%","finding":"scripted mock finding: status-only assertion does not verify unchanged total","fix":"assert the order total is unchanged after rejection"}],"simulated":true}
+EOF
+    elif [ "${AIQE_MOCK_REVIEWER_VERDICT:-approve}" = "approve" ]; then
+      echo '{"verdict":"approve","findings":[],"simulated":true}' > "out/${OUT}.contract.json"
+    else
+      echo "[mock] invalid AIQE_MOCK_REVIEWER_VERDICT (approve|needs_work)" >&2
+      exit 64
+    fi
+    ;;
   critic)
     # Advisory only. AIQE_MOCK_CRITIC_SCORE forces a score so the demo (and the
     # regression tests) can prove a terrible score still commits.

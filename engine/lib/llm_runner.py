@@ -62,7 +62,8 @@ EXPERIMENTAL_PROVIDERS = {"openhands": "AIQE_OPENHANDS_PROVIDER"}
 # answer. registry/tests/test_phase_inventory.py pins this tuple against
 # org-config and the dispatch sites so a phantom phase cannot come back.
 ALL_PHASES = ("triage", "analyze", "testplan", "planadversary",
-              "planarbiter", "testdata", "generate", "validate", "critic")
+              "planarbiter", "testdata", "generate", "validate", "reviewer",
+              "critic")
 
 
 def _cfg():

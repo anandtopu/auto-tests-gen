@@ -238,8 +238,9 @@ def test_portable_import_restores_artifacts_to_configured_store(estate, tmp_path
 def test_pipeline_captures_initial_retry_and_advisory_phase_boundaries():
     source = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
     assert source.count("task_bundle.py capture-phase") == 1
-    assert source.count("_ARCHIVE_INPUTS") == 4  # helper plus three boundaries
+    assert source.count("_ARCHIVE_INPUTS") == 5  # helper plus four boundaries
     for token in ('initial "prompts/$2"', '"$label" retry',
+                  '"$label" initial prompts/test-reviewer.md',
                   "critic initial prompts/critic.md"):
         assert token in source
     phase = source[source.index("PHASE() {"):]

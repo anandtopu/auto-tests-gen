@@ -13,6 +13,7 @@ models:
   triage: claude-haiku-4-5-20251001     # classify a diff's impact — bounded
   analyze: claude-haiku-4-5-20251001    # extract behaviors from a ticket — extraction
   testdata: claude-haiku-4-5-20251001   # emit fixtures from a fixed schema
+  reviewer: claude-haiku-4-5-20251001   # provisional; B6 measures review quality
   critic: claude-haiku-4-5-20251001     # advisory score, never gates a commit
   validate: claude-haiku-4-5-20251001   # run specs, read failures, repair narrowly
   # Judgement-grade. The plan is what a human signs off, and the adversary's whole
@@ -61,6 +62,7 @@ phases:
   testdata:  { max_turns: 10, allowed_tools: "Read,Write" }
   generate:  { max_turns: 25, allowed_tools: "Read,Write,Edit,Bash(npx playwright test:*),Bash(npm run lint:*)" }
   validate:  { max_turns: 15, allowed_tools: "Read,Edit,Bash(npx playwright test:*)" , repair_loops: 3 }
+  reviewer:  { max_turns: 8,  allowed_tools: "Read" }
   # Read-only ON PURPOSE: a critic that can Write/Edit is an unreviewed repair loop,
   # not a second opinion. Advisory status depends on it staying this way (§3.2).
   critic:    { max_turns: 8,  allowed_tools: "Read" }
@@ -96,6 +98,10 @@ generate_fanout:
 # one of these names (shown on the board and in digests). Assignment is a nudge —
 # anyone may still review, and the decision records the actual actor. Empty = off.
 review:
+  enabled: false
+  agent_gate: warn
+  on_unavailable: proceed
+  max_loops: 1
   reviewers: []
 resolution:
   confidence_threshold: 0.8
