@@ -1346,11 +1346,17 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('button.approve[data-key]');
   if (!b) return;
   if (needsServer()) return;
+  const row = b.closest('tr');
   b.disabled = true;
   try {
     await api('/api/review', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: b.dataset.key, status: 'approved', by: 'dashboard' }) });
     const cell = b.parentElement;
+    // Review filters read the row dataset, not the rendered chip. Keep both
+    // sides of the in-place transition coherent and immediately re-evaluate
+    // the active view.
+    if (row) row.dataset.review = 'approved';
+    applyRunFilters();
     cell.innerHTML = '<span class="chip chip-success">✓ approved</span>';
     toast('Approved ' + b.dataset.key + ' — recorded on the review board');
   } catch (err) { b.disabled = false; toast(err.message); }

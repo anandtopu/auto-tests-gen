@@ -16,7 +16,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 2 | Guided PR run | PR form/URL parsing, validation, queue, progress, artifacts | fixed-retested | 2026-08-07: mock `orders-api#201` committed end to end; five invalid-input cases rejected before queueing; stale prior-target results and enqueue/poll races fixed and browser-retested | — |
 | 3 | Guided JIRA plan-first run | ticket input, draft plan, approval gate, generation, ticket link | fixed-retested | 2026-08-07: mock `PROJ-301` completed author → approve → generate → committed gate → ticket link; empty/malformed keys and generate-before-approval rejected; stale historical success and Windows queue interpreter failures fixed and browser-retested | — |
 | 4 | Intake and work queue | release fetch, inline ticket, plan-only, requeue/remove, drain | fixed-retested | 2026-08-07: known/empty releases, inline validation/dedupe, mode-aware queueing, failed retry, concurrent drain, successful drain and removal exercised; three P2 defects fixed and browser/API-retested | — |
-| 5 | Run progress and run review | phase state, failure details, release filters, reviewer decisions | blocked | 2026-08-07: committed/quarantined/unknown/malformed progress and retry paths partially exercised; two stale/erased-state P2s fixed, but review-filter/decision coverage stopped after the unsafe demo-data CLI incident removed the ignored run corpus | Rebuild an isolated run corpus, then resume release filters and review transitions |
+| 5 | Run progress and run review | phase state, failure details, release filters, reviewer decisions | fixed-retested | 2026-08-07: isolated committed/quarantined/refused corpus covered release/review filters, individual and batch decisions, restart persistence, retry/stale cleanup, and API/CLI parity; one in-place filter-coherence P2 fixed and retested | — |
 | 6 | Test plans | author, edit, versions, approve/request changes, export/link | untested | — | Boundary validation and stale-version behavior |
 | 7 | Spec workflow | acceptance criteria, scenarios, waivers, drift and verification | untested | — | Waiver expiry/unmatched cases and release gate effects |
 | 8 | Trace | PR/JIRA chronology, phase links, empty/unknown keys | untested | — | Cross-check trace with run/plan/artifact records |
@@ -170,3 +170,34 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 - The Run progress/review slice is `blocked`, not complete: release filters,
   team-review transitions, and batch approval still need a rebuilt isolated
   corpus. Review: `docs/reviews/exploratory-e2e-iteration-005.md`.
+
+### 2026-08-07 — Iteration 6: Run progress and team review completion
+
+- Seed data: four deterministic temporary run records represented committed,
+  pending, quarantined, and reviewer-refused outcomes. Review, queue, and
+  testcase-provenance stores were redirected under ignored
+  out/exploratory-e2e-iter6. The corpus was synthetic, credential-free,
+  PII-free, isolated from production, and removed after validation.
+- Review coverage: all, 2026.08, 2026.09, and no-release filtering; awaiting,
+  approved, and changes-requested filtering; individual approval; confirmed
+  two-key batch approval; and persisted decisions after a server restart.
+- Progress coverage: the quarantined ladder, exit-code explanation, missing-log
+  disclosure, one retry queue record, retained disabled confirmation, and stale
+  failure/action cleanup for unknown and malformed keys were browser-retested.
+- Finding `E2E-EXP-011` (P2): individual approval changed the visible chip but
+  left the row data-review value pending. The approved row stayed under
+  awaiting review and was absent under approved until reload.
+- Fix: the in-place handler now updates the row dataset and reapplies active
+  filters as one successful transition. The browser result changed from 2/5
+  awaiting and 1/5 approved to 1/5 awaiting and 2/5 approved immediately.
+- API/CLI parity: unknown key, invalid state, missing changes-request note, and
+  malformed JSON returned 409/409/409/400; a CLI changes-request appeared in
+  the served UI, and a valid API approval appeared in bin/qa.py reviews.
+- Validation: the focused regression failed before the fix and passed after it;
+  113 adjacent UI/progress/review/API adversarial tests passed. Python
+  compilation and the high-signal Ruff runtime-error subset passed. Full Ruff
+  still reports 35 pre-existing style/baseline findings in the two legacy files.
+- Multi-pass review found no additional actionable correctness, security,
+  reliability, deployment, or coverage defect. Review:
+  `docs/reviews/exploratory-e2e-iteration-006.md`.
+- Next slice: Test plans.

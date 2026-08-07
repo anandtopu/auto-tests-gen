@@ -657,6 +657,22 @@ def test_a_failed_loader_says_so_instead_of_rendering_an_empty_table():
         assert f'table id="{t}"' in s, f"loadFailed targets #{t}, which does not exist"
 
 
+def test_run_approval_updates_the_filter_source_before_reapplying_filters():
+    """The chip and the row dataset are one state transition.
+
+    Review filters read data-review, not the cell text. Updating only the chip
+    leaves an approved run visible under "awaiting review" and absent under
+    "approved" until a full page reload.
+    """
+    source = _ui()
+    handler = source[source.index("// ---- approve (team review)"):
+                     source.index("// ---- artifacts key switcher")]
+    api_success = handler.index("await api('/api/review'")
+    dataset_update = handler.index("row.dataset.review = 'approved'")
+    refilter = handler.index("applyRunFilters();")
+    assert api_success < dataset_update < refilter
+
+
 def test_the_server_accepts_a_full_page_of_concurrent_loaders():
     """One page load fires ~10 requests at once. `socketserver` defaults the
     listen backlog to 5, so the rest overflowed the accept queue and Windows
