@@ -530,8 +530,19 @@ for key, r in latest_by_key.items():
         inner += f'<div class="art-sec art-grid"><div>{left}</div><div>{right}</div></div>'
 
     for g in r.get("gates", []):
-        if g.get("diff") and (ROOT / g["diff"]).exists():
-            diff_text = (ROOT / g["diff"]).read_text(encoding="utf-8", errors="replace")
+        if g.get("diff"):
+            diff_path = app_paths.run_diff_path(g["diff"], ROOT)
+            if diff_path is None:
+                inner += (
+                    '<div class="art-sec"><span class="chip chip-danger">Unsafe diff refused</span> '
+                    '<span class="muted sm">Archived diffs must be under reports/runs.</span></div>')
+                continue
+            if not diff_path.exists():
+                inner += (
+                    '<div class="art-sec"><span class="chip chip-warning">Diff missing</span> '
+                    f'<code class="sm">{esc(g["diff"])}</code></div>')
+                continue
+            diff_text = diff_path.read_text(encoding="utf-8", errors="replace")
             specs = specs_from_diff(diff_text)
             code_files = [s for s in specs if not s["is_catalog"]]
             catalog_files = [s for s in specs if s["is_catalog"]]

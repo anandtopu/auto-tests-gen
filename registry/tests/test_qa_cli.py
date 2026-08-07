@@ -96,6 +96,31 @@ def test_qa_artifacts_view():
     assert r3.returncode != 0 and "Known keys" in (r3.stdout + r3.stderr)
 
 
+def test_artifacts_full_refuses_persisted_diff_outside_run_archive(tmp_path):
+    record = ROOT / "reports" / "runs" / "9999999998.json"
+    canary = tmp_path / "private.diff"
+    canary.write_text("ARTIFACT_PATH_CANARY", encoding="utf-8")
+    record.write_text(json.dumps({
+        "run_id": "artifact-path-test",
+        "ts": 9999999998,
+        "trigger": {"type": "pr", "key": "PR-ART-PATH-1"},
+        "overall": "committed",
+        "phases": [],
+        "gates": [{"test_repo": "synthetic", "status": "committed",
+                   "diff": str(canary)}],
+    }), encoding="utf-8")
+    try:
+        r = subprocess.run(
+            [sys.executable, str(ROOT / "bin/qa.py"), "artifacts",
+             "PR-ART-PATH-1", "--full"],
+            capture_output=True, text=True, cwd=ROOT, stdin=subprocess.DEVNULL)
+    finally:
+        record.unlink(missing_ok=True)
+    assert r.returncode == 0, r.stderr
+    assert "unsafe diff path refused" in r.stdout
+    assert "ARTIFACT_PATH_CANARY" not in r.stdout
+
+
 def test_review_board_shows_a_dash_for_a_never_reviewed_entry(tmp_path, monkeypatch):
     """`set_release` records a target version before any status transition, so the
     entry has no `updated`. Defaulting it to 0 printed "1969-12-31", which reads as a

@@ -148,6 +148,19 @@ def test_cli_emits_the_mapping():
     assert "state_root" in r.stdout and "catalog" in r.stdout
 
 
+def test_run_diff_path_is_confined_to_archived_diffs(tmp_path):
+    root = tmp_path / "checkout"
+    good = root / "reports" / "runs" / "123-suite.diff"
+    good.parent.mkdir(parents=True)
+    good.write_text("safe", encoding="utf-8")
+
+    assert app_paths.run_diff_path("reports/runs/123-suite.diff", root) == good.resolve()
+    assert app_paths.run_diff_path("../../outside.diff", root) is None
+    assert app_paths.run_diff_path(str(tmp_path / "outside.diff"), root) is None
+    assert app_paths.run_diff_path("reports/runs/record.json", root) is None
+    assert app_paths.run_diff_path(None, root) is None
+
+
 def test_unwritable_scratch_is_not_reported_as_lock_contention():
     """R12: `mkdir` cannot distinguish EROFS from EEXIST, so a read-only root
     reported PIPELINE_BUSY after spinning the full 120s retry loop — an

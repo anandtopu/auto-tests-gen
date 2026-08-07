@@ -305,9 +305,15 @@ def cmd_artifacts(args):
             if g.get("diff"):
                 line += f"   diff: {g['diff']}"
             print(line)
-            if args.full and g.get("diff") and (ROOT / g["diff"]).exists():
-                print("  | " + (ROOT / g["diff"]).read_text(encoding="utf-8", errors="replace")
-                      .replace("\n", "\n  | "))
+            if args.full and g.get("diff"):
+                diff_path = app_paths.run_diff_path(g["diff"], ROOT)
+                if diff_path is None:
+                    print("  ! unsafe diff path refused (must be reports/runs/*.diff)")
+                elif not diff_path.exists():
+                    print("  ! archived diff is missing")
+                else:
+                    print("  | " + diff_path.read_text(encoding="utf-8", errors="replace")
+                          .replace("\n", "\n  | "))
         print()
     if not args.full:
         print("(--full prints the plan and the generated test code; --all shows every run)")

@@ -155,6 +155,31 @@ def artifacts_dir(root=None):
     return _p("AIQE_ARTIFACTS_DIR", "reports/agent-artifacts", root)
 
 
+def run_diff_path(value, root=None):
+    """Resolve a persisted gate diff only when it is inside reports/runs.
+
+    Run records are durable evidence, but they are still data. Treating their
+    diff field as a trusted filesystem path lets a crafted or tampered record
+    make the dashboard or artifact CLI disclose any readable local text file.
+    Invalid or out-of-scope values return None and must never be opened.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    checkout = pathlib.Path(root) if root else ROOT
+    candidate = pathlib.Path(value)
+    if candidate.is_absolute():
+        return None
+    try:
+        resolved = (checkout / candidate).resolve()
+        allowed = (checkout / "reports" / "runs").resolve()
+        resolved.relative_to(allowed)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if resolved.suffix.lower() != ".diff":
+        return None
+    return resolved
+
+
 # Paths whose content ships in the image and must be copied into an empty state
 # root on first boot (bin/container-entrypoint.sh reads this via `--seeded`).
 #

@@ -135,6 +135,12 @@ def test_artifact_panel_renders_code_and_keeps_the_raw_diff():
         assert 'class="spec-file"' in text, "block variant without spec-file blocks"
 
 
+def test_artifact_panel_uses_the_confined_diff_resolver():
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert "app_paths.run_diff_path" in src
+    assert "Unsafe diff refused" in src
+
+
 def test_comparison_styles_exist_for_updated_and_deleted():
     """The coloured diff needs its add/del classes, or the comparison is unreadable."""
     src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")

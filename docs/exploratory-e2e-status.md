@@ -21,7 +21,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 7 | Spec workflow | acceptance criteria, scenarios, waivers, drift and verification | fixed-retested | 2026-08-07: isolated UI/API/CLI covered requirements approval, three structured scenarios, waiver add/remove, expiry/unmatched disclosure, drift, verification and off/warn/strict gates; traversal and three inert UI mutations fixed | — |
 | 8 | Trace | PR/JIRA chronology, phase links, empty/unknown keys | fixed-retested | 2026-08-07: served UI/API/CLI/CSV cross-checked PR and JIRA timelines, uncovered scenarios, gate commits, unknown/malformed keys and restart persistence; legacy join and malformed-input defects fixed | — |
 | 9 | Cost | measured/simulated spend, caching savings, filters | fixed-retested | 2026-08-07: deterministic mixed-basis corpus covered reported, estimated, local, simulated and unpriced spend, turn/cache calibration, reuse evidence, filters and corrupt-state resilience; four disclosure/reliability defects fixed | — |
-| 10 | Artifacts | plan/data/tests/diff/code view, coverage report, export/publish | untested | — | Missing/corrupt artifacts and safe rendering |
+| 10 | Artifacts | plan/data/tests/diff/code view, coverage report, export/publish | fixed-retested | E2E-EXP-022 | Browser + CLI/API: JIRA/PR artifacts, scenarios/data/generated code/raw diff, coverage download, four export formats, mock publish/attach, missing/unsafe diff evidence |
 | 11 | Activity and alerts | transaction filters, degraded log, rule evaluation, acknowledgement | untested | — | Seed success/failure/refusal/corrupt events |
 | 12 | Test catalog | search, repo/status filters, mapping, CI health, orphan/quarantine | untested | — | Existing four-row seed plus empty/no-match searches |
 | 13 | Repositories | app/test repo CRUD, scopes, curated guidance, contracts/routes | untested | — | Isolated synthetic repo; required-field and dependency checks |
@@ -351,3 +351,36 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   UI/API/Trace suite, compilation and high-signal Ruff checks passed. Detailed
   review: `docs/reviews/exploratory-e2e-iteration-010.md`.
 - Next slice: Artifacts, including missing/corrupt bundles and safe rendering.
+
+### 2026-08-07 — Iteration 11: Artifacts
+
+- Seed data: the existing synthetic PROJ-301 JIRA run and
+  PR-orders-api-201 PR run exercised the complete artifact layout. One ignored
+  numeric PR record referenced C:\Windows\win.ini as a hostile persisted diff
+  path. It was deterministic, credential-free, PII-free, local-only, and was
+  removed after retest.
+- Happy paths: the served Artifacts view rendered the plan, three scenarios,
+  three test-data files, generated-test metadata, validation, open questions,
+  clean generated code, catalog sidecar, raw commit diff and PR coverage
+  report. CLI parity passed. Markdown, HTML, DOCX and PDF downloads returned
+  their correct media types and non-empty content; mock Confluence publish and
+  JIRA attach both succeeded.
+- Finding E2E-EXP-022 (P1): a persisted gate diff was joined directly to the
+  checkout root. The real artifact CLI printed C:\Windows\win.ini, proving
+  arbitrary readable local-file disclosure; the dashboard used the same open
+  path. A shared resolver now accepts only relative .diff files confined below
+  reports/runs, including after symlink resolution. Unsafe paths are refused
+  visibly and missing archives are reported rather than silently disappearing.
+- Retest evidence: the same CLI reproduction changed from printing win.ini to
+  unsafe diff path refused, and the served UI displayed Unsafe diff refused
+  without file contents. The valid PROJ-301 archived diff still rendered as
+  structured generated code plus its raw-diff toggle.
+- Review finding: no further actionable issue was found. The path boundary is
+  shared by CLI and dashboard, rejects absolute/traversal/non-diff input, and
+  leaves valid historical evidence backward compatible.
+- Validation: 30 focused tests passed, followed by 187 artifact/export/UI/API/
+  storage/reuse/task-bundle compatibility tests. Python compilation and
+  high-signal Ruff checks passed. Detailed review:
+  docs/reviews/exploratory-e2e-iteration-011.md.
+- Next slice: Activity and alerts, including malformed audit rows, rule
+  evaluation, notification isolation and restart behavior.
