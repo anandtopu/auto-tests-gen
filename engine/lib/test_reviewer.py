@@ -388,6 +388,72 @@ def load(path=None):
         return None
 
 
+def surface(signal=None, cfg=None, policy=None, assume_enabled=None):
+    """Return B4's durable, run-scoped reviewer snapshot."""
+    cfg = cfg or config()
+    if policy is None:
+        candidate = str(cfg.get("agent_gate", DEFAULTS["agent_gate"])).lower()
+        policy = candidate if candidate in {"off", "warn", "require"} else "warn"
+    if signal is not None:
+        try:
+            signal = normalize_merged_contract(signal)
+        except ReviewInputError:
+            signal = None
+            assume_enabled = True
+    is_enabled = enabled(cfg) if assume_enabled is None else bool(assume_enabled)
+    if signal is None:
+        state, verdict, reason = (
+            ("unavailable", "unavailable", "reviewer produced no valid result")
+            if is_enabled
+            else ("skipped", "skipped", "AIQE_TEST_REVIEWER is disabled")
+        )
+        return {
+            "state": state, "verdict": verdict, "findings": [], "loops": 0,
+            "unresolved": [], "policy": policy, "repos": [],
+            "simulated": False, "reason": reason,
+        }
+    findings = signal["findings"]
+    return {
+        "state": signal["state"], "verdict": signal["verdict"],
+        "findings": findings, "loops": 0,
+        "unresolved": findings if signal["verdict"] == "needs_work" else [],
+        "policy": policy, "repos": signal["repos"],
+        "simulated": signal["simulated"],
+    }
+
+
+def recorded(record):
+    """Read a B4 snapshot, with an honest compatibility view for B1 records."""
+    value = record.get("review") if isinstance(record, dict) else None
+    if isinstance(value, dict) and value.get("verdict") in {
+        "approve", "needs_work", "skipped", "unavailable"
+    }:
+        return value
+    legacy = record.get("reviewer") if isinstance(record, dict) else None
+    if isinstance(legacy, dict):
+        return surface(legacy, policy="not_recorded", assume_enabled=True)
+    return None
+
+
+def summary_line(value):
+    """One bounded line shared by PR and JIRA comments."""
+    value = value or {}
+    findings = value.get("findings") if isinstance(value.get("findings"), list) else []
+    unresolved = (value.get("unresolved")
+                  if isinstance(value.get("unresolved"), list) else [])
+    try:
+        loops = max(0, int(value.get("loops") or 0))
+    except (TypeError, ValueError):
+        loops = 0
+    verdict = (str(value.get("verdict") or "unavailable")
+               .replace("\r", " ").replace("\n", " ")[:32])
+    policy = (str(value.get("policy") or "not_recorded")
+              .replace("\r", " ").replace("\n", " ")[:32])
+    return (f"agent review: {verdict} — "
+            f"{len(findings)} finding(s), {len(unresolved)} unresolved, "
+            f"{loops} repair loop(s); policy: {policy}")
+
+
 def _rows(path):
     rows = []
     for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines():
@@ -413,6 +479,11 @@ def main(argv):
                 json.dumps(value, indent=2), encoding="utf-8"
             )
             return 0
+        if cmd == "summary" and len(argv) in (2, 3):
+            path = pathlib.Path(argv[2]) if len(argv) == 3 else CONTRACT
+            print(summary_line(surface(load(path),
+                                       assume_enabled=True if path.exists() else None)))
+            return 0
     except NoTests as exc:
         print(str(exc), file=sys.stderr)
         return 3
@@ -420,7 +491,7 @@ def main(argv):
         print(str(exc), file=sys.stderr)
         return 2
     print(
-        "usage: test_reviewer.py enabled | prepare REPO OUT | validate REPO IN [OUT] | merge STATUS OUT",
+        "usage: test_reviewer.py enabled | prepare REPO OUT | validate REPO IN [OUT] | merge STATUS OUT | summary [CONTRACT]",
         file=sys.stderr,
     )
     return 64

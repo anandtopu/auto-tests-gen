@@ -196,6 +196,9 @@ def test_prune_done_trims_history_but_never_pending_work(monkeypatch, tmp_path):
 def _record(tests, gates, key="PR-x-9"):
     return {"run_id": "r1", "ts": 1, "trigger": {"type": "pr", "key": key},
             "cost_usd": 0.25,
+            "review": {"state": "skipped", "verdict": "skipped",
+                       "findings": [], "loops": 0, "unresolved": [],
+                       "policy": "warn", "repos": [], "simulated": False},
             "phases": [
                 {"name": "triage", "contract": {"impact": "create",
                                                 "areas": ["orders discounts"]}},
@@ -253,6 +256,7 @@ def test_dashboard_page_carries_every_new_feature_surface():
                    "fetch-rel-known", "PR coverage report",
                    "plan-spec", "plan-ambiguities", "plan-duplicates",
                    "Near-duplicate warnings (advisory only)",
+                   "agent review",
                    # view persistence: mutation reloads (repo remove, settings
                    # save/clear) must return to the view they started from,
                    # not dump the user on Overview

@@ -321,7 +321,10 @@ GENERATE() {
 REVIEW_TESTS() {
   rm -f out/reviewer.contract.json out/reviewer-*.contract.json \
         out/reviewer-*.input.json out/reviewer-status.tsv
-  python3 engine/lib/test_reviewer.py enabled || return 0
+  if ! python3 engine/lib/test_reviewer.py enabled; then
+    SKIP_PHASE review "AIQE_TEST_REVIEWER is disabled"
+    return 0
+  fi
   local repos repo input conv slice rc label
   local ctx=()
   repos=$(python3 -c "import json;print(' '.join(json.load(open('out/resolve.contract.json'))['test_repos']))" 2>/dev/null || echo "")
@@ -890,6 +893,13 @@ if [ -f out/critic.contract.json ]; then
     echo "[critic] $CRITIC_LINE"
     SUMMARY+=$'\n'"- ${CRITIC_LINE} (advisory — does not gate)"
   fi
+fi
+# B4: PR and JIRA summaries use the same bounded review projection as the run
+# record. Disabled and unavailable are explicit verdicts, never silent absence.
+REVIEW_LINE=$(python3 engine/lib/test_reviewer.py summary out/reviewer.contract.json || echo "")
+if [ -n "$REVIEW_LINE" ]; then
+  echo "[reviewer] $REVIEW_LINE"
+  SUMMARY+=$'\n'"- ${REVIEW_LINE}"
 fi
 # Best-effort notifications: an unreachable tracker/Slack must not abort the run
 # before the run record, build status, and review-state transition are persisted.

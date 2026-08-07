@@ -61,6 +61,7 @@ sys.path.insert(0, str(ROOT / "engine/lib"))
 import app_paths                      # R12: mutable paths resolve here
 from registry import load_registry
 import review_state
+import test_reviewer
 
 
 def load_catalog():
@@ -315,8 +316,17 @@ def cmd_reviews(args):
         print("no review states yet - a run that commits generated tests marks its key pending_review")
         return
     import time as _t
+    latest = {}
+    for path in _run_record_files():
+        try:
+            run = json.load(open(path, encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        run_key = (run.get("trigger") or {}).get("key")
+        if run_key and run.get("ts", 0) >= latest.get(run_key, {}).get("ts", 0):
+            latest[run_key] = run
     order = {"pending_review": 0, "in_review": 1, "changes_requested": 2, "approved": 3}
-    print(f"{'key':<22} {'status':<18} {'release':<10} {'assigned':<12} "
+    print(f"{'key':<22} {'status':<18} {'agent review':<18} {'release':<10} {'assigned':<12} "
           f"{'reviewer':<14} {'updated':<17} note")
     for key, e in sorted(data.items(), key=lambda kv: (order.get(kv[1].get("status"), 9), kv[0])):
         # An entry can exist without ever having been reviewed — `set_release`
@@ -325,7 +335,12 @@ def cmd_reviews(args):
         # corrupt record rather than "nothing has happened yet".
         stamp = e.get("updated") or 0
         ts = _t.strftime("%Y-%m-%d %H:%M", _t.localtime(stamp)) if stamp else "-"
-        print(f"{key:<22} {e.get('status') or '-':<18} {e.get('release') or '-':<10} "
+        agent = test_reviewer.recorded(latest.get(key, {})) or {}
+        agent_text = agent.get("verdict") or "-"
+        if agent.get("unresolved"):
+            agent_text += f" ({len(agent['unresolved'])})"
+        print(f"{key:<22} {e.get('status') or '-':<18} {agent_text:<18} "
+              f"{e.get('release') or '-':<10} "
               f"{e.get('assigned_to') or '-':<12} "
               f"{e.get('reviewer') or '-':<14} {ts:<17} {e.get('note', '')[:50]}")
     pending = sum(1 for e in data.values() if e["status"] in ("pending_review", "in_review"))

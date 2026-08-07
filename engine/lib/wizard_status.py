@@ -163,6 +163,22 @@ def build(key, mode="pr"):
     else:
         steps.append(_step("pending", "Generate E2E tests", ""))
 
+    # B4 keeps the machine judgement visibly separate from Team review. A
+    # needs_work/unavailable verdict is evidence, not a human board transition.
+    agent_review = (latest or {}).get("review") or (latest or {}).get("reviewer")
+    if isinstance(agent_review, dict):
+        findings = agent_review.get("findings") or []
+        unresolved = agent_review.get("unresolved") or []
+        steps.append(_step(
+            "done", "Agent review",
+            f"{agent_review.get('verdict', 'unavailable')} · {len(findings)} finding(s) · "
+            f"{len(unresolved)} unresolved · policy {agent_review.get('policy', 'not recorded')}"
+        ))
+    elif tests_pending:
+        steps.append(_step("pending", "Agent review", "waiting for generated tests"))
+    else:
+        steps.append(_step("pending", "Agent review", "no review evidence recorded"))
+
     if gates:
         ok = [g for g in gates if g.get("status") == "committed"]
         bad = [g for g in gates if g.get("status") in ("quarantined", "clone_failed")]

@@ -25,6 +25,7 @@ The decisions a user actually asks about, and where each is evidenced:
               adapted from a prior approved plan
   impact      why an existing case was proposed for    run impact_candidates
               extend/replace, or why create was right  artifact
+  review      what the agent found, repaired, and left run record review{}
   gate        why tests were or were not committed,    run record gates[] +
               per repo, with the exit code's meaning   run_progress.EXIT_MEANINGS
 
@@ -448,7 +449,40 @@ def explain(key=None, run_id=None, root=ROOT):
             caveat="Phase-cache-owned hits are named but count as zero artifact "
                    "reuse; generate/validate are always refused."))
 
-    # --- 9. the gate ---------------------------------------------------------
+    # --- 9. generated-test agent review -------------------------------------
+    review = (rec or {}).get("review") or (rec or {}).get("reviewer")
+    if isinstance(review, dict):
+        findings = [f for f in review.get("findings") or [] if isinstance(f, dict)]
+        unresolved = [f for f in review.get("unresolved") or [] if isinstance(f, dict)]
+        try:
+            loops = max(0, int(review.get("loops") or 0))
+        except (TypeError, ValueError):
+            loops = 0
+        because = []
+        for finding in findings[:10]:
+            location = "/".join(filter(None, [str(finding.get("repo") or ""),
+                                                str(finding.get("file") or "")]))
+            because.append(
+                f"finding{(' at ' + location) if location else ''}: "
+                f"{str(finding.get('finding') or 'detail not recorded')[:400]} — "
+                f"named fix: {str(finding.get('fix') or 'not recorded')[:400]}"
+            )
+        if not findings:
+            because.append("the reviewer recorded no findings")
+        because.append(
+            f"repairs: {loops} review repair loop(s); "
+            + (f"{len(unresolved)} finding(s) survived"
+               if unresolved else "no unresolved finding was recorded")
+        )
+        decisions.append(_decision(
+            "review", "What did the agent reviewer find, repair, and leave unresolved?",
+            f"{review.get('verdict', 'unavailable')} under policy "
+            f"{review.get('policy', 'not_recorded')}",
+            because, "run record `review`",
+            caveat="This verdict is context for a human. It never sets Approved or "
+                   "Changes requested on the team review board."))
+
+    # --- 10. the gate --------------------------------------------------------
     gates = (rec or {}).get("gates") or []
     if gates:
         because = []

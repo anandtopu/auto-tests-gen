@@ -46,7 +46,6 @@ Branch: codex/test-knowledge-a1-a2
 
 ## Residual work and rollout
 
-B4 is next and owns the review board, comments, progress, and explain surfaces.
-B6 then measures seeded and clean fixtures, including real-model quality when
-parity is available. Until those items land, the durable run record is the only
-supported reviewer surface and mock verdicts are plumbing data.
+B4 now owns and implements the review board, comments, progress, and explain
+surfaces. B6 is next and measures seeded and clean fixtures, including
+real-model quality when parity is available. Mock verdicts remain plumbing data.

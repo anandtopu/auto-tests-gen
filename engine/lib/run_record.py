@@ -203,9 +203,11 @@ signal = critic_lib.load()
 if signal:
     record["critic"] = signal
 reviewer = reviewer_lib.load()
-if reviewer:
-    # Advisory in B1: gate-derived overall above is intentionally untouched.
-    record["reviewer"] = reviewer
+# B4: total, run-scoped evidence even when the opt-in phase was skipped or
+# unavailable. Gate-derived `overall` and human review state remain untouched.
+record["review"] = reviewer_lib.surface(
+    reviewer, assume_enabled=True if os.path.exists("out/reviewer.contract.json") else None
+)
 # Spend from the budget ledger (real phases meter; mock runs record 0/simulated).
 try:
     import budget

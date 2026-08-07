@@ -232,8 +232,11 @@ def test_run_record_preserves_unavailable_review_without_changing_gate(tmp_path)
     assert result.returncode == 0, result.stderr
     record = json.loads(result.stdout)
     assert record["overall"] == "committed"
-    assert record["reviewer"]["state"] == "unavailable"
-    assert record["reviewer"]["repos"][0]["reason"] == "reviewer timed out"
+    assert record["review"]["state"] == "unavailable"
+    assert record["review"]["verdict"] == "unavailable"
+    assert record["review"]["repos"][0]["reason"] == "reviewer timed out"
+    assert record["review"]["policy"] == "warn"
+    assert record["review"]["loops"] == 0
 
 
 def test_malformed_reviewed_repo_is_downgraded_to_unavailable(tmp_path):

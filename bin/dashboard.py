@@ -365,6 +365,19 @@ for r in runs[:25]:
                        f'{c.get("score", 0):.2f}</span>')
     else:
         critic_cell = '<span class="muted sm">—</span>'
+    a = r.get("review") or r.get("reviewer")
+    if isinstance(a, dict):
+        verdict = a.get("verdict", "unavailable")
+        cls = {"approve": "success", "needs_work": "warning",
+               "unavailable": "danger", "skipped": "muted"}.get(verdict, "muted")
+        tip = (f"{len(a.get('findings') or [])} finding(s), "
+               f"{len(a.get('unresolved') or [])} unresolved, "
+               f"{a.get('loops', 0)} repair loop(s); policy {a.get('policy', 'not recorded')}. "
+               "Agent context only; never a human review decision.")
+        agent_review_cell = (f'<span class="chip chip-{cls}" title="{esc(tip)}">'
+                             f'{esc(verdict)}</span>')
+    else:
+        agent_review_cell = '<span class="muted sm">—</span>'
     review_cell = chip(rstat) if rstat else '<span class="chip chip-muted">—</span>'
     if rstat in ("pending_review", "in_review"):
         review_cell += (f' <button class="btn btn-sm approve" data-key="{esc(key)}">'
@@ -377,6 +390,7 @@ for r in runs[:25]:
         f'<td class="muted nowrap">{ts}</td>'
         f'<td>{chip(r.get("overall", "?"))}</td>'
         f'<td class="nowrap">{critic_cell}</td>'
+        f'<td class="nowrap">{agent_review_cell}</td>'
         f'<td class="mono sm muted">{esc(release) or "—"}</td>'
         f'<td>{repo_stack or "—"}</td>'
         f'<td class="nowrap">{review_cell}</td></tr>')
@@ -3319,6 +3333,7 @@ page = f"""<!doctype html>
       <div class="scroll"><table id="runs-table">
         <thead><tr><th>key / run</th><th>trigger</th><th>time</th><th>overall</th>
           <th title="Advisory test-quality score - never gates a commit">critic</th>
+          <th title="Agent verdict is context, never the human decision">agent review</th>
           <th>release</th><th style="min-width:280px">gate results per test repo</th>
           <th>team review</th></tr></thead>
         <tbody>{runs_rows}</tbody></table></div>

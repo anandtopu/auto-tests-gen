@@ -31,6 +31,9 @@ def test_pr_flow_reports_generation_gate_and_review(monkeypatch, tmp_path):
     runs.mkdir(parents=True)
     rec = {"run_id": "r1", "ts": 10, "trigger": {"type": "pr", "key": "PR-x-1"},
            "overall": "committed",
+           "review": {"verdict": "needs_work", "findings": [{"finding": "gap"}],
+                      "unresolved": [{"finding": "gap"}], "loops": 0,
+                      "policy": "warn"},
            "phases": [{"name": "generate", "contract": {"tests": [
                {"file": "a.spec.js", "action": "created"},
                {"file": "b.spec.js", "action": "updated"}]}}],
@@ -49,8 +52,12 @@ def test_pr_flow_reports_generation_gate_and_review(monkeypatch, tmp_path):
     d = wizard_status.build("PR-x-1", "pr")
     st = _states(d)
     assert st["Generate E2E tests"] == "done"
+    assert st["Agent review"] == "done"
     assert st["Quality gate"] == "done"
     assert st["Team review"] == "blocked", "pending review is the user's next action"
+    labels = [s["label"] for s in d["steps"]]
+    assert labels.index("Generate E2E tests") < labels.index("Agent review") \
+        < labels.index("Quality gate")
     assert d["busy"] is False and d["release"] == "2026.09"
     assert {t["file"] for t in d["tests"]} == {"a.spec.js", "b.spec.js"}
 

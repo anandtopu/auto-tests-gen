@@ -20,6 +20,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import run_progress  # noqa: E402
+import test_reviewer as reviewer_lib  # noqa: E402
 import ticket_discovery  # noqa: E402
 
 
@@ -53,6 +54,11 @@ def build(out_dir=".", run_id="", key=""):
         critic_sig = critic_lib.load(out / "out/critic.contract.json")
     except Exception:
         pass
+    review_path = out / "out/reviewer.contract.json"
+    review_sig = reviewer_lib.surface(
+        reviewer_lib.load(review_path),
+        assume_enabled=True if review_path.exists() else None,
+    )
     cost = None
     try:
         import budget
@@ -61,7 +67,7 @@ def build(out_dir=".", run_id="", key=""):
             cost = tot
     except Exception:
         pass
-    return _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key,
+    return _compose(triage, gen, validate, gates, critic_sig, review_sig, cost, run_id, key,
                     duplicates, discovery)
 
 
@@ -79,7 +85,8 @@ def from_record(record):
         critic_sig = {"score": c["score"], "verdict": c["verdict"]}
     cost = record.get("cost_usd") if record.get("cost_usd") else None
     return _compose(contracts.get("triage") or {}, contracts.get("generate") or {},
-                    contracts.get("validate") or {}, gates, critic_sig, cost,
+                    contracts.get("validate") or {}, gates, critic_sig,
+                    reviewer_lib.recorded(record), cost,
                     record.get("run_id", ""),
                     record.get("trigger", {}).get("key", ""),
                     record.get("duplicate_warnings") or {},
@@ -91,7 +98,7 @@ def _safe_code(value):
     return str(value or "").replace("`", "'").replace("\r", " ").replace("\n", " ")[:500]
 
 
-def _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key,
+def _compose(triage, gen, validate, gates, critic_sig, review_sig, cost, run_id, key,
              duplicates=None, discovery=None):
     tests = gen.get("tests", []) or []
     tests = run_progress.dict_rows(tests)
@@ -178,6 +185,8 @@ def _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key,
     if critic_sig:
         lines.append(f"- 🔍 critic (advisory): {critic_sig['score']} "
                      f"{critic_sig['verdict']}")
+    if review_sig:
+        lines.append(f"- 🧭 {reviewer_lib.summary_line(review_sig)}")
     if cost:
         lines.append(f"- 💰 run cost: ${cost:.2f}")
 

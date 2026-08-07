@@ -176,7 +176,7 @@ generate_fanout:   # one generate agent per resolved test repo
                             # resolved repo takes the original single-call path.
 review:            # generated-test semantic reviewer after validate
   enabled: false            # AIQE_TEST_REVIEWER=1 enables it for one run
-  agent_gate: warn          # reserved for B3 policy; B1 remains advisory
+  agent_gate: warn          # recorded per run; B3 will enforce delivery policy
   on_unavailable: proceed   # outage is recorded, never mistaken for approval
   max_loops: 1              # repair loops are introduced separately by B2
   reviewers: []             # optional human review assignment rota
@@ -341,7 +341,8 @@ hunks on Stash) — not just the changed-file list. After the gate, the run post
 After the build status, the run also posts a **coverage-delta comment** on the PR
 (`engine/lib/pr_comment.py`): behaviors now covered, tests created vs updated,
 validation outcome, gate result with a pointer to the `test/<KEY>-ai-qe` branch when
-committed, open questions, and the advisory critic score + run cost. It stays silent
+committed, open questions, the agent-review verdict/findings/repair count/policy,
+and the advisory critic score + run cost. It stays silent
 when triage finds no E2E impact — no noise on refactor-only PRs.
 
 The same report is viewable **after the fact** without the PR: the dashboard's
@@ -362,6 +363,15 @@ python3 bin/qa.py mark PROJ-301 in_review --by anand
 python3 bin/qa.py mark PROJ-301 approved  --by anand --note "LGTM - boundary coverage"
 python3 bin/qa.py mark PR-orders-api-201 changes_requested --by anand --note "add 404 case"
 ```
+
+The board shows the latest **agent review** verdict and unresolved count beside
+the team status. They are deliberately separate: `approve` or `needs_work` from
+the agent is context and can never set the human `approved` or
+`changes_requested` state. The Guided run and Run progress views place an
+**Agent review** step after validation and before the quality gate. `make
+explain KEY=...` lists the recorded findings, repair-loop count, surviving
+findings, and the `agent_gate` policy captured for that run. Disabled and
+unavailable reviewers are shown explicitly rather than omitted.
 
 Statuses: `pending_review` → `in_review` → `approved` | `changes_requested`.
 State lives in `reports/runs/reviews.json` (committable; full transition history per

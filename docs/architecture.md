@@ -665,8 +665,17 @@ repo and never calls an outage approval.
 B1 is advisory by structure: the phase has only Read, REVIEW_TESTS is total,
 nothing under engine/gate reads reviewer output, and run-record overall remains
 derived only from gates. AIQE_TEST_REVIEWER=1 enables it; default is off. Mock
-verdicts carry simulated true and prove routing/persistence only. Repairs,
-delivery policy, human surfaces, and quality evaluation remain B2/B3/B4/B6.
+verdicts carry simulated true and prove routing/persistence only.
+
+B4 projects that phase evidence into a total run-level block:
+`review: {verdict, findings, loops, unresolved, policy}`. `policy` snapshots the
+configured `review.agent_gate` value for later conditioned metrics; before B2,
+loops is zero and needs_work findings are all unresolved. The projection—not
+ephemeral scratch—drives PR/JIRA comments, review-board columns, guided and
+run-progress steps, and explain output. Legacy B1 records render their missing
+policy honestly as `not_recorded`. The human board remains isolated in
+`review_state`; no renderer invokes its status transition. Repairs, delivery
+enforcement, and quality evaluation remain B2/B3/B6.
 
 ### 5.9 Test Catalog & Mapping Subsystem (new in v2.0)
 

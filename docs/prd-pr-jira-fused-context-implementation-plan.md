@@ -11,8 +11,8 @@ Source: [prd-pr-jira-fused-context-multi-agent.md](prd-pr-jira-fused-context-mul
 | 2 | A2 Context fusion | S1 | A1 | Implemented | Exact response identity, canonical `out/ticket.json`, shared guidance selection, scoped prompt tail, mandatory acceptance-criteria retention, flag-off parity; evidence in [pr-jira-fused-context-a2-implementation-plan.md](pr-jira-fused-context-a2-implementation-plan.md) |
 | 3 | A4 Discovery evaluation | S2 | A1 | Implemented | Hash-pinned QE labels, validation-aware per-signal precision/recall, correct-refusal accounting, simulated evidence labelling, and `make eval` integration |
 | 4 | B1 Test reviewer | S3 | none; schedule after S2 | Implemented | Read-only per-repo pre-gate reviewer, strict contracts, deterministic skip, unavailable state, and simulated mock evidence |
-| 5 | B4 Verdict surfaces | S3 | B1 | Next eligible | Run record, board, comments, progress, and explain surfaces |
-| 6 | B6 Reviewer evaluation | S3 | B1 | Planned | Seeded defects, clean control, simulated/real-model labelling |
+| 5 | B4 Verdict surfaces | S3 | B1 | Implemented | Canonical run snapshot, board columns, PR/JIRA lines, Agent review progress, and evidence-based explain output |
+| 6 | B6 Reviewer evaluation | S3 | B1 | Next eligible | Seeded defects, clean control, simulated/real-model labelling |
 | 7 | B2 Bounded repair | S4 | B1, B6 | Planned | One separately metered findings-driven repair/revalidate/rereview loop |
 | 8 | B3 Delivery policy | S4 | B1, B2, B4 | Planned | `off|warn|require`, pre-gate refusal, unavailable policy, constitution pins |
 | 9 | B5 Cost containment | S3/S4 | B1–B3 | Planned | Judgement-tier pin, budget-envelope uplift, reviewer-panel deferral trigger |
@@ -73,6 +73,13 @@ acceptance criteria, and repository conventions. Persist `approve`,
 `needs_work`, `unavailable`, or deterministic `skipped`, then surface it without
 changing human review status. Attack the contract with each seeded defect class
 and a clean control.
+
+B4 is implemented as a total run-scoped `review` projection over B1 evidence.
+It records the effective policy and initializes B2's loop/unresolved fields,
+then drives the PR and JIRA summary lines, CLI and dashboard review-board
+columns, wizard and run-progress steps, and `make explain`. Human review state
+remains a separate store and transition path. Detailed acceptance and evidence
+are in [pr-jira-fused-context-b4-implementation-plan.md](pr-jira-fused-context-b4-implementation-plan.md).
 
 ### B2, B3, B5 — Repair and require slice
 

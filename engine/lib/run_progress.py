@@ -71,6 +71,9 @@ _GENERATE = _stage("generate", "Write the tests",
 _VALIDATE = _stage("validate", "Validate and repair",
                    "Run the new specs and repair what does not pass.",
                    "out/validate.contract.json")
+_REVIEW = _stage("review", "Agent review",
+                 "Challenge generated tests for coverage and semantic defects before "
+                 "the deterministic quality gate.", "out/reviewer.contract.json")
 _CRITIC = _stage("critic", "Quality critic (advisory)",
                  "Score the specs for defects execution cannot reveal. Never gates a commit.",
                  "out/critic.contract.json")
@@ -83,7 +86,7 @@ CHAINS = {
            _stage("triage", "Triage the diff",
                   "Read the real patch hunks and decide what E2E coverage the change needs.",
                   "out/triage.contract.json"),
-           _GENERATE, _VALIDATE, _CRITIC, _GATE],
+           _GENERATE, _VALIDATE, _REVIEW, _CRITIC, _GATE],
     "jira": [_RESOLVE,
              _stage("analyze", "Analyze the ticket",
                     "Read the ticket, its acceptance criteria and any linked PRD.",
@@ -100,10 +103,11 @@ CHAINS = {
              _stage("testdata", "Design the test data",
                     "Decide the fixtures the scenarios need.",
                     "out/testdata.contract.json"),
-             _GENERATE, _VALIDATE, _CRITIC, _GATE],
+             _GENERATE, _VALIDATE, _REVIEW, _CRITIC, _GATE],
 }
 CHAINS["plan"] = CHAINS["jira"][:5]          # stops at the human approval gate
-CHAINS["tests"] = [_RESOLVE, CHAINS["jira"][5], _GENERATE, _VALIDATE, _CRITIC, _GATE]
+CHAINS["tests"] = [_RESOLVE, CHAINS["jira"][5], _GENERATE, _VALIDATE,
+                   _REVIEW, _CRITIC, _GATE]
 
 # Exit codes and what they MEAN, read off engine/gate/gate.sh and
 # engine/pipeline.sh rather than remembered. A number with no meaning attached
@@ -284,6 +288,12 @@ def _summarize(sid, contract):
     if sid == "critic":
         return (f"score {contract.get('score')} {contract.get('verdict', '')}"
                 f" - {contract.get('noise_count', 0)} flagged").strip()
+    if sid == "review":
+        try:
+            import test_reviewer
+            return test_reviewer.summary_line(contract)
+        except Exception:
+            return "review evidence unavailable"
     if sid == "validate":
         return f"{contract.get('repair_loops', 0)} repair loop(s)"
     if sid == "testplan":
@@ -307,6 +317,9 @@ def _steps_from_record(rec, root=ROOT):
     chain = CHAINS.get(record_mode(rec), CHAINS["pr"])
     key = (rec.get("trigger") or {}).get("key") or ""
     done = {p.get("name"): (p.get("contract") or {}) for p in rec.get("phases") or []}
+    review = rec.get("review") or rec.get("reviewer")
+    if isinstance(review, dict):
+        done["review"] = review
     skipped = {s.get("phase"): s.get("reason", "")
                for s in rec.get("skipped_phases") or [] if isinstance(s, dict)}
     gates = rec.get("gates") or []
