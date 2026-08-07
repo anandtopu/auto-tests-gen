@@ -2,7 +2,12 @@
 """Assemble the structured run record (architecture §8) from out/*.json.
 Includes per-test-repo gate outcomes (out/gate_results.tsv) so persisted records
 in reports/runs/ carry everything the QA monitoring surfaces need."""
-import glob, json, os, pathlib, sys, time
+import glob
+import json
+import os
+import pathlib
+import sys
+import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import critic as critic_lib
@@ -106,6 +111,30 @@ try:
         record["ticket_discovery"] = discovery
 except (OSError, ValueError):
     pass
+# A2 records the exact fused ticket fields and budget outcome per authoring
+# phase. Optional/total like A1 provenance: a malformed sidecar cannot destroy
+# the otherwise durable gate record.
+ticket_context_phases = {}
+expected_ticket = (record.get("ticket_discovery") or {}).get("selected_key")
+for phase in ("triage", "generate"):
+    try:
+        context = json.load(open(f"out/pr-ticket-fused-{phase}.json", encoding="utf-8"))
+        if (isinstance(context, dict)
+                and context.get("artifact") == "pr-ticket-context"
+                and context.get("phase") == phase
+                and context.get("selected_key") == expected_ticket):
+            ticket_context_phases[phase] = context
+    except (OSError, ValueError):
+        pass
+if expected_ticket:
+    phase_names = set(ticket_context_phases)
+    state = ("fused" if phase_names == {"triage", "generate"}
+             else "partial" if phase_names else "unavailable")
+    record["ticket_context"] = {
+        "state": state,
+        "selected_key": expected_ticket,
+        "phases": ticket_context_phases,
+    }
 # A3's proposal must survive the ephemeral out/ directory so a historical
 # `make explain` can answer why generation extended rather than created. A bad
 # optional artifact cannot destroy the otherwise durable run record.

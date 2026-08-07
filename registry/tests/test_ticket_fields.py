@@ -95,6 +95,21 @@ def test_an_unreadable_ticket_still_fails_the_run(tmp_path):
     assert "cannot read" in r.stderr
 
 
+@pytest.mark.parametrize(("ticket", "expected"), [
+    ({}, "story"),
+    ({"issue_type": "Story"}, "story"),
+    ({"issue_type": "Bug"}, "bug"),
+    ({"issue_type": "Defect"}, "bug"),
+    ({"issue_type": "Security incident"}, "security"),
+    ({"issue_type": "Vulnerability"}, "security"),
+    ({"issue_type": "Security Bug"}, "bug"),
+    ({"issue_type": "Security Bug", "labels": ["security"]}, "security"),
+    ({"issue_type": "Bug", "labels": ["security-review"]}, "security"),
+])
+def test_guidance_kind_has_one_shared_precedence(ticket, expected):
+    assert ticket_fields.fields(ticket)["AIQE_T_GUIDANCE"] == expected
+
+
 def test_pipeline_uses_the_consolidated_emitter():
     """The saving only exists while pipeline.sh calls it — and the five
     one-liners must not creep back beside it."""
@@ -102,3 +117,5 @@ def test_pipeline_uses_the_consolidated_emitter():
     assert 'eval "$(python3 engine/lib/ticket_fields.py out/ticket.json)"' in src
     assert src.count("json.load(open('out/ticket.json'))") == 0, \
         "a per-field one-liner crept back beside the consolidated emitter"
+    assert 'prompts/issue-types/${AIQE_T_GUIDANCE}.md' in src
+    assert "case \"$ITYPE\"" not in src

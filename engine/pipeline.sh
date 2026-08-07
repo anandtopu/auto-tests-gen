@@ -215,12 +215,28 @@ SKIP_PHASE() {  # $1 = phase, $2 = reason
 # full estate — a scoping failure must never break or quietly starve a run.
 CTX() {
   local phase="$1"
+  local context
   if python3 engine/lib/context_scope.py assemble "$phase" >/dev/null 2>&1 \
      && [ -s "out/context-${phase}.md" ]; then
-    echo "out/context-${phase}.md"
+    context="out/context-${phase}.md"
   else
-    echo "$AIQE_P_AGENTS"
+    context="$AIQE_P_AGENTS"
   fi
+  # A2 keeps the estate context first but needs its budget manifest before it
+  # can render optional ticket prose. CTX is already the single boundary that
+  # resolves scoped-vs-full context; create the separate run-tail sidecar here
+  # and let the caller append it last. With no selected ticket this is exactly
+  # the historical CTX path and performs no extra work.
+  if [ "${PR_TICKET_FUSED:-0}" = "1" ]; then
+    case "$phase" in
+      triage|generate)
+        python3 engine/lib/ticket_context.py render out/ticket.json \
+          out/ticket-discovery.json "$phase" "$context" \
+          "out/pr-ticket-fused-${phase}.md" \
+          "out/pr-ticket-fused-${phase}.json" || return 1 ;;
+    esac
+  fi
+  echo "$context"
 }
 
 # Per-repo generation fan-out (openhands-review §3.3, reopened by the existing-approach
@@ -310,9 +326,20 @@ EV() {
 }
 export RUN_ID
 PR_TICKET_CONTEXT=()
+PR_TRIAGE_FUSION_CONTEXT=()
+PR_GENERATE_FUSION_CONTEXT=()
+PR_TICKET_FUSED=0
 if [ "$MODE" = "pr" ]; then
   REPO=$2; PR=$3; export KEY="PR-${REPO}-${PR}"
   case "$KEY" in *[!A-Za-z0-9._-]*) echo "INVALID_KEY: $KEY"; exit 64;; esac
+  # Shared scratch survives process crashes and later runs. Clear every fixed
+  # A1/A2 artifact before consulting the flag so an OFF/no-selection retry can
+  # never inherit a prior run's ticket, guidance, provenance, or prompt tail.
+  rm -f out/pr-context.json out/ticket-discovery.json out/ticket-validation.tsv \
+    out/pr-ticket-context.md out/discovered-ticket.json out/ticket.json \
+    out/issue-guidance.md out/pr-ticket-fused-triage.md \
+    out/pr-ticket-fused-generate.md out/pr-ticket-fused-triage.json \
+    out/pr-ticket-fused-generate.json
   # Successor PRD A1: opt-in, deterministic ticket discovery. SCM supplies PR
   # metadata; Tracker validates every candidate. With the flag off this creates
   # no file, makes no extra port call, and adds no phase argument.
@@ -331,9 +358,20 @@ if [ "$MODE" = "pr" ]; then
       "${AIQE_PR_TICKET:-}" > out/ticket-discovery.json
     : > out/ticket-validation.tsv
     while IFS= read -r candidate; do
+      candidate=${candidate%$'\r'}   # native Windows Python writes CRLF under Git Bash
       [ -n "$candidate" ] || continue
-      if TRACKER get_item "$candidate" > "out/discovered-ticket-${candidate}.json" 2>/dev/null; then
-        printf '%s\tvalid\ttracker get_item resolved\n' "$candidate" >> out/ticket-validation.tsv
+      candidate_file="out/discovered-ticket-${candidate}.json"
+      if TRACKER get_item "$candidate" > "$candidate_file" 2>/dev/null; then
+        if response_reason=$(python3 engine/lib/ticket_discovery.py \
+          validate-response "$candidate" "$candidate_file"); then
+          response_reason=$(printf '%s' "$response_reason" | tr -d '\r')
+          printf '%s\tvalid\t%s\n' "$candidate" "$response_reason" \
+            >> out/ticket-validation.tsv
+        else
+          response_reason=$(printf '%s' "$response_reason" | tr '\t\r\n' '   ')
+          printf '%s\tunavailable\t%s\n' "$candidate" "$response_reason" \
+            >> out/ticket-validation.tsv
+        fi
       else
         vrc=$?
         if [ "$vrc" = "3" ]; then
@@ -351,13 +389,22 @@ if [ "$MODE" = "pr" ]; then
       > out/pr-ticket-context.md
     PR_TICKET_CONTEXT=(out/pr-ticket-context.md)
     DISCOVERED_TICKET=$(python3 engine/lib/ticket_discovery.py selected \
-      out/ticket-discovery.json)
+      out/ticket-discovery.json | tr -d '\r')
     if [ -n "$DISCOVERED_TICKET" ]; then
-      cp "out/discovered-ticket-${DISCOVERED_TICKET}.json" out/discovered-ticket.json
+      # The validated bytes become the ONE canonical ticket document consumed
+      # by both workflows. No second Tracker call and no parallel A2 schema.
+      cp "out/discovered-ticket-${DISCOVERED_TICKET}.json" out/.ticket.json.tmp
+      mv out/.ticket.json.tmp out/ticket.json
+      cp out/ticket.json out/discovered-ticket.json   # A1 compatibility alias
+      eval "$(python3 engine/lib/ticket_fields.py out/ticket.json)"
+      cp "prompts/issue-types/${AIQE_T_GUIDANCE}.md" out/issue-guidance.md
+      PR_TICKET_FUSED=1
+      PR_TRIAGE_FUSION_CONTEXT=(out/issue-guidance.md out/pr-ticket-fused-triage.md)
+      PR_GENERATE_FUSION_CONTEXT=(out/issue-guidance.md out/pr-ticket-fused-generate.md)
     fi
-    DISCOVERY_OUTCOME=$(python3 -c "import json;print(json.load(open('out/ticket-discovery.json'))['outcome'])")
+    DISCOVERY_OUTCOME=$(python3 -c "import json;print(json.load(open('out/ticket-discovery.json'))['outcome'])" | tr -d '\r')
     if [ "$DISCOVERY_OUTCOME" = "ambiguous" ]; then
-      DISCOVERY_KEYS=$(python3 -c "import json;d=json.load(open('out/ticket-discovery.json'));print(', '.join(d.get('validated_keys') or []))")
+      DISCOVERY_KEYS=$(python3 -c "import json;d=json.load(open('out/ticket-discovery.json'));print(', '.join(d.get('validated_keys') or []))" | tr -d '\r')
       SCM comment "$REPO" "$PR" "AI-QE ticket discovery was ambiguous (${DISCOVERY_KEYS}). Generation continues without ticket context; requeue with an explicit ticket key." || true
     fi
   fi
@@ -403,14 +450,9 @@ else
   # the operator believed was a dry run.
   if [ "$AIQE_MOCK_RESOLVED" = "1" ]; then echo "## Linked PRD (mock): discounts must be 1-90%" > out/confluence.md; \
   else bash adapters/knowledge/confluence.sh get_linked_docs out/ticket.json > out/confluence.md || true; fi
-  # P0: issue-type-aware generation — bug fixes get regression guidance,
-  # security fixes get negative/abuse-case guidance, stories the extend-first bias
-  ITYPE=$AIQE_T_ITYPE
-  GUID=prompts/issue-types/story.md
-  case "$ITYPE" in *bug*|*defect*) GUID=prompts/issue-types/bug.md ;; \
-                   *security*|*vulnerab*) GUID=prompts/issue-types/security.md ;; esac
-  if echo "$LBL" | grep -qi security; then GUID=prompts/issue-types/security.md; fi
-  cp "$GUID" out/issue-guidance.md
+  # One parse and one guidance policy for JIRA and fused-PR paths. Security
+  # label/type precedence lives in ticket_fields.py and is unit-pinned.
+  cp "prompts/issue-types/${AIQE_T_GUIDANCE}.md" out/issue-guidance.md
 fi
 
 # Who owns this checkout right now. The lock is an empty directory released with
@@ -529,13 +571,13 @@ relocate_artifacts() {
 
 # Phase chain (Workflow A: triage->generate->validate; B: analyze->plan->data->generate->validate)
 if [ "$MODE" = "pr" ]; then
-  PHASE triage   pr-triage.md    "$(CTX triage)" out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md "${PR_TICKET_CONTEXT[@]}"
+  PHASE triage pr-triage.md "$(CTX triage)" out/resolve.contract.json out/changed.txt out/pr.diff out/catalog-slice.jsonl out/coverage-gaps.md "${PR_TICKET_CONTEXT[@]}" "${PR_TRIAGE_FUSION_CONTEXT[@]}"
   # Extend-vs-create scout (roadmap 2.1): deterministic join of the diff's surface
   # against catalog evidence, emitting NAMED extend targets. Tolerant — a scout
   # failure yields an empty file, never a failed run.
   python3 engine/lib/extend_scout.py > out/extend-candidates.md 2>/dev/null || : > out/extend-candidates.md
   RUN_IMPACT pr
-  GENERATE "$(CTX generate)" out/triage.contract.json out/pr.diff out/catalog-slice.jsonl out/extend-candidates.md "${IMPACT_CONTEXT[@]}" out/coverage-gaps.md out/repo-conventions.md "${PR_TICKET_CONTEXT[@]}"
+  GENERATE "$(CTX generate)" out/triage.contract.json out/pr.diff out/catalog-slice.jsonl out/extend-candidates.md "${IMPACT_CONTEXT[@]}" out/coverage-gaps.md out/repo-conventions.md "${PR_TICKET_CONTEXT[@]}" "${PR_GENERATE_FUSION_CONTEXT[@]}"
   # PR mode has no scenario artifact before generation. Compare the generated
   # proposal before validation/reporting; this warning never changes the files.
   RUN_DUPLICATES pr

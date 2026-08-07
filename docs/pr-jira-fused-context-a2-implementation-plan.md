@@ -1,7 +1,7 @@
 # A2 Implementation Plan — PR + JIRA Context Fusion
 
 Date: 2026-08-06
-Status: Reviewed; ready for implementation
+Status: Implemented and validated
 PRD: [prd-pr-jira-fused-context-multi-agent.md](prd-pr-jira-fused-context-multi-agent.md) §5 A2
 Baseline: `c9a4a3f` on `codex/test-knowledge-a1-a2`
 
@@ -87,8 +87,8 @@ Acceptance checks:
 ### D2 — One parse and one guidance policy
 
 Extend `ticket_fields.fields()` with `AIQE_T_GUIDANCE=story|bug|security`, using
-the current precedence exactly: security label overrides; otherwise security
-issue type; otherwise bug/defect; otherwise story. Both JIRA and selected-ticket
+the current precedence exactly: security label overrides; otherwise bug/defect;
+otherwise security issue type; otherwise story. Both JIRA and selected-ticket
 PR paths call `ticket_fields.py out/ticket.json` once and copy
 `prompts/issue-types/${AIQE_T_GUIDANCE}.md` to `out/issue-guidance.md`.
 
@@ -289,3 +289,22 @@ answer what requirements the agents actually saw.
 A2 is complete only when every acceptance row above has executable evidence,
 the A1/JIRA compatibility paths are green, no unresolved P0/P1/P2 review finding
 remains, and the iteration commit is present on the configured origin branch.
+
+## Implementation evidence
+
+A2 validates the exact Tracker response before selection, promotes the
+already-fetched bytes to `out/ticket.json`, derives issue guidance through the
+shared ticket parser, and appends a deterministic framed ticket tail after the
+resolved estate context for PR triage and generation. The renderer preserves
+all validated acceptance criteria, budgets optional prose, records omissions,
+and exposes fused, partial, or unavailable evidence through run records and
+`make explain`.
+
+Validation completed on 2026-08-06:
+
+- 81 focused discovery, fields, context, fusion, and compatibility tests passed;
+- 9 targeted source-contract regression tests passed after phase-call refactoring;
+- the full registry suite passed: 1,443 tests in 788.63 seconds;
+- changed Python passed Ruff, `pipeline.sh` passed `bash -n`, and adapter
+  conformance passed;
+- the per-file and cross-file reviews closed every A2 P1/P2 finding.

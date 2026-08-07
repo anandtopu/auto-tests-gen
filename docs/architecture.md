@@ -1313,6 +1313,25 @@ sits inside the noise, so no speedup is claimed; what is claimed is four fewer
 interpreter starts and one parse of one document, with the emitted values
 pinned byte-identical to the expressions they replace.
 
+PR-triggered runs may now reuse that same document and parser when
+`AIQE_PR_TICKET_CONTEXT=1`. A1 discovers candidates from explicit intake,
+branch, title/body, and commits; a candidate is eligible only after the Tracker
+returns object JSON whose `key` exactly matches the request. A2 atomically
+promotes the already-fetched selected response to `out/ticket.json` (no second
+Tracker call), and `ticket_fields.py` chooses the same story/bug/security
+guidance for PR and JIRA paths.
+
+Ticket prose never rides as raw JSON. `ticket_context.py` renders a deterministic
+blockquoted DATA tail for PR triage and generation. Summary and every validated
+acceptance criterion are mandatory; description and the latest comments consume
+the remaining `context_scope` budget when the phase is scoped and are bounded
+when it is not. A separate manifest records included, omitted and truncated
+fields per phase, survives in the run record, and is rendered by `make explain`.
+The estate context remains first and the fused ticket remains the final
+run-specific context input, preserving prompt-cache ordering. Turning the flag
+off removes every discovery/fusion input; non-selected A1 outcomes retain their
+explicit not-found/ambiguous/unavailable state without fusing a ticket.
+
 ### 5.22 The deployed shape, and the boundary in front of it (v2.9)
 
 Every design above describes what the platform does when it runs. This section

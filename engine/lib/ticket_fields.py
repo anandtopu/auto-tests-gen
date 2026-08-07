@@ -14,10 +14,9 @@ becomes an injection the day a component name carries a quote or a newline.
 (The old one-liners captured via $(...) and were not eval'd, so they did not
 need quoting; this one is, so it does.)
 
-The field expressions are kept byte-identical to the one-liners they replace —
-comma-joined lists, and issue_type defaulting to 'story' lowercased — pinned by
-test_ticket_fields.py against edge-case tickets, because these values feed
-resolve.py and the issue-guidance selection.
+The original field expressions stay byte-identical.  A sixth output centralizes
+the existing issue-guidance precedence so PR and JIRA paths cannot drift:
+security label, then bug/defect, then security issue type, otherwise story.
 """
 import json
 import shlex
@@ -25,14 +24,25 @@ import sys
 
 
 def fields(ticket):
-    """The five values, computed exactly as the one-liners did."""
+    """Routing values plus the shared issue-guidance kind."""
     t = ticket if isinstance(ticket, dict) else {}
+    issue_type = (t.get("issue_type") or "story").lower()
+    labels = [str(value).lower() for value in (t.get("labels") or [])]
+    if any("security" in value for value in labels):
+        guidance = "security"
+    elif any(marker in issue_type for marker in ("bug", "defect")):
+        guidance = "bug"
+    elif any(marker in issue_type for marker in ("security", "vulnerab")):
+        guidance = "security"
+    else:
+        guidance = "story"
     return {
         "AIQE_T_COMP": ",".join(t.get("components", [])),
         "AIQE_T_LBL": ",".join(t.get("labels", [])),
         "AIQE_T_LINKED": ",".join(t.get("linked_repos", [])),
         "AIQE_T_FIXV": ",".join(t.get("fix_versions", [])),
-        "AIQE_T_ITYPE": (t.get("issue_type") or "story").lower(),
+        "AIQE_T_ITYPE": issue_type,
+        "AIQE_T_GUIDANCE": guidance,
     }
 
 

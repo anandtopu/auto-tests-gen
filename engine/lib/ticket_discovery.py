@@ -9,6 +9,7 @@ and prevents a helper from quietly selecting a different adapter.
 CLI:
   ticket_discovery.py extract <pr-context.json> [explicit-key]
   ticket_discovery.py keys <discovery.json>
+  ticket_discovery.py validate-response <candidate-key> <ticket.json>
   ticket_discovery.py resolve <discovery.json> <validation.tsv>
   ticket_discovery.py context <discovery.json>
   ticket_discovery.py selected <discovery.json>
@@ -24,6 +25,11 @@ SCHEMA = 1
 ARTIFACT = "pr-ticket-discovery"
 SIGNALS = ("explicit", "branch", "title_description", "commits")
 VALIDATION_STATES = frozenset(("valid", "invalid", "unavailable"))
+MAX_RESPONSE_BYTES = 500_000
+MAX_ACCEPTANCE_CRITERIA = 200
+MAX_ACCEPTANCE_CHARS = 40_000
+MAX_MANDATORY_FIELD_CHARS = 20_000
+MAX_METADATA_ITEMS = 200
 
 
 @functools.lru_cache(maxsize=1)
@@ -110,6 +116,70 @@ def parse_validations(text):
     return out
 
 
+def criterion_text(value):
+    if isinstance(value, dict):
+        value = value.get("body", value.get("text", value.get("name", "")))
+    if isinstance(value, (list, dict)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value or "")
+
+
+def validate_ticket_response(candidate, path):
+    """Validate the evidence behind a Tracker exit-0 before it becomes `valid`.
+
+    A proxy, recording wrapper, or bad fixture can return successful JSON for a
+    different issue.  Treat that as unavailable evidence, never as proof that
+    the requested candidate exists.  Bounds make every accepted response safe
+    for the mandatory context renderer: accepted criteria are never later
+    dropped merely because an attacker supplied an unbounded list.
+    """
+    key = normalize_explicit(candidate)
+    if key is None or key != str(candidate or "").strip():
+        return False, "candidate is not one bare JIRA key"
+    try:
+        raw = pathlib.Path(path).read_bytes()
+    except OSError as exc:
+        return False, f"ticket response cannot be read: {exc}"
+    if len(raw) > MAX_RESPONSE_BYTES:
+        return False, f"ticket response exceeds {MAX_RESPONSE_BYTES} bytes"
+    try:
+        ticket = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, ValueError):
+        return False, "ticket response is not valid UTF-8 JSON"
+    if not isinstance(ticket, dict):
+        return False, "ticket response is not a JSON object"
+    returned = str(ticket.get("key") or "")
+    if returned != key:
+        shown = (returned or "empty")[:100]
+        return False, f"ticket response key mismatch (expected {key}, got {shown})"
+    if ticket.get("summary") is not None and not isinstance(ticket.get("summary"), str):
+        return False, "ticket summary is not a string"
+    if len(str(ticket.get("summary") or "")) > MAX_MANDATORY_FIELD_CHARS:
+        return False, f"ticket summary exceeds {MAX_MANDATORY_FIELD_CHARS} characters"
+    if ticket.get("issue_type") is not None and not isinstance(ticket.get("issue_type"), str):
+        return False, "ticket issue type is not a string"
+    if len(str(ticket.get("issue_type") or "")) > 1_000:
+        return False, "ticket issue type exceeds 1000 characters"
+    for field in ("components", "labels", "linked_repos", "fix_versions"):
+        values = ticket.get(field) or []
+        if not isinstance(values, list):
+            return False, f"ticket {field} is not a list"
+        if any(not isinstance(value, str) for value in values):
+            return False, f"ticket {field} contains a non-string item"
+        if len(values) > MAX_METADATA_ITEMS:
+            return False, f"ticket {field} has more than {MAX_METADATA_ITEMS} items"
+        if sum(len(criterion_text(value)) for value in values) > MAX_MANDATORY_FIELD_CHARS:
+            return False, f"ticket {field} exceeds {MAX_MANDATORY_FIELD_CHARS} characters"
+    criteria = ticket.get("acceptance_criteria") or []
+    if not isinstance(criteria, list):
+        criteria = [criteria]
+    if len(criteria) > MAX_ACCEPTANCE_CRITERIA:
+        return False, f"ticket has more than {MAX_ACCEPTANCE_CRITERIA} acceptance criteria"
+    if sum(len(criterion_text(value)) for value in criteria) > MAX_ACCEPTANCE_CHARS:
+        return False, f"ticket acceptance criteria exceed {MAX_ACCEPTANCE_CHARS} characters"
+    return True, "tracker response key and bounds validated"
+
+
 def resolve(artifact, validations):
     """Apply validation evidence and the explicit/branch/refuse priority."""
     artifact = json.loads(json.dumps(artifact)) if isinstance(artifact, dict) else {}
@@ -176,6 +246,10 @@ def main(argv):
     if not argv:
         return 64
     cmd = argv[0]
+    if cmd == "validate-response" and len(argv) == 3:
+        valid, reason = validate_ticket_response(argv[1], argv[2])
+        print(reason)
+        return 0 if valid else 1
     if cmd == "extract" and len(argv) >= 2:
         print(json.dumps(extract(_read_json(argv[1]), argv[2] if len(argv) > 2 else ""),
                          sort_keys=True))

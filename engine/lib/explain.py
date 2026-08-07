@@ -101,7 +101,13 @@ def context_manifests(root=ROOT):
                     used = int(line.split("used_chars=")[1].split()[0])
                 except (ValueError, IndexError):
                     used = None
-        clean = lambda s: [c.strip() for c in s.replace("-->", "").split(",") if c.strip()]
+        def clean(value):
+            return [
+                component.strip()
+                for component in value.replace("-->", "").split(",")
+                if component.strip()
+            ]
+
         out[phase] = {"kept": clean(kept), "dropped": clean(dropped),
                       "budget_tokens": budget, "used_chars": used}
     return out
@@ -209,6 +215,39 @@ def explain(key=None, run_id=None, root=ROOT):
             "run-record ticket_discovery (SCM signals + Tracker validation)",
             caveat=("No inferred ticket text is trusted until Tracker get_item "
                     "validates the key; ambiguity proceeds without a ticket.")))
+
+    # --- PR ticket context fusion ------------------------------------------
+    fusion = (rec or {}).get("ticket_context") or {}
+    if live and not fusion:
+        phases = {}
+        expected_ticket = discovery.get("selected_key")
+        for phase in ("triage", "generate"):
+            manifest = _read_json(root / f"out/pr-ticket-fused-{phase}.json") or {}
+            if (manifest.get("artifact") == "pr-ticket-context"
+                    and manifest.get("phase") == phase
+                    and manifest.get("selected_key") == expected_ticket):
+                phases[phase] = manifest
+        if expected_ticket:
+            names = set(phases)
+            state = ("fused" if names == {"triage", "generate"}
+                     else "partial" if names else "unavailable")
+            fusion = {"state": state, "selected_key": expected_ticket,
+                      "phases": phases}
+    if fusion.get("state") in ("fused", "partial", "unavailable"):
+        because = []
+        for phase, manifest in sorted((fusion.get("phases") or {}).items()):
+            because.append(
+                f"{phase}: included={','.join(manifest.get('included_fields') or []) or 'none'}; "
+                f"omitted={','.join(manifest.get('omitted_fields') or []) or 'none'}; "
+                f"scoped={bool(manifest.get('scoped'))}")
+        decisions.append(_decision(
+            "ticket-context-fusion",
+            "Which validated ticket requirements were shown to PR authoring phases?",
+            f"Ticket {fusion.get('selected_key') or 'unknown'} fusion state: "
+            f"{fusion.get('state')}; phases: "
+            f"{', '.join(sorted((fusion.get('phases') or {}).keys())) or 'none'}.",
+            because, "run-record ticket_context manifests",
+            caveat="Acceptance criteria are mandatory; description/comments may be omitted by budget."))
 
     # --- context: what the model saw, and what it did NOT -------------------
     manifests, manifest_error = {}, None

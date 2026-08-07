@@ -148,6 +148,34 @@ def test_real_tracker_separates_not_found_from_unavailable(tmp_path, status, exp
     assert result.returncode == expected
 
 
+def test_tracker_success_requires_exact_response_identity_and_bounds(tmp_path):
+    response = tmp_path / "ticket.json"
+    response.write_text(json.dumps({"key": "PROJ-301",
+                                    "acceptance_criteria": ["AC-1"]}),
+                        encoding="utf-8")
+    assert td.validate_ticket_response("PROJ-301", response) == (
+        True, "tracker response key and bounds validated")
+
+    response.write_text(json.dumps({"key": "OTHER-9"}), encoding="utf-8")
+    valid, reason = td.validate_ticket_response("PROJ-301", response)
+    assert not valid and "key mismatch" in reason
+
+    response.write_text("[]", encoding="utf-8")
+    assert td.validate_ticket_response("PROJ-301", response)[0] is False
+    response.write_text("not-json", encoding="utf-8")
+    assert td.validate_ticket_response("PROJ-301", response)[0] is False
+
+
+def test_unbounded_acceptance_criteria_are_never_marked_valid(tmp_path):
+    response = tmp_path / "ticket.json"
+    response.write_text(json.dumps({
+        "key": "PROJ-301",
+        "acceptance_criteria": ["x"] * (td.MAX_ACCEPTANCE_CRITERIA + 1),
+    }), encoding="utf-8")
+    valid, reason = td.validate_ticket_response("PROJ-301", response)
+    assert not valid and "acceptance criteria" in reason
+
+
 def test_run_record_persists_discovery_and_explain_answers_why(tmp_path):
     out = tmp_path / "out"
     out.mkdir()

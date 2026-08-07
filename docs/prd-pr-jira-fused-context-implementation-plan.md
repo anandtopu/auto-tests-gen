@@ -8,8 +8,8 @@ Source: [prd-pr-jira-fused-context-multi-agent.md](prd-pr-jira-fused-context-mul
 | Order | Item | Slice | Dependencies | Status | Implementation boundary |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | A1 Ticket discovery | S1 | none | Implemented | Opt-in SCM metadata collection, earned-key extraction, Tracker validation, deterministic selection/refusal, intake field, provenance, explain |
-| 2 | A2 Context fusion | S1 | A1 | Plan reviewed; ready to implement | Reuse `out/ticket.json`/`ticket_fields.py`, issue-type guidance, scoped prompt tail, acceptance-criteria retention, flag-off parity; detailed plan in [pr-jira-fused-context-a2-implementation-plan.md](pr-jira-fused-context-a2-implementation-plan.md) |
-| 3 | A4 Discovery evaluation | S2 | A1 | Planned | Labelled signal/conflict fixtures plus per-signal precision, recall, and correct-refusal metrics |
+| 2 | A2 Context fusion | S1 | A1 | Implemented | Exact response identity, canonical `out/ticket.json`, shared guidance selection, scoped prompt tail, mandatory acceptance-criteria retention, flag-off parity; evidence in [pr-jira-fused-context-a2-implementation-plan.md](pr-jira-fused-context-a2-implementation-plan.md) |
+| 3 | A4 Discovery evaluation | S2 | A1 | Next eligible | Labelled signal/conflict fixtures plus per-signal precision, recall, and correct-refusal metrics |
 | 4 | B1 Test reviewer | S3 | none; schedule after S2 | Planned | Read-only pre-gate reviewer contract, deterministic skip, unavailable state |
 | 5 | B4 Verdict surfaces | S3 | B1 | Planned | Run record, board, comments, progress, and explain surfaces |
 | 6 | B6 Reviewer evaluation | S3 | B1 | Planned | Seeded defects, clean control, simulated/real-model labelling |
@@ -36,7 +36,7 @@ fusion and reviewer delivery prerequisites for a useful, trustworthy PR plan.
 
 ### A2 — Context fusion
 
-The reviewed, acceptance-mapped design is maintained in
+The implemented, acceptance-mapped design and validation evidence are maintained in
 [pr-jira-fused-context-a2-implementation-plan.md](pr-jira-fused-context-a2-implementation-plan.md).
 It first closes response-identity validation, then promotes the already-fetched
 selected ticket to the canonical path, shares guidance selection, renders a
