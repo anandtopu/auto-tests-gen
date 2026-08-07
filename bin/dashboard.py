@@ -217,7 +217,7 @@ except Exception:
 # tile, because "unevaluable" is not "healthy".
 try:
     import alert_rules as _ar
-    _st = _ar.evaluate(notify=False)          # never notifies from a render
+    _st = _ar.evaluate(notify=False, commit=False)  # a render cannot consume a transition
     _firing = [s for s in _st if s.get("status") == "firing"]
     _unevaluable = [s for s in _st if s.get("status") == "unevaluable"]
     if _firing:
@@ -2226,7 +2226,9 @@ if ($('#al-add')) {
 if ($('#al-save')) {
   $('#al-save').addEventListener('click', async () => {
     try {
-      const r = await api('/api/alerts/save', { rules: alCollect() });
+      const r = await api('/api/alerts/save', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rules: alCollect() }) });
       const probs = Object.entries(r.problems || {});
       // Problems are shown, not swallowed: a rule that can never match is
       // saved so the user can fix it, but they must be told.
@@ -2245,7 +2247,9 @@ document.addEventListener('click', async e => {
   if (e.target.classList.contains('al-test')) {
     alMsg('Sending a test through the real channel…');
     try {
-      const r = await api('/api/alerts/test', { id: tr.dataset.id });
+      const r = await api('/api/alerts/test', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: tr.dataset.id }) });
       alMsg(r.ok ? 'Test delivered via ' + r.channel + ' — check the Activity view for notify.sent'
                  : 'Test FAILED via ' + r.channel + ' (' + (r.problems || []).join('; ') + ')', !r.ok);
     } catch (err) { alMsg('Test failed: ' + err.message, true); }

@@ -413,7 +413,7 @@ class Handler(BaseHTTPRequestHandler):
             # notify=False: rendering a page must never send a notification —
             # opening a dashboard is not an alerting event.
             doc = alert_rules.load()
-            status = alert_rules.evaluate(notify=False)
+            status = alert_rules.evaluate(notify=False, commit=False)
             self._send(200, {"rules": doc.get("rules") or [], "status": status,
                              "kinds": sorted(event_log.KINDS),
                              "channels": list(alert_rules.CHANNELS)})
@@ -928,19 +928,14 @@ class Handler(BaseHTTPRequestHandler):
                 p = json.loads(body or b"{}")
             except ValueError:
                 return self._send(400, {"error": "invalid JSON"})
+            if not isinstance(p, dict):
+                return self._send(400, {"error": "request body must be an object"})
             incoming = p.get("rules")
             if not isinstance(incoming, list):
                 return self._send(400, {"error": "rules must be a list"})
             if len(incoming) > 200:
                 return self._send(400, {"error": "too many rules (max 200)"})
-            cleaned, problems = [], {}
-            for i, raw in enumerate(incoming):
-                rule, probs = alert_rules.normalize(raw)
-                rule["id"] = str(rule.get("id") or f"rule-{i + 1}")
-                cleaned.append(rule)
-                if probs:
-                    problems[rule["id"]] = probs
-            alert_rules.save({"rules": cleaned})
+            cleaned, problems = alert_rules.save_edits(incoming)
             event_log.emit("settings.changed", source="ui",
                            target="alert-rules", outcome="ok",
                            detail={"rules": len(cleaned),
@@ -953,6 +948,8 @@ class Handler(BaseHTTPRequestHandler):
                 p = json.loads(body or b"{}")
             except ValueError:
                 return self._send(400, {"error": "invalid JSON"})
+            if not isinstance(p, dict):
+                return self._send(400, {"error": "request body must be an object"})
             return self._send(200, alert_rules.test_fire(p.get("id", "")))
         if self.path == "/api/queue":
             try:

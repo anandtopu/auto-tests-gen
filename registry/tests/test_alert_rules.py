@@ -82,6 +82,18 @@ def test_an_unreadable_log_reports_unevaluable_not_healthy():
     assert res["status"] != "ok"
 
 
+def test_a_partially_corrupt_window_is_unevaluable_not_healthy():
+    ar.save({"rules": [_rule(threshold=1)]})
+    el.emit("gate.refused", target="repo-1", outcome="refused")
+    event_file = next(pathlib.Path(el.events_dir()).glob("*.jsonl"))
+    with open(event_file, "a", encoding="utf-8") as fh:
+        fh.write("{broken event\n")
+
+    res = ar.evaluate(notify=False, commit=False)[0]
+    assert res["status"] == "unevaluable"
+    assert "1 unreadable" in res["reason"]
+
+
 def test_a_disabled_rule_is_reported_not_silently_skipped():
     ar.save({"rules": [_rule(enabled=False)]})
     assert ar.evaluate(notify=False)[0]["status"] == "disabled"
@@ -158,11 +170,85 @@ def test_rendering_a_page_never_sends_a_notification():
     assert "notify=False" in get_alerts, "the GET path must not deliver"
 
 
+def test_read_only_evaluation_does_not_consume_the_scheduled_transition(monkeypatch):
+    """Opening Alerts, rendering Overview, and qa.py alerts are observations.
+
+    If one of them persists firing=True, the later maintenance tick sees no
+    transition and never delivers the alert. A dashboard view must not consume
+    the notification it exists to help an operator investigate.
+    """
+    sent = []
+    monkeypatch.setattr(ar, "deliver",
+                        lambda msg, *a, **k: sent.append(msg) or True)
+    ar.save({"rules": [_rule(threshold=1)]})
+    el.emit("gate.refused", target="repo-1", outcome="refused")
+
+    preview = ar.evaluate(notify=False, commit=False)[0]
+    assert preview["status"] == "firing"
+    assert ar.load()["rules"][0].get("state", {}).get("firing") is not True
+    assert "alert.fired" not in [r["kind"] for r in el.read()[0]]
+
+    actual = ar.evaluate(notify=True)[0]
+    assert actual["transition"] == "fired"
+    assert len(sent) == 1
+
+
+@pytest.mark.parametrize("raw", [
+    7,
+    {"match": 7},
+    {"match": {"kinds": ["gate.refused"]}, "recipients": 7},
+    {"match": {"kinds": ["gate.refused"]}, "state": 7},
+])
+def test_wrong_shaped_rules_are_reported_instead_of_crashing(raw):
+    rule, problems = ar.normalize(raw)
+    assert isinstance(rule, dict)
+    assert problems
+
+
+def test_rule_edits_preserve_lifecycle_state_and_make_ids_unique():
+    state = {"firing": True, "last_fired": "2026-08-07T23:00:00Z",
+             "last_notified": "2026-08-07T23:00:00Z", "last_resolved": None}
+    ar.save({"rules": [_rule(id="same", state=state)]})
+
+    cleaned, problems = ar.prepare_save([
+        _rule(id="same", name="edited", state={}),
+        _rule(id="same", name="duplicate"),
+    ])
+    assert cleaned[0]["state"] == state
+    assert cleaned[1]["id"] != cleaned[0]["id"]
+    assert any("duplicate id" in p for p in problems[cleaned[1]["id"]])
+
+    saved, _ = ar.save_edits([_rule(id="same", name="saved edit")])
+    assert saved[0]["state"] == state
+    assert ar.load()["rules"][0]["state"] == state
+
+
+def test_invalid_persisted_state_timestamp_cannot_crash_evaluation():
+    ar.save({"rules": [_rule(threshold=1, state={
+        "firing": False, "last_notified": "not-a-timestamp"})]})
+    el.emit("gate.refused", target="repo-1", outcome="refused")
+    result = ar.evaluate(notify=False, commit=False)[0]
+    assert result["status"] == "firing"
+    assert any("timestamp" in p for p in result["problems"])
+
+
 def test_saving_rules_is_bounded_and_validated():
     src = (ROOT / "bin" / "dashboard_server.py").read_text(encoding="utf-8")
     save = src.split('self.path == "/api/alerts/save"', 1)[1].split("if self.path ==", 1)[0]
     assert "normalize(" in save, "incoming rules must be normalized, not trusted"
     assert "max 200" in save or "200" in save, "an unbounded rule list is a DoS"
+
+
+def test_alert_ui_mutations_use_json_post_requests():
+    src = (ROOT / "bin" / "dashboard.py").read_text(encoding="utf-8")
+    save = src.split("$('#al-save').addEventListener", 1)[1].split(
+        "document.addEventListener", 1)[0]
+    test = src.split("e.target.classList.contains('al-test')", 1)[1].split(
+        "refreshAlerts();", 1)[0]
+    for name, block in (("save", save), ("test", test)):
+        assert "method: 'POST'" in block, f"alert {name} still issues GET"
+        assert "'Content-Type': 'application/json'" in block
+        assert "JSON.stringify" in block
 
 
 # --------------------------------------------------- per-rule recipients (E4)

@@ -119,6 +119,24 @@ def test_a_corrupt_line_is_skipped_not_raised():
     assert {r["target"] for r in rows} == {"good-1", "good-2"}
 
 
+def test_valid_json_with_the_wrong_record_shape_is_counted_as_corrupt():
+    """A torn line is not the only corruption mode.
+
+    JSON scalars and objects without the fields consumed by CLI/UI are valid
+    JSON, but they are not events. They must not make r.get or r['ts'] abort
+    every otherwise valid Activity row.
+    """
+    el.emit("run.started", target="good")
+    d = pathlib.Path(os.environ["AIQE_EVENTS_DIR"])
+    f = next(d.glob("*.jsonl"))
+    with open(f, "a", encoding="utf-8") as fh:
+        fh.write("42\n")
+        fh.write('{"kind":"run.completed"}\n')
+    rows, corrupt = el.read()
+    assert corrupt == 2
+    assert [r["target"] for r in rows] == ["good"]
+
+
 # ------------------------------------------------------------------ filtering
 def test_filters_narrow_the_stream():
     el.emit("gate.committed", actor="a", target="repo-1")

@@ -353,6 +353,18 @@ def test_a_large_body_is_handled_cleanly(live_server):
     assert 0 < status < 500, f"a 2 MB body produced {status}"
 
 
+@pytest.mark.parametrize("path", ["/api/alerts/save", "/api/alerts/test"])
+def test_alert_endpoints_reject_non_object_json_without_dropping_server(
+        live_server, path):
+    base, _ = live_server
+    status, body = _request(base + path, method="POST", body="[]",
+                            headers=_auth())
+    assert status == 400
+    assert "object" in body
+    status, _ = _request(f"{base}/api/items", headers=_auth())
+    assert status == 200
+
+
 # ----------------------------------------------------- 5. method confusion
 def test_a_get_cannot_perform_a_mutating_action(live_server):
     """POST-shaped parameters on a GET must not queue work."""

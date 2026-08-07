@@ -776,7 +776,7 @@ def cmd_alerts(args):
     report that pages people would be its own outage.
     """
     import alert_rules
-    status = alert_rules.evaluate(notify=False)
+    status = alert_rules.evaluate(notify=False, commit=False)
     if not status:
         print("no alert rules configured (add them in the dashboard's Alerts view, "
               "or edit reports/alert-rules.json)")

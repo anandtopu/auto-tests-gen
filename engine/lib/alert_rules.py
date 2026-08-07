@@ -87,13 +87,28 @@ def normalize(rule):
     with it rather than 500.
     """
     problems = []
-    r = dict(rule or {})
+    if isinstance(rule, dict):
+        r = dict(rule)
+    else:
+        r = {}
+        problems.append("rule was not an object; using safe defaults")
     r.setdefault("id", "")
     r["name"] = str(r.get("name") or r.get("id") or "unnamed")[:120]
     r["enabled"] = bool(r.get("enabled", True))
 
-    match = dict(r.get("match") or {})
-    kinds = [str(k).strip() for k in (match.get("kinds") or []) if str(k).strip()]
+    raw_match = r.get("match")
+    if raw_match is None:
+        match = {}
+    elif isinstance(raw_match, dict):
+        match = dict(raw_match)
+    else:
+        match = {}
+        problems.append("match was not an object; using an empty match")
+    raw_kinds = match.get("kinds") or []
+    if not isinstance(raw_kinds, (list, tuple, set)):
+        raw_kinds = []
+        problems.append("match.kinds was not a list; using none")
+    kinds = [str(k).strip() for k in raw_kinds if str(k).strip()]
     unknown = [k for k in kinds if k not in event_log.KINDS]
     if unknown:
         # Not an error: a rule may legitimately predate a kind, or outlive one.
@@ -130,15 +145,88 @@ def normalize(rule):
     # tick instead of sending its own. For a rule that fires often this is the
     # difference between an inbox someone reads and one they filter away.
     r["digest"] = bool(r.get("digest", False))
-    r["recipients"] = [str(x).strip() for x in (r.get("recipients") or []) if str(x).strip()]
+    raw_recipients = r.get("recipients") or []
+    if not isinstance(raw_recipients, (list, tuple, set)):
+        raw_recipients = []
+        problems.append("recipients was not a list; using none")
+    r["recipients"] = [str(x).strip() for x in raw_recipients if str(x).strip()]
     if r["channel"] in ("email", "both") and not r["recipients"]:
         problems.append("email channel with no recipients — nothing will be delivered")
-    r["state"] = dict(r.get("state") or {})
+    raw_state = r.get("state")
+    if raw_state is None:
+        r["state"] = {}
+    elif isinstance(raw_state, dict):
+        r["state"] = dict(raw_state)
+    else:
+        r["state"] = {}
+        problems.append("state was not an object; resetting alert state")
     r["state"].setdefault("firing", False)
     r["state"].setdefault("last_fired", None)
     r["state"].setdefault("last_notified", None)
     r["state"].setdefault("last_resolved", None)
+    r["state"]["firing"] = bool(r["state"]["firing"])
+    for field in ("last_fired", "last_notified", "last_resolved"):
+        stamp = r["state"].get(field)
+        if stamp is None:
+            continue
+        try:
+            datetime.datetime.strptime(str(stamp), "%Y-%m-%dT%H:%M:%SZ")
+            r["state"][field] = str(stamp)
+        except (TypeError, ValueError):
+            r["state"][field] = None
+            problems.append(f"state.{field} was not a valid timestamp; resetting it")
     return r, problems
+
+
+def prepare_save(incoming, current=None):
+    """Normalize edits while preserving evaluator-owned state by rule id.
+
+    The browser edits rule configuration, not alert lifecycle. Dropping state
+    on an unchanged save resets firing/cooldown history and can notify twice.
+    Duplicate ids are also made unique here so status and Test cannot bind to a
+    different row than the one the operator clicked.
+    """
+    current = load() if current is None else current
+    current_rules = current.get("rules") if isinstance(current, dict) else []
+    states = {}
+    for existing in (current_rules if isinstance(current_rules, list) else []):
+        if not isinstance(existing, dict) or not existing.get("id"):
+            continue
+        normalized, _ = normalize(existing)
+        states[str(existing["id"])] = normalized["state"]
+    cleaned, problems, used = [], {}, set()
+    for i, raw in enumerate(incoming):
+        rule, probs = normalize(raw)
+        base = str(rule.get("id") or f"rule-{i + 1}")
+        rule_id = base
+        suffix = 2
+        while rule_id in used:
+            rule_id = f"{base}-{suffix}"
+            suffix += 1
+        if rule_id != base:
+            probs.append(f"duplicate id {base!r}; saved as {rule_id!r}")
+        rule["id"] = rule_id
+        used.add(rule_id)
+        if rule_id in states:
+            rule["state"] = states[rule_id]
+        cleaned.append(rule)
+        if probs:
+            problems[rule_id] = probs
+    return cleaned, problems
+
+
+def save_edits(incoming):
+    """Merge UI edits with lifecycle state and replace the file under one lock."""
+    p = rules_file()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with fs_lock.lock(p):
+        current = fs_lock.read_json_guarded(p, {"rules": []})
+        cleaned, problems = prepare_save(incoming, current=current)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"rules": cleaned}, indent=1),
+                       encoding="utf-8", newline="\n")
+        fs_lock.replace_atomic(tmp, p)
+    return cleaned, problems
 
 
 def _matches(rule, ev):
@@ -152,11 +240,13 @@ def _matches(rule, ev):
     return True
 
 
-def evaluate(now=None, notify=True):
+def evaluate(now=None, notify=True, commit=True):
     """Evaluate every enabled rule. Returns a per-rule status list.
 
     Never raises: this runs from `make maintain`, and a broken rule must not
-    stop the rest of maintenance.
+    stop the rest of maintenance. Read-only surfaces pass commit=False: they
+    calculate current status without consuming a transition, emitting a
+    lifecycle event, or suppressing the later scheduled notification.
     """
     now = now or _now()
     doc = load()
@@ -179,8 +269,10 @@ def evaluate(now=None, notify=True):
 
         # 3.4 — an evaluator that cannot see the data says so. Reporting "ok"
         # here would mean a broken log reads as a healthy estate.
-        if read_error or health.get("degraded"):
+        if read_error or corrupt or health.get("degraded"):
             reason = read_error or (
+                f"{corrupt} unreadable event line(s); the window may be incomplete"
+                if corrupt else
                 f"this process dropped {health.get('dropped')} event(s); "
                 f"the window may be incomplete")
             out.append({"id": rule["id"], "name": rule["name"],
@@ -214,7 +306,7 @@ def evaluate(now=None, notify=True):
                     tzinfo=datetime.timezone.utc)).total_seconds() / 60.0
             may_notify = elapsed >= rule["cooldown_minutes"]
 
-        if transition:
+        if transition and commit:
             changed = True
             event_log.emit(f"alert.{transition}", source="cron",
                            target=rule["name"], outcome="ok",
@@ -232,7 +324,8 @@ def evaluate(now=None, notify=True):
                             rule["recipients"], rule["name"])
                 st["last_notified"] = _iso(now)
 
-        raw.update(rule)
+        if commit:
+            raw.update(rule)
         out.append({"id": rule["id"], "name": rule["name"],
                     "status": "firing" if st["firing"] else "ok",
                     "hits": len(hits), "threshold": rule["threshold"],

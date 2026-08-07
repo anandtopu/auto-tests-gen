@@ -273,6 +273,17 @@ def read(limit=200, kinds=None, actor=None, target=None, outcome=None,
             except ValueError:
                 corrupt += 1
                 continue
+            # Valid JSON is not necessarily an event. A scalar, list, or object
+            # missing fields consumed unconditionally by the CLI/UI used to be
+            # returned as a row and then crash the whole Activity surface.
+            # Count it exactly like a torn JSON line so partial evidence stays
+            # visible and explicitly incomplete.
+            if (not isinstance(r, dict)
+                    or not isinstance(r.get("ts"), str)
+                    or not isinstance(r.get("kind"), str)
+                    or not isinstance(r.get("outcome"), str)):
+                corrupt += 1
+                continue
             if kinds and r.get("kind") not in kinds:
                 continue
             if actor and r.get("actor") != actor:

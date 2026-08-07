@@ -22,7 +22,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 8 | Trace | PR/JIRA chronology, phase links, empty/unknown keys | fixed-retested | 2026-08-07: served UI/API/CLI/CSV cross-checked PR and JIRA timelines, uncovered scenarios, gate commits, unknown/malformed keys and restart persistence; legacy join and malformed-input defects fixed | — |
 | 9 | Cost | measured/simulated spend, caching savings, filters | fixed-retested | 2026-08-07: deterministic mixed-basis corpus covered reported, estimated, local, simulated and unpriced spend, turn/cache calibration, reuse evidence, filters and corrupt-state resilience; four disclosure/reliability defects fixed | — |
 | 10 | Artifacts | plan/data/tests/diff/code view, coverage report, export/publish | fixed-retested | E2E-EXP-022 | Browser + CLI/API: JIRA/PR artifacts, scenarios/data/generated code/raw diff, coverage download, four export formats, mock publish/attach, missing/unsafe diff evidence |
-| 11 | Activity and alerts | transaction filters, degraded log, rule evaluation, acknowledgement | untested | — | Seed success/failure/refusal/corrupt events |
+| 11 | Activity and alerts | transaction filters/CSV, degraded log, rule evaluation, firing/resolution lifecycle | fixed-retested | E2E-EXP-023–027 | Browser + API/CLI: success/refusal/failure/corrupt events, filters, formula-safe CSV, unevaluable/firing/disabled/resolved states, mock delivery, rule save/test, restart persistence |
 | 12 | Test catalog | search, repo/status filters, mapping, CI health, orphan/quarantine | untested | — | Existing four-row seed plus empty/no-match searches |
 | 13 | Repositories | app/test repo CRUD, scopes, curated guidance, contracts/routes | untested | — | Isolated synthetic repo; required-field and dependency checks |
 | 14 | Settings and integrations | flags, adapters, credentials metadata, SSO/token modes | untested | — | Safe non-secret fixtures, invalid endpoints, clear/reset behavior |
@@ -384,3 +384,51 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   docs/reviews/exploratory-e2e-iteration-011.md.
 - Next slice: Activity and alerts, including malformed audit rows, rule
   evaluation, notification isolation and restart behavior.
+
+### 2026-08-07 — Iteration 12: Activity and alerts
+
+- Seed data: an ignored isolated event directory contained three synthetic
+  success/refusal/failure transactions, a spreadsheet-formula actor, one JSON
+  scalar and one torn line. An isolated rules file contained a threshold-one
+  gate refusal and a disabled rule. All data was deterministic, PII-free,
+  credential-free, mock-only and removed after retest.
+- Happy paths: the served Activity view rendered three valid rows, exact kind
+  filtering, outcomes, durations and run correlation while reporting two
+  unreadable lines. CSV export returned the same evidence and prefixed the
+  formula-shaped actor. Alerts rendered unevaluable, firing, disabled and
+  resolved states; mock delivery produced notify.sent, and CLI output matched
+  the browser/API across a server restart.
+- Finding E2E-EXP-023 (P1): Overview, Alerts GET and qa.py alerts evaluated with
+  notification disabled but still persisted firing state. Merely observing a
+  rule consumed its transition, so the later maintenance tick never delivered
+  it. Read-only surfaces now evaluate with commit disabled; the scheduled tick
+  alone records state and sends.
+- Finding E2E-EXP-024 (P1): syntactically valid wrong-shaped event rows were
+  returned as transactions and crashed downstream CLI/UI consumers. Malformed
+  rule, match, recipient or state values likewise escaped normalization.
+  Readers now count non-event JSON as corrupt, and rule normalization degrades
+  each bad field with an explicit problem rather than aborting its neighbors.
+- Finding E2E-EXP-025 (P1): Activity disclosed corrupt lines, but the alert
+  evaluator still called the same incomplete window firing or ok. Any corrupt
+  line now makes enabled rules unevaluable with the lost-line count.
+- Finding E2E-EXP-026 (P2): Save rules and Test sent GET requests to POST-only
+  endpoints and always returned not found. Both controls now send JSON POSTs;
+  the live browser saved three rules with validation feedback and delivered a
+  mock channel test. Non-object JSON returns 400 and the next request remains
+  healthy.
+- Finding E2E-EXP-027 (P1): saving rules discarded firing, notification and
+  cooldown state. An unchanged save could suppress resolution and re-notify a
+  still-firing rule. Server-side edits now preserve normalized lifecycle state
+  by unique rule id, and the merge plus atomic replace share one lock so a
+  maintenance/UI race cannot reintroduce the loss.
+- Review reconciliation: the original matrix said acknowledgement, but no
+  manual acknowledgement contract exists in the architecture or user guide.
+  The documented lifecycle is firing, cooldown and automatic resolution, so
+  the matrix now names and tests that actual feature rather than inventing one.
+- Validation: the initial focused regressions failed in six cases plus the
+  corrupt-window case. After fixes, 90 focused Activity/Alerts/live-API tests
+  and 233 adjacent observability, UI, notification, isolation and regression
+  checks passed. Compilation and high-signal Ruff checks passed. Detailed
+  review: docs/reviews/exploratory-e2e-iteration-012.md.
+- Next slice: Test catalog search, filters, mapping, CI health, orphan and
+  quarantine lifecycle.
