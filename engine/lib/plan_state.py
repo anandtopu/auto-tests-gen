@@ -16,7 +16,7 @@ globs are unaffected. All mutations are fs_lock-guarded.
 
 CLI: plan_state.py get <KEY> | set <KEY> <status> [--by X] [--note N] | list
 """
-import json, os, pathlib, sys, time
+import hashlib, hmac, json, os, pathlib, re, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -30,14 +30,51 @@ DIR = pathlib.Path(os.environ.get("AIQE_PLAN_DIR") or ROOT / "reports/plans")
 FILE = DIR / "state.json"
 PLAN_DIR = app_paths.testplans_dir(ROOT)   # AIQE_TESTPLAN_DIR > AIQE_STATE_DIR > ROOT
 VALID = ("draft", "in_review", "approved", "changes_requested")
+KEY_RE = re.compile(r"[A-Za-z0-9_](?:[A-Za-z0-9_.-]{0,198}[A-Za-z0-9_])?")
+
+
+def validate_key(key):
+    """Return a filesystem-safe plan key or fail before any derived path is used."""
+    if not isinstance(key, str) or not KEY_RE.fullmatch(key):
+        raise SystemExit(
+            "invalid plan key: use 1-200 letters, digits or underscores; "
+            "dots and hyphens are allowed only inside the key")
+    return key
 
 
 def plan_path(key):
-    return PLAN_DIR / f"{key}.md"
+    return PLAN_DIR / f"{validate_key(key)}.md"
 
 
 def contract_path(key):
-    return DIR / f"{key}.contract.json"
+    return DIR / f"{validate_key(key)}.contract.json"
+
+
+def revision(key, state=None):
+    """Plan + lifecycle revision used for optimistic editor concurrency."""
+    p = plan_path(key)
+    if not p.exists():
+        return ""
+    entry = (state if state is not None else load()).get(key, {})
+    lifecycle = json.dumps({
+        "status": entry.get("status", ""),
+        "updated": entry.get("updated", 0),
+        "history_len": len(entry.get("history") or []),
+    }, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(p.read_bytes() + b"\0" + lifecycle).hexdigest()
+
+
+def _check_expected_revision(key, expected_revision, state):
+    """Reject a stale dashboard mutation while the shared state lock is held."""
+    if expected_revision is None:  # Backward-compatible CLI and automation callers.
+        return
+    if not isinstance(expected_revision, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", expected_revision):
+        raise SystemExit("invalid plan revision — reload the plan and try again")
+    if not hmac.compare_digest(revision(key, state), expected_revision):
+        raise SystemExit(
+            "stale plan revision — another reviewer changed this plan; "
+            "reload it before saving or changing status")
 
 
 def load():
@@ -52,10 +89,43 @@ def _save(state):
 
 
 def get(key):
-    return load().get(key, {})
+    return load().get(validate_key(key), {})
 
 
-def set_status(key, status, by="", note=""):
+def read_plan(key):
+    """Read text, lifecycle state and revision from one locked snapshot."""
+    key = validate_key(key)
+    with fs_lock.lock(FILE):
+        p = plan_path(key)
+        if not p.exists():
+            return None
+        state = load()
+        return {"text": p.read_text(encoding="utf-8"),
+                "revision": revision(key, state),
+                "entry": dict(state.get(key, {}))}
+
+
+def _transition_entry(state, key, status, by, note):
+    """Apply one lifecycle transition to an already-locked state mapping."""
+    e = state.get(key, {"history": []})
+    e.update({"status": status, "by": by or e.get("by", ""), "note": note,
+              "updated": time.time()})
+    entry = {"status": status, "by": by, "note": note, "ts": time.time()}
+    if status == "approved":
+        try:
+            import spec_store
+            spec_hash = spec_store.sha(key)
+            if spec_hash:
+                e["spec_sha"] = spec_hash
+                entry["spec_sha"] = spec_hash
+        except Exception:
+            pass
+    e.setdefault("history", []).append(entry)
+    state[key] = e
+    return e
+
+
+def set_status(key, status, by="", note="", expected_revision=None):
     """Transition a plan. Returns the updated entry."""
     if status not in VALID:
         raise SystemExit(f"status must be one of: {', '.join(VALID)}")
@@ -63,33 +133,18 @@ def set_status(key, status, by="", note=""):
         raise SystemExit("changes_requested needs a note saying what to change "
                          "(NOTE=\"...\" / --note) — the reviewer's ask is the "
                          "whole point of the status")
+    key = validate_key(key)
     if not plan_path(key).exists():
         raise SystemExit(f"no test plan for {key} (create one: make plan KEY={key})")
     with fs_lock.lock(FILE):
         state = load()
-        e = state.get(key, {"history": []})
-        e.update({"status": status, "by": by or e.get("by", ""), "note": note,
-                  "updated": time.time()})
-        entry = {"status": status, "by": by, "note": note, "ts": time.time()}
-        # SDD (story 1.3): an approval SIGNS the structured spec, not just the
-        # rendered prose — the hash on the history entry is the signature a
-        # later audit verifies. Free-form plans record no hash, as before.
+        _check_expected_revision(key, expected_revision, state)
+        e = _transition_entry(state, key, status, by, note)
+        # Snapshot while the same lock excludes edits: the baseline must be the
+        # exact bytes whose revision the reviewer approved.
         if status == "approved":
-            try:
-                import spec_store
-                h = spec_store.sha(key)
-                if h:
-                    e["spec_sha"] = h
-                    entry["spec_sha"] = h
-            except Exception:
-                pass
-        e.setdefault("history", []).append(entry)
-        state[key] = e
+            snapshot_plan(key, "approved")
         _save(state)
-    # An approval freezes the text the approver signed: this snapshot is the
-    # baseline every later "what changed?" diff compares against (roadmap 4.2).
-    if status == "approved":
-        snapshot_plan(key, "approved")
     return e
 
 
@@ -137,6 +192,7 @@ def record_plan(key, contract=None, by="pipeline", adversary="", target=None):
     It is stored on the entry because out/ is per-run scratch — without this the
     reviewer opening the plan tomorrow would have no idea it was ever challenged.
     """
+    key = validate_key(key)
     with fs_lock.lock(FILE):
         state = load()
         e = state.get(key, {"history": []})
@@ -199,7 +255,7 @@ def record_plan(key, contract=None, by="pipeline", adversary="", target=None):
 
 
 def versions_dir(key):
-    return DIR / "versions" / key
+    return DIR / "versions" / validate_key(key)
 
 
 def snapshot_plan(key, label):
@@ -284,42 +340,51 @@ def diff_since_approval(key):
                              tofile=f"{key} (current)"))
 
 
-def save_plan(key, text, by=""):
+def save_plan(key, text, by="", expected_revision=None):
     """Replace the plan markdown. Editing an APPROVED plan resets it to draft so a
     changed artifact can never inherit a stale approval."""
-    if not text.strip():
+    if not isinstance(text, str) or not text.strip():
         raise SystemExit("test plan text is empty")
-    PLAN_DIR.mkdir(parents=True, exist_ok=True)
-    cur = get(key).get("status")
-    # Snapshot BEFORE overwriting: the pre-edit text is the version worth keeping.
-    if plan_path(key).exists():
-        snapshot_plan(key, f"pre-edit-{cur or 'new'}")
-    plan_path(key).write_text(text.rstrip() + "\n", encoding="utf-8", newline="\n")
-    # SDD (story 1.2): one source of truth, enforced. A FREE-FORM edit that
-    # diverges from the spec's rendering SUPERSEDES the structured spec — the
-    # yaml is set aside (kept for forensics, timestamped) and the plan reverts
-    # to free-form, visibly, rather than letting two files silently disagree
-    # about what the human signed. Structured editing arrives with the spec
-    # editor (SDD 6.1); until then prose wins because a human wrote it.
-    try:
-        import spec_store
-        sp = spec_store.spec_path(key)
-        if sp.exists():
-            rendered = spec_store.render(key)
-            if rendered is not None and text.rstrip() != rendered.rstrip():
-                sp.rename(sp.with_name(
-                    f"testplan.yaml.superseded-{int(time.time())}"))
-    except Exception:
-        pass
-    if cur == "approved":
-        return set_status(key, "draft", by, "edited after approval — re-approval required")
-    if cur is None:
-        return set_status(key, "draft", by, "plan created by edit")
-    return set_status(key, cur, by, "plan edited")
+    key = validate_key(key)
+    with fs_lock.lock(FILE):
+        state = load()
+        _check_expected_revision(key, expected_revision, state)
+        cur = state.get(key, {}).get("status")
+        PLAN_DIR.mkdir(parents=True, exist_ok=True)
+        # Snapshot BEFORE overwriting: the pre-edit text is the version worth keeping.
+        if plan_path(key).exists():
+            snapshot_plan(key, f"pre-edit-{cur or 'new'}")
+        plan_path(key).write_text(text.rstrip() + "\n", encoding="utf-8", newline="\n")
+        # SDD (story 1.2): one source of truth, enforced. A FREE-FORM edit that
+        # diverges from the spec's rendering SUPERSEDES the structured spec — the
+        # yaml is set aside (kept for forensics, timestamped) and the plan reverts
+        # to free-form, visibly, rather than letting two files silently disagree
+        # about what the human signed. Structured editing arrives with the spec
+        # editor (SDD 6.1); until then prose wins because a human wrote it.
+        try:
+            import spec_store
+            sp = spec_store.spec_path(key)
+            if sp.exists():
+                rendered = spec_store.render(key)
+                if rendered is not None and text.rstrip() != rendered.rstrip():
+                    sp.rename(sp.with_name(
+                        f"testplan.yaml.superseded-{int(time.time())}"))
+        except Exception:
+            pass
+        if cur == "approved":
+            status, note = "draft", "edited after approval — re-approval required"
+        elif cur is None:
+            status, note = "draft", "plan created by edit"
+        else:
+            status, note = cur, "plan edited"
+        e = _transition_entry(state, key, status, by, note)
+        _save(state)
+        return e
 
 
 def mark_linked(key, ref, by=""):
     """Record that the approved plan was linked to its tracker ticket."""
+    key = validate_key(key)
     with fs_lock.lock(FILE):
         state = load()
         e = state.get(key)
@@ -335,6 +400,7 @@ def mark_linked(key, ref, by=""):
 
 
 def mark_generated(key, run_id):
+    key = validate_key(key)
     with fs_lock.lock(FILE):
         state = load()
         e = state.get(key, {"history": []})
@@ -383,6 +449,7 @@ def _requirements_gate_on():
 
 def requirements_record(key, by="pipeline"):
     """Mark the key's requirements spec as draft, awaiting human validation."""
+    key = validate_key(key)
     with fs_lock.lock(FILE):
         state = load()
         e = state.get(key, {"history": []})
@@ -397,6 +464,7 @@ def requirements_record(key, by="pipeline"):
 def set_requirements_status(key, status, by=""):
     """Validate/approve the requirements spec (SDD 2.2). Approval signs the
     yaml's hash, mirroring plan approval."""
+    key = validate_key(key)
     if status not in ("draft", "approved"):
         raise SystemExit("requirements status must be draft|approved")
     try:
@@ -470,12 +538,19 @@ def summary():
     out = []
     for key in sorted(state):
         e = state[key]
+        try:
+            validate_key(key)
+            has_plan = plan_path(key).exists()
+        except SystemExit:
+            # A pre-fix traversal entry is untrusted/corrupt state. Excluding it
+            # keeps dashboard trace generation alive without dereferencing it.
+            continue
         out.append({"key": key, "status": e.get("status", "?"),
                     "by": e.get("by", ""), "note": e.get("note", ""),
                     "updated": e.get("updated", 0),
                     "linked": bool(e.get("linked")),
                     "generated_run": e.get("generated_run"),
-                    "has_plan": plan_path(key).exists()})
+                    "has_plan": has_plan})
     return out
 
 

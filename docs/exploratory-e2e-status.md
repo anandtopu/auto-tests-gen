@@ -17,7 +17,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 3 | Guided JIRA plan-first run | ticket input, draft plan, approval gate, generation, ticket link | fixed-retested | 2026-08-07: mock `PROJ-301` completed author → approve → generate → committed gate → ticket link; empty/malformed keys and generate-before-approval rejected; stale historical success and Windows queue interpreter failures fixed and browser-retested | — |
 | 4 | Intake and work queue | release fetch, inline ticket, plan-only, requeue/remove, drain | fixed-retested | 2026-08-07: known/empty releases, inline validation/dedupe, mode-aware queueing, failed retry, concurrent drain, successful drain and removal exercised; three P2 defects fixed and browser/API-retested | — |
 | 5 | Run progress and run review | phase state, failure details, release filters, reviewer decisions | fixed-retested | 2026-08-07: isolated committed/quarantined/refused corpus covered release/review filters, individual and batch decisions, restart persistence, retry/stale cleanup, and API/CLI parity; one in-place filter-coherence P2 fixed and retested | — |
-| 6 | Test plans | author, edit, versions, approve/request changes, export/link | untested | — | Boundary validation and stale-version behavior |
+| 6 | Test plans | author, edit, versions, approve/request changes, export/link | fixed-retested | 2026-08-07: isolated served UI covered author queue, approval/generation gate, edit/review lifecycle, signed diff, mock link, four exports and missing/malformed boundaries; plan-key traversal and concurrent stale-edit/decision defects fixed and retested | — |
 | 7 | Spec workflow | acceptance criteria, scenarios, waivers, drift and verification | untested | — | Waiver expiry/unmatched cases and release gate effects |
 | 8 | Trace | PR/JIRA chronology, phase links, empty/unknown keys | untested | — | Cross-check trace with run/plan/artifact records |
 | 9 | Cost | measured/simulated spend, caching savings, filters | untested | — | Empty data, simulated-only, mixed measured data |
@@ -201,3 +201,42 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   reliability, deployment, or coverage defect. Review:
   `docs/reviews/exploratory-e2e-iteration-006.md`.
 - Next slice: Test plans.
+
+### 2026-08-07 — Iteration 7: Test plans
+
+- Seed data: deterministic local plans `EXP-PLAN-1` and `EXP-AUTHOR-2` used
+  plan lifecycle, markdown, and queue stores redirected under ignored
+  `out/exploratory-e2e-iter7`. The corpus was synthetic, credential-free,
+  PII-free, mock-only, and never targeted production or customer services.
+- Happy paths: the served UI opened and edited a plan, queued plan authoring,
+  moved through review/approval, queued generation only after approval, linked
+  a PDF through the mock tracker, revoked approval after a later edit, and
+  rendered the exact diff from the signed baseline. Markdown, HTML, DOCX, and
+  PDF exports all returned the correct media type and non-empty content.
+- Negative and boundary paths: generation before approval, missing
+  request-changes note, unknown export key, a traversal-shaped plan key,
+  malformed plan text, an unversioned overwrite, and two-tab stale edits and
+  lifecycle decisions were exercised. Missing/invalid inputs returned
+  actionable 4xx responses without writing outside the configured plan store.
+- Finding `E2E-EXP-012` (P1): `POST /api/plans/save` accepted
+  `../escaped-plan`, wrote markdown outside `AIQE_TESTPLAN_DIR`, and persisted
+  the attacker-controlled key in lifecycle state. Plan keys are now validated
+  centrally before every derived path or state mutation; legacy invalid entries
+  are ignored by summaries so they cannot break dashboard generation.
+- Finding `E2E-EXP-013` (P2): two reviewers loaded the same revision, reviewer B
+  saved, and reviewer A's stale save still returned 200 while erasing B's edit.
+  The editor and API now use a SHA-256 revision covering plan bytes plus
+  lifecycle state, read atomically under the plan-state lock. Existing-plan web
+  mutations require the token and return 409 for stale or missing revisions.
+- Retest evidence: the browser result changed from a successful stale overwrite
+  with `Lost_B_edit=true` to `stale plan revision` while reviewer B's text
+  remained durable. Traversal changed from HTTP 200 plus an escaped file to 409
+  with no file. Approval/generation, post-approval diff, mock linking, exports,
+  request-changes note validation, and author queueing remained functional.
+- Validation: 58 plan-version/API-adversarial tests and 87 adjacent plan,
+  export, PR-plan, similarity, reuse, and dashboard UI tests passed. Detailed
+  compilation and high-signal Ruff checks passed. The full 1,591-test canonical
+  suite exceeded the 10-minute iteration bound without producing a result;
+  targeted and adjacent gates remained green. Detailed review:
+  `docs/reviews/exploratory-e2e-iteration-007.md`.
+- Next slice: Spec workflow.

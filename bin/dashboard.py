@@ -2428,6 +2428,7 @@ document.addEventListener('click', async e => {
 const PLAN_CHIP = { draft: ['draft', 'muted'], in_review: ['✎ in review', 'warning'],
   approved: ['✓ approved', 'success'], changes_requested: ['✗ changes requested', 'danger'] };
 let planKey = null;
+let planRevision = null;
 function planChip(s) {
   const [lb, cls] = PLAN_CHIP[s] || [s || '—', 'muted'];
   return '<span class="chip chip-' + cls + '">' + escHtml(lb) + '</span>';
@@ -2452,6 +2453,7 @@ async function refreshPlans() {
 async function openPlan(key) {
   const p = await api('/api/plans/one?key=' + encodeURIComponent(key));
   planKey = key;
+  planRevision = p.revision || null;
   $('#plan-editor').classList.remove('hidden');
   $('#plan-key').textContent = key;
   $('#plan-status').innerHTML = planChip(p.status);
@@ -2596,7 +2598,7 @@ async function openPlan(key) {
 async function planPost(path, payload, okMsg) {
   try {
     const r = await api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key: planKey, ...payload }) });
+      body: JSON.stringify({ key: planKey, revision: planRevision, ...payload }) });
     toast(typeof okMsg === 'function' ? okMsg(r) : okMsg);
     await refreshPlans();
     if (planKey) await openPlan(planKey);

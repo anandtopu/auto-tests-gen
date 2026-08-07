@@ -27,8 +27,8 @@ Endpoints:
   GET  /api/openhands         live OpenHands agent conversations (webhook-fed)
   GET  /api/plans             test plans + lifecycle status
   GET  /api/plans/one?key=K   one plan's markdown + status
-  POST /api/plans/save        {"key","text","by"?}   edit (resets an approved plan)
-  POST /api/plans/status      {"key","status","by"?,"note"?}  review/approve/changes
+  POST /api/plans/save        {"key","text","revision"?,"by"?} edit (resets approval)
+  POST /api/plans/status      {"key","status","revision"?,"by"?,"note"?} review/approve
   POST /api/plans/link        {"key","format"?}      attach the approved plan to JIRA
   POST /api/plans/comment     {"key"}  post the plan+tests linking comment on the ticket
   POST /api/plans/generate    {"key"}                queue test generation (needs approval)
@@ -477,19 +477,24 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, plan_state.summary())
         elif url.path == "/api/plans/one":
             key = urllib.parse.parse_qs(url.query).get("key", [""])[0]
-            p = plan_state.plan_path(key) if re.fullmatch(r"[\w.-]+", key or "") else None
-            if not p or not p.exists():
+            try:
+                snapshot = plan_state.read_plan(key)
+            except SystemExit as e:
+                self._send(400, {"error": _err(e)})
+                return
+            if snapshot is None:
                 self._send(404, {"error": f"no test plan for {key}"})
             else:
                 # SDD 2.1: requirement ambiguities ride along so the plan
                 # reviewer sees WHAT the ticket left undefined beside the
                 # scenarios that had to route around it.
                 import spec_store
-                self._send(200, {"key": key, "text": p.read_text(encoding="utf-8"),
+                self._send(200, {"key": key, "text": snapshot["text"],
+                                 "revision": snapshot["revision"],
                                  "ambiguities": spec_store.ambiguities(key),
                                  "spec": spec_store.load(key),
                                  "waivers": spec_store.load_waivers(key),
-                                 **plan_state.get(key)})
+                                 **snapshot["entry"]})
         elif url.path == "/api/repos":
             self._send(200, repo_admin.summary())
         elif url.path == "/api/repos/sync":
@@ -554,20 +559,22 @@ class Handler(BaseHTTPRequestHandler):
             # Roadmap 4.2: exactly what changed vs the text the approver signed —
             # empty when nothing changed or nothing was ever approved.
             dkey = urllib.parse.parse_qs(url.query).get("key", [""])[0]
-            if not re.fullmatch(r"[\w.-]+", dkey or ""):
-                self._send(400, {"error": "key required"})
-            else:
+            try:
+                plan_state.validate_key(dkey)
                 self._send(200, {"key": dkey,
                                  "diff": plan_state.diff_since_approval(dkey)})
+            except SystemExit as e:
+                self._send(400, {"error": _err(e)})
         elif url.path == "/api/plans/similar":
             # Similar-plan retrieval (roadmap 6.1): SUGGESTIONS only — the human
             # sees the prior plan and its similarity; nothing is ever auto-applied.
             import plan_similarity
             skey = urllib.parse.parse_qs(url.query).get("key", [""])[0]
-            if not re.fullmatch(r"[\w.-]+", skey or ""):
-                self._send(400, {"error": "key required"})
-            else:
+            try:
+                plan_state.validate_key(skey)
                 self._send(200, {"similar": plan_similarity.suggest_for(skey)})
+            except SystemExit as e:
+                self._send(400, {"error": _err(e)})
         elif url.path == "/api/cost-report":
             # Cost attribution (cost-reduction 1.2): spend rollups from the run
             # records' spend blocks. Pure aggregation — safe to poll.
@@ -1160,12 +1167,21 @@ class Handler(BaseHTTPRequestHandler):
                 p = json.loads(body or b"{}")
                 key = p["key"]
                 if self.path.endswith("/save"):
+                    expected = p.get("revision")
+                    if plan_state.plan_path(key).exists() and expected is None:
+                        raise SystemExit(
+                            "plan revision required — reload the plan and try again")
                     result = plan_state.save_plan(key, p.get("text", ""),
-                                                  p.get("by") or self.user or "dashboard")
+                                                  p.get("by") or self.user or "dashboard",
+                                                  expected_revision=expected)
                 elif self.path.endswith("/status"):
+                    if p.get("revision") is None:
+                        raise SystemExit(
+                            "plan revision required — reload the plan and try again")
                     result = plan_state.set_status(key, p["status"],
                                                    p.get("by") or self.user or "dashboard",
-                                                   p.get("note", ""))
+                                                   p.get("note", ""),
+                                                   expected_revision=p.get("revision"))
                 elif self.path.endswith("/link"):
                     plan_state.require_approved(key)
                     # attach_to_jira records the reference itself — see its docstring.

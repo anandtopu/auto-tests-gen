@@ -195,6 +195,77 @@ def test_traversal_keys_cannot_read_outside_their_directory(live_server, key):
     assert not list(d.parent.glob("hosts")), "a file escaped the state dir"
 
 
+def test_plan_save_rejects_a_key_that_escapes_the_plan_directory(live_server):
+    """The POST path must enforce the same containment as the guarded GET."""
+    base, d = live_server
+    escaped = d / "escaped-plan.md"
+    status, text = _request(
+        f"{base}/api/plans/save", method="POST",
+        body=json.dumps({"key": "../escaped-plan", "text": "# traversal probe"}),
+        headers=_auth())
+
+    assert status == 409, text
+    assert not escaped.exists(), "plan markdown escaped AIQE_TESTPLAN_DIR"
+
+
+def test_plan_save_rejects_a_stale_editor_revision(live_server):
+    """Two reviewers must not get a successful last-write-wins data loss."""
+    base, _ = live_server
+    key = "ADV-STALE-PLAN"
+    status, text = _request(
+        f"{base}/api/plans/save", method="POST",
+        body=json.dumps({"key": key, "text": "# Plan\nOriginal\n"}),
+        headers=_auth())
+    assert status == 200, text
+
+    status, text = _request(f"{base}/api/plans/one?key={key}", headers=_auth())
+    assert status == 200
+    original = json.loads(text)
+    assert len(original.get("revision", "")) == 64
+
+    status, text = _request(
+        f"{base}/api/plans/save", method="POST",
+        body=json.dumps({"key": key, "text": "# unversioned overwrite\n"}),
+        headers=_auth())
+    assert status == 409, text
+    assert "revision required" in text
+
+    status, text = _request(
+        f"{base}/api/plans/save", method="POST",
+        body=json.dumps({"key": key, "revision": original["revision"],
+                         "text": "# Plan\nReviewer B edit\n"}),
+        headers=_auth())
+    assert status == 200, text
+
+    status, text = _request(
+        f"{base}/api/plans/save", method="POST",
+        body=json.dumps({"key": key, "revision": original["revision"],
+                         "text": "# Plan\nReviewer A stale edit\n"}),
+        headers=_auth())
+    assert status == 409, text
+    assert "stale plan revision" in text
+
+    status, text = _request(f"{base}/api/plans/one?key={key}", headers=_auth())
+    assert status == 200
+    current = json.loads(text)
+    assert current["text"] == "# Plan\nReviewer B edit\n"
+
+    status, text = _request(
+        f"{base}/api/plans/status", method="POST",
+        body=json.dumps({"key": key, "revision": current["revision"],
+                         "status": "in_review"}), headers=_auth())
+    assert status == 200, text
+    status, text = _request(
+        f"{base}/api/plans/status", method="POST",
+        body=json.dumps({"key": key, "revision": current["revision"],
+                         "status": "approved"}), headers=_auth())
+    assert status == 409, text
+
+    status, text = _request(f"{base}/api/plans/one?key={key}", headers=_auth())
+    assert status == 200
+    assert json.loads(text)["status"] == "in_review"
+
+
 @pytest.mark.parametrize("name", ["../../evil", "..", "/etc", "a/b"])
 def test_traversal_repo_names_are_refused(live_server, name):
     """Repo names reach the filesystem through curated guidance and notes."""

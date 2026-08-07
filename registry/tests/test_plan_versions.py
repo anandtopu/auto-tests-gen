@@ -67,6 +67,58 @@ def test_versions_are_bounded(plans, tmp_path):
     assert len(kept) <= 20, "snapshots must not grow without bound"
 
 
+def test_plan_keys_cannot_escape_the_configured_directory(plans, tmp_path):
+    ps = plans
+    escaped = tmp_path / "escaped.md"
+
+    with pytest.raises(SystemExit, match="invalid plan key"):
+        ps.save_plan("../escaped", "# must not be written\n", by="attacker")
+
+    assert not escaped.exists()
+    assert "../escaped" not in ps.load()
+
+
+def test_stale_revision_cannot_overwrite_a_newer_edit(plans, tmp_path):
+    ps = plans
+    ps.save_plan("K-4", "# Plan\nOriginal\n", by="seed")
+    loaded_revision = ps.revision("K-4")
+
+    ps.save_plan("K-4", "# Plan\nReviewer B edit\n", by="reviewer-b",
+                 expected_revision=loaded_revision)
+    with pytest.raises(SystemExit, match="stale plan revision"):
+        ps.save_plan("K-4", "# Plan\nReviewer A stale edit\n", by="reviewer-a",
+                     expected_revision=loaded_revision)
+
+    assert ps.plan_path("K-4").read_text(encoding="utf-8") == \
+        "# Plan\nReviewer B edit\n"
+
+
+def test_stale_revision_cannot_overwrite_a_newer_review_decision(plans):
+    ps = plans
+    ps.save_plan("K-5", "# Plan\n", by="seed")
+    loaded_revision = ps.revision("K-5")
+
+    ps.set_status("K-5", "in_review", by="reviewer-b",
+                  expected_revision=loaded_revision)
+    with pytest.raises(SystemExit, match="stale plan revision"):
+        ps.set_status("K-5", "approved", by="reviewer-a",
+                      expected_revision=loaded_revision)
+
+    assert ps.get("K-5")["status"] == "in_review"
+
+
+def test_non_text_plan_body_is_a_validation_error(plans):
+    with pytest.raises(SystemExit, match="test plan text is empty"):
+        plans.save_plan("K-6", {"not": "markdown"}, by="bad-client")
+
+
+def test_invalid_legacy_state_entry_does_not_break_plan_summary(plans):
+    ps = plans
+    ps._save({"../legacy-escape": {"status": "draft", "history": []}})
+
+    assert ps.summary() == []
+
+
 def test_knowledge_bundle_carries_wisdom_not_records(tmp_path):
     import state_bundle as sb
     out = sb.export(tmp_path / "k.tar.gz", profile="knowledge")

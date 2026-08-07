@@ -858,6 +858,10 @@ Two safety properties are enforced, not merely documented:
   the plan is `approved` — the check runs *before* any clone or LLM call.
 - **Edits revoke approval.** Editing an approved plan resets it to `draft`, so a
   changed plan can never inherit a stale sign-off. Re-approve to proceed.
+- **Concurrent reviews fail closed.** The served editor sends the revision of
+  both the plan text and its lifecycle decision. If another reviewer saves or
+  changes status first, the stale action is refused with a reload instruction;
+  it cannot silently overwrite the newer edit or approval decision.
 
 The generation step feeds the **reviewed markdown** to the phases alongside the
 snapshotted plan contract, so reviewer edits actually shape the generated tests.
