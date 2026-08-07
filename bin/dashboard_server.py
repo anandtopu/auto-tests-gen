@@ -597,6 +597,11 @@ class Handler(BaseHTTPRequestHandler):
             import trace_matrix
             q = urllib.parse.parse_qs(url.query)
             tkey = q.get("key", [""])[0]
+            if tkey:
+                try:
+                    plan_state.validate_key(tkey)
+                except SystemExit as e:
+                    return self._send(400, {"error": _err(e)})
             rows = trace_matrix.build(tkey or None)
             if q.get("format", [""])[0] == "csv":
                 self._send(200, trace_matrix.to_csv(rows).encode("utf-8"),
@@ -703,6 +708,10 @@ class Handler(BaseHTTPRequestHandler):
             import trace as trace_lib          # ours; engine/lib precedes stdlib
             key = urllib.parse.parse_qs(url.query).get("key", [""])[0]
             if key:
+                try:
+                    plan_state.validate_key(key)
+                except SystemExit as e:
+                    return self._send(400, {"error": _err(e)})
                 t = trace_lib.build(key)
                 if not t["events"]:        # nothing anywhere for this key -> say so
                     self._send(404, {"error": f"no trace recorded for '{key}'"})

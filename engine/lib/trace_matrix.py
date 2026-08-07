@@ -45,7 +45,7 @@ def _run_records():
             r = json.load(open(f, encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
-        if isinstance(r, dict) and r.get("trigger"):
+        if isinstance(r, dict) and isinstance(r.get("trigger"), dict):
             out.append(r)
     out.sort(key=lambda r: r.get("ts", 0))
     return out
@@ -70,7 +70,10 @@ def _scenarios_for(key):
     """Scenario rows from the plan contract snapshot, when the key has one.
     PR keys legitimately have none."""
     import plan_state
-    p = plan_state.contract_path(key)
+    try:
+        p = plan_state.contract_path(key)
+    except SystemExit:
+        return []
     if not p.exists():
         return []
     try:
@@ -94,7 +97,7 @@ def _health_index():
 
 def _gate_for(record, repo):
     for g in record.get("gates", []):
-        if g.get("test_repo") == repo:
+        if isinstance(g, dict) and g.get("test_repo") == repo:
             return g
     return {}
 
@@ -128,13 +131,22 @@ def build(key=None):
             pass
         contracts = _contracts(record)
         tests = (contracts.get("generate") or {}).get("tests") or []
+        # Old/single-agent generate contracts did not stamp `repo` on each
+        # test. One gate makes the owner unambiguous; with multiple gates we
+        # deliberately leave it unknown rather than invent a cross-repo link.
+        gate_repos = {g.get("test_repo") for g in record.get("gates", [])
+                      if isinstance(g, dict) and g.get("test_repo")}
+        inferred_repo = next(iter(gate_repos)) if len(gate_repos) == 1 else ""
         tests_by_scenario = {}
         for t in tests:
             if isinstance(t, dict):
                 tests_by_scenario.setdefault(str(t.get("scenario_id") or ""), []).append(t)
 
         def _row(scenario, test):
-            repo = (test or {}).get("repo") or ""
+            # Inference applies only to a generated test. A scenario with no
+            # test is deliberately an uncovered row and must not inherit the
+            # run's successful gate as if it had been committed.
+            repo = (test or {}).get("repo") or (inferred_repo if test else "")
             gate = _gate_for(record, repo) if repo else {}
             file = (test or {}).get("file") or ""
             health = by_id.get(f"{repo}::{file}::{(test or {}).get('name', '')}") \

@@ -19,7 +19,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 5 | Run progress and run review | phase state, failure details, release filters, reviewer decisions | fixed-retested | 2026-08-07: isolated committed/quarantined/refused corpus covered release/review filters, individual and batch decisions, restart persistence, retry/stale cleanup, and API/CLI parity; one in-place filter-coherence P2 fixed and retested | — |
 | 6 | Test plans | author, edit, versions, approve/request changes, export/link | fixed-retested | 2026-08-07: isolated served UI covered author queue, approval/generation gate, edit/review lifecycle, signed diff, mock link, four exports and missing/malformed boundaries; plan-key traversal and concurrent stale-edit/decision defects fixed and retested | — |
 | 7 | Spec workflow | acceptance criteria, scenarios, waivers, drift and verification | fixed-retested | 2026-08-07: isolated UI/API/CLI covered requirements approval, three structured scenarios, waiver add/remove, expiry/unmatched disclosure, drift, verification and off/warn/strict gates; traversal and three inert UI mutations fixed | — |
-| 8 | Trace | PR/JIRA chronology, phase links, empty/unknown keys | untested | — | Cross-check trace with run/plan/artifact records |
+| 8 | Trace | PR/JIRA chronology, phase links, empty/unknown keys | fixed-retested | 2026-08-07: served UI/API/CLI/CSV cross-checked PR and JIRA timelines, uncovered scenarios, gate commits, unknown/malformed keys and restart persistence; legacy join and malformed-input defects fixed | — |
 | 9 | Cost | measured/simulated spend, caching savings, filters | untested | — | Empty data, simulated-only, mixed measured data |
 | 10 | Artifacts | plan/data/tests/diff/code view, coverage report, export/publish | untested | — | Missing/corrupt artifacts and safe rendering |
 | 11 | Activity and alerts | transaction filters, degraded log, rule evaluation, acknowledgement | untested | — | Seed success/failure/refusal/corrupt events |
@@ -276,3 +276,37 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   passed. Detailed review:
   `docs/reviews/exploratory-e2e-iteration-008.md`.
 - Next slice: Trace chronology and empty/unknown-key behavior.
+
+### 2026-08-07 — Iteration 9: Trace
+
+- Seed data: the existing local demo run history provided synthetic JIRA
+  `PROJ-301` and PR `PR-orders-api-201` chains. Only queue, OpenHands and
+  generated-AGENTS paths were redirected under ignored
+  `out/exploratory-e2e-iter9`; Trace itself was read-only. No credential,
+  customer record or production service was used.
+- Happy paths: the served UI rendered both chronological timelines with run,
+  plan, review, release, critic, generated-file and per-gate evidence. The
+  matrix and CSV showed the PR-path test, one covered JIRA scenario and two
+  loud `no test yet` scenarios. CLI/API parity, key listing, unknown-key 404,
+  CSV media type/content, and identical results after server restarts passed.
+- Finding `E2E-EXP-016` (P1): the real single-agent JIRA generate contract did
+  not carry per-test `repo` metadata, so the matrix showed a generated spec but
+  blank repo, gate and commit columns even though the same run committed one
+  gate. When exactly one gate makes ownership unambiguous, Trace now uses that
+  repository; multi-gate legacy rows stay unknown rather than guessing.
+- Finding `E2E-EXP-017` (P2): a traversal-shaped Trace key escaped the module's
+  claimed total-read contract because `plan_state` raised `SystemExit`; the
+  HTTP handler closed the connection without a response. Well-formed but
+  wrong-shaped run records could also crash timeline joins. Both Trace APIs now
+  return 400 for malformed keys, and library joins skip invalid record/phase
+  shapes while preserving valid evidence.
+- Review finding fixed before commit: the first inference patch also attached
+  the sole successful gate to scenarios with no test. Inference is now scoped
+  to actual generated tests; the two uncovered scenarios remain blank and
+  conspicuous in UI, CLI and CSV, with regression coverage.
+- Validation: all three focused regressions failed before implementation and
+  passed after it. A 198-test adjacent Trace/API/CLI/UI/event/reuse/spec suite,
+  the final 7-test matrix suite, Python compilation and high-signal Ruff checks
+  passed. Detailed review:
+  `docs/reviews/exploratory-e2e-iteration-009.md`.
+- Next slice: Cost reporting, measured/simulated spend and cache savings.

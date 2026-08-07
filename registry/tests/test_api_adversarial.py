@@ -235,6 +235,18 @@ def test_waiver_save_rejects_a_key_that_escapes_the_spec_directory(live_server):
     assert not escaped.exists(), "waivers.yaml escaped AIQE_SPEC_DIR"
 
 
+def test_trace_rejects_a_malformed_key_without_dropping_the_connection(live_server):
+    base, _ = live_server
+    key = urllib.parse.quote("../../bad", safe="")
+    for endpoint in ("trace", "trace-matrix"):
+        status, text = _request(
+            f"{base}/api/{endpoint}?key={key}", headers=_auth())
+        assert status == 400, f"{endpoint}: {text}"
+
+    status, _ = _request(f"{base}/api/items", headers=_auth())
+    assert status == 200, "the malformed trace request killed the server connection"
+
+
 def test_plan_save_rejects_a_stale_editor_revision(live_server):
     """Two reviewers must not get a successful last-write-wins data loss."""
     base, _ = live_server

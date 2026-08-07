@@ -65,6 +65,40 @@ def test_scenario_joins_to_its_test_and_health(estate):
     assert r["ci_runs"] == 12 and r["ci_last"] == "passed"
 
 
+def test_single_gate_supplies_repo_for_legacy_generate_contract(estate):
+    """Single-agent contracts predate per-test ``repo`` metadata.
+
+    Their one gate is unambiguous. Dropping that link makes the audit row show
+    a generated spec beside blank repo/gate/commit cells even though the same
+    run records a successful commit.
+    """
+    record_path = estate / "reports/runs/100-1.json"
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    del record["phases"][0]["contract"]["tests"][0]["repo"]
+    record_path.write_text(json.dumps(record), encoding="utf-8")
+
+    row = next(r for r in tm.build("PROJ-9")
+               if r["scenario_id"] == "PROJ-9-S1")
+    assert row["test_repo"] == "e2e-api"
+    assert row["gate_status"] == "committed"
+    assert row["commit"] == "abc1234de"
+
+
+def test_multi_gate_legacy_contract_does_not_guess_a_repo(estate):
+    record_path = estate / "reports/runs/100-1.json"
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    del record["phases"][0]["contract"]["tests"][0]["repo"]
+    record["gates"].append({
+        "test_repo": "e2e-ui", "status": "committed", "commit": "def5678",
+    })
+    record_path.write_text(json.dumps(record), encoding="utf-8")
+
+    row = next(r for r in tm.build("PROJ-9")
+               if r["scenario_id"] == "PROJ-9-S1")
+    assert row["test_repo"] == ""
+    assert row["gate_status"] == ""
+
+
 def test_approved_scenario_with_no_test_still_gets_a_row(estate):
     rows = {(r["key"], r["scenario_id"]): r for r in tm.build("PROJ-9")}
     orphan = rows[("PROJ-9", "PROJ-9-S2")]

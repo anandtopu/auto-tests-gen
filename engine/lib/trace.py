@@ -32,9 +32,11 @@ def _run_records():
         if pathlib.Path(f).name in STATE_FILES:
             continue
         try:
-            out.append(json.load(open(f, encoding="utf-8")))
+            record = json.load(open(f, encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             continue
+        if isinstance(record, dict) and isinstance(record.get("trigger"), dict):
+            out.append(record)
     return out
 
 
@@ -42,7 +44,7 @@ def _plan_events(key):
     try:
         import plan_state
         entry = plan_state.get(key) or {}
-    except Exception:
+    except (Exception, SystemExit):
         return []
     events = []
     for h in entry.get("history", []):
@@ -97,7 +99,9 @@ def _run_events(key, records):
     for r in records:
         if r.get("trigger", {}).get("key") != key:
             continue
-        contracts = {p["name"]: p["contract"] for p in r.get("phases", [])}
+        contracts = {p.get("name"): p.get("contract") or {}
+                     for p in r.get("phases", [])
+                     if isinstance(p, dict) and p.get("name")}
         gen = contracts.get("generate", {})
         mode = r["trigger"].get("type", "?")
         title = {"pr": "Pipeline run (pull request)",
@@ -106,7 +110,7 @@ def _run_events(key, records):
             mode, f"Pipeline run ({mode})")
         gates = [{"repo": g.get("test_repo"), "status": g.get("status"),
                   "commit": g.get("commit"), "diff": g.get("diff")}
-                 for g in r.get("gates", [])]
+                 for g in r.get("gates", []) if isinstance(g, dict)]
         committed = [g for g in gates if g["status"] == "committed"]
         detail = (f"{len(gen.get('tests', []))} test(s) generated; "
                   f"{len(committed)}/{len(gates)} repo(s) committed"
@@ -125,6 +129,12 @@ def _run_events(key, records):
 def build(key):
     """The full chain for `key`, events oldest-first. Total: an unknown key gives
     an empty chain, never an exception."""
+    try:
+        import plan_state
+        plan_state.validate_key(key)
+    except (Exception, SystemExit):
+        return {"key": key, "trigger_type": "", "release": "",
+                "review_status": "", "plan_status": "", "events": []}
     records = _run_records()
     events = _plan_events(key) + _review_events(key) + _run_events(key, records)
     events.sort(key=lambda e: e.get("ts", 0))

@@ -90,6 +90,19 @@ def test_unknown_key_gives_an_empty_chain_not_an_exception(estate):
     assert t["events"] == [] and t["release"] == ""
 
 
+def test_malformed_key_and_well_formed_corrupt_records_are_total(estate):
+    runs = estate / "reports/runs"
+    (runs / "array.json").write_text("[]", encoding="utf-8")
+    (runs / "partial.json").write_text(json.dumps({
+        "run_id": "partial", "trigger": {"type": "jira", "key": "T-9"},
+        "ts": 1250, "phases": [{}],
+    }), encoding="utf-8")
+
+    assert trace_lib.build("../../bad")["events"] == []
+    assert trace_lib.build("T-9")["events"], "valid evidence must survive bad rows"
+    assert "T-9" in trace_lib.keys()
+
+
 def test_keys_lists_traced_keys_most_recent_first(estate):
     assert "T-9" in trace_lib.keys()
 
