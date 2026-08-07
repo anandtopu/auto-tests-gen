@@ -11,6 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import explain  # noqa: E402
 import ticket_context as tc  # noqa: E402
+import ticket_discovery as td  # noqa: E402
 
 
 def _ticket(**updates):
@@ -64,6 +65,24 @@ def test_unscoped_tail_is_deterministic_bounded_and_frames_hostile_text():
 def test_renderer_refuses_a_ticket_other_than_the_selected_one():
     with pytest.raises(ValueError, match="does not match"):
         tc.render(_ticket(key="OTHER-9"), _discovery(), "triage", "")
+
+
+def test_terminal_status_warning_is_mandatory_and_recorded_in_manifest():
+    ticket = _ticket(status="Done", status_category="done")
+    discovery = td.annotate_selected_ticket(_discovery(), ticket)
+    text, manifest = tc.render(ticket, discovery, "triage", "")
+    assert "Status:\n> Done" in text
+    assert td.TERMINAL_WARNING in text
+    assert manifest["ticket_status"] == "Done"
+    assert manifest["terminal_ticket"] is True
+    assert "status" in manifest["included_fields"]
+
+
+def test_renderer_rejects_status_provenance_that_does_not_match_ticket():
+    discovery = td.annotate_selected_ticket(
+        _discovery(), _ticket(status="In Progress"))
+    with pytest.raises(ValueError, match="status does not match"):
+        tc.render(_ticket(status="Done"), discovery, "triage", "")
 
 
 def test_newline_heavy_optional_text_never_exceeds_its_rendered_allowance():

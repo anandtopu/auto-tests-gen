@@ -1332,6 +1332,16 @@ run-specific context input, preserving prompt-cache ordering. Turning the flag
 off removes every discovery/fusion input; non-selected A1 outcomes retain their
 explicit not-found/ambiguous/unavailable state without fusing a ticket.
 
+Selected-ticket provenance also carries the Tracker status as a closed evidence
+state: `recorded` or `unavailable`. The JIRA adapter supplies both the display
+name and JIRA status category; `ticket_discovery.py` alone classifies `Closed`,
+`Done`, or category `done` as terminal. Terminal tickets still fuse and never
+change routing or the gate, but a fixed warning follows the ticket everywhere it
+is named: discovery and fused prompt tails, the durable run record and
+`make explain`, and live or historical PR coverage comments. Consumers
+recompute terminal state from bounded status fields, so a stale or forged
+boolean in a historical record cannot manufacture a warning.
+
 ### 5.22 The deployed shape, and the boundary in front of it (v2.9)
 
 Every design above describes what the platform does when it runs. This section

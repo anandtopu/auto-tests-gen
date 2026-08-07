@@ -385,9 +385,6 @@ if [ "$MODE" = "pr" ]; then
     python3 engine/lib/ticket_discovery.py resolve out/ticket-discovery.json \
       out/ticket-validation.tsv > out/.ticket-discovery.tmp
     mv out/.ticket-discovery.tmp out/ticket-discovery.json
-    python3 engine/lib/ticket_discovery.py context out/ticket-discovery.json \
-      > out/pr-ticket-context.md
-    PR_TICKET_CONTEXT=(out/pr-ticket-context.md)
     DISCOVERED_TICKET=$(python3 engine/lib/ticket_discovery.py selected \
       out/ticket-discovery.json | tr -d '\r')
     if [ -n "$DISCOVERED_TICKET" ]; then
@@ -396,12 +393,20 @@ if [ "$MODE" = "pr" ]; then
       cp "out/discovered-ticket-${DISCOVERED_TICKET}.json" out/.ticket.json.tmp
       mv out/.ticket.json.tmp out/ticket.json
       cp out/ticket.json out/discovered-ticket.json   # A1 compatibility alias
+      # A1.6 records status on the discovery provenance from the SAME validated
+      # response. Annotation never refetches and never changes selection.
+      python3 engine/lib/ticket_discovery.py annotate out/ticket-discovery.json \
+        out/ticket.json > out/.ticket-discovery.tmp
+      mv out/.ticket-discovery.tmp out/ticket-discovery.json
       eval "$(python3 engine/lib/ticket_fields.py out/ticket.json)"
       cp "prompts/issue-types/${AIQE_T_GUIDANCE}.md" out/issue-guidance.md
       PR_TICKET_FUSED=1
       PR_TRIAGE_FUSION_CONTEXT=(out/issue-guidance.md out/pr-ticket-fused-triage.md)
       PR_GENERATE_FUSION_CONTEXT=(out/issue-guidance.md out/pr-ticket-fused-generate.md)
     fi
+    python3 engine/lib/ticket_discovery.py context out/ticket-discovery.json \
+      > out/pr-ticket-context.md
+    PR_TICKET_CONTEXT=(out/pr-ticket-context.md)
     DISCOVERY_OUTCOME=$(python3 -c "import json;print(json.load(open('out/ticket-discovery.json'))['outcome'])" | tr -d '\r')
     if [ "$DISCOVERY_OUTCOME" = "ambiguous" ]; then
       DISCOVERY_KEYS=$(python3 -c "import json;d=json.load(open('out/ticket-discovery.json'));print(', '.join(d.get('validated_keys') or []))" | tr -d '\r')

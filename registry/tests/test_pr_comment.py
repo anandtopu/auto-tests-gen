@@ -5,14 +5,19 @@ comment stating what E2E coverage changed — behaviors, created-vs-updated test
 validation, gate outcome, open questions — composed purely from the run's out/
 artifacts. A no-impact run must produce NO comment, so PRs never accumulate noise.
 """
-import json, os, pathlib, subprocess, sys
+import json
+import os
+import pathlib
+import subprocess
+import sys
 
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import pr_comment
-import work_queue
+import pr_comment  # noqa: E402
+import ticket_discovery  # noqa: E402
+import work_queue  # noqa: E402
 
 
 @pytest.fixture
@@ -103,6 +108,37 @@ def test_quarantined_run_says_so_without_claiming_a_branch(rundir):
     assert "❌ e2e-api-tests-1: quarantined" in text
     assert "review them on the" not in text, \
         "must not point at a commit branch when nothing committed"
+
+
+def test_terminal_ticket_warning_renders_live_and_from_persisted_record(rundir):
+    discovery = {
+        "artifact": "pr-ticket-discovery", "outcome": "selected",
+        "selected_key": "PROJ-301", "selected_ticket": {
+            "key": "PROJ-301", "status_state": "recorded", "status": "Closed",
+            "status_category": "done", "terminal": True,
+            "warning": ticket_discovery.TERMINAL_WARNING,
+        },
+    }
+    (rundir / "out/ticket-discovery.json").write_text(
+        json.dumps(discovery), encoding="utf-8")
+    live = pr_comment.build(rundir, "42-terminal", "PR-x-9")
+    assert "Ticket context:** `PROJ-301` (status: `Closed`)" in live
+    assert ticket_discovery.TERMINAL_WARNING in live
+
+    record = {
+        "run_id": "42-terminal", "trigger": {"key": "PR-x-9"},
+        "ticket_discovery": discovery,
+        "phases": [
+            {"name": "triage", "contract": {"impact": "create"}},
+            {"name": "generate", "contract": {
+                "tests": [{"file": "suites/terminal.spec.js", "action": "created"}]}}
+        ],
+        "gates": [{"test_repo": "e2e-api-tests-1", "status": "committed",
+                   "commit": "abc1234"}],
+    }
+    historical = pr_comment.from_record(record)
+    assert "Ticket context:** `PROJ-301` (status: `Closed`)" in historical
+    assert ticket_discovery.TERMINAL_WARNING in historical
 
 
 def test_pipeline_posts_the_comment_best_effort():

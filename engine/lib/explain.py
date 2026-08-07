@@ -46,6 +46,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import run_progress  # noqa: E402  (shared record reading + exit-code meanings)
 import task_bundle  # noqa: E402
+import ticket_discovery  # noqa: E402
 
 
 def _decision(did, question, answer, because=None, evidence=None, caveat=None):
@@ -208,12 +209,25 @@ def explain(key=None, run_id=None, root=ROOT):
                            f"signals={','.join(row.get('signals') or []) or 'none'}, "
                            f"validation={row.get('validation') or 'not recorded'}")
         because.append(f"selection rule: {discovery.get('reason') or 'not recorded'}")
+        selected_ticket = ticket_discovery.recorded_selected_ticket(discovery)
+        if selected:
+            because.append(
+                "selected ticket status: "
+                f"{selected_ticket.get('status') or 'unavailable'} "
+                f"(state={selected_ticket.get('status_state') or 'unavailable'}, "
+                f"terminal={bool(selected_ticket.get('terminal'))})"
+            )
+        terminal_caveat = (
+            ticket_discovery.TERMINAL_WARNING
+            if selected_ticket.get("terminal") else None
+        )
         decisions.append(_decision(
             "ticket-discovery",
             "Why did this PR run use, or refuse to use, a JIRA ticket?",
             selected or outcome.replace("_", " "), because,
             "run-record ticket_discovery (SCM signals + Tracker validation)",
-            caveat=("No inferred ticket text is trusted until Tracker get_item "
+            caveat=(terminal_caveat or
+                    "No inferred ticket text is trusted until Tracker get_item "
                     "validates the key; ambiguity proceeds without a ticket.")))
 
     # --- PR ticket context fusion ------------------------------------------
@@ -240,6 +254,7 @@ def explain(key=None, run_id=None, root=ROOT):
                 f"{phase}: included={','.join(manifest.get('included_fields') or []) or 'none'}; "
                 f"omitted={','.join(manifest.get('omitted_fields') or []) or 'none'}; "
                 f"scoped={bool(manifest.get('scoped'))}")
+        selected_ticket = ticket_discovery.recorded_selected_ticket(discovery)
         decisions.append(_decision(
             "ticket-context-fusion",
             "Which validated ticket requirements were shown to PR authoring phases?",
@@ -247,7 +262,11 @@ def explain(key=None, run_id=None, root=ROOT):
             f"{fusion.get('state')}; phases: "
             f"{', '.join(sorted((fusion.get('phases') or {}).keys())) or 'none'}.",
             because, "run-record ticket_context manifests",
-            caveat="Acceptance criteria are mandatory; description/comments may be omitted by budget."))
+            caveat=((ticket_discovery.TERMINAL_WARNING + " "
+                     "Acceptance criteria are mandatory; description/comments "
+                     "may be omitted by budget.")
+                    if selected_ticket.get("terminal") else
+                    "Acceptance criteria are mandatory; description/comments may be omitted by budget.")))
 
     # --- context: what the model saw, and what it did NOT -------------------
     manifests, manifest_error = {}, None

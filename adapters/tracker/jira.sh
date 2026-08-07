@@ -26,7 +26,7 @@ case "$VERB" in
     if [[ "${AIQE_SSL_VERIFY:-1}" == "0" ]]; then ITEM_FLAGS+=(-k); fi
     HTTP=$(curl "${ITEM_FLAGS[@]}" -o "$BODY" -w '%{http_code}' \
       -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
-      "$J/issue/$1?fields=summary,description,components,labels,fixVersions,issuetype,comment") \
+      "$J/issue/$1?fields=summary,description,components,labels,fixVersions,issuetype,status,comment") \
       || exit 1
     # Some estates wrap curl for recording/replay and return the body on stdout
     # without implementing -o/-w. Preserve that supported adapter-test shape,
@@ -65,6 +65,8 @@ print(json.dumps({'key':i['key'],'summary':f['summary'],
  'labels':f.get('labels',[]),
  'fix_versions':[v['name'] for v in f.get('fixVersions',[])],
  'issue_type':(f.get('issuetype') or {}).get('name',''),
+ 'status':(f.get('status') or {}).get('name',''),
+ 'status_category':((f.get('status') or {}).get('statusCategory') or {}).get('key',''),
  'comments':comments,
  'linked_repos':[],  # populated from dev-panel API if enabled
  'remote_links_url':'$J/issue/'+i['key']+'/remotelink'}))" < "$BODY" ;;

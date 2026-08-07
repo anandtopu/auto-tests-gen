@@ -106,6 +106,14 @@ def render(ticket, discovery, phase, estate_context=""):
     if str(ticket.get("key") or "") != selected:
         raise ValueError("selected discovery key does not match ticket key")
 
+    status_evidence = ticket_discovery.selected_ticket_provenance(ticket)
+    recorded_status = discovery.get("selected_ticket")
+    if isinstance(recorded_status, dict):
+        compared = ("key", "status_state", "status", "status_category", "terminal")
+        if any(recorded_status.get(field) != status_evidence.get(field)
+               for field in compared):
+            raise ValueError("ticket status does not match discovery provenance")
+
     criteria = _values(ticket.get("acceptance_criteria"))
     if len(criteria) > ticket_discovery.MAX_ACCEPTANCE_CRITERIA:
         raise ValueError("acceptance criteria exceed validated count bound")
@@ -122,6 +130,11 @@ def render(ticket, discovery, phase, estate_context=""):
         _text(v) for v in _values(ticket.get("linked_repos"))) or "none"
     fix_versions = ", ".join(
         _text(v) for v in _values(ticket.get("fix_versions"))) or "none"
+    ticket_status = status_evidence.get("status") or "unavailable"
+    terminal_warning = (
+        f"WARNING: {ticket_discovery.TERMINAL_WARNING}\n\n"
+        if status_evidence.get("terminal") else ""
+    )
     ac_text = "\n".join(f"- {_text(value)}" for value in criteria)
     if not ac_text:
         ac_text = "No acceptance criteria supplied. Do not infer missing requirements."
@@ -135,6 +148,8 @@ def render(ticket, discovery, phase, estate_context=""):
         "## Ticket metadata\n\n"
         f"Key:\n{_quote(selected)}\n\n"
         f"Issue type:\n{_quote(ticket.get('issue_type') or 'story')}\n\n"
+        f"Status:\n{_quote(ticket_status)}\n\n"
+        f"{terminal_warning}"
         f"Components:\n{_quote(components)}\n\n"
         f"Labels:\n{_quote(labels)}\n\n"
         f"Linked repositories:\n{_quote(linked_repos)}\n\n"
@@ -148,7 +163,7 @@ def render(ticket, discovery, phase, estate_context=""):
     else:
         optional_allowance = UNSCOPED_OPTIONAL_CHARS
 
-    included = ["metadata", "summary", "acceptance_criteria"]
+    included = ["metadata", "status", "summary", "acceptance_criteria"]
     omitted, truncated = [], []
     optional_parts = []
     for name, value in (("Description", ticket.get("description")),
@@ -178,6 +193,10 @@ def render(ticket, discovery, phase, estate_context=""):
         "phase": phase,
         "state": "fused",
         "selected_key": selected,
+        "ticket_status_state": status_evidence["status_state"],
+        "ticket_status": status_evidence["status"],
+        "ticket_status_category": status_evidence["status_category"],
+        "terminal_ticket": status_evidence["terminal"],
         "scoped": scoped,
         "budget_tokens": budget_tokens,
         "estate_used_chars": estate_used,

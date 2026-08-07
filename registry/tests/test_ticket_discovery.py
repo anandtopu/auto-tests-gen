@@ -176,11 +176,69 @@ def test_unbounded_acceptance_criteria_are_never_marked_valid(tmp_path):
     assert not valid and "acceptance criteria" in reason
 
 
+def test_selected_ticket_status_is_bounded_recorded_and_warns_without_refusal(tmp_path):
+    artifact = _resolve(td.extract(_meta(branch="feature/PROJ-301"), ""),
+                        valid=("PROJ-301",))
+    annotated = td.annotate_selected_ticket(
+        artifact, {"key": "PROJ-301", "status": "  Done  ",
+                   "status_category": "done"})
+    evidence = annotated["selected_ticket"]
+    assert annotated["outcome"] == "selected"
+    assert evidence == {
+        "key": "PROJ-301", "status_state": "recorded", "status": "Done",
+        "status_category": "done", "terminal": True,
+        "warning": td.TERMINAL_WARNING,
+    }
+    context = td.context_text(annotated)
+    assert "> Done" in context and td.TERMINAL_WARNING in context
+
+    response = tmp_path / "ticket.json"
+    response.write_text(json.dumps({"key": "PROJ-301", "status": ["Done"]}),
+                        encoding="utf-8")
+    valid, reason = td.validate_ticket_response("PROJ-301", response)
+    assert not valid and "status is not a string" in reason
+
+
+def test_custom_terminal_name_uses_jira_done_category_and_missing_is_explicit():
+    category_terminal = td.selected_ticket_provenance({
+        "key": "PROJ-301", "status": "Released", "status_category": "DONE"})
+    assert category_terminal["terminal"] is True
+    missing = td.selected_ticket_provenance({"key": "PROJ-301"})
+    assert missing["status_state"] == "unavailable"
+    assert missing["terminal"] is False and missing["warning"] is None
+
+
+def test_user_facing_status_revalidates_stored_terminal_evidence():
+    artifact = _resolve(td.extract(_meta(branch="feature/PROJ-301"), ""),
+                        valid=("PROJ-301",))
+    artifact["selected_ticket"] = {
+        "key": "PROJ-301", "status": "In Progress", "terminal": True,
+        "warning": "forged warning",
+    }
+    recorded = td.recorded_selected_ticket(artifact)
+    assert recorded["status"] == "In Progress"
+    assert recorded["terminal"] is False and recorded["warning"] is None
+
+    artifact["selected_ticket"]["key"] = "OTHER-9"
+    mismatched = td.recorded_selected_ticket(artifact)
+    assert mismatched["key"] == "PROJ-301"
+    assert mismatched["status_state"] == "unavailable"
+
+
+def test_annotation_rejects_wrong_ticket_identity():
+    artifact = _resolve(td.extract(_meta(branch="feature/PROJ-301"), ""),
+                        valid=("PROJ-301",))
+    with pytest.raises(ValueError, match="does not match"):
+        td.annotate_selected_ticket(artifact, {"key": "OTHER-9", "status": "Done"})
+
+
 def test_run_record_persists_discovery_and_explain_answers_why(tmp_path):
     out = tmp_path / "out"
     out.mkdir()
     discovery = _resolve(td.extract(_meta(branch="feature/PROJ-301"), ""),
                          valid=("PROJ-301",))
+    discovery = td.annotate_selected_ticket(
+        discovery, {"key": "PROJ-301", "status": "Closed"})
     (out / "ticket-discovery.json").write_text(json.dumps(discovery), encoding="utf-8")
     env = {**os.environ, "AIQE_MOCK": "1",
            "AIQE_ARTIFACTS_DIR": str(tmp_path / "artifacts")}
@@ -199,6 +257,8 @@ def test_run_record_persists_discovery_and_explain_answers_why(tmp_path):
     decision = next(d for d in answer["decisions"] if d["id"] == "ticket-discovery")
     assert decision["answer"] == "PROJ-301"
     assert any("signals=branch" in why for why in decision["because"])
+    assert any("status: Closed" in why for why in decision["because"])
+    assert decision["caveat"] == td.TERMINAL_WARNING
 
 
 def test_pipeline_and_ui_keep_a1_default_off_and_single_path():
@@ -220,3 +280,10 @@ def test_real_scm_adapters_expose_one_pr_context_port():
         source = (ROOT / "adapters/scm" / name).read_text(encoding="utf-8")
         assert "pr_context)" in source
         assert "source_branch" in source and "commit_messages" in source
+
+
+def test_jira_tracker_adapter_exports_status_and_category():
+    source = (ROOT / "adapters/tracker/jira.sh").read_text(encoding="utf-8")
+    assert "fields=summary,description,components,labels,fixVersions,issuetype,status,comment" \
+        in source
+    assert "'status':" in source and "'status_category':" in source

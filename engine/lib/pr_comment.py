@@ -12,10 +12,15 @@ the gates have decided.
     build(out_dir=".", run_id="", key="") -> markdown string ("" when there is
     nothing worth saying, e.g. triage found no behavior change)
 """
-import json, os, pathlib, sys
-import run_progress
+import json
+import os
+import pathlib
+import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+import run_progress  # noqa: E402
+import ticket_discovery  # noqa: E402
 
 
 def _load(p):
@@ -31,6 +36,7 @@ def build(out_dir=".", run_id="", key=""):
     gen = _load(out / "out/generate.contract.json")
     validate = _load(out / "out/validate.contract.json")
     duplicates = _load(out / "out/duplicate-warnings.json")
+    discovery = _load(out / "out/ticket-discovery.json")
 
     gates = []
     tsv = out / "out/gate_results.tsv"
@@ -56,7 +62,7 @@ def build(out_dir=".", run_id="", key=""):
     except Exception:
         pass
     return _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key,
-                    duplicates)
+                    duplicates, discovery)
 
 
 def from_record(record):
@@ -76,7 +82,8 @@ def from_record(record):
                     contracts.get("validate") or {}, gates, critic_sig, cost,
                     record.get("run_id", ""),
                     record.get("trigger", {}).get("key", ""),
-                    record.get("duplicate_warnings") or {})
+                    record.get("duplicate_warnings") or {},
+                    record.get("ticket_discovery") or {})
 
 
 def _safe_code(value):
@@ -85,7 +92,7 @@ def _safe_code(value):
 
 
 def _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key,
-             duplicates=None):
+             duplicates=None, discovery=None):
     tests = gen.get("tests", []) or []
     tests = run_progress.dict_rows(tests)
     created = [t for t in tests if t.get("action") == "created"]
@@ -101,6 +108,18 @@ def _compose(triage, gen, validate, gates, critic_sig, cost, run_id, key,
         return ""
 
     lines = [f"## AI-QE — E2E coverage delta{' for ' + key if key else ''}", ""]
+
+    selected_ticket = ticket_discovery.recorded_selected_ticket(discovery)
+    selected_key = selected_ticket.get("key")
+    if selected_key:
+        status = _safe_code(selected_ticket.get("status") or "unavailable")
+        lines.append(
+            f"**Ticket context:** `{_safe_code(selected_key)}` "
+            f"(status: `{status}`)."
+        )
+        if selected_ticket.get("terminal"):
+            lines.append(f"⚠️ {ticket_discovery.TERMINAL_WARNING}")
+        lines.append("")
 
     # The delta itself, in the developer's terms.
     if areas:

@@ -11,6 +11,7 @@ CLI:
   ticket_discovery.py keys <discovery.json>
   ticket_discovery.py validate-response <candidate-key> <ticket.json>
   ticket_discovery.py resolve <discovery.json> <validation.tsv>
+  ticket_discovery.py annotate <discovery.json> <ticket.json>
   ticket_discovery.py context <discovery.json>
   ticket_discovery.py selected <discovery.json>
 """
@@ -30,6 +31,13 @@ MAX_ACCEPTANCE_CRITERIA = 200
 MAX_ACCEPTANCE_CHARS = 40_000
 MAX_MANDATORY_FIELD_CHARS = 20_000
 MAX_METADATA_ITEMS = 200
+MAX_STATUS_CHARS = 1_000
+TERMINAL_STATUS_NAMES = frozenset(("closed", "done"))
+TERMINAL_STATUS_CATEGORIES = frozenset(("done",))
+TERMINAL_WARNING = (
+    "Terminal ticket selected; verify that this reused key still represents "
+    "the PR requirements."
+)
 
 
 @functools.lru_cache(maxsize=1)
@@ -156,10 +164,13 @@ def validate_ticket_response(candidate, path):
         return False, "ticket summary is not a string"
     if len(str(ticket.get("summary") or "")) > MAX_MANDATORY_FIELD_CHARS:
         return False, f"ticket summary exceeds {MAX_MANDATORY_FIELD_CHARS} characters"
-    if ticket.get("issue_type") is not None and not isinstance(ticket.get("issue_type"), str):
-        return False, "ticket issue type is not a string"
-    if len(str(ticket.get("issue_type") or "")) > 1_000:
-        return False, "ticket issue type exceeds 1000 characters"
+    for field in ("issue_type", "status", "status_category"):
+        if ticket.get(field) is not None and not isinstance(ticket.get(field), str):
+            return False, f"ticket {field.replace('_', ' ')} is not a string"
+        if len(str(ticket.get(field) or "")) > MAX_STATUS_CHARS:
+            return False, (
+                f"ticket {field.replace('_', ' ')} exceeds {MAX_STATUS_CHARS} characters"
+            )
     for field in ("components", "labels", "linked_repos", "fix_versions"):
         values = ticket.get(field) or []
         if not isinstance(values, list):
@@ -178,6 +189,61 @@ def validate_ticket_response(candidate, path):
     if sum(len(criterion_text(value)) for value in criteria) > MAX_ACCEPTANCE_CHARS:
         return False, f"ticket acceptance criteria exceed {MAX_ACCEPTANCE_CHARS} characters"
     return True, "tracker response key and bounds validated"
+
+
+def selected_ticket_provenance(ticket):
+    """Return bounded, closed-state status evidence for one validated ticket."""
+    ticket = ticket if isinstance(ticket, dict) else {}
+    status = str(ticket.get("status") or "").strip()
+    category = str(ticket.get("status_category") or "").strip()
+    normalized_status = " ".join(status.casefold().split())
+    normalized_category = " ".join(category.casefold().split())
+    terminal = (
+        normalized_status in TERMINAL_STATUS_NAMES
+        or normalized_category in TERMINAL_STATUS_CATEGORIES
+    )
+    return {
+        "key": str(ticket.get("key") or ""),
+        "status_state": "recorded" if status else "unavailable",
+        "status": status or None,
+        "status_category": category or None,
+        "terminal": terminal,
+        "warning": TERMINAL_WARNING if terminal else None,
+    }
+
+
+def recorded_selected_ticket(artifact):
+    """Revalidate stored status evidence before a user-facing consumer uses it."""
+    artifact = artifact if isinstance(artifact, dict) else {}
+    selected = str(artifact.get("selected_key") or "")
+    if artifact.get("artifact") != ARTIFACT \
+            or artifact.get("outcome") != "selected" or not selected:
+        return {}
+    stored = artifact.get("selected_ticket")
+    if not isinstance(stored, dict) or str(stored.get("key") or "") != selected:
+        return selected_ticket_provenance({"key": selected})
+    return selected_ticket_provenance({
+        "key": selected,
+        "status": stored.get("status") if isinstance(stored.get("status"), str) else "",
+        "status_category": (
+            stored.get("status_category")
+            if isinstance(stored.get("status_category"), str) else ""
+        ),
+    })
+
+
+def annotate_selected_ticket(artifact, ticket):
+    """Attach status provenance without changing discovery selection semantics."""
+    if not isinstance(artifact, dict) or not isinstance(ticket, dict):
+        raise ValueError("discovery and ticket must be JSON objects")
+    selected = str(artifact.get("selected_key") or "")
+    if artifact.get("outcome") != "selected" or not selected:
+        raise ValueError("ticket annotation requires a selected discovery outcome")
+    if str(ticket.get("key") or "") != selected:
+        raise ValueError("selected discovery key does not match ticket key")
+    annotated = json.loads(json.dumps(artifact))
+    annotated["selected_ticket"] = selected_ticket_provenance(ticket)
+    return annotated
 
 
 def resolve(artifact, validations):
@@ -227,8 +293,14 @@ def resolve(artifact, validations):
 def context_text(artifact):
     outcome = artifact.get("outcome")
     if outcome == "selected":
+        ticket = recorded_selected_ticket(artifact)
+        status = str(ticket.get("status") or "unavailable")
+        quoted_status = "\n".join(f"> {line}" for line in status.splitlines()) or \
+            "> unavailable"
+        warning = f"\n\nWARNING: {TERMINAL_WARNING}" if ticket.get("terminal") else ""
         return ("# PR ticket discovery\n\n"
-                f"Validated ticket discovered: `{artifact.get('selected_key')}`.\n")
+                f"Validated ticket discovered: `{artifact.get('selected_key')}`.\n\n"
+                f"Ticket status (untrusted data):\n{quoted_status}{warning}\n")
     if outcome == "ambiguous":
         keys = ", ".join(artifact.get("validated_keys") or []) or "none recorded"
         return ("# PR ticket discovery\n\nNo ticket selected: discovery was ambiguous "
@@ -267,6 +339,15 @@ def main(argv):
         except (OSError, UnicodeError):
             validations = ""
         print(json.dumps(resolve(artifact, parse_validations(validations)), sort_keys=True))
+        return 0
+    if cmd == "annotate" and len(argv) == 3:
+        ticket = _read_json(argv[2])
+        try:
+            annotated = annotate_selected_ticket(artifact, ticket)
+        except ValueError as exc:
+            print(f"ticket_discovery: {exc}", file=sys.stderr)
+            return 64
+        print(json.dumps(annotated, sort_keys=True))
         return 0
     if cmd == "context":
         print(context_text(artifact), end="")

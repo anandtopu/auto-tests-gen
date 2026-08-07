@@ -27,6 +27,8 @@ def test_pipeline_wires_only_selected_tickets_at_the_run_specific_tail():
     assert generate.endswith('"${PR_GENERATE_FUSION_CONTEXT[@]}"')
     assert source.count("out/pr-ticket-fused-triage.md") >= 2
     assert source.count("out/pr-ticket-fused-generate.md") >= 2
+    assert source.index("ticket_discovery.py annotate") \
+        < source.index("ticket_discovery.py context")
 
 
 def test_mock_pr_selected_ticket_is_canonical_guided_and_fused():
@@ -39,6 +41,12 @@ def test_mock_pr_selected_ticket_is_canonical_guided_and_fused():
     assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-1000:]
     ticket = json.loads((ROOT / "out/ticket.json").read_text(encoding="utf-8"))
     assert ticket["key"] == "PROJ-301"
+    discovery = json.loads(
+        (ROOT / "out/ticket-discovery.json").read_text(encoding="utf-8"))
+    assert discovery["selected_ticket"]["status"] == "In Progress"
+    assert discovery["selected_ticket"]["terminal"] is False
+    discovery_context = (ROOT / "out/pr-ticket-context.md").read_text(encoding="utf-8")
+    assert "Ticket status (untrusted data):\n> In Progress" in discovery_context
     guidance = (ROOT / "out/issue-guidance.md").read_text(encoding="utf-8")
     assert "Extend existing mapped tests" in guidance
     for phase in ("triage", "generate"):
@@ -47,6 +55,8 @@ def test_mock_pr_selected_ticket_is_canonical_guided_and_fused():
                               .read_text(encoding="utf-8"))
         assert "AC-1: 1-90% accepted" in text
         assert manifest["selected_key"] == "PROJ-301"
+        assert manifest["ticket_status"] == "In Progress"
+        assert manifest["terminal_ticket"] is False
 
 
 def test_flag_off_source_path_keeps_context_arrays_empty():

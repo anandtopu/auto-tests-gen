@@ -15,6 +15,8 @@
   "2026.08"
  ],
  "issue_type": "Story",
+ "status": "In Progress",
+ "status_category": "indeterminate",
  "acceptance_criteria": [
   "AC-1: 1-90% accepted, total recalculated",
   "AC-2: out-of-range rejected with 400",
