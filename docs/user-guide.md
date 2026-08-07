@@ -47,6 +47,7 @@ Operating, configuring, and integrating the AI QE Platform. For first-run setup 
 make demo-bootstrap   # catalog bootstrap on demo test repos
 make demo-pr          # Workflow A on fixture PR orders-api#201
 make demo-jira        # Workflow B on fixture ticket PROJ-301
+make discovery-eval   # A4 ticket-discovery fixtures and per-signal metrics
 make review           # full regression: goldens + conformance + adversarial gate + eval
 ```
 

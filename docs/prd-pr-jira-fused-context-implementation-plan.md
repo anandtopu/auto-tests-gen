@@ -9,8 +9,8 @@ Source: [prd-pr-jira-fused-context-multi-agent.md](prd-pr-jira-fused-context-mul
 | ---: | --- | --- | --- | --- | --- |
 | 1 | A1 Ticket discovery | S1 | none | Implemented | Opt-in SCM metadata collection, earned-key extraction, Tracker validation, deterministic selection/refusal, terminal-status provenance/warnings, intake field, provenance, explain, and TaskEvent explicit-key parity |
 | 2 | A2 Context fusion | S1 | A1 | Implemented | Exact response identity, canonical `out/ticket.json`, shared guidance selection, scoped prompt tail, mandatory acceptance-criteria retention, flag-off parity; evidence in [pr-jira-fused-context-a2-implementation-plan.md](pr-jira-fused-context-a2-implementation-plan.md) |
-| 3 | A4 Discovery evaluation | S2 | A1 | Next eligible | Labelled signal/conflict fixtures plus per-signal precision, recall, and correct-refusal metrics |
-| 4 | B1 Test reviewer | S3 | none; schedule after S2 | Planned | Read-only pre-gate reviewer contract, deterministic skip, unavailable state |
+| 3 | A4 Discovery evaluation | S2 | A1 | Implemented | Hash-pinned QE labels, validation-aware per-signal precision/recall, correct-refusal accounting, simulated evidence labelling, and `make eval` integration |
+| 4 | B1 Test reviewer | S3 | none; schedule after S2 | Next eligible | Read-only pre-gate reviewer contract, deterministic skip, unavailable state |
 | 5 | B4 Verdict surfaces | S3 | B1 | Planned | Run record, board, comments, progress, and explain surfaces |
 | 6 | B6 Reviewer evaluation | S3 | B1 | Planned | Seeded defects, clean control, simulated/real-model labelling |
 | 7 | B2 Bounded repair | S4 | B1, B6 | Planned | One separately metered findings-driven repair/revalidate/rereview loop |
@@ -56,9 +56,14 @@ flag-off/no-selection parity.
 
 ### A4 — Discovery evaluation
 
-Add labelled branch-only, commit-only, absent, invalid, and conflicting fixtures.
-Extend `make eval` with per-signal precision/recall and an explicit
-correct-refusal category. Keep mock metrics labelled simulated.
+Implemented with a versioned QE-owned label set covering every production signal
+plus absent, invalid, and conflicting outcomes. `make eval` runs the production
+discovery policy over synthetic SCM/Tracker evidence, reports validation-aware
+precision/recall per signal, treats ambiguity refusal as a correct final
+decision, and enforces the fixed 95% M1 floor. Every figure is labelled
+`simulated`; the discovery flag remains default off pending real-estate labels.
+Detailed evidence is in
+[pr-jira-fused-context-a4-implementation-plan.md](pr-jira-fused-context-a4-implementation-plan.md).
 
 ### B1, B4, B6 — Advisory reviewer slice
 

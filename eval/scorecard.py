@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """Aggregate the PoC scorecard (architecture §8) from benchmark replays,
 persisted run records, review states, and test health."""
-import glob, json, pathlib, sys
+import glob
+import json
+import pathlib
+import sys
 
 sys.stdout.reconfigure(encoding="utf-8")   # Windows consoles default to cp1252
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import app_paths                      # R12: mutable paths resolve here
-import review_state
+import app_paths  # noqa: E402  # R12: mutable paths resolve here
+import review_state  # noqa: E402
 
 
 def pct(x):
@@ -40,6 +43,28 @@ try:
           + " (token-counted; quality delta awaits parity runs)")
 except (OSError, ValueError):
     pass
+
+# --- PR ticket discovery quality (successor PRD v2 A4) --------------------------
+try:
+    dq = json.load(open("eval/results/discovery-quality.json", encoding="utf-8"))
+    state = str(dq.get("measurement_state") or "unavailable").upper()
+    m1 = dq.get("m1") or {}
+    refusal = dq.get("correct_refusal") or {}
+    print(
+        f"Ticket discovery ({state}): {dq.get('overall', 'unknown').upper()} "
+        f"across {(dq.get('label_set') or {}).get('fixtures', 0)} labelled fixtures; "
+        f"M1 precision={m1.get('precision', 0):.2f}, "
+        f"recall={m1.get('recall', 0):.2f}; correct refusal "
+        f"{refusal.get('correct', 0)}/{refusal.get('total', 0)}"
+    )
+    for signal in ("explicit", "branch", "title_description", "commits"):
+        row = (dq.get("per_signal") or {}).get(signal) or {}
+        print(
+            f"  {signal}: precision={row.get('precision', 0):.2f}, "
+            f"recall={row.get('recall', 0):.2f}"
+        )
+except (OSError, ValueError, KeyError, TypeError):
+    print("Ticket discovery: n/a — run make discovery-eval")
 
 # --- change-to-test retrieval quality (PRD A5) ---------------------------------
 try:
@@ -75,7 +100,8 @@ if runs:
         for p in r.get("phases", []):
             c = p["contract"]
             if p["name"] == "validate" and "repair_loops" in c:
-                loops.append(c["repair_loops"]); validated += 1
+                loops.append(c["repair_loops"])
+                validated += 1
             if p["name"] == "generate":
                 for t in c.get("tests", []):
                     created += t.get("action") == "created"

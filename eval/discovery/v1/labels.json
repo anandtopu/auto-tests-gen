@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "version": "2026-08-06.v1",
+  "owner": {
+    "team": "QE Platform",
+    "maintainer_role": "QE Lead",
+    "maintenance": "Review labels whenever the fixture hash changes and at least quarterly."
+  },
+  "labeling_method": "Synthetic PR metadata and Tracker outcomes derived from the A1 discovery contract.",
+  "m1_target_precision": 0.95,
+  "fixtures": {
+    "file": "fixtures.json",
+    "sha256": "4431b9373e02111fd2dbec88b04f7b76733bfb1a5ea5e28d6cdaef433feabc12"
+  },
+  "labels": [
+    {
+      "id": "explicit-only",
+      "scenario": "explicit-only",
+      "expected_outcome": "selected",
+      "expected_selected_key": "PROJ-401",
+      "expected_signal_keys": {
+        "explicit": ["PROJ-401"],
+        "branch": [],
+        "title_description": [],
+        "commits": []
+      }
+    },
+    {
+      "id": "branch-only",
+      "scenario": "branch-only",
+      "expected_outcome": "selected",
+      "expected_selected_key": "PROJ-402",
+      "expected_signal_keys": {
+        "explicit": [],
+        "branch": ["PROJ-402"],
+        "title_description": [],
+        "commits": []
+      }
+    },
+    {
+      "id": "title-description-only",
+      "scenario": "title-description-only",
+      "expected_outcome": "selected",
+      "expected_selected_key": "PROJ-403",
+      "expected_signal_keys": {
+        "explicit": [],
+        "branch": [],
+        "title_description": ["PROJ-403"],
+        "commits": []
+      }
+    },
+    {
+      "id": "commits-only",
+      "scenario": "commits-only",
+      "expected_outcome": "selected",
+      "expected_selected_key": "PROJ-404",
+      "expected_signal_keys": {
+        "explicit": [],
+        "branch": [],
+        "title_description": [],
+        "commits": ["PROJ-404"]
+      }
+    },
+    {
+      "id": "no-key-anywhere",
+      "scenario": "no-key",
+      "expected_outcome": "not_found",
+      "expected_selected_key": null,
+      "expected_signal_keys": {
+        "explicit": [],
+        "branch": [],
+        "title_description": [],
+        "commits": []
+      }
+    },
+    {
+      "id": "invalid-key",
+      "scenario": "invalid-key",
+      "expected_outcome": "discovered_invalid",
+      "expected_selected_key": null,
+      "expected_signal_keys": {
+        "explicit": [],
+        "branch": [],
+        "title_description": [],
+        "commits": []
+      }
+    },
+    {
+      "id": "conflicting-keys",
+      "scenario": "conflicting-keys",
+      "expected_outcome": "ambiguous",
+      "expected_selected_key": null,
+      "expected_signal_keys": {
+        "explicit": [],
+        "branch": [],
+        "title_description": ["PROJ-406"],
+        "commits": ["PROJ-407"]
+      }
+    }
+  ]
+}

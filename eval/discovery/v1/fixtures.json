@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "id": "explicit-only",
+      "metadata": {
+        "state": "available",
+        "source_branch": "feature/discount-boundary",
+        "title": "Enforce the discount boundary",
+        "description": "",
+        "commit_messages": ["add boundary validation"]
+      },
+      "explicit": "PROJ-401",
+      "validations": {
+        "PROJ-401": {"state": "valid", "reason": "synthetic issue exists"}
+      }
+    },
+    {
+      "id": "branch-only",
+      "metadata": {
+        "state": "available",
+        "source_branch": "feature/PROJ-402-discount-boundary",
+        "title": "Enforce the discount boundary",
+        "description": "",
+        "commit_messages": ["add boundary validation"]
+      },
+      "explicit": "",
+      "validations": {
+        "PROJ-402": {"state": "valid", "reason": "synthetic issue exists"}
+      }
+    },
+    {
+      "id": "title-description-only",
+      "metadata": {
+        "state": "available",
+        "source_branch": "feature/discount-boundary",
+        "title": "PROJ-403 enforce the discount boundary",
+        "description": "Reject discounts above the documented cap.",
+        "commit_messages": ["add boundary validation"]
+      },
+      "explicit": "",
+      "validations": {
+        "PROJ-403": {"state": "valid", "reason": "synthetic issue exists"}
+      }
+    },
+    {
+      "id": "commits-only",
+      "metadata": {
+        "state": "available",
+        "source_branch": "feature/discount-boundary",
+        "title": "Enforce the discount boundary",
+        "description": "",
+        "commit_messages": ["PROJ-404 add boundary validation"]
+      },
+      "explicit": "",
+      "validations": {
+        "PROJ-404": {"state": "valid", "reason": "synthetic issue exists"}
+      }
+    },
+    {
+      "id": "no-key-anywhere",
+      "metadata": {
+        "state": "available",
+        "source_branch": "feature/discount-boundary",
+        "title": "Enforce the discount boundary",
+        "description": "Reject discounts above the documented cap.",
+        "commit_messages": ["add boundary validation"]
+      },
+      "explicit": "",
+      "validations": {}
+    },
+    {
+      "id": "invalid-key",
+      "metadata": {
+        "state": "available",
+        "source_branch": "feature/STALE-405-discount-boundary",
+        "title": "Enforce the discount boundary",
+        "description": "",
+        "commit_messages": ["add boundary validation"]
+      },
+      "explicit": "",
+      "validations": {
+        "STALE-405": {"state": "invalid", "reason": "synthetic issue not found"}
+      }
+    },
+    {
+      "id": "conflicting-keys",
+      "metadata": {
+        "state": "available",
+        "source_branch": "feature/discount-boundary",
+        "title": "PROJ-406 enforce the discount boundary",
+        "description": "",
+        "commit_messages": ["PROJ-407 add boundary validation"]
+      },
+      "explicit": "",
+      "validations": {
+        "PROJ-406": {"state": "valid", "reason": "synthetic issue exists"},
+        "PROJ-407": {"state": "valid", "reason": "synthetic issue exists"}
+      }
+    }
+  ]
+}

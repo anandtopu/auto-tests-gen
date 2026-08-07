@@ -1351,6 +1351,19 @@ keyed/unkeyed redeliveries of the same PR head collapse to one event, and JIRA
 events continue hashing their required key. Invalid linkage is rejected before
 the digest is marked seen, allowing a corrected retry.
 
+A4 evaluates this discovery policy through
+`eval/discovery_quality.py`. A QE-owned, versioned labels file pins the exact
+synthetic SCM/Tracker fixture bytes and covers every production signal plus
+absent, invalid, and conflicting-key outcomes. Metrics are computed only from
+post-validation candidates: precision and recall render independently for
+explicit intake, branch, title/description, and commits. Final-decision M1
+counts an expected ambiguous refusal as a correct decision; guessing a key is
+both a false positive and a false negative. `make eval` fails on label drift,
+outcome drift, per-signal drift, or M1 precision below 95%. Because the supplied
+metadata and Tracker verdicts are synthetic, the evaluator artifact and
+scorecard always label these figures `simulated`; the runtime discovery flag
+remains default off pending separately labelled real-estate evidence.
+
 ### 5.22 The deployed shape, and the boundary in front of it (v2.9)
 
 Every design above describes what the platform does when it runs. This section
