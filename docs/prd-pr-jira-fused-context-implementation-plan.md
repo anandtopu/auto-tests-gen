@@ -7,9 +7,9 @@ Source: [prd-pr-jira-fused-context-multi-agent.md](prd-pr-jira-fused-context-mul
 
 | Order | Item | Slice | Dependencies | Status | Implementation boundary |
 | ---: | --- | --- | --- | --- | --- |
-| 1 | A1 Ticket discovery | S1 | none | Implemented through A1.6; A1.7 pending | Opt-in SCM metadata collection, earned-key extraction, Tracker validation, deterministic selection/refusal, terminal-status provenance/warnings, intake field, provenance, explain |
+| 1 | A1 Ticket discovery | S1 | none | Implemented | Opt-in SCM metadata collection, earned-key extraction, Tracker validation, deterministic selection/refusal, terminal-status provenance/warnings, intake field, provenance, explain, and TaskEvent explicit-key parity |
 | 2 | A2 Context fusion | S1 | A1 | Implemented | Exact response identity, canonical `out/ticket.json`, shared guidance selection, scoped prompt tail, mandatory acceptance-criteria retention, flag-off parity; evidence in [pr-jira-fused-context-a2-implementation-plan.md](pr-jira-fused-context-a2-implementation-plan.md) |
-| 3 | A4 Discovery evaluation | S2 | A1 | Planned after A1.7 | Labelled signal/conflict fixtures plus per-signal precision, recall, and correct-refusal metrics |
+| 3 | A4 Discovery evaluation | S2 | A1 | Next eligible | Labelled signal/conflict fixtures plus per-signal precision, recall, and correct-refusal metrics |
 | 4 | B1 Test reviewer | S3 | none; schedule after S2 | Planned | Read-only pre-gate reviewer contract, deterministic skip, unavailable state |
 | 5 | B4 Verdict surfaces | S3 | B1 | Planned | Run record, board, comments, progress, and explain surfaces |
 | 6 | B6 Reviewer evaluation | S3 | B1 | Planned | Seeded defects, clean control, simulated/real-model labelling |
@@ -31,14 +31,17 @@ fusion and reviewer delivery prerequisites for a useful, trustworthy PR plan.
 | A1.4 provenance | Discovery artifact records signal, validation, rejection, outcome, and reason; run record snapshots it; `make explain` renders the decision evidence | Run-record/explain integration test |
 | A1.5 no discovery | With the flag enabled and no candidate, the prompt tail says exactly `No ticket discovered.`; with the flag disabled no new files, ports, or phase arguments are used | No-key context assertion and default-off pipeline checks |
 | A1.6 terminal status | Selected-ticket provenance records bounded status/category evidence; Closed/Done or JIRA `done` category warns in discovery/fused context, explain, and live/historical PR comments without refusing | classifier, forged-evidence, cross-surface, functional pipeline tests |
-| A1.7 TaskEvent key | Queue/API/wizard support exists; the optional PR key still needs TaskEvent propagation with the pre-key dedupe identity preserved | Next eligible backlog item |
+| A1.7 TaskEvent key | TaskEvent schema and receiver accept an optional PR key, reuse the work-queue ticket grammar, and preserve the exact pre-key PR digest | Schema pin, exact-digest, keyed/unkeyed replay, invalid-type/refusal, corrected-retry, and queue-shape tests |
 
 ### A1.7 — TaskEvent explicit-key parity
 
-Extend the normalized TaskEvent schema and receiver so `mode: pr` may carry the
-same optional bare key as queue/API/wizard intake. Preserve replay identity for
-events that never carried it by keeping the key out of PR-event dedupe, and pin
-the schema plus receiver behavior together.
+Implemented in the normalized TaskEvent schema and receiver: `mode: pr` may
+carry the same optional bare key as queue/API/wizard intake. The receiver uses
+the existing work-queue validator, rejects invalid values before recording the
+event as seen, and keeps the historical empty key slot in PR-event dedupe. The
+schema and receiver behavior are pinned together in focused tests. Detailed
+evidence is in
+[pr-jira-fused-context-a1-7-implementation-plan.md](pr-jira-fused-context-a1-7-implementation-plan.md).
 
 ## Remaining item plans
 

@@ -4,11 +4,12 @@
 Jira Automation rules, Bitbucket/Stash webhooks, and OpenHands conversation
 starters all POST the same TaskEvent shape (triggers/task-event-schema.json):
 
-  POST /hooks/taskevent   {"mode":"pr","repo":"orders-api","pr":201,"updated":"<sha>"}
+  POST /hooks/taskevent   {"mode":"pr","repo":"orders-api","pr":201,"key":"PROJ-301","updated":"<sha>"}
                           {"mode":"jira","key":"PROJ-301","updated":"2026-07-21T10:00:00Z"}
 
-Behavior: validate -> dedupe on sha256(mode|repo|pr|key|updated|workflow_version)
--> enqueue into the work queue (NFR-6: webhook redeliveries are no-ops). With
+Behavior: validate -> dedupe on sha256(mode|repo|pr|key-slot|updated|workflow_version),
+where the PR key-slot stays empty for pre-A1.7 replay compatibility -> enqueue
+into the work queue (NFR-6: webhook redeliveries are no-ops). With
 AIQE_HOOK_AUTORUN=1 a queue drain is started after each accepted event.
 
 It also ingests the OpenHands Agent Server event stream, which gives live
@@ -27,12 +28,21 @@ Authorization: Bearer <token> — OpenHands sends whatever headers you configure
 WebhookSpec, and only the latter is expressible there.
 Start: make hook-server   (default 127.0.0.1:4998, AIQE_HOOK_PORT to change)
 """
-import hashlib, json, os, pathlib, subprocess, sys, threading
+import hashlib
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import fs_lock, http_body, openhands_events, work_queue
+import fs_lock  # noqa: E402
+import http_body  # noqa: E402
+import openhands_events  # noqa: E402
+import work_queue  # noqa: E402
 
 TOKEN = os.environ.get("AIQE_HOOK_TOKEN", "")
 AUTORUN = os.environ.get("AIQE_HOOK_AUTORUN", "0") == "1"
@@ -47,17 +57,28 @@ def validate(ev):
     if mode == "pr":
         if not ev.get("repo") or not ev.get("pr"):
             return "pr mode requires repo and pr"
+        if ev.get("key") is not None and not isinstance(ev.get("key"), str):
+            return "key must be a string"
     elif mode == "jira":
         if not ev.get("key"):
             return "jira mode requires key"
+        if not isinstance(ev.get("key"), str):
+            return "key must be a string"
     else:
         return "mode must be pr|jira"
     return None
 
 
 def idempotency_key(ev):
+    """Stable replay identity; optional PR ticket linkage is deliberately excluded.
+
+    Before A1.7 every PR event occupied the key slot with an empty string. Keep
+    that exact byte sequence so adding an explicit ticket does not change the
+    identity of the SCM event. JIRA events still include their required key.
+    """
+    key_slot = "" if ev.get("mode") == "pr" else ev.get("key", "")
     parts = [ev.get("mode", ""), ev.get("repo", ""), str(ev.get("pr", "")),
-             ev.get("key", ""), ev.get("updated", ""), ev.get("workflow_version", "1")]
+             key_slot, ev.get("updated", ""), ev.get("workflow_version", "1")]
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
@@ -95,7 +116,8 @@ def handle_event(ev):
     try:
         if ev["mode"] == "pr":
             item, fresh = work_queue.add("pr", ev["repo"], str(ev["pr"]),
-                                         requested_by="taskevent")
+                                         requested_by="taskevent",
+                                         ticket=ev.get("key") or None)
         else:
             item, fresh = work_queue.add("jira", ev["key"], requested_by="taskevent")
     except SystemExit as e:      # intake validation (unregistered repo / bad key)

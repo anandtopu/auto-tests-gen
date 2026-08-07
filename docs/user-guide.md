@@ -975,10 +975,13 @@ coverage regenerates → `make test-routing` still pins routing behavior.
   `POST /hooks/taskevent` — the normalized trigger endpoint
   ([triggers/task-event-schema.json](../triggers/task-event-schema.json)) for Jira
   Automation rules, Bitbucket/Stash webhooks, and OpenHands. Events are validated,
-  **deduplicated on `sha256(mode|repo|pr|key|updated|workflow_version)`** (webhook
-  redeliveries are no-ops, NFR-6), and enqueued; `AIQE_HOOK_AUTORUN=1` drains the
-  queue after each accepted event, `AIQE_HOOK_TOKEN` requires an `X-AIQE-Token`
-  header from senders.
+  deduplicated on `sha256(mode|repo|pr|key-slot|updated|workflow_version)`.
+  JIRA events place their required key in that slot; PR events deliberately keep
+  the historical empty slot even when they carry the optional explicit `key`, so
+  adding ticket linkage does not change SCM webhook replay identity. Redeliveries
+  are no-ops (NFR-6). Accepted PR keys flow through the same queue validation as
+  wizard/API intake. `AIQE_HOOK_AUTORUN=1` drains the queue after each accepted
+  event; `AIQE_HOOK_TOKEN` requires an `X-AIQE-Token` header from senders.
 
 ## 5a. Measurement, review efficiency & knowledge reuse (shipped roadmap features)
 

@@ -141,6 +141,8 @@ models and budgets with zero OpenHands involvement.
 
 Idempotency: the receiver dedupes on `sha256(key + updated + workflow_version)` for
 tickets and `(repo, PR#, head SHA)` for PRs — webhook redeliveries are no-ops.
+An optional PR `key` links the ticket through the normal queue intake but is
+excluded from the PR digest, preserving the identity of pre-linkage events.
 
 The platform now ships that receiver as code: `make hook-server` runs
 [bin/taskevent_receiver.py](../../bin/taskevent_receiver.py) (`POST /hooks/taskevent`,

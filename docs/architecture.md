@@ -1342,6 +1342,15 @@ is named: discovery and fused prompt tails, the durable run record and
 recompute terminal state from bounded status fields, so a stale or forged
 boolean in a historical record cannot manufacture a warning.
 
+TaskEvent intake reaches the same explicit-ticket path. A `mode: pr` event may
+carry optional `key`; the receiver passes it as the queue's existing `ticket`
+argument, so the earned key grammar and runner environment have one definition.
+The PR replay digest deliberately retains its pre-A1.7 empty key slot whether
+or not linkage is present. Thus old senders keep byte-identical idempotency,
+keyed/unkeyed redeliveries of the same PR head collapse to one event, and JIRA
+events continue hashing their required key. Invalid linkage is rejected before
+the digest is marked seen, allowing a corrected retry.
+
 ### 5.22 The deployed shape, and the boundary in front of it (v2.9)
 
 Every design above describes what the platform does when it runs. This section

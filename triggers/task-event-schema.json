@@ -7,7 +7,7 @@
     "mode": { "enum": ["pr", "jira"] },
     "repo": { "type": "string", "description": "source repo name (pr mode)" },
     "pr": { "type": ["string", "integer"], "description": "pull request number (pr mode)" },
-    "key": { "type": "string", "description": "issue key (jira mode)" },
+    "key": { "type": "string", "description": "issue key (required for jira mode; optional explicit ticket linkage for pr mode; excluded from PR replay identity)" },
     "updated": { "type": "string", "description": "issue updated timestamp / PR head SHA — part of the idempotency key" },
     "workflow_version": { "type": "string", "default": "1" }
   },
