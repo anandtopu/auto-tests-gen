@@ -7,7 +7,7 @@ every other setting: AIQE_LLM_PROVIDER env > org-config `llm.provider`
 (default claude), with per-phase overrides in `llm.phase_providers`.
 
 Capability validation is CONFIG-TIME, not mid-run: agentic phases (generate,
-validate — multi-file edits + test execution loops) refuse a completion-only
+validate, reviewrepair — workspace edits and/or test execution loops) refuse a completion-only
 provider with the fix named. There is NO silent fallback to another provider
 — an impossible or unreachable assignment fails loudly (constitution-bound
 in slice 6).
@@ -43,7 +43,7 @@ PROVIDERS = ("claude", "ollama", "codex", "openhands", "mock")
 # unaffected and still the supported way to have it author tests: there the
 # gate still commits.)
 AGENTIC_PROVIDERS = ("claude", "codex", "mock")
-AGENTIC_PHASES = ("generate", "validate")
+AGENTIC_PHASES = ("generate", "validate", "reviewrepair")
 
 # Delegating a phase to another agent platform is experimental: latency is a
 # conversation, not a call, and the spend lands on an account we cannot meter.
@@ -63,7 +63,7 @@ EXPERIMENTAL_PROVIDERS = {"openhands": "AIQE_OPENHANDS_PROVIDER"}
 # org-config and the dispatch sites so a phantom phase cannot come back.
 ALL_PHASES = ("triage", "analyze", "testplan", "planadversary",
               "planarbiter", "testdata", "generate", "validate", "reviewer",
-              "critic")
+              "reviewrepair", "critic")
 
 
 def _cfg():
@@ -116,8 +116,8 @@ def check_assignment(phase, provider):
         if provider == "openhands":
             extra = (" (a delegated conversation writes in its own sandbox, "
                      "not in workspace/tests where the gate looks)")
-        return (f"'{provider}' cannot run agentic phase '{base}' (multi-file "
-                f"edits + test execution){extra} — assign claude or codex "
+        return (f"'{provider}' cannot run agentic phase '{base}' (workspace "
+                f"edits or test execution){extra} — assign claude or codex "
                 f"for it in llm.phase_providers")
     gate = EXPERIMENTAL_PROVIDERS.get(provider)
     if gate and os.environ.get(gate, "").strip() != "1":

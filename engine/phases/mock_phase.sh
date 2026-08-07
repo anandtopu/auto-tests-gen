@@ -164,20 +164,49 @@ EOF
     echo '{"fixtures":[{"canonical":"testdata/'"${KEY}"'/discount-cases.json","materialized":[]}],"strategy":"boundary+negative"}' > out/testdata.contract.json
     ;;
   validate)
-    echo '{"passed":2,"failed":0,"repair_loops":0,"flaky_reruns":0}' > out/validate.contract.json
+    echo '{"passed":2,"failed":0,"repair_loops":0,"flaky_reruns":0}' > "out/${OUT}.contract.json"
+    ;;
+  reviewrepair)
+    INPUT=${AIQE_REPAIR_INPUT:?AIQE_REPAIR_INPUT is required}
+    if [ "${AIQE_MOCK_REVIEW_REPAIR_EMPTY:-0}" = "1" ]; then
+      echo '{"fixes":[],"tests":[],"simulated":true}' > "out/${OUT}.contract.json"
+    else
+      python3 - "$INPUT" "out/${OUT}.contract.json" <<'PY'
+import json, pathlib, sys
+source, target = map(pathlib.Path, sys.argv[1:3])
+doc = json.loads(source.read_text(encoding="utf-8"))
+test = doc["tests"][0]
+path = pathlib.Path("workspace/tests") / doc["repo"] / test["file"]
+with path.open("a", encoding="utf-8", newline="\n") as stream:
+    stream.write("\n// reviewer repair applied (simulated plumbing evidence)\n")
+target.write_text(json.dumps({
+    "fixes": [{"finding_index": 0, "file": test["file"],
+               "change": "applied the scripted reviewer fix"}],
+    "tests": [{"file": test["file"], "name": test.get("name") or "repaired test",
+               "scenario_id": test.get("scenario_id") or "", "action": "updated"}],
+    "simulated": True,
+}), encoding="utf-8")
+PY
+    fi
     ;;
   reviewer)
     if [ "${AIQE_MOCK_REVIEWER_MALFORMED:-0}" = "1" ]; then
       echo '{"verdict":"approve","findings":[{"severity":"critical"}],"simulated":true}' > "out/${OUT}.contract.json"
-    elif [ "${AIQE_MOCK_REVIEWER_VERDICT:-approve}" = "needs_work" ]; then
-      cat > "out/${OUT}.contract.json" << EOF
+    else
+      VERDICT=${AIQE_MOCK_REVIEWER_VERDICT:-approve}
+      if [ "${AIQE_REVIEW_ITERATION:-0}" -gt 0 ]; then
+        VERDICT=${AIQE_MOCK_REVIEWER_AFTER_REPAIR:-approve}
+      fi
+      if [ "$VERDICT" = "needs_work" ]; then
+        cat > "out/${OUT}.contract.json" << EOF
 {"verdict":"needs_work","findings":[{"severity":"high","category":"vacuous_assertion","file":"suites/orders/${KEY}-discount-boundary.spec.js","test":"${KEY}: rejects discount above 90%","finding":"scripted mock finding: status-only assertion does not verify unchanged total","fix":"assert the order total is unchanged after rejection"}],"simulated":true}
 EOF
-    elif [ "${AIQE_MOCK_REVIEWER_VERDICT:-approve}" = "approve" ]; then
-      echo '{"verdict":"approve","findings":[],"simulated":true}' > "out/${OUT}.contract.json"
-    else
-      echo "[mock] invalid AIQE_MOCK_REVIEWER_VERDICT (approve|needs_work)" >&2
-      exit 64
+      elif [ "$VERDICT" = "approve" ]; then
+        echo '{"verdict":"approve","findings":[],"simulated":true}' > "out/${OUT}.contract.json"
+      else
+        echo "[mock] invalid mock reviewer verdict (approve|needs_work)" >&2
+        exit 64
+      fi
     fi
     ;;
   critic)

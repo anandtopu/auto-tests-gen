@@ -79,15 +79,19 @@ def test_a_hit_restores_artifacts_not_just_the_contract(tmp_path):
         plan.unlink(missing_ok=True)
 
 
-def test_generate_and_validate_can_never_be_cached():
+def test_workspace_editing_phases_can_never_be_cached():
     """Their product is files written into the test repos and the git state the gate
     inspects — replaying a contract would hand the gate a clean tree and a green
     report for work that never happened."""
-    assert "generate" not in pc.CACHEABLE
-    assert "validate" not in pc.CACHEABLE
-    prompt = str(ROOT / "prompts/pr-generate.md")
-    assert pc.lookup("generate", "generate", "m", prompt, []) is False
-    assert pc.store("generate", "generate", "m", prompt, []) is False
+    prompts = {
+        "generate": ROOT / "prompts/pr-generate.md",
+        "validate": ROOT / "prompts/validate-repair.md",
+        "reviewrepair": ROOT / "prompts/review-repair.md",
+    }
+    for phase, prompt in prompts.items():
+        assert phase not in pc.CACHEABLE
+        assert pc.lookup(phase, phase, "m", str(prompt), []) is False
+        assert pc.store(phase, phase, "m", str(prompt), []) is False
 
 
 def test_disabled_by_env(tmp_path, monkeypatch):
@@ -142,7 +146,7 @@ def test_bounded_phases_are_not_on_the_authoring_tier():
     for cheap in ("triage", "analyze", "testdata", "critic", "validate"):
         assert "haiku" in models[cheap], f"{cheap} does not need the authoring tier"
     # Judgement-grade work stays on the capable tier — cheap models agree too easily.
-    for rich in ("testplan", "planadversary", "generate"):
+    for rich in ("testplan", "planadversary", "generate", "reviewrepair"):
         assert "haiku" not in models[rich], f"{rich} must stay judgement-grade"
 
 

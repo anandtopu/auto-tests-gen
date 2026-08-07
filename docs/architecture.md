@@ -670,12 +670,14 @@ verdicts carry simulated true and prove routing/persistence only.
 B4 projects that phase evidence into a total run-level block:
 `review: {verdict, findings, loops, unresolved, policy}`. `policy` snapshots the
 configured `review.agent_gate` value for later conditioned metrics; before B2,
-loops is zero and needs_work findings are all unresolved. The projection—not
+and on runs where no repair occurs, loops is zero and needs_work findings are
+all unresolved. B2 replaces those initial values with normalized iteration
+history when its bounded loop runs. The projection—not
 ephemeral scratch—drives PR/JIRA comments, review-board columns, guided and
 run-progress steps, and explain output. Legacy B1 records render their missing
 policy honestly as `not_recorded`. The human board remains isolated in
-`review_state`; no renderer invokes its status transition. Repairs, delivery
-enforcement, and quality evaluation remain B2/B3/B6.
+`review_state`; no renderer invokes its status transition. Delivery enforcement
+and quality evaluation remain B3/B6.
 
 B6 evaluates this reviewer by attack. A versioned QE-owned label set pins one
 fixture for each closed finding category plus one clean control to the fixture
@@ -688,6 +690,34 @@ potentially billable path that invokes the configured reviewer against the same
 attacks. It never runs inside `make eval` or `make review`; when parity
 authentication is unavailable, the result and scorecard say **BLOCKED** and
 **unmeasured** rather than recycling scripted numbers as model quality.
+
+B2 adds a bounded mutation path without changing that advisory delivery
+boundary. When the merged verdict is `needs_work`, `REPAIR_FROM_REVIEW` selects
+only repositories with unresolved findings and invokes the named
+`reviewrepair` phase with that repo's generated source, conventions, catalog
+slice, and review evidence. The phase has `Read,Edit`, may update only files
+already present in the generation contract, cannot run tests, and cannot add a
+new spec. Its normalized contract maps each fix to a finding index and exactly
+the files it edited; traversal, duplicate evidence, cross-repo paths, and
+unregistered files are rejected.
+
+`review.max_loops` caps this loop independently of validate's internal repair
+limit and defaults to one. Each iteration is ordered repair per affected repo →
+one validate over the merged tests → read-only reviewer fan-out. Every repair,
+validation, and rereview has an iteration-specific phase label, spend record,
+and budget check; exit 77 remains the hard cost/wall-clock backstop. Once a
+write-enabled repair begins, a phase, contract, or validation failure stops
+before the gate rather than treating partially repaired files as success.
+
+The final reviewer artifact carries a strictly normalized history containing
+initial and per-loop findings, repair contracts, validation results, verdicts,
+and unresolved survivors. A finding disappears only when a repair addressed
+it and the next review did not raise the same identity. Thus an empty repair or
+a later approve response cannot launder an unresolved finding. Run records and
+all B4 surfaces expose this same evidence. `reviewrepair`, like generate and
+validate, is denied from local and durable phase reuse because its product is
+workspace state, not merely JSON. B3 alone decides whether the surviving
+advisory verdict can stop delivery.
 
 ### 5.9 Test Catalog & Mapping Subsystem (new in v2.0)
 

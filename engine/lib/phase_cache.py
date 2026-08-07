@@ -17,8 +17,9 @@ a pipeline whose output gets committed to real repositories.
 
 ## What may NOT be cached, and why
 
-`generate` and `validate` are excluded by construction. Their product is not the
-contract — it is files written into `workspace/tests/<repo>` and the git state the
+`generate`, `validate`, and `reviewrepair` are excluded by construction. Their
+product is not the contract — it includes files written into
+`workspace/tests/<repo>` and the git state the
 gate then inspects. Replaying a contract without re-writing those files would hand the
 gate a clean tree and a green report for work that never happened. `CACHEABLE` is an
 allow-list for exactly this reason; adding a phase to it means asserting that its

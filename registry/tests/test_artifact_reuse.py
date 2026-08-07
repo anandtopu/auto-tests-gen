@@ -79,9 +79,9 @@ def test_any_input_or_generator_change_is_a_miss(estate):
     assert outcomes == ["stored", "miss", "miss"]
 
 
-def test_generate_and_validate_are_structurally_denied(estate):
+def test_workspace_editing_phases_are_structurally_denied(estate):
     root, _ = estate
-    assert reuse.DENIED_PHASES == {"generate", "validate"}
+    assert reuse.DENIED_PHASES == {"generate", "validate", "reviewrepair"}
     assert not (reuse.PURE_PHASES & reuse.DENIED_PHASES)
     assert reuse.PURE_PHASES == set(reuse.phase_cache.CACHEABLE)
     for phase in reuse.DENIED_PHASES:
@@ -245,5 +245,5 @@ def test_phase_wrapper_orders_owners_and_denies_workspace_phases_structurally():
     assert "artifact_reuse.py phase-cache" in source
     assert source.index("artifact_reuse.py store") > provider
     module = (ROOT / "engine/lib/artifact_reuse.py").read_text(encoding="utf-8")
-    for phase in ("generate", "validate"):
+    for phase in ("generate", "validate", "reviewrepair"):
         assert f'"{phase}"' in module.split("DENIED_PHASES", 1)[1].split("}", 1)[0]

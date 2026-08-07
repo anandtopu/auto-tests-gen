@@ -549,8 +549,8 @@ def test_adversarial_gate_harness_cannot_attack_the_scaffold():
 
 def test_model_mapping_gates_configuration_not_capability():
     """The mapping refusal must be a CONFIG gate, not a capability claim: once
-    ollama is mapped it gets its eight completion phases back, and only
-    generate/validate stay refused — on capability, as before."""
+    ollama is mapped it gets its completion phases back, and only the three
+    write-enabled agentic phases stay refused — on capability, as before."""
     cfg = {"models_by_provider": {"ollama": {
         "claude-haiku-4-5-20251001": "qwen2.5-coder:7b",
         "claude-sonnet-4-6": "qwen2.5-coder:32b",
@@ -558,7 +558,9 @@ def test_model_mapping_gates_configuration_not_capability():
     ok = [p for p in lr.ALL_PHASES
           if not (lr.check_assignment(p, "ollama")
                   or lr.check_model_mapping(p, "ollama", cfg))]
-    assert set(lr.ALL_PHASES) - set(ok) == {"generate", "validate"}
+    assert set(lr.ALL_PHASES) - set(ok) == {
+        "generate", "validate", "reviewrepair"
+    }
     # codex ships mapped: every phase, no config required.
     assert all(not (lr.check_assignment(p, "codex")
                     or lr.check_model_mapping(p, "codex"))

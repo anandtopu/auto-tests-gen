@@ -178,7 +178,7 @@ review:            # generated-test semantic reviewer after validate
   enabled: false            # AIQE_TEST_REVIEWER=1 enables it for one run
   agent_gate: warn          # recorded per run; B3 will enforce delivery policy
   on_unavailable: proceed   # outage is recorded, never mistaken for approval
-  max_loops: 1              # repair loops are introduced separately by B2
+  max_loops: 1              # bounded reviewer repair/revalidate/rereview loops
   reviewers: []             # optional human review assignment rota
 resolution:
   confidence_threshold: 0.8   # below this the pipeline asks a human instead of guessing
@@ -372,6 +372,16 @@ the agent is context and can never set the human `approved` or
 explain KEY=...` lists the recorded findings, repair-loop count, surviving
 findings, and the `agent_gate` policy captured for that run. Disabled and
 unavailable reviewers are shown explicitly rather than omitted.
+
+When the agent reviewer returns `needs_work`, the pipeline makes at most
+`review.max_loops` findings-driven repair passes (one by default). Only affected
+test repositories run the named repair phase; it may edit existing generated
+specs but cannot create new files or run tests. Each pass is separately metered,
+then the normal validate phase reruns and the read-only reviewer examines the
+result again. Unfixed or repeated findings remain visible after the cap—even if
+the last raw reviewer response says approve. Set `max_loops: 0` to keep review
+advisory without automatic repair; disabling the reviewer also disables repair.
+The run budget and wall-clock limit apply before every additional phase.
 
 Statuses: `pending_review` → `in_review` → `approved` | `changes_requested`.
 State lives in `reports/runs/reviews.json` (committable; full transition history per

@@ -283,7 +283,7 @@ def test_phase_is_read_only_per_repo_after_validate_and_never_read_by_gate():
     assert source.index("PHASE validate ") < source.index("\nREVIEW_TESTS\n")
     assert source.index("\nREVIEW_TESTS\n") < source.index(": > out/gate_results.tsv")
     assert "_PHASE_IMPL reviewer test-reviewer.md" in source
-    assert 'label="reviewer-$repo"' in source
+    assert 'label="reviewer-${iteration}-${repo}"' in source
     for gate in (ROOT / "engine/gate").glob("*"):
         if gate.is_file():
             assert (

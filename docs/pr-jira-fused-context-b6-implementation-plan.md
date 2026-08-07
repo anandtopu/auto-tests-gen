@@ -54,7 +54,7 @@ Branch: codex/test-knowledge-a1-a2
 
 ## Residual work
 
-B2 is next and may use reviewer findings for one separately metered,
-findings-driven repair/revalidate/rereview loop. B3 later decides when unresolved
-findings can block delivery. The reviewer model tier remains provisional until
+B2 now uses reviewer findings for a separately metered, bounded
+repair/revalidate/rereview loop. B3 is next and decides when unresolved findings
+can block delivery. The reviewer model tier remains provisional until
 the real B6 fixture rate and clean-control result are measured.

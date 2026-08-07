@@ -33,7 +33,7 @@ PURE_PHASES = frozenset({
     "analyze", "testplan", "planadversary", "planarbiter", "testdata",
     "critic", "triage",
 })
-DENIED_PHASES = frozenset({"generate", "validate"})
+DENIED_PHASES = frozenset({"generate", "validate", "reviewrepair"})
 PRODUCTS = {phase: tuple(phase_cache.CACHEABLE[phase]) for phase in PURE_PHASES}
 DIRECTORY_PRODUCTS = frozenset({"testdata"})
 _LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")

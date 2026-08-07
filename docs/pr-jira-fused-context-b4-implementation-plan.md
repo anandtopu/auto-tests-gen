@@ -20,8 +20,9 @@ Branch: codex/test-knowledge-a1-a2
 
 - `engine/lib/test_reviewer.py` owns the canonical projection and bounded
   summary line. B1 phase contracts remain the durable raw evidence.
-- B2 has not shipped: `loops` begins at zero and every needs_work finding is
-  copied into `unresolved`. The fields are intentionally ready for B2 updates.
+- B2 now populates `loops`, iteration evidence, fixes, validation results, and
+  surviving `unresolved` findings. Runs without a repair retain the original
+  zero-loop representation.
 - B3 has not shipped: the policy is recorded for observability but does not
   alter gate outcome. Run `overall` remains gate-derived.
 - Old B1 records remain readable and show `policy: not_recorded`; historical
@@ -44,7 +45,6 @@ Branch: codex/test-knowledge-a1-a2
 
 ## Residual work
 
-B6 now owns and implements seeded-defect catch rates, the clean-control check,
-and strict simulated versus real-model labelling. B2 is next; B2/B3 populate
-repair loops and enforce `off|warn|require`, while B4 only records and renders
-them.
+B6 owns seeded-defect catch rates, the clean-control check, and strict simulated
+versus real-model labelling. B2 now populates repair-loop evidence. B3 is next
+and enforces `off|warn|require`, while B4 only records and renders those facts.

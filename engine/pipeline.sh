@@ -319,18 +319,22 @@ GENERATE() {
 # is converted to explicit unavailable evidence, and this function always
 # returns zero. B2/B3 own repair and enforcement policy; neither is hidden here.
 REVIEW_TESTS() {
-  rm -f out/reviewer.contract.json out/reviewer-*.contract.json \
-        out/reviewer-*.input.json out/reviewer-status.tsv
+  rm -f out/reviewer.contract.json out/reviewer-status.tsv
   if ! python3 engine/lib/test_reviewer.py enabled; then
     SKIP_PHASE review "AIQE_TEST_REVIEWER is disabled"
     return 0
   fi
-  local repos repo input conv slice rc label
+  local repos repo input conv slice rc label iteration
   local ctx=()
   repos=$(python3 -c "import json;print(' '.join(json.load(open('out/resolve.contract.json'))['test_repos']))" 2>/dev/null || echo "")
+  iteration=${AIQE_REVIEW_ITERATION:-0}
   : > out/reviewer-status.tsv
   for repo in $repos; do
-    input="out/reviewer-${repo}.input.json"
+    # Unique labels keep every re-review's contract and spend attributable.
+    # A short-lived canonical copy exists only because merge() reads that name.
+    rm -f "out/reviewer-${repo}.contract.json"
+    label="reviewer-${iteration}-${repo}"
+    input="out/${label}.input.json"
     rc=0
     python3 engine/lib/test_reviewer.py prepare "$repo" "$input" || rc=$?
     if [ "$rc" -eq 3 ]; then
@@ -359,15 +363,16 @@ REVIEW_TESTS() {
       [ -f "$extra" ] && ctx+=("$extra")
     done
 
-    label="reviewer-$repo"
     export AIQE_PHASE_LABEL="$label" AIQE_TARGET_REPO="$repo"
     rc=0
+    if [ "${AIQE_REVIEW_BUDGET_GUARD:-0}" = "1" ]; then _budget_guard "$label"; fi
     _ARCHIVE_INPUTS "$RUN_ID" "$KEY" "$label" initial prompts/test-reviewer.md "${ctx[@]}"
     _PHASE_IMPL reviewer test-reviewer.md "${ctx[@]}" || rc=$?
     python3 engine/lib/budget.py record "$label" "out/${label}.json" || true
     unset AIQE_PHASE_LABEL AIQE_TARGET_REPO
     if [ "$rc" -eq 0 ] && python3 engine/lib/test_reviewer.py validate \
         "$repo" "out/${label}.contract.json"; then
+      cp "out/${label}.contract.json" "out/reviewer-${repo}.contract.json"
       printf '%s\treviewed\t\n' "$repo" >> out/reviewer-status.tsv
     else
       echo "[reviewer] $repo unavailable — generated tests continue to gate"
@@ -380,7 +385,67 @@ REVIEW_TESTS() {
       printf '%s\n' '{"artifact":"test-reviewer","schema":1,"state":"unavailable","verdict":"unavailable","repos":[{"repo":"reviewer","state":"unavailable","reason":"review result merge failed"}],"findings":[],"simulated":false}' \
         > out/reviewer.contract.json
     }
+  for repo in $repos; do rm -f "out/reviewer-${repo}.contract.json"; done
   return 0
+}
+
+# PRD v2 B2: a needs-work verdict gets at most review.max_loops repair passes.
+# Each affected repo has its own write-enabled repair call, then one validation
+# and one read-only reviewer fan-out. Unlike the initial advisory review, every
+# call in this loop is budget-guarded: B2 is optional extra spend after a finding.
+REPAIR_FROM_REVIEW() {
+  local max iteration repos repo label input conv slice validate_label
+  local repair_paths=() ctx=()
+  max=$(python3 engine/lib/review_repair.py max-loops) || return 1
+  [ "$max" -gt 0 ] || return 0
+  if ! python3 engine/lib/review_repair.py start \
+      out/reviewer.contract.json out/review-history.json 2>/dev/null; then
+    return 0
+  fi
+  for iteration in $(seq 1 "$max"); do
+    repos=$(python3 engine/lib/review_repair.py pending out/reviewer.contract.json) || return 1
+    [ -n "$repos" ] || break
+    echo "[review-repair] iteration $iteration/$max for: $repos"
+    repair_paths=()
+    for repo in $repos; do
+      label="reviewrepair-${iteration}-${repo}"
+      input="out/${label}.input.json"
+      python3 engine/lib/review_repair.py prepare "$repo" "$iteration" \
+        out/reviewer.contract.json "$input" "$AIQE_ROOT"
+      conv="out/repo-conventions-${repo}.md"
+      slice="out/catalog-slice-${repo}.jsonl"
+      [ -f "$conv" ] || : > "$conv"
+      [ -f "$slice" ] || : > "$slice"
+      ctx=("$input" out/generate.contract.json out/validate.contract.json "$conv" "$slice")
+      for extra in out/testplan.contract.json out/triage.contract.json \
+          out/ticket.json out/pr.diff out/changed.txt; do
+        [ -f "$extra" ] && ctx+=("$extra")
+      done
+      export AIQE_PHASE_LABEL="$label" AIQE_TARGET_REPO="$repo" \
+        AIQE_REPAIR_INPUT="$input" AIQE_REVIEW_ITERATION="$iteration"
+      PHASE reviewrepair review-repair.md "${ctx[@]}"
+      unset AIQE_PHASE_LABEL AIQE_TARGET_REPO AIQE_REPAIR_INPUT AIQE_REVIEW_ITERATION
+      python3 engine/lib/review_repair.py validate "$repo" "$iteration" \
+        out/reviewer.contract.json "$input" "out/${label}.contract.json" "$AIQE_ROOT"
+      python3 engine/lib/review_repair.py apply "$repo" "$iteration" \
+        out/reviewer.contract.json "$input" "out/${label}.contract.json" \
+        out/generate.contract.json "$AIQE_ROOT"
+      repair_paths+=("out/${label}.contract.json")
+    done
+
+    validate_label="validate-review-${iteration}"
+    export AIQE_PHASE_LABEL="$validate_label"
+    PHASE validate validate-repair.md out/generate.contract.json out/repo-conventions.md
+    unset AIQE_PHASE_LABEL
+    cp "out/${validate_label}.contract.json" out/validate.contract.json
+
+    export AIQE_REVIEW_ITERATION="$iteration" AIQE_REVIEW_BUDGET_GUARD=1
+    REVIEW_TESTS
+    unset AIQE_REVIEW_ITERATION AIQE_REVIEW_BUDGET_GUARD
+    python3 engine/lib/review_repair.py record "$iteration" \
+      out/review-history.json out/validate.contract.json \
+      out/reviewer.contract.json "${repair_paths[@]}"
+  done
 }
 
 RUN_ID=$(date +%s)-$RANDOM
@@ -798,6 +863,7 @@ relocate_artifacts
 # a reviewer outage after paid generation/validation must not trigger a budget
 # abort or suppress gate evidence. REVIEW_TESTS is total and never edits tests.
 REVIEW_TESTS
+REPAIR_FROM_REVIEW
 
 # Critic (§5.8.7): an ADVISORY second opinion on test quality — vacuous assertions,
 # duplicates, brittleness — which the deterministic gate structurally cannot judge.

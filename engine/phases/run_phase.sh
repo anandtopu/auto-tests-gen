@@ -16,8 +16,8 @@ CFG=registry/org-config.yaml
 MODEL=$(python3 -c "import yaml;c=yaml.safe_load(open('$CFG'));m=c['models'];print(m.get('$PHASE', m['generate']))")
 # Degradation ladder (cost-reduction 5.3): near the budget envelope,
 # NON-JUDGEMENT phases drop to the cheap tier (validate's — haiku) and, one
-# rung later, scoped contexts halve. Judgement phases (testplan, the adversary
-# pair, generate) never downgrade — they run full-quality or the run aborts at
+# rung later, scoped contexts halve. Judgement/write phases (testplan, the adversary
+# pair, generate, reviewrepair) never downgrade — they run full-quality or the run aborts at
 # 100% via the existing exit-77 guard. Every rung is recorded for the run
 # record: a reduced-cost result must say so.
 GRADE=$(python3 engine/lib/budget.py grade 2>/dev/null || echo ok)
@@ -65,7 +65,7 @@ print(llm_runner.map_model(os.environ['AIQE_MAP_PROVIDER'], os.environ['AIQE_PHA
 ARTIFACT_MODEL="$PROVIDER:$FINAL_MODEL"
 # Content-addressed reuse: if this exact phase, model, prompt and context set has been
 # run before, restore the result instead of paying for it again. The key is the whole
-# input, so a stale hit is impossible; `generate`/`validate` are excluded because their
+# input, so a stale hit is impossible; generate/validate/reviewrepair are excluded because their
 # product is files in the test repos, not the contract (see phase_cache.py).
 if python3 engine/lib/phase_cache.py lookup "$PHASE" "$OUT" "${PROVIDER}:${FINAL_MODEL}" "$PROMPT" \
      "${KEY:-}" "$@" 2>/dev/null; then

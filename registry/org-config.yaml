@@ -14,6 +14,7 @@ models:
   analyze: claude-haiku-4-5-20251001    # extract behaviors from a ticket — extraction
   testdata: claude-haiku-4-5-20251001   # emit fixtures from a fixed schema
   reviewer: claude-haiku-4-5-20251001   # provisional; B6 measures review quality
+  reviewrepair: claude-sonnet-4-6        # edits code that may be committed; authoring tier
   critic: claude-haiku-4-5-20251001     # advisory score, never gates a commit
   validate: claude-haiku-4-5-20251001   # run specs, read failures, repair narrowly
   # Judgement-grade. The plan is what a human signs off, and the adversary's whole
@@ -25,7 +26,8 @@ models:
 # LLM Runner port (docs/multi-llm-providers.md). `provider` is the global
 # default; `phase_providers` overrides per phase (e.g. local Ollama for
 # triage/analyze, claude for judgement + agentic phases). AIQE_LLM_PROVIDER
-# (the Settings switch) beats both. Agentic phases (generate, validate) refuse
+# (the Settings switch) beats both. Agentic phases (generate, validate,
+# reviewrepair) refuse
 # a completion-only provider at CONFIG time — there is no silent fallback.
 # `models_by_provider` maps the tier ids in `models:` to each provider's own.
 llm:
@@ -63,6 +65,8 @@ phases:
   generate:  { max_turns: 25, allowed_tools: "Read,Write,Edit,Bash(npx playwright test:*),Bash(npm run lint:*)" }
   validate:  { max_turns: 15, allowed_tools: "Read,Edit,Bash(npx playwright test:*)" , repair_loops: 3 }
   reviewer:  { max_turns: 8,  allowed_tools: "Read" }
+  # Findings-driven B2 repair edits only existing generated specs; validate owns execution.
+  reviewrepair: { max_turns: 12, allowed_tools: "Read,Edit" }
   # Read-only ON PURPOSE: a critic that can Write/Edit is an unreviewed repair loop,
   # not a second opinion. Advisory status depends on it staying this way (§3.2).
   critic:    { max_turns: 8,  allowed_tools: "Read" }

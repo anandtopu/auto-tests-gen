@@ -37,7 +37,7 @@ Three facts about the current code decide the whole design:
 |---|---|---|---|---|---|---|
 | completion | triage, analyze, planadversary, critic | one chat completion over pre-injected context | ✅ | ✅ | ✅ | ✅ |
 | completion + derived writes | testplan, planarbiter, testdata | completion + harness materializes files from the contract | ✅ | ✅ | ✅ | ✅ |
-| agentic | generate, validate | tool loop: Read/Write/Edit/Bash **in our workspace**, bounded turns | ❌ | ✅ | ✅ | ❌ (see below) |
+| agentic | generate, validate, reviewrepair | tool loop: Read/Write/Edit/Bash **in our workspace**, bounded turns | ❌ | ✅ | ✅ | ❌ (see below) |
 
 > **Correction (slice 5).** OpenHands was originally marked ✅ for agentic
 > "(delegated conversation)". It is not. The agent runs in **its own sandbox**,

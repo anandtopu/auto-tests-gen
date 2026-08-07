@@ -36,6 +36,7 @@ MAX_TESTS, MAX_FILE_BYTES, MAX_TOTAL_BYTES, MAX_FINDINGS, MAX_TEXT = (
     4_000,
 )
 MAX_CONTRACT_BYTES = 2_000_000
+MAX_REVIEW_LOOPS = 100
 SAFE_REPO = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
@@ -370,7 +371,7 @@ def normalize_merged_contract(raw):
         or bool(raw.get("simulated", False)) != simulated
     ):
         raise ReviewInputError("merged reviewer summary is inconsistent")
-    return {
+    normalized = {
         "artifact": "test-reviewer",
         "schema": 1,
         "state": state,
@@ -379,6 +380,198 @@ def normalize_merged_contract(raw):
         "findings": findings,
         "simulated": simulated,
     }
+    repair = _normalize_repair_history(raw.get("repair"), findings, verdict)
+    if repair is not None:
+        normalized["repair"] = repair
+    return normalized
+
+
+def _merged_findings(value, field):
+    if not isinstance(value, list) or len(value) > MAX_FINDINGS * MAX_TESTS:
+        raise ReviewInputError(f"{field} must be a bounded finding list")
+    clean = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ReviewInputError(f"{field} finding must be an object")
+        repo = _safe_repo(item.get("repo"))
+        one = normalize_repo_contract(
+            repo, {"verdict": "needs_work", "findings": [item]}
+        )["findings"][0]
+        clean.append({**one, "repo": repo})
+    return clean
+
+
+def _nonnegative(value, field):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ReviewInputError(f"{field} must be a non-negative integer")
+    return value
+
+
+def _history_text(value, field, allow_empty=False):
+    if not isinstance(value, str):
+        raise ReviewInputError(f"{field} must be a string")
+    value = value.strip()
+    if (not allow_empty and not value) or len(value) > MAX_TEXT:
+        raise ReviewInputError(f"{field} is outside the text bound")
+    return value
+
+
+def _history_path(value, field):
+    value = _history_text(value, field)
+    candidate = pathlib.Path(value)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        raise ReviewInputError(f"{field} escapes the target repository")
+    return value
+
+
+def _normalize_history_repair(raw, expected_index):
+    if (
+        not isinstance(raw, dict)
+        or raw.get("artifact") != "test-review-repair"
+        or raw.get("schema") != 1
+    ):
+        raise ReviewInputError("review repair evidence has invalid artifact")
+    repo = _safe_repo(raw.get("repo"))
+    if raw.get("iteration") != expected_index:
+        raise ReviewInputError("review repair evidence iteration is invalid")
+    fixes, tests = raw.get("fixes"), raw.get("tests")
+    if not isinstance(fixes, list) or len(fixes) > MAX_FINDINGS:
+        raise ReviewInputError("review repair fixes must be bounded")
+    if not isinstance(tests, list) or len(tests) > MAX_TESTS:
+        raise ReviewInputError("review repair tests must be bounded")
+    clean_fixes, indexes = [], set()
+    for fix in fixes:
+        if not isinstance(fix, dict):
+            raise ReviewInputError("review repair fix must be an object")
+        index = fix.get("finding_index")
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, int)
+            or index < 0
+            or index >= MAX_FINDINGS
+        ):
+            raise ReviewInputError("review repair finding index is invalid")
+        if index in indexes:
+            raise ReviewInputError("review repair finding index is duplicated")
+        indexes.add(index)
+        finding = _merged_findings(
+            [fix.get("finding")], "review repair addressed finding"
+        )[0]
+        if finding["repo"] != repo:
+            raise ReviewInputError("review repair finding repository is inconsistent")
+        clean_fixes.append({
+            "finding_index": index,
+            "file": _history_path(fix.get("file"), "review repair file"),
+            "change": _history_text(fix.get("change"), "review repair change"),
+            "finding": finding,
+        })
+    clean_tests, files = [], set()
+    for test in tests:
+        if not isinstance(test, dict) or test.get("action") != "updated":
+            raise ReviewInputError("review repair test must be an updated test object")
+        file_name = _history_path(test.get("file"), "review repair test file")
+        if file_name in files:
+            raise ReviewInputError("review repair test file is duplicated")
+        files.add(file_name)
+        clean_tests.append({
+            "file": file_name,
+            "name": _history_text(test.get("name"), "review repair test name"),
+            "scenario_id": _history_text(
+                test.get("scenario_id", ""), "review repair scenario id", True
+            ),
+            "action": "updated",
+        })
+    if {fix["file"] for fix in clean_fixes} != files:
+        raise ReviewInputError("review repair tests disagree with applied fixes")
+    if not isinstance(raw.get("simulated", False), bool):
+        raise ReviewInputError("review repair simulated marker must be boolean")
+    return {
+        "artifact": "test-review-repair", "schema": 1,
+        "repo": repo, "iteration": expected_index,
+        "fixes": clean_fixes, "tests": clean_tests,
+        "simulated": raw.get("simulated", False),
+    }
+
+
+def _normalize_repair_history(raw, final_findings, final_verdict):
+    if raw is None:
+        return None
+    if (
+        not isinstance(raw, dict)
+        or raw.get("artifact") != "test-review-history"
+        or raw.get("schema") != 1
+    ):
+        raise ReviewInputError("review repair history has invalid artifact")
+    loops = _nonnegative(raw.get("loops"), "review repair loops")
+    if loops < 1 or loops > MAX_REVIEW_LOOPS:
+        raise ReviewInputError("review repair loops exceed the supported bound")
+    iterations = raw.get("iterations")
+    if not isinstance(iterations, list) or len(iterations) != loops + 1:
+        raise ReviewInputError("review repair iterations must equal loops + 1")
+    clean_iterations = []
+    for expected_index, item in enumerate(iterations):
+        if not isinstance(item, dict) or item.get("iteration") != expected_index:
+            raise ReviewInputError("review repair iteration order is invalid")
+        iteration_verdict = item.get("verdict")
+        if iteration_verdict not in VERDICTS | {"unavailable", "skipped"}:
+            raise ReviewInputError("review repair iteration verdict is invalid")
+        iteration_findings = _merged_findings(
+            item.get("findings"), f"review repair iteration {expected_index}"
+        )
+        row = {
+            "iteration": expected_index,
+            "verdict": iteration_verdict,
+            "findings": iteration_findings,
+        }
+        if expected_index:
+            repairs = item.get("repairs")
+            if not isinstance(repairs, list) or len(repairs) > MAX_TESTS:
+                raise ReviewInputError("review repair evidence must be a bounded list")
+            clean_repairs, repair_repos = [], set()
+            for repair in repairs:
+                clean = _normalize_history_repair(repair, expected_index)
+                if clean["repo"] in repair_repos:
+                    raise ReviewInputError("review repair repository is duplicated")
+                repair_repos.add(clean["repo"])
+                clean_repairs.append(clean)
+            validation = item.get("validation")
+            if not isinstance(validation, dict):
+                raise ReviewInputError("review repair validation evidence is missing")
+            row["repairs"] = clean_repairs
+            row["validation"] = {
+                "passed": _nonnegative(validation.get("passed"), "validation passed"),
+                "failed": _nonnegative(validation.get("failed"), "validation failed"),
+                "repair_loops": _nonnegative(
+                    validation.get("repair_loops"), "validation repair_loops"
+                ),
+                "flaky_reruns": _nonnegative(
+                    validation.get("flaky_reruns", 0), "validation flaky_reruns"
+                ),
+            }
+            if validation.get("diagnosis"):
+                row["validation"]["diagnosis"] = _history_text(
+                    validation["diagnosis"], "review repair validation diagnosis"
+                )
+        clean_iterations.append(row)
+    if (
+        clean_iterations[-1]["verdict"] != final_verdict
+        or clean_iterations[-1]["findings"] != final_findings
+    ):
+        raise ReviewInputError("review repair final iteration disagrees with reviewer")
+    unresolved = _merged_findings(raw.get("unresolved"), "review unresolved")
+    unresolved_ids = {_finding_identity(item) for item in unresolved}
+    if len(unresolved_ids) != len(unresolved):
+        raise ReviewInputError("review unresolved findings are duplicated")
+    if any(_finding_identity(item) not in unresolved_ids for item in final_findings):
+        raise ReviewInputError("final reviewer findings are missing from unresolved")
+    return {
+        "artifact": "test-review-history", "schema": 1, "loops": loops,
+        "iterations": clean_iterations, "unresolved": unresolved,
+    }
+
+
+def _finding_identity(item):
+    return tuple(item.get(key) for key in ("repo", "category", "file", "test"))
 
 
 def load(path=None):
@@ -413,12 +606,22 @@ def surface(signal=None, cfg=None, policy=None, assume_enabled=None):
             "simulated": False, "reason": reason,
         }
     findings = signal["findings"]
+    repair = signal.get("repair")
+    loops = repair["loops"] if repair else 0
+    unresolved = (
+        repair["unresolved"] if repair
+        else findings if signal["verdict"] == "needs_work" else []
+    )
+    verdict = signal["verdict"]
+    if verdict == "approve" and unresolved:
+        verdict = "needs_work"
     return {
-        "state": signal["state"], "verdict": signal["verdict"],
-        "findings": findings, "loops": 0,
-        "unresolved": findings if signal["verdict"] == "needs_work" else [],
+        "state": signal["state"], "verdict": verdict,
+        "findings": unresolved if unresolved else findings, "loops": loops,
+        "unresolved": unresolved,
         "policy": policy, "repos": signal["repos"],
         "simulated": signal["simulated"],
+        **({"iterations": repair["iterations"]} if repair else {}),
     }
 
 

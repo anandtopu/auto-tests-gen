@@ -13,8 +13,8 @@ Source: [prd-pr-jira-fused-context-multi-agent.md](prd-pr-jira-fused-context-mul
 | 4 | B1 Test reviewer | S3 | none; schedule after S2 | Implemented | Read-only per-repo pre-gate reviewer, strict contracts, deterministic skip, unavailable state, and simulated mock evidence |
 | 5 | B4 Verdict surfaces | S3 | B1 | Implemented | Canonical run snapshot, board columns, PR/JIRA lines, Agent review progress, and evidence-based explain output |
 | 6 | B6 Reviewer evaluation | S3 | B1 | Implemented | Hash-pinned seeded defects, clean control, per-class catch rates, and separate simulated/real-model evidence |
-| 7 | B2 Bounded repair | S4 | B1, B6 | Next eligible | One separately metered findings-driven repair/revalidate/rereview loop |
-| 8 | B3 Delivery policy | S4 | B1, B2, B4 | Planned | `off|warn|require`, pre-gate refusal, unavailable policy, constitution pins |
+| 7 | B2 Bounded repair | S4 | B1, B6 | Implemented | Bounded per-repo repair, revalidation, rereview, metering, and unresolved-finding history |
+| 8 | B3 Delivery policy | S4 | B1, B2, B4 | Next eligible | `off|warn|require`, pre-gate refusal, unavailable policy, constitution pins |
 | 9 | B5 Cost containment | S3/S4 | B1–B3 | Planned | Judgement-tier pin, budget-envelope uplift, reviewer-panel deferral trigger |
 | 10 | A3 Plan-first from PR | S5 | A1, A2, B1–B4 | Planned | Extend the existing plan-state lifecycle to PR keys and PR intake |
 
@@ -91,10 +91,22 @@ restored, every renderer says that real-model quality is blocked and unmeasured.
 Detailed acceptance and evidence are in
 [pr-jira-fused-context-b6-implementation-plan.md](pr-jira-fused-context-b6-implementation-plan.md).
 
-### B2, B3, B5 — Repair and require slice
+### B2 — Bounded repair
 
-Add a separately budgeted loop whose findings feed a confined repair phase,
-then validate and review again. Preserve unresolved findings across iterations.
+B2 is implemented behind the existing reviewer flag. A needs-work verdict
+selects only repositories with unresolved findings, runs the named
+`reviewrepair` authoring phase against existing generated files, revalidates the
+merged generation contract, and fans the read-only reviewer out again. The
+loop is independently capped by `review.max_loops` (default one); repair,
+validation, and rereview use unique metered labels and the budget guard remains
+the hard stop. Strict nested evidence records every iteration while carrying
+unaddressed or repeated findings forward even if a later raw verdict says
+approve. Write-enabled repair products are structurally excluded from both
+phase caches. Detailed acceptance and evidence are in
+[pr-jira-fused-context-b2-implementation-plan.md](pr-jira-fused-context-b2-implementation-plan.md).
+
+### B3, B5 — Require and cost slice
+
 Implement `off|warn|require` before the gate, amend and pin the constitution,
 keep critic and reviewer distinct, and document consequence/cost language.
 
