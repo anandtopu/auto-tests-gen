@@ -15,6 +15,7 @@ import test_reviewer as reviewer_lib
 import artifact_reuse
 import env_flag                     # AIQE_MOCK means what it says
 import task_bundle
+import ticket_comment
 
 run_id, mode, key = sys.argv[1:4]
 
@@ -106,6 +107,13 @@ overall = ("review_refused" if delivery and delivery["outcome"] == "refused"
 record = {"run_id": run_id, "trigger": {"type": mode, "key": key},
           "ts": time.time(), "overall": overall,
           "gates": gates, "phases": phases}
+# JCTS-S3: the scratch ledger is written before this assembler runs. Keep an
+# explicit empty block for new run records so "no attempt" is distinguishable
+# from a pre-S3 record that could not account for comments at all.
+comments, malformed_comments = ticket_comment.read_attempts(run_id=run_id)
+record["comments"] = comments
+if malformed_comments:
+    record["malformed_comment_lines"] = malformed_comments
 if delivery:
     record["review_delivery"] = delivery
 # Successor PRD A1 discovery provenance. Optional and total: malformed scratch

@@ -18,6 +18,7 @@ case "$VERB" in
     mkdir -p out/mock-jira-attachments
     cp "$2" "out/mock-jira-attachments/$1-$(basename "$2")"
     echo "[mock-jira] attached to $1: out/mock-jira-attachments/$1-$(basename "$2")" ;;
-  comment)  echo "[mock-jira] $1 <- $2" | tee -a out/mock-comments.log ;;
+  comment)  ID="mock-${RANDOM}-${RANDOM}"
+            echo "[mock-jira] $1 <- $2 comment_id=$ID" | tee -a out/mock-comments.log ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

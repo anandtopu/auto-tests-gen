@@ -289,6 +289,15 @@ Every pipeline run persists a structured record to `reports/runs/<RUN_ID>.json`
 emitted through the Telemetry port to Splunk. Run history is committable, so the QA
 team can track it in git or scrape it into any BI tool.
 
+Ticket comments remain best-effort: a Jira outage never changes the run verdict.
+Every attempt now records `posted` or `failed`, its kind and target, a returned
+comment id when available, and a bounded credential-free failure detail. Delivery
+attempts live in the run record's `comments` block; plan/requirements attempts also
+live in plan-state provenance because those modes intentionally create no run
+record. Every attempt emits a `ticket.comment` activity event. The **Run progress**
+view calls out failed requester notification and incomplete receipt history, and
+`make explain KEY=PROJ-301` reports the same evidence.
+
 **The dashboard** (`reports/dashboard.html`, self-contained, light/dark aware) shows:
 KPI tiles (runs, quarantines, catalog health, uncovered repos), the recent-runs table,
 the app-repo × test-repo coverage matrix, and the full catalog with client-side

@@ -1,13 +1,12 @@
 """A3: plan-first from a PR reuses the signed plan lifecycle end to end."""
+import importlib.util
 import json
 import os
 import pathlib
 import subprocess
-import importlib.util
-
-import pytest
 
 import plan_state
+import pytest
 import work_queue
 
 
@@ -114,6 +113,10 @@ def test_mock_pr_plan_comments_both_surfaces_and_writes_no_run_record(tmp_path):
     state = json.loads((tmp_path / "plans/state.json").read_text(encoding="utf-8"))
     assert state[KEY]["status"] == "draft"
     assert state[KEY]["target"]["ticket"] == "PROJ-301"
+    assert state[KEY]["comments"][-1]["kind"] == "plan"
+    assert state[KEY]["comments"][-1]["target"] == "PROJ-301"
+    assert state[KEY]["comments"][-1]["outcome"] == "posted"
+    assert state[KEY]["comments"][-1]["comment_id"].startswith("mock-")
     added = log.read_text(encoding="utf-8", errors="replace")[len(old_log):]
     assert "comment on orders-api#201" in added
     assert "PROJ-301 <-" in added

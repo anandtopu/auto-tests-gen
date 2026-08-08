@@ -96,6 +96,7 @@ print('attached: ' + ', '.join(a['filename'] for a in r))" ;;
   comment) curl "${CURL_FLAGS[@]}" -X POST -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
     -H 'Content-Type: application/json' \
     -d "$(python3 -c "import json,sys;print(json.dumps({'body':{'type':'doc','version':1,'content':[{'type':'paragraph','content':[{'type':'text','text':sys.argv[1]}]}]}}))" "$2")" \
-    "$J/issue/$1/comment" >/dev/null && echo ok ;;
+    "$J/issue/$1/comment" | python3 -c \
+      "import json,sys; r=json.load(sys.stdin); print('comment_id=' + str(r['id']))" ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

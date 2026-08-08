@@ -6,7 +6,11 @@ interchangeable trigger paths, so its absence or outage must never change whethe
 run happens, whether tests get committed, or whether a CI gate goes red. It is easy to
 regress by adding an import, a health precondition, or a check that fails the build.
 """
-import os, pathlib, subprocess, sys
+import json
+import os
+import pathlib
+import subprocess
+import sys
 
 import pytest
 
@@ -187,6 +191,14 @@ def test_full_run_commits_with_openhands_unreachable(tmp_path):
     assert r.returncode == 0, f"pipeline failed without OpenHands:\n{r.stdout[-3000:]}"
     assert "GATE_STATUS=COMMITTED" in r.stdout, \
         f"no commit without OpenHands:\n{r.stdout[-3000:]}"
+    context = json.loads((ROOT / "out/run-context.json").read_text(encoding="utf-8"))
+    record = json.loads((ROOT / f"reports/runs/{context['run_id']}.json").read_text(
+        encoding="utf-8"))
+    delivery = [c for c in record["comments"] if c["kind"] == "delivery"]
+    assert len(delivery) == 1
+    assert delivery[0]["target"] == "PROJ-301"
+    assert delivery[0]["outcome"] == "posted"
+    assert delivery[0]["comment_id"].startswith("mock-")
 
 
 # ------------------------------------------------------------------------- the doc

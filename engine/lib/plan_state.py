@@ -22,7 +22,6 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import app_paths                      # R12: mutable paths resolve here
 import fs_lock
-import env_flag                     # AIQE_MOCK means what it says
 
 # Path overrides let tests (and the CLI under test) run against a scratch store
 # instead of the real estate state — same pattern as AIQE_ENV_FILE / AIQE_HOOKS_SEEN.
@@ -413,6 +412,28 @@ def mark_generated(key, run_id):
     return e
 
 
+def record_comment_attempt(key, item):
+    """Persist bounded no-run comment provenance beside the plan subject."""
+    import ticket_comment
+    key = validate_key(key)
+    if not isinstance(item, dict):
+        raise ValueError("comment receipt must be an object")
+    normalized = ticket_comment.receipt(
+        item.get("kind"), item.get("target"), item.get("outcome"),
+        comment_id=item.get("comment_id"),
+        failure_detail=item.get("failure_detail"),
+        run_id=item.get("run_id"), ts=item.get("ts"))
+    with fs_lock.lock(FILE):
+        state = load()
+        entry = state.get(key, {"history": []})
+        entry.setdefault("comments", []).append(normalized)
+        # A repeatedly blocked plan must not grow the shared state forever.
+        entry["comments"] = entry["comments"][-100:]
+        state[key] = entry
+        _save(state)
+    return normalized
+
+
 # ------------------------------------------------------------------ SDD 2.2
 def _requirements_gate_on():
     """env AIQE_REQUIREMENTS_GATE > org-config `spec.requirements_gate`.
@@ -662,19 +683,15 @@ def ticket_comment(key):
 def post_ticket_comment(key):
     """Compose + post the linking comment via the Tracker port (mock unless
     AIQE_MOCK=0). Returns {comment, result}."""
-    import os, subprocess
-    import settings_store, work_queue
+    import ticket_comment as comment_delivery
     text = ticket_comment(key)
-    settings_store.load_env_into()
-    mock = env_flag.mock()
-    adapter = ROOT / ("adapters/mock/tracker.sh" if mock
-                      else "adapters/tracker/jira.sh")
-    r = subprocess.run([work_queue.bash_exe(), str(adapter), "comment", key, text],
-                       cwd=ROOT, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace",
-                       stdin=subprocess.DEVNULL, timeout=60)
-    if r.returncode != 0:
-        raise SystemExit(f"comment failed: {(r.stdout + r.stderr).strip()[:200]}")
+    receipt = comment_delivery.post(
+        "link", key, text, plan_key=key, source="plan_state")
+    if receipt["outcome"] == "failed":
+        raise SystemExit(f"comment failed: {receipt['failure_detail']}")
+    result = f"commented on {key}"
+    if receipt.get("comment_id"):
+        result += f" (id {receipt['comment_id']})"
     # Record that the ticket was told. Journey J6 is "link the plan and the E2E tests
     # to the ticket VIA A COMMENT", so posting it is the deliverable — but nothing
     # persisted that, which left the wizard's final step stuck on `pending` after the
@@ -683,6 +700,6 @@ def post_ticket_comment(key):
         state = load()
         if key in state:
             state[key]["commented"] = {"ts": time.time(),
-                                       "result": r.stdout.strip()[:300]}
+                                       "result": result[:300]}
             _save(state)
-    return {"comment": text, "result": r.stdout.strip()}
+    return {"comment": text, "result": result, "receipt": receipt}

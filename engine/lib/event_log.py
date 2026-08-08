@@ -63,6 +63,7 @@ KINDS = frozenset({
     "spend.phase_metered", "spend.budget_warned", "spend.budget_aborted",
     # delivery
     "notify.sent", "notify.failed",
+    "ticket.comment",
     "alert.fired", "alert.resolved",
     # the log about itself
     "log.pruned", "log.degraded",

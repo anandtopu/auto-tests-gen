@@ -1,0 +1,10 @@
+# JCTS-S3 action register
+
+| ID | Severity | Status | Owner area | Finding | Evidence | Resolution | Validation |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| JCTS-S3-01 | P1 | Completed | Pipeline/run record | Reviewer-refusal delivery happened after run-record assembly, so its receipt would be absent. | Cross-file ordering trace at the exit-78 path. | Move only record assembly after the best-effort delivery boundary. | Ordering pin plus reviewer suites and broad run. |
+| JCTS-S3-02 | P1 | Completed | Security/accounting | Persisting raw adapter error text could leak tokens or Jira response content. | Forced stderr contains a bearer-shaped value. | Store only bounded exit/HTTP/timeout/class metadata; never accept body as receipt input. | Forced 401 fixture proves secret/body absence. |
+| JCTS-S3-03 | P1 | Completed | Plan lifecycle | Plan mode deliberately has no run record, leaving no receipt home. | PRD A4.1a and existing pipeline invariant. | Store the same normalized receipt in locked, bounded `plan_state` and emit an event. | Plan-from-PR journey proves provenance and unchanged run-record set. |
+| JCTS-S3-04 | P2 | Completed | Operator visibility | Torn receipt rows were counted but initially not exposed. | Pass-2 progress/explain trace. | Propagate corrupt count to API/CLI/UI and explain it as incomplete history. | Torn/legacy fixtures and dashboard source pin. |
+| JCTS-S3-05 | P2 | Completed | Adapter contract | Existing comment verbs discarded Jira ids, blocking the required posted receipt field. | Jira adapter redirected response to null; mock had no id. | Return `comment_id` from both bundled adapters. | Jira stub, mock journeys, adapter conformance. |
+| JCTS-S3-06 | P2 | Completed | Compatibility tests | Reviewer surface pinned the removed literal fire-and-forget call. | One adjacent test failure after implementation. | Pin the shared accounting call while retaining summary ordering/human-status assertions. | Corrected suite 257/257 and broad 441/441. |

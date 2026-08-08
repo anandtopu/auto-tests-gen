@@ -3286,6 +3286,8 @@ function rpRender(p) {
   const gate = (p.steps || []).find(function (x) { return x.id === 'gate' && x.repos; });
   const bad = gate ? gate.repos.filter(function (r) {
     return r.status !== 'committed' && r.status !== 'no_changes'; }) : [];
+  const commentFailures = p.comment_failures || [];
+  const commentCorrupt = Number(p.comment_records_corrupt || 0);
   // Offer a retry when the run did not commit. The button is only useful next
   // to the failure it would re-run, which is why it lives here and not on a
   // separate screen.
@@ -3294,7 +3296,15 @@ function rpRender(p) {
     rt.innerHTML = '<button class="btn" id="rp-retry-go">Retry this run</button>'
       + '<span class="sub" id="rp-retry-msg" style="margin-left:10px"></span>';
   } else { rt.innerHTML = ''; }
-  document.querySelector('#rp-fail').innerHTML = bad.map(function (r) {
+  const degradedHtml = commentCorrupt ? '<div class="card rp-bad"><b>Notification history incomplete</b>'
+    + '<div class="sub" style="margin:6px 0">' + escHtml(String(commentCorrupt))
+    + ' comment receipt row(s) could not be read.</div></div>' : '';
+  const commentHtml = degradedHtml + commentFailures.map(function (c) {
+    return '<div class="card rp-bad"><b>Requester was not notified</b> - ticket comment failed'
+      + '<div class="sub" style="margin:6px 0">' + escHtml(c.target || '')
+      + ': ' + escHtml(c.failure_detail || 'failure detail unavailable') + '</div></div>';
+  }).join('');
+  document.querySelector('#rp-fail').innerHTML = commentHtml + bad.map(function (r) {
     const tail = r.log_tail === null
       ? '<div class="sub">The log could not be read - that is not the same as an '
         + 'empty log.</div>'

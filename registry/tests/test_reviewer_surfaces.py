@@ -96,7 +96,7 @@ def test_run_progress_places_review_between_validation_and_gate(tmp_path):
 def test_pipeline_posts_one_jira_line_and_never_changes_human_status():
     source = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
     summary = source.index("REVIEW_LINE=$(python3 engine/lib/test_reviewer.py summary")
-    jira = source.index('case "$MODE" in jira|tests) TRACKER comment')
+    jira = source.index('case "$MODE" in jira|tests) TICKET_COMMENT delivery')
     assert summary < jira
     dashboard = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
     assert "agent_review_cell" in dashboard and "team review" in dashboard

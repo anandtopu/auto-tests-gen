@@ -48,6 +48,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import run_progress  # noqa: E402  (shared record reading + exit-code meanings)
 import task_bundle  # noqa: E402
 import ticket_discovery  # noqa: E402
+import ticket_comment  # noqa: E402
 
 
 def _decision(did, question, answer, because=None, evidence=None, caveat=None):
@@ -482,7 +483,40 @@ def explain(key=None, run_id=None, root=ROOT):
             caveat="This verdict is context for a human. It never sets Approved or "
                    "Changes requested on the team review board."))
 
-    # --- 10. the gate --------------------------------------------------------
+    # --- 10. requester notification -----------------------------------------
+    comments = [c for c in ((rec or {}).get("comments") or [])
+                if isinstance(c, dict)]
+    if not comments and live:
+        comments, _ = ticket_comment.read_attempts(
+            root / "out/comment-attempts.jsonl", ctx.get("run_id"))
+    if comments:
+        failures = [c for c in comments if c.get("outcome") == "failed"]
+        because = [f"{c.get('kind', '?')} -> {c.get('target', '?')}: "
+                   f"{c.get('outcome', 'unknown')}"
+                   + (f" ({c.get('failure_detail')})"
+                      if c.get("failure_detail") else "")
+                   for c in comments]
+        answer = ("the requester was not notified — comment failed: "
+                  + "; ".join(str(c.get("failure_detail") or "unknown failure")
+                              for c in failures)) if failures else \
+                 f"{len(comments)} ticket comment attempt(s) recorded; none failed"
+        decisions.append(_decision(
+            "notification", "Was the requester notified on the ticket?", answer,
+            because, "run record `comments` + `ticket.comment` event",
+            caveat="Ticket comments are best-effort and never alter the run verdict."))
+    try:
+        malformed_comments = max(
+            0, int((rec or {}).get("malformed_comment_lines") or 0))
+    except (TypeError, ValueError):
+        malformed_comments = 0
+    if malformed_comments:
+        unexplained.append(_unknown(
+            "notification-integrity",
+            "Is the recorded ticket-notification history complete?",
+            f"{malformed_comments} comment receipt line(s) were unreadable; valid "
+            "attempts remain visible, but the history is explicitly incomplete."))
+
+    # --- 11. the gate --------------------------------------------------------
     gates = (rec or {}).get("gates") or []
     if gates:
         because = []

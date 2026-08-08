@@ -164,6 +164,14 @@ The design prioritizes four qualities requested for this PoC:
         └───────────────────────────────┘   └─────────────────────────────┘
 ```
 
+Ticket-comment delivery crosses only the Tracker port and is deliberately
+best-effort. `engine/lib/ticket_comment.py` converts each post into a bounded
+payload-free receipt and a `ticket.comment` event. Run-scoped receipts are folded
+into the durable run record; plan/requirements receipts also use `plan_state`
+because those modes create no run record. Comment bodies and raw adapter responses
+are never persisted as accounting metadata. Run progress and `make explain`
+surface failed delivery and explicitly report unreadable receipt rows.
+
 ### 4.3 Why OpenHands + Claude Code (division of responsibility)
 
 | Concern | Owner | Rationale |

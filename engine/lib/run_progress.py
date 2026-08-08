@@ -43,6 +43,8 @@ import pathlib
 import sys
 import time
 
+import ticket_comment
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -421,22 +423,38 @@ def progress(key=None, run_id=None, root=ROOT):
             and (not run_id or ctx.get("run_id") == run_id))
 
     if live:
+        comments, comment_corrupt = ticket_comment.read_attempts(
+            root / "out/comment-attempts.jsonl", ctx.get("run_id"))
         return {"source": "live", "run_id": ctx.get("run_id"), "key": ctx.get("key"),
                 "mode": ctx.get("mode"), "started_ts": ctx.get("started_ts"),
                 "lock": lock, "lock_age_minutes": round(age or 0, 1),
                 "busy": lock == "held", "steps": _steps_live(ctx, root),
-                "overall": "running" if lock == "held" else "unknown"}
+                "overall": "running" if lock == "held" else "unknown",
+                "comments": comments,
+                "comment_failures": [c for c in comments
+                                     if c.get("outcome") == "failed"],
+                "comment_records_corrupt": comment_corrupt}
 
     rec = _record_for(key=key, run_id=run_id, root=root)
     if rec:
+        comments = [c for c in (rec.get("comments") or []) if isinstance(c, dict)]
+        try:
+            comment_corrupt = max(0, int(rec.get("malformed_comment_lines") or 0))
+        except (TypeError, ValueError):
+            comment_corrupt = 0
         return {"source": "record", "run_id": rec.get("run_id"),
                 "key": (rec.get("trigger") or {}).get("key"),
                 "mode": record_mode(rec), "started_ts": rec.get("ts"),
                 "busy": False, "steps": _steps_from_record(rec, root),
-                "overall": rec.get("overall") or "unknown"}
+                "overall": rec.get("overall") or "unknown",
+                "comments": comments,
+                "comment_failures": [c for c in comments
+                                     if c.get("outcome") == "failed"],
+                "comment_records_corrupt": comment_corrupt}
 
     return {"source": "none", "run_id": None, "key": key, "mode": None, "busy": False,
-            "steps": [], "overall": "none",
+            "steps": [], "overall": "none", "comments": [], "comment_failures": [],
+            "comment_records_corrupt": 0,
             "detail": "No run has been recorded for this target in this checkout. "
                       "Queue one from Intake, or check that the key is spelled as the "
                       "run recorded it (PR runs use PR-<repo>-<number>)."}
@@ -452,3 +470,6 @@ if __name__ == "__main__":
               f"overall={out['overall']}")
         for s in out["steps"]:
             print(f"  [{s['state']:<8}] {s['label']:<26} {(s.get('detail') or '')[:70]}")
+        for item in out.get("comment_failures") or []:
+            print(f"  [failed  ] requester notification       "
+                  f"{item.get('target')}: {item.get('failure_detail')}")

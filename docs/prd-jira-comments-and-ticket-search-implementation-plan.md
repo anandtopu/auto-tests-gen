@@ -9,7 +9,7 @@ Source: [prd-jira-comments-and-ticket-search.md](prd-jira-comments-and-ticket-se
 | ---: | --- | --- | --- | --- | --- |
 | 1 | JCTS-S1 Structured search and escaping | B1.1–B1.5, G6, M3, M4 | none | Implemented | Closed structured filters, safe adapter-side JQL, mock parity, truthful page envelope, legacy `search_release` wrapper |
 | 2 | JCTS-S2 Intake filters and queue handoff | B2.1–B2.3, B3.1–B3.2 | JCTS-S1 | Implemented | `AIQE_TICKET_SEARCH`-guarded UI/API, result attributes, N-of-M bulk confirmation, per-item intake validation, backward-compatible queue reads |
-| 3 | JCTS-S3 Comment outcome accounting | A4.1–A4.2, M1 | none; follows S2 by PRD order | Pending | Unconditional receipts for all five existing comment sites, run/event/plan-state homes, failure visibility without changing best-effort behavior |
+| 3 | JCTS-S3 Comment outcome accounting | A4.1–A4.2, M1 | none; follows S2 by PRD order | Implemented | Unconditional receipts for all five existing comment sites, run/event/plan-state homes, failure visibility without changing best-effort behavior |
 | 4 | JCTS-S4 Rich plan and delivery comments | A1.1–A1.3, A2.1–A2.5, M5 | JCTS-S3 | Pending | Flagged scenario-first plan rendering and one shared delivery/PR projection, bounded plain-text output, fused-ticket delivery |
 | 5 | JCTS-S5 Comment idempotency | A3.1–A3.5, M2 | JCTS-S3, JCTS-S4 | Pending | Stable visible markers, owned-comment update guard, persisted ids, unchanged skip, append-with-supersession fallback |
 | 6 | JCTS-FINAL Broad verification | M1–M6, risks and constraints | JCTS-S1–S5 | Pending | Full compatibility, mock journeys, feature-flag defaults, docs/status reconciliation |
@@ -65,13 +65,21 @@ and diff checks passed.
 
 ### JCTS-S3 — Comment outcome accounting
 
-- Introduce a pure comment-attempt result model and route all five current
-  ticket comment sites through it without making comments fatal.
-- Persist run-mode attempts in run-record `comments`; emit `ticket.comment`
-  events for all modes; store plan-mode provenance in `plan_state` because plan
-  mode intentionally creates no run record.
-- Surface failed attempts in run progress and `make explain` with bounded,
-  credential-free failure details.
+| Criterion | Implementation | Verification |
+| --- | --- | --- |
+| A4.1 | `ticket_comment.receipt` defines the closed payload-free attempt model; both Tracker adapters return comment ids; all pipeline ticket-comment sites call the shared best-effort boundary | Unit tests cover posted/failed/id/corrupt shapes and source pins cover routing, requirements, clarification, plan, delivery, and budget-abort calls; Jira adapter stub and adapter conformance pass |
+| A4.1 run record | Per-run JSONL scratch is cleared at run start, locked on append, filtered by `run_id`, and folded into an explicit run-record `comments` block; refusal recording now happens after its delivery attempt | Full mock JIRA pipeline records one posted delivery with mock id; refusal ordering regression pin; malformed lines are counted |
+| A4.1a | Plan and requirements modes pass their state key to the same helper, which retains the bounded normalized receipt in `plan_state` and creates no run record | Mock plan-from-PR journey records plan provenance and proves the run-record set is unchanged |
+| A4.1 events | Every attempt emits `ticket.comment` with target/run/outcome and bounded receipt metadata; bodies and raw adapter responses are excluded | Success/failure event tests plus event vocabulary suite |
+| A4.2 | Adapter exceptions, timeouts, nonzero exits, receipt-store failures, and plan-provenance failures cannot escape the helper; only sanitized exit/HTTP metadata is retained | Forced 401 fixture proves the run-facing function returns `failed`, excludes body/token text, and remains nonfatal |
+| A4.2 visibility / M1 | Live and historical Run progress expose failures and corrupt counts; dashboard renders them; `make explain` gives the same requester-notification evidence | Progress/explain/UI tests cover failed delivery, HTTP detail, incomplete history, and malformed legacy counts |
+
+Implementation evidence: the unconditional accounting boundary preserves the
+Tracker port and existing best-effort behavior. Focused accounting/progress/
+explain tests passed 42/42; the adjacent compatibility set passed 257/257; the
+broad practical set passed 441/441. Mock plan-only and full JIRA pipeline
+journeys passed, adapter conformance passed after selecting Git Bash explicitly,
+and Ruff, Python/Bash syntax, rendered JavaScript, and diff checks passed.
 
 ### JCTS-S4 — Rich plan and delivery comments
 

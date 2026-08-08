@@ -148,6 +148,19 @@ else
   _PHASE_IMPL() { bash engine/phases/run_phase.sh "$1" "prompts/$2" workspace "${@:3}"; }
 fi
 
+# JCTS-S3: every Tracker comment goes through one best-effort accounting
+# boundary.  The helper posts through the same configured adapter, records a
+# payload-free receipt + event, and always yields control back to the run.
+TICKET_COMMENT() {
+  local kind=$1 target=$2 body=$3
+  local plan_args=()
+  case "${MODE:-}" in
+    plan|requirements) plan_args=(--plan-key "${KEY:-$target}") ;;
+  esac
+  python3 engine/lib/ticket_comment.py post "$kind" "$target" "$body" \
+    "${plan_args[@]}" >/dev/null || true
+}
+
 # Budget enforcement (docs/product-direction.md H1): every phase's actual spend —
 # claude -p reports total_cost_usd in out/<phase>.json — lands in out/cost.tsv, and
 # the guard runs BEFORE each phase. Over the cost or wall-clock limit the run aborts
@@ -162,13 +175,13 @@ RUN_START=$(date +%s)
 # AIQE_MOCK_PHASE_COST simulation never applies and the exit-77 guard is dead).
 rm -f "${AIQE_COST_LEDGER:-out/cost.tsv}" out/*.json out/gate_results.tsv \
       out/context-*.md out/context-retries.tsv out/cost-degrade.tsv \
-      out/phase-skips.tsv out/phase-starts.jsonl
+      out/phase-skips.tsv out/phase-starts.jsonl out/comment-attempts.jsonl
 _budget_guard() {
   local why
   if ! why=$(python3 engine/lib/budget.py check --start "$RUN_START"); then
     echo "$why"
     local msg="AI-QE run ${RUN_ID:-?} for ${KEY:-?} ABORTED before phase '$1': $why"
-    case "${MODE:-}" in jira|plan|tests) TRACKER comment "$KEY" "$msg" || true ;; esac
+    case "${MODE:-}" in jira|plan|tests) TICKET_COMMENT budget_abort "$KEY" "$msg" ;; esac
     NOTIFY post "$msg" || true
     EV run.aborted "${KEY:-?}" failed "phase=$1 reason=budget"
     exit 77
@@ -674,7 +687,7 @@ printf '{"run_id":"%s","mode":"%s","key":"%s","started_ts":%s}\n' \
 
 if [ "$(python3 -c "import json;print(json.load(open('out/resolve.contract.json')).get('needs_clarification', False))")" = "True" ]; then
   MSG="AI-QE cannot confidently route ${KEY}. Candidates: $(cat out/resolve.contract.json). Reply with '@openhands use <repos>'."
-  case "$MODE" in jira|plan|tests) TRACKER comment "$KEY" "$MSG" || true ;; esac
+  case "$MODE" in jira|plan|tests) TICKET_COMMENT routing_clarification "$KEY" "$MSG" ;; esac
   NOTIFY post "$MSG"
   exit 0
 fi
@@ -829,7 +842,7 @@ else
       RQ_MSG="${RQ_MSG}. OPEN QUESTIONS NEEDING ANSWERS: $(echo "$BLOCKING" | tr '
 ' ' ')"
     fi
-    { TRACKER comment "$KEY" "$RQ_MSG"; } || true
+    TICKET_COMMENT requirements "$KEY" "$RQ_MSG"
     NOTIFY post "$RQ_MSG" || true
     echo "REQUIREMENTS_STATUS=DRAFT specs/${KEY}/requirements.yaml"
     echo "$RQ_MSG"
@@ -844,9 +857,9 @@ else
 ' ' ') — answer on the ticket, then re-run."
     if [ "$PR_PLAN" = "1" ]; then
       SCM comment "$REPO" "$PR" "$CL_MSG" || true
-      if [ -n "$PLAN_TICKET" ]; then TRACKER comment "$PLAN_TICKET" "$CL_MSG" || true; fi
+      if [ -n "$PLAN_TICKET" ]; then TICKET_COMMENT clarification "$PLAN_TICKET" "$CL_MSG"; fi
     else
-      { TRACKER comment "$KEY" "$CL_MSG"; } || true
+      TICKET_COMMENT clarification "$KEY" "$CL_MSG"
     fi
     NOTIFY post "$CL_MSG" || true
     echo "NEEDS_CLARIFICATION: $(echo "$BLOCKING" | head -1)"
@@ -930,9 +943,9 @@ else
     if [ -n "$ADVERSARY_LINE" ]; then MSG="${MSG} (${ADVERSARY_LINE})"; fi
     if [ "$PR_PLAN" = "1" ]; then
       SCM comment "$REPO" "$PR" "$MSG" || true
-      if [ -n "$PLAN_TICKET" ]; then TRACKER comment "$PLAN_TICKET" "$MSG" || true; fi
+      if [ -n "$PLAN_TICKET" ]; then TICKET_COMMENT plan "$PLAN_TICKET" "$MSG"; fi
     else
-      { TRACKER comment "$KEY" "$MSG"; } || true
+      TICKET_COMMENT plan "$KEY" "$MSG"
     fi
     NOTIFY post "$MSG" || true
     echo "PLAN_STATUS=DRAFT testplans/${KEY}.md"
@@ -976,13 +989,13 @@ if [ "$REVIEW_POLICY_RC" -eq 78 ]; then
   if [ -n "$REVIEW_LINE" ]; then SUMMARY+=$'\n'"- ${REVIEW_LINE}"; fi
   SUMMARY+=$'\n'"- ${REVIEW_POLICY_LINE}"
   echo "[reviewer] $REVIEW_POLICY_LINE"
+  if [ "$MODE" = "tests" ] && [ "$PR_PLAN" = "1" ]; then
+    if [ -n "$PLAN_TICKET" ]; then TICKET_COMMENT delivery "$PLAN_TICKET" "$SUMMARY"; fi
+  else
+    case "$MODE" in jira|tests) TICKET_COMMENT delivery "$KEY" "$SUMMARY" ;; esac
+  fi
   python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY" \
     | tee "reports/runs/${RUN_ID}.json" | TELEM emit_event
-  if [ "$MODE" = "tests" ] && [ "$PR_PLAN" = "1" ]; then
-    if [ -n "$PLAN_TICKET" ]; then TRACKER comment "$PLAN_TICKET" "$SUMMARY" || true; fi
-  else
-    case "$MODE" in jira|tests) TRACKER comment "$KEY" "$SUMMARY" || true ;; esac
-  fi
   NOTIFY post "$SUMMARY" || true
   if [ "$MODE" = "pr" ] || { [ "$MODE" = "tests" ] && [ "$PR_PLAN" = "1" ]; }; then
     HEAD_SHA=$(git -C "workspace/src/$REPO" rev-parse HEAD 2>/dev/null || echo "")
@@ -1102,9 +1115,9 @@ fi
 # before the run record, build status, and review-state transition are persisted.
 # tests mode is the plan-first resume of a JIRA ticket — the ticket gets the summary too
 if [ "$MODE" = "tests" ] && [ "$PR_PLAN" = "1" ]; then
-  if [ -n "$PLAN_TICKET" ]; then TRACKER comment "$PLAN_TICKET" "$SUMMARY" || true; fi
+  if [ -n "$PLAN_TICKET" ]; then TICKET_COMMENT delivery "$PLAN_TICKET" "$SUMMARY"; fi
 else
-  case "$MODE" in jira|tests) TRACKER comment "$KEY" "$SUMMARY" || true ;; esac
+  case "$MODE" in jira|tests) TICKET_COMMENT delivery "$KEY" "$SUMMARY" ;; esac
 fi
 NOTIFY post "$SUMMARY" || true
 # P0: surface the outcome as a build status on the PR head (merge-gate visibility)
