@@ -1,22 +1,19 @@
 #!/usr/bin/env bash
 set -euo pipefail
 VERB=${1:?verb}; shift || true
+
+run_search() {
+  python3 engine/lib/ticket_search.py mock "${1:-'{}'}"
+}
+
 case "$VERB" in
   get_item) [ -f "eval/benchmark/tickets/.item-$1.json" ] || exit 3
             cat "eval/benchmark/tickets/.item-$1.json" ;;
-  search_release)  # tickets whose fix_versions contain $1 (empty arg = all tickets)
-    python3 - "$1" << 'PY'
-import glob, json, sys
-rel = sys.argv[1] if len(sys.argv) > 1 else ""
-out = []
-for f in glob.glob("eval/benchmark/tickets/.item-*.json"):
-    t = json.load(open(f, encoding="utf-8"))
-    if not rel or rel in t.get("fix_versions", []):
-        out.append({"key": t["key"], "summary": t.get("summary", ""),
-                    "fix_versions": t.get("fix_versions", [])})
-print(json.dumps(out))
-PY
-    ;;
+  search) run_search "${1:-'{}'}" ;;
+  search_release)  # compatibility: the old list response, over structured search
+    FILTERS=$(python3 engine/lib/ticket_search.py release "${1:-}") || exit $?
+    run_search "$FILTERS" | python3 -c \
+      "import json,sys; print(json.dumps(json.load(sys.stdin)['items']))" ;;
   attach)   # attach <KEY> <file> -> out/mock-jira-attachments/
     mkdir -p out/mock-jira-attachments
     cp "$2" "out/mock-jira-attachments/$1-$(basename "$2")"

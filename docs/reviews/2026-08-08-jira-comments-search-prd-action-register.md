@@ -1,0 +1,12 @@
+# JIRA comments/search PRD — action register
+
+| ID | Severity | Status | Owner area | Finding | Evidence | Recommended action | Validation expected | Dependencies |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| JCTS-01 | P1 | Completed | S1 / Jira adapter | Release text was interpolated into JQL and could alter query logic. | Former `JQL="fixVersion = \"$1\""`; PRD G6. | Use the closed builder and literal escaping; remove direct interpolation. | Named injection fixture passed against Jira stub and mock. | none |
+| JCTS-02 | P1 | Completed | S1 / Tracker port | Port/mock lacked the six-filter discovery contract. | Only `search_release` existed. | Add conformance-required `search`; normalize both adapters identically. | Six filters plus AND combination and required-attribute tests passed. | JCTS-01 |
+| JCTS-03 | P2 | Completed | S1 / shared fields | Search and runtime field vocabularies could drift. | Processed fields had no exported vocabulary. | Export four processed names once; search imports and adds status/text. | Exact superset test passed. | none |
+| JCTS-04 | P2 | Planned | S2 / Intake UI | Release-only UI cannot state truncation or safely bulk queue. | Current API consumes a legacy list and UI has one release input. | Add flagged filters, N-of-M confirmation, per-item validation and failed-load state. | Mock UI/API journey; bulk call/count and failure tests. | S1 |
+| JCTS-05 | P1 | Planned | S3/S5 / comments | Existing comment failure and retry duplication leave no durable evidence. | Five best-effort comment sites discard outcomes. | Add unconditional receipts/events, then safe update/fallback semantics. | Forced failure on all sites; retry/adversarial ownership fixtures. | S2 by delivery order |
+| JCTS-06 | P1 | Planned | S3 / plan state | Plan mode has no run record for its own comment receipt. | Pipeline invariant and PRD A4.1a. | Store plan provenance in `plan_state` plus event log; create no run record. | Plan-mode receipt test and run-record absence pin. | none |
+| JCTS-07 | P1 | Planned | S5 / Tracker update | Marker-only lookup could edit a human-authored comment. | PRD A3.2a trust-boundary requirement. | Verify configured platform author; mismatch appends and records reason. | Forged-marker author-mismatch test. | S3, S4 |
+| JCTS-08 | P2 | Planned | S4 / projections | Separate delivery formatters would drift and violate M5. | `pr_comment` already owns rich PR projection. | Extract one shared projection and consume from both channels. | Projection identity test across PR/ticket comments. | S3 |

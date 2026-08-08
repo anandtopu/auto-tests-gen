@@ -22,6 +22,16 @@ import json
 import shlex
 import sys
 
+# Canonical names shared by ticket processing and structured ticket search.
+# Search adds discovery-only fields in ticket_search.py; keeping these four here
+# makes it impossible for the two vocabularies to drift by copy/paste.
+PROCESSED_FIELD_VOCABULARY = {
+    "component": "components",
+    "label": "labels",
+    "issue_type": "issue_type",
+    "fixversion": "fix_versions",
+}
+
 
 def fields(ticket):
     """Routing values plus the shared issue-guidance kind."""
@@ -48,7 +58,8 @@ def fields(ticket):
 
 def sh_exports(path):
     try:
-        ticket = json.loads(open(path, encoding="utf-8").read())
+        with open(path, encoding="utf-8") as stream:
+            ticket = json.load(stream)
     except (OSError, ValueError) as e:
         # The old one-liners crashed the pipeline here too (set -e) — keep that:
         # a run without a readable ticket must not continue on empty fields and

@@ -2,7 +2,7 @@
 set -euo pipefail
 VERB=${1:?verb}; shift || true
 
-# Tracker port: get_item | search_release | comment | attach
+# Tracker port: get_item | search | search_release | comment | attach
 # Primary path: Atlassian Remote MCP inside the Claude Code session (registered in
 # sandbox/mcp-setup.sh). This CLI adapter is the pipeline-side fallback via REST.
 # JIRA_API_VERSION: 2 = Jira Server / Data Center (on-prem); 3 = Jira Cloud (ADF bodies).
@@ -17,6 +17,16 @@ J="${JIRA_URL:-https://your-domain.atlassian.net}/rest/api/${JIRA_API_VERSION:-2
 # hosts listed in NO_PROXY are reached directly without needing explicit -x flags.
 CURL_FLAGS=(-s --fail-with-body)
 if [[ "${AIQE_SSL_VERIFY:-1}" == "0" ]]; then CURL_FLAGS+=(-k); fi
+
+run_search() {
+  local filters=${1:-'{}'} jql
+  jql=$(python3 engine/lib/ticket_search.py jql "$filters") || return $?
+  curl "${CURL_FLAGS[@]}" -G -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
+    --data-urlencode "jql=$jql" \
+    --data-urlencode "fields=summary,issuetype,components,labels,fixVersions,status" \
+    --data-urlencode "startAt=0" --data-urlencode "maxResults=50" \
+    "$J/search" | python3 engine/lib/ticket_search.py project
+}
 
 case "$VERB" in
   get_item)
@@ -70,16 +80,11 @@ print(json.dumps({'key':i['key'],'summary':f['summary'],
  'comments':comments,
  'linked_repos':[],  # populated from dev-panel API if enabled
  'remote_links_url':'$J/issue/'+i['key']+'/remotelink'}))" < "$BODY" ;;
-  search_release)  # JQL: tickets targeting a fixVersion (empty arg = all with any fixVersion)
-    JQL="fixVersion is not EMPTY"; [ -n "${1:-}" ] && JQL="fixVersion = \"$1\""
-    curl "${CURL_FLAGS[@]}" -G -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
-      --data-urlencode "jql=$JQL" --data-urlencode "fields=summary,fixVersions" \
-      "$J/search" | python3 -c "
-import json,sys
-r=json.load(sys.stdin)
-print(json.dumps([{'key':i['key'],'summary':i['fields']['summary'],
- 'fix_versions':[v['name'] for v in i['fields'].get('fixVersions',[])]}
- for i in r.get('issues',[])]))" ;;
+  search) run_search "${1:-'{}'}" ;;
+  search_release)  # compatibility: the old list response, over structured search
+    FILTERS=$(python3 engine/lib/ticket_search.py release "${1:-}") || exit $?
+    run_search "$FILTERS" | python3 -c \
+      "import json,sys; print(json.dumps(json.load(sys.stdin)['items']))" ;;
   attach)  # attach <KEY> <file> — upload as a Jira issue attachment
     curl "${CURL_FLAGS[@]}" -X POST -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
       -H "X-Atlassian-Token: no-check" \

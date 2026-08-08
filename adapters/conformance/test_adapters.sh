@@ -15,7 +15,7 @@ fail=0
 declare -A verbs=( [scm/github.sh]="clone_ro clone_rw changed_files diff pr_context comment set_status fetch_file"
                    [scm/bitbucket.sh]="clone_ro clone_rw changed_files diff pr_context comment set_status fetch_file"
                    [scm/stash.sh]="clone_ro clone_rw changed_files diff pr_context comment set_status fetch_file"
-                   [tracker/jira.sh]="get_item comment search_release attach"
+                   [tracker/jira.sh]="get_item comment search search_release attach"
                    [knowledge/confluence.sh]="get_linked_docs publish_doc"
                    [cicd/jenkins.sh]="run_job get_results"
                    [notify/slack.sh]="post digest"
