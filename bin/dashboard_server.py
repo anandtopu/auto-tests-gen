@@ -584,11 +584,13 @@ class Handler(BaseHTTPRequestHandler):
         elif url.path == "/api/cost-report":
             # Cost attribution (cost-reduction 1.2): spend rollups from the run
             # records' spend blocks. Pure aggregation — safe to poll.
+            import cost_reconcile
             import cost_report
             q = urllib.parse.parse_qs(url.query)
             try:
                 days = int(q.get("days", [""])[0]) if q.get("days", [""])[0] else None
                 report = cost_report.report(days)
+                report["reconciliation"] = cost_reconcile.load_latest()
             except (ValueError, OverflowError) as e:
                 self._send(400, {"error": _err(e)})
                 return

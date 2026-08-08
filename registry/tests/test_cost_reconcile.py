@@ -1,6 +1,8 @@
-"""TCA-C3 provider-aligned, basis-honest reconciliation arithmetic."""
+"""TCA-C3/C4 provider-aligned arithmetic and honest operations."""
 import datetime as dt
+import json
 import pathlib
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -129,10 +131,126 @@ def test_malformed_ledger_cost_is_rejected_not_coerced_to_zero():
         raise AssertionError("malformed ledger dollars were accepted")
 
 
-def test_reconciliation_engine_uses_ports_and_has_no_vendor_or_persistence_branch():
+def test_reconciliation_engine_uses_ports_and_has_no_vendor_branch():
     source = (ROOT / "engine/lib/cost_reconcile.py").read_text(encoding="utf-8")
     assert "provider_usage.retrieve" in source
     assert "spend_history.spend_rows" in source
-    for forbidden in ("api.anthropic.com", "ANTHROPIC_ADMIN_KEY", "cost_report?",
-                      "write_json", "import notify", "reconcile_drift_pct"):
+    assert "alert_rules.deliver" in source
+    for forbidden in ("api.anthropic.com", "ANTHROPIC_ADMIN_KEY", "cost_report?"):
         assert forbidden not in source
+
+
+def _operate(monkeypatch, tmp_path, result, notifier=None):
+    path = tmp_path / "costs/reconciliation.json"
+    monkeypatch.setattr(cost_reconcile, "latest_path", lambda: path)
+    monkeypatch.setattr(cost_reconcile, "run", lambda *args, **kwargs: result)
+    monkeypatch.setattr(cost_reconcile, "_threshold",
+                        lambda: cost_reconcile.decimal.Decimal("10"))
+    doc, external = cost_reconcile.operate(notifier=notifier, now=42)
+    assert json.loads(path.read_text(encoding="utf-8")) == doc
+    assert doc["checked_at"] == 42 and doc["threshold_pct"] == "10.000000"
+    assert doc["auto_corrected"] is False
+    return doc, external
+
+
+def test_unavailable_provider_persists_not_reconciled_and_degrades(monkeypatch, tmp_path):
+    called = []
+    result = cost_reconcile.reconcile(
+        {"schema": 1, "state": "unavailable", "provider": "mock",
+         "reason_code": "missing-credential",
+         "message": "ANTHROPIC_ADMIN_KEY is not configured"}, [])
+    doc, external = _operate(monkeypatch, tmp_path, result,
+                             lambda *a, **k: called.append((a, k)))
+    assert doc["status"] == "not-reconciled"
+    assert doc["notification"] == {"required": False, "state": "not-required"}
+    assert "not configured" in doc["reason"]
+    assert external is True and called == []
+
+
+def test_adapter_timeout_persists_not_reconciled_instead_of_crashing(
+        monkeypatch, tmp_path):
+    path = tmp_path / "reconciliation.json"
+    monkeypatch.setattr(cost_reconcile, "latest_path", lambda: path)
+    monkeypatch.setattr(cost_reconcile, "run", lambda *a, **k: (_ for _ in ()).throw(
+        subprocess.TimeoutExpired("usage adapter", 90)))
+    monkeypatch.setattr(cost_reconcile, "_threshold",
+                        lambda: cost_reconcile.decimal.Decimal("10"))
+    doc, external = cost_reconcile.operate(provider="claude", now=42)
+    assert doc["status"] == "not-reconciled"
+    assert doc["provider_usage"]["reason_code"] == "provider-timeout"
+    assert json.loads(path.read_text(encoding="utf-8")) == doc
+    assert external is True
+
+
+def test_threshold_drift_notifies_with_required_investigation_evidence(
+        monkeypatch, tmp_path):
+    sent = []
+    result = cost_reconcile.reconcile(
+        usage("10"), [row("2026-01-01T01:00:00Z", cost=8)])
+
+    def notify(message, **kwargs):
+        sent.append((message, kwargs))
+        return True
+
+    doc, external = _operate(monkeypatch, tmp_path, result, notify)
+    assert doc["status"] == "reconciled-drift"
+    assert doc["notification"] == {"required": True, "state": "sent",
+                                   "channel": "slack"}
+    message, kwargs = sent[0]
+    for phrase in ("Provider reported: $10.000000",
+                   "Platform reported: $8.000000", "Window:",
+                   "missed harvests", "other workloads on the same API key",
+                   "never auto-corrects"):
+        assert phrase in message
+    assert kwargs == {"channel": "slack", "rule_name": "cost-reconciliation"}
+    assert external is False
+
+
+def test_below_threshold_and_exact_match_are_reconciled_without_alarm(
+        monkeypatch, tmp_path):
+    called = []
+    result = cost_reconcile.reconcile(
+        usage("10"), [row("2026-01-01T01:00:00Z", cost="9.50")])
+    doc, external = _operate(monkeypatch, tmp_path, result,
+                             lambda *a, **k: called.append(1))
+    assert doc["status"] == "reconciled-no-drift"
+    assert external is False and called == []
+
+
+def test_undefined_percentage_mismatch_is_drift_and_notify_failure_degrades(
+        monkeypatch, tmp_path):
+    result = cost_reconcile.reconcile(
+        usage("0"), [row("2026-01-01T01:00:00Z", cost="1")])
+    doc, external = _operate(monkeypatch, tmp_path, result,
+                             lambda *a, **k: False)
+    assert doc["drift_pct"] is None
+    assert doc["status"] == "reconciled-drift"
+    assert doc["notification"]["state"] == "failed"
+    assert external is True
+
+
+def test_latest_badge_fails_closed_for_missing_or_invalid_state(monkeypatch, tmp_path):
+    path = tmp_path / "reconciliation.json"
+    monkeypatch.setattr(cost_reconcile, "latest_path", lambda: path)
+    assert cost_reconcile.load_latest()["status"] == "not-reconciled"
+    path.write_text('{"status":"green"}', encoding="utf-8")
+    latest = cost_reconcile.load_latest()
+    assert latest["status"] == "not-reconciled"
+    assert "invalid" in latest["reason"]
+
+
+def test_main_uses_distinct_external_and_local_exit_codes(monkeypatch, capsys):
+    monkeypatch.setattr(cost_reconcile, "operate",
+                        lambda *a, **k: ({"status": "not-reconciled"}, True))
+    assert cost_reconcile.main([]) == cost_reconcile.EXTERNAL_UNAVAILABLE
+    monkeypatch.setattr(cost_reconcile, "operate",
+                        lambda *a, **k: (_ for _ in ()).throw(ValueError("bad config")))
+    assert cost_reconcile.main([]) == 1
+    assert "bad config" in capsys.readouterr().err
+
+
+def test_dashboard_source_exposes_exactly_the_three_reconciliation_badges():
+    source = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert 'id="cost-reconcile-badge"' in source
+    for label in ("not reconciled", "reconciled / no drift", "reconciled / drift"):
+        assert source.count(label) == 1

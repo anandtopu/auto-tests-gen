@@ -291,6 +291,15 @@ def test_cost_report_rejects_out_of_range_windows_without_dropping_connection(li
     assert status == 200, "the invalid cost window killed the server connection"
 
 
+def test_cost_report_includes_fail_closed_reconciliation_state(live_server):
+    base, _ = live_server
+    status, text = _request(f"{base}/api/cost-report", headers=_auth())
+    assert status == 200, text
+    reconciliation = json.loads(text)["reconciliation"]
+    assert reconciliation["status"] in {
+        "not-reconciled", "reconciled-no-drift", "reconciled-drift"}
+
+
 def test_cost_statement_api_returns_schema_and_exports(live_server):
     base, _ = live_server
     status, body = _request(f"{base}/api/cost-statement?key=PROJ-301", headers=_auth())

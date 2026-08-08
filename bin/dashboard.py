@@ -2390,6 +2390,19 @@ async function refreshCost() {
   if (!served) return;
   try {
     const d = await api('/api/cost-report');
+    const rec = d.reconciliation || {status: 'not-reconciled'};
+    const recBadge = rec.status === 'reconciled-no-drift'
+      ? '<span class="chip chip-ok">reconciled / no drift</span>'
+      : rec.status === 'reconciled-drift'
+        ? '<span class="chip chip-danger">reconciled / drift</span>'
+        : '<span class="chip chip-muted">not reconciled</span>';
+    const recEl = document.getElementById('cost-reconcile-badge');
+    if (recEl) {
+      recEl.innerHTML = recBadge;
+      recEl.title = rec.checked_at
+        ? 'Last checked ' + new Date(rec.checked_at * 1000).toISOString()
+        : String(rec.reason || 'No reconciliation evidence');
+    }
     const sim = d.simulated_share;
     const badge = sim === null ? '<span class="chip chip-muted">no spend data</span>'
       : sim === 0 ? '<span class="chip chip-ok">measured</span>'
@@ -3764,7 +3777,8 @@ page = f"""<!doctype html>
         (harvested from the CLI's own usage report). Simulated figures — mock
         runs — are always labelled; they never masquerade as measured
         dollars.</div></div>
-        <span class="grow"></span><span id="cost-badge"></span>
+        <span class="grow"></span><span id="cost-reconcile-badge"></span>
+        <span id="cost-badge"></span>
       </div>
       <div id="cost-summary" class="sm" style="padding:0 16px 12px"></div>
     </section>

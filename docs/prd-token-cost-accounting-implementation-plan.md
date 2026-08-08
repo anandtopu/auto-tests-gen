@@ -14,7 +14,7 @@ Source: [prd-token-cost-accounting.md](prd-token-cost-accounting.md) (Draft v2)
 | 5 | TCA-B1 Complete consumer report | B1.1–B1.4, M2 | TCA-A3, TCA-C1 | Implemented | Basis-aware daily embedding section, durable probe attribution outside user totals, mandatory unmeterable counts, shared provider/basis rollups |
 | 6 | TCA-C2 Provider usage port | C2.1, C2.1a | TCA-A3 | Implemented | Adapter-family `usage <window>` verb, mock fixture, conformance suite, write-only admin credential, Make entry point |
 | 7 | TCA-C3 Reconciliation arithmetic | C2.1b, C2.2 | TCA-C2 | Implemented | Provider-aligned UTC windows, reported-only comparison, reconcilable fraction, deterministic drift evidence |
-| 8 | TCA-C4 Reconciliation operations | C2.3, C2.4, M4 | TCA-C3 | Planned | Notify alarm, three-state Cost badge, DEGRADED maintenance step, no-credential/API-down honesty |
+| 8 | TCA-C4 Reconciliation operations | C2.3, C2.4, M4 | TCA-C3 | Implemented | Notify alarm, three-state Cost badge, DEGRADED maintenance step, no-credential/API-down honesty |
 | 9 | TCA-FINAL Broad verification | M1–M4 and guardrails | TCA-A2–TCA-C4 | Planned | Full compatibility suite, report/runtime regression checks, final docs/status reconciliation |
 
 The sequence follows the PRD delivery slices. TCA-A3 is intentionally after the
@@ -167,6 +167,36 @@ threshold, or UI state changed; those operations remain TCA-C4.
 Focused C2/C3/history/ledger checks passed (33), the broad cost/history/adapter/
 settings/state/maintenance compatibility set passed (353), the mock Make
 journey passed, and changed Python files passed Ruff and syntax checks.
+
+#### TCA-C4 completion evidence
+
+| Criterion | Implementation | Verification |
+| --- | --- | --- |
+| C2.3 | Exact configured threshold; Notify-port alarm names provider/platform figures, provider window, missed harvests and shared-key workloads; no correction path | Above/below/undefined-percentage tests, message contract, successful/failed delivery, mock journey |
+| C2.4 | Atomic latest result and Cost API/UI expose exactly `not-reconciled`, `reconciled-no-drift`, or `reconciled-drift`; absent/corrupt/unavailable/timeout evidence fails closed | Persistence/load, API, source badge, credential and timeout tests |
+| M4 | Missing authorization cannot become real money or a healthy badge; maintenance classifies only provider/Notify exit 75 as DEGRADED and retains local exit 1 as FAILED | No-credential functional run plus exit-policy and local-failure tests |
+
+`cost_reconcile.py` now classifies each operation into exactly
+`not-reconciled`, `reconciled-no-drift`, or `reconciled-drift`, persists the
+latest result atomically under the relocatable cost-state directory, and never
+changes a ledger row. `budgets.reconcile_drift_pct` defaults to 10. A breach
+notifies only through `alert_rules.deliver`, names provider and platform
+figures, the exact provider window, missed harvests, and shared-key workloads,
+and records delivery success/failure in the persisted document. A non-zero
+mismatch with a zero provider denominator remains drift rather than becoming a
+false zero percentage.
+
+The Cost API and dashboard consume the fail-closed state. Missing, corrupt,
+unavailable, or timed-out evidence displays `not reconciled`; only a completed
+comparison can show either reconciled badge. Nightly maintenance runs the same
+command. Exit 75 means provider/Notify unavailability and is named DEGRADED;
+exit 1 still fails the job for local configuration or persistence faults.
+
+Focused operational, maintenance, API, adversarial, and source-contract tests
+passed (32), including an isolated mock Notify journey and a no-credential run
+that persisted `not-reconciled` and exited 75. Changed reconciliation code
+passed Ruff and all changed Python files compiled. The broad cost, state,
+settings, maintenance, adapter, and dashboard API compatibility set passed 267.
 
 ## Review and delivery gate
 

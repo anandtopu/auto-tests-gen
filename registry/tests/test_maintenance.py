@@ -52,14 +52,15 @@ def test_a_failed_local_step_is_named_and_fails_the_job():
 
 def test_an_external_step_degrades_instead_of_failing():
     """A job that goes red on somebody else's outage is a job whose red gets
-    ignored — but it must still SAY the step did not run."""
+    ignored — but it must still SAY the step did not complete."""
     steps = [("guidance sync", ["a.py"], True), ("prune", ["b.py"], False)]
     res = maintenance.run_steps(steps, runner=_fake([1, 0]))
     out = maintenance.summarize(res)
     assert res[0]["state"] == "degraded"
     assert "DEGRADED" in out and "guidance sync" in out
     assert "MAINTENANCE INCOMPLETE" not in out
-    assert "did NOT run" in out, "degraded must not read as 'fine'"
+    assert "did NOT complete successfully" in out, \
+        "degraded must not read as 'fine'"
 
 
 def test_a_local_failure_makes_the_job_exit_nonzero():
@@ -75,6 +76,16 @@ def test_a_local_failure_makes_the_job_exit_nonzero():
 def test_an_external_outage_alone_keeps_the_job_green():
     steps = [("guidance sync", ["a.py"], True), ("prune", ["b.py"], False)]
     assert maintenance.main([], steps=steps, runner=_fake([1, 0])) == 0
+
+
+def test_cost_reconciliation_degrades_only_for_its_external_exit_code():
+    steps = [("cost reconciliation", ["cost.py"], {75})]
+    degraded = maintenance.run_steps(steps, runner=_fake([75]))
+    failed = maintenance.run_steps(steps, runner=_fake([1]))
+    assert degraded[0]["state"] == "degraded"
+    assert failed[0]["state"] == "failed"
+    assert maintenance.exit_code(degraded) == 0
+    assert maintenance.exit_code(failed) == 1
 
 
 def test_the_summary_is_printed_even_when_everything_worked():
@@ -95,7 +106,8 @@ def test_only_externally_dependent_steps_are_tolerated():
     """Marking a local step tolerated restores exactly the silence this module
     removes, and would do it invisibly."""
     tolerated = {label for label, _, t in maintenance.STEPS if t}
-    assert tolerated == {"guidance sync", "vector index refresh"}, (
+    assert tolerated == {"guidance sync", "vector index refresh",
+                         "cost reconciliation"}, (
         "the tolerated set changed — a local step marked tolerated stops failing "
         "the nightly job")
 

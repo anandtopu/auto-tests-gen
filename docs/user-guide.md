@@ -1190,8 +1190,18 @@ absolute/percentage drift, under/over direction, per-basis call and dollar
 evidence, and the reconcilable share of same-provider call attempts. Dollar
 bases remain separate; the share is call-weighted precisely so estimated,
 simulated, local, unknown, and unrecorded evidence is disclosed without making
-a blended dollar total. `auto_corrected` is always false. Persisted state,
-alerts, maintenance scheduling, and the Cost badge remain TCA-C4.
+a blended dollar total. `auto_corrected` is always false.
+
+Each run atomically publishes the latest reconciliation state and the Cost view
+shows exactly one of **not reconciled**, **reconciled / no drift**, or
+**reconciled / drift**. No credential, an unreachable billing API, missing or
+invalid persisted evidence, and a provider timeout all remain **not
+reconciled**—never a green zero. Drift above
+`budgets.reconcile_drift_pct` (10% by default) sends a Notify-port alarm with
+both figures, the provider window, and likely causes; it never corrects the
+ledger. `make maintain` runs this check nightly: provider or notification
+outages are named **DEGRADED**, while invalid configuration or a failed durable
+write is **FAILED** and makes maintenance exit non-zero.
 Set `AIQE_EXPORTS_DIR` to relocate generated exports independently; otherwise
 they follow `AIQE_STATE_DIR` and default to `reports/exports`.
 

@@ -68,6 +68,9 @@ reports/runs/[0-9]*.diff
 # Durable spend ledger entries. Match generated run ids by name shape so a
 # future named policy/state file under reports/costs remains visible to git.
 reports/costs/[0-9]*.json
+# Latest reconciliation status is runtime operator state, carried by the state
+# bundle with the cost ledger and never committed.
+reports/costs/reconciliation.json
 
 # Guidance fetched from other repositories (guidance_sync). A CACHE — re-pulled by
 # `make sync-guidance`, and it holds files those repos own, not this one.

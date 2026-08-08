@@ -968,7 +968,11 @@ measured results and per-layer summary: [cost-optimization.md](cost-optimization
    reconciliation boundaries across consolidated retries. Reconciliation calls
    provider billing only through the LLM adapter `usage` port, compares
    same-provider `reported` dollars in the provider's `[start, end)` window,
-   keeps every other basis separate, and never auto-corrects. Rollups by
+   keeps every other basis separate, and never auto-corrects. Its latest
+   atomic, relocatable state drives a fail-closed three-state Cost badge. Drift
+   beyond the org threshold goes through the Notify port; provider/Notify
+   outages have a dedicated maintenance DEGRADED exit, while local state or
+   configuration faults remain failures. Rollups by
    workflow/key/phase/model tier
    feed `make cost-report`, the dashboard Cost view, and the team report; turn
    calibration (p50/p95 vs ceiling) makes §5.12's "cap max_turns" lever

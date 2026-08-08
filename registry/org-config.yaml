@@ -190,6 +190,9 @@ retry:
 budgets:
   max_cost_usd_single_suite: 2.0
   max_cost_usd_cross_repo: 4.0
+  # Provider-vs-platform reported-spend alarm. Reconciliation is diagnostic:
+  # crossing this threshold notifies but never rewrites durable history.
+  reconcile_drift_pct: 10
   # Per-workflow envelopes (cost-reduction 5.2): beat the generic pair above;
   # explicit MAX_COST_USD_PER_RUN env still wins. The degradation ladder (5.3)
   # grades against the same envelope: 60% = cheap tier for non-judgement

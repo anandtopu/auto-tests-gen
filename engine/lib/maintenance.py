@@ -45,8 +45,10 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
-# (label, argv, tolerated)
-# `tolerated` marks a step whose failure is somebody else's outage. Keep this
+# (label, argv, degraded policy)
+# True marks every failure as somebody else's outage. A set marks only named
+# exit codes as external, so a command can still expose its own local failures.
+# Keep this
 # list honest: marking a local step tolerated would restore exactly the silence
 # this module exists to remove.
 STEPS = [
@@ -62,6 +64,9 @@ STEPS = [
     # breaking the estate.
     ("vector index refresh", ["engine/lib/vector_index.py", "refresh"], True),
     ("cost regression check", ["engine/lib/cost_report.py", "check-regression"], False),
+    # Exit 75 is the provider/Notify unavailable contract. Configuration and
+    # durable-state failures use exit 1 and must still fail maintenance.
+    ("cost reconciliation", ["engine/lib/cost_reconcile.py"], {75}),
     ("spec drift check", ["engine/lib/spec_drift.py", "check", "--notify"], False),
     ("coverage drift check", ["engine/lib/coverage_drift.py", "--notify"], False),
     ("state-bundle snapshot", ["engine/lib/state_bundle.py", "export"], False),
@@ -82,7 +87,10 @@ def run_steps(steps=None, retain_days=None, runner=None):
         else:
             code = subprocess.run([sys.executable] + argv, cwd=ROOT,
                                   stdin=subprocess.DEVNULL).returncode
-        state = "ok" if code == 0 else ("degraded" if tolerated else "failed")
+        external = (tolerated is True or
+                    isinstance(tolerated, (set, frozenset, tuple, list))
+                    and code in tolerated)
+        state = "ok" if code == 0 else ("degraded" if external else "failed")
         results.append({"step": label, "exit": code, "state": state,
                         "command": " ".join(argv)})
     return results
@@ -107,7 +115,7 @@ def summarize(results):
     elif degraded:
         lines.append(f"maintenance completed with {len(degraded)} degraded step(s) "
                      f"(external systems): " + ", ".join(r["step"] for r in degraded))
-        lines.append("  These are not counted as failures, but they did NOT run.")
+        lines.append("  These are not counted as failures, but they did NOT complete successfully.")
     else:
         lines.append(f"maintenance complete: all {len(results)} step(s) ok")
     return "\n".join(lines)
