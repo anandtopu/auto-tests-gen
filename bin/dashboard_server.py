@@ -1184,8 +1184,10 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/settings":
             try:
                 p = json.loads(body or b"{}")
+                if not isinstance(p, dict):
+                    raise ValueError("JSON body must be an object")
                 self._send(200, {"ok": True, **settings_store.save(p["updates"])})
-            except (KeyError, json.JSONDecodeError) as e:
+            except (KeyError, ValueError, json.JSONDecodeError) as e:
                 self._send(400, {"error": _err(e)})
             except SystemExit as e:                     # unknown key / bad value
                 self._send(400, {"error": _err(e)})
@@ -1257,8 +1259,19 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/integrations/check":
             try:
                 p = json.loads(body or b"{}")
-                self._send(200, integration_check.run(p.get("which")))
-            except json.JSONDecodeError as e:
+                if not isinstance(p, dict):
+                    raise ValueError("JSON body must be an object")
+                which = p.get("which")
+                if which is not None and (
+                        not isinstance(which, list)
+                        or any(not isinstance(name, str) for name in which)):
+                    raise ValueError("which must be a list of integration names")
+                unknown = sorted(set(which or ()) - set(integration_check.CHECKS))
+                if unknown:
+                    raise ValueError(
+                        f"unknown integration check(s): {', '.join(unknown)}")
+                self._send(200, integration_check.run(which))
+            except (ValueError, json.JSONDecodeError) as e:
                 self._send(400, {"error": _err(e)})
         elif self.path == "/api/demo/clear":
             # Run as a SUBPROCESS (like the page render) so a long-lived server always

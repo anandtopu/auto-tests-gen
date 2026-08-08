@@ -73,6 +73,7 @@ def live_server(tmp_path_factory):
         shutil.copy2(source, catalog / source.name)
     env = dict(os.environ,
                AIQE_MOCK="1", AIQE_UI_PORT=str(port), AIQE_UI_TOKEN=TOKEN,
+               AIQE_ENV_FILE=str(d / ".env"),
                AIQE_REGISTRY_FILE=str(registry),
                AIQE_CATALOG_DIR=str(catalog),
                AIQE_CATALOG_DB=str(d / "catalog.db"),
@@ -87,6 +88,13 @@ def live_server(tmp_path_factory):
                AIQE_REVIEWS_FILE=str(d / "runs/reviews.json"),
                AIQE_QUEUE_FILE=str(d / "runs/queue.json"),
                AIQE_OPENHANDS_DIR=str(d / "openhands"))
+    for key in (
+        "ANTHROPIC_API_KEY", "GITHUB_TOKEN", "BITBUCKET_TOKEN", "STASH_TOKEN",
+        "STASH_URL", "ATLASSIAN_MCP_TOKEN", "JIRA_URL", "CONFLUENCE_URL",
+        "OPENHANDS_URL", "OPENHANDS_API_KEY", "JENKINS_URL", "SLACK_WEBHOOK_URL",
+        "SMTP_HOST", "SPLUNK_HEC_URL", "EMBED_URL", "OLLAMA_URL",
+    ):
+        env.pop(key, None)
     env.pop("AIQE_SSO_HEADER", None)
     env.pop("AIQE_HOOK_TOKEN", None)          # hooks must stay CLOSED
     logfile = d / "server.log"
@@ -398,6 +406,47 @@ def test_repo_remove_rejects_an_unknown_section(live_server):
     assert status == 200
     assert "payments-api" in {
         row["name"] for row in json.loads(text)["app_repos"]}
+
+
+@pytest.mark.parametrize("path", ["/api/settings", "/api/integrations/check"])
+@pytest.mark.parametrize("payload", ["[]", "null", "123", '"settings"'])
+def test_settings_endpoints_reject_non_object_json_without_dropping_connection(
+        live_server, path, payload):
+    base, _ = live_server
+    status, text = _request(base + path, method="POST", body=payload,
+                            headers=_auth())
+    assert 400 <= status < 500, (path, payload, status, text)
+    status, _ = _request(base + "/api/settings", headers=_auth())
+    assert status == 200, "the malformed request killed the server"
+
+
+@pytest.mark.parametrize("payload", [
+    '{"updates":[]}', '{"updates":"JIRA_URL"}', '{"updates":null}',
+])
+def test_settings_save_requires_an_updates_object(live_server, payload):
+    base, _ = live_server
+    status, text = _request(base + "/api/settings", method="POST", body=payload,
+                            headers=_auth())
+    assert status == 400, text
+
+
+@pytest.mark.parametrize("which", ["smtp", 1, {"name": "smtp"}, [1]])
+def test_integration_check_requires_a_string_list(live_server, which):
+    base, _ = live_server
+    status, text = _request(
+        base + "/api/integrations/check", method="POST",
+        body=json.dumps({"which": which}), headers=_auth())
+    assert status == 400, text
+
+
+def test_integration_check_rejects_unknown_names_instead_of_running_everything(
+        live_server):
+    base, _ = live_server
+    status, text = _request(
+        base + "/api/integrations/check", method="POST",
+        body=json.dumps({"which": ["not-a-real-integration"]}), headers=_auth())
+    assert status == 400, text
+    assert "unknown integration" in text
 
 
 def test_a_large_body_is_handled_cleanly(live_server):

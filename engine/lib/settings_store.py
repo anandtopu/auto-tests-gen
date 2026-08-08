@@ -290,10 +290,21 @@ SPEC = [
 
 ALL_KEYS = {f["env"]: f for s in SPEC for f in s["fields"]}
 
-# Track which env-var keys were loaded from .env by load_env_into() so that
-# refresh=True can update them on a subsequent call without touching keys that
-# the user's shell environment set explicitly.
-_env_file_keys: set = set()
+# Track the exact defaults supplied to each environment mapping. A refresh can
+# then remove only a value it still owns, rebuild .env > properties precedence,
+# and leave an explicitly changed shell value untouched. Strong references keep
+# mapping identity unambiguous; production has one mapping (os.environ), while
+# tests use only a small bounded number.
+_managed_environments = []
+
+
+def _managed_values(environ):
+    for target, values in _managed_environments:
+        if target is environ:
+            return values
+    values = {}
+    _managed_environments.append((environ, values))
+    return values
 
 
 def _parse(text):
@@ -344,32 +355,41 @@ def load_env_into(environ=None, refresh=False):
     """
     environ = os.environ if environ is None else environ
     applied = []
+    managed = _managed_values(environ)
+    if refresh:
+        for k, prior in list(managed.items()):
+            if environ.get(k) == prior:
+                environ.pop(k, None)
+        managed.clear()
     # ORDER MATTERS: each layer only fills keys that are still unset, so the layer
     # applied FIRST wins. .env therefore goes before properties, not after.
     current_env = load()
     for k, v in current_env.items():
-        if v and (k not in environ or (refresh and k in _env_file_keys)):
+        if v and k not in environ:
             environ[k] = v
             applied.append(k)
-            _env_file_keys.add(k)
+            managed[k] = v
     try:
         import props_file
-        applied += props_file.apply_to(environ)     # baseline; may be absent
+        property_keys = props_file.apply_to(environ)  # baseline; may be absent
+        applied += property_keys
+        for k in property_keys:
+            managed[k] = environ[k]
     except Exception:
         pass                                        # config file must never break startup
     # Map AIQE_* proxy vars to standard env vars so curl and urllib's default
-    # ProxyHandler both pick them up automatically. Standard vars are only set
-    # when the AIQE_ var is present — we never clear pre-existing values.
+    # ProxyHandler both pick them up automatically. They share the same managed
+    # ownership as file/property defaults, so explicit standard vars always win.
     proxy = environ.get("AIQE_HTTPS_PROXY", "").strip()
-    if proxy:
-        for k in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"):
-            if k not in environ:
-                environ[k] = proxy
+    for k in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"):
+        if proxy and k not in environ:
+            environ[k] = proxy
+            managed[k] = proxy
     no_proxy = environ.get("AIQE_NO_PROXY", "").strip()
-    if no_proxy:
-        for k in ("NO_PROXY", "no_proxy"):
-            if k not in environ:
-                environ[k] = no_proxy
+    for k in ("NO_PROXY", "no_proxy"):
+        if no_proxy and k not in environ:
+            environ[k] = no_proxy
+            managed[k] = no_proxy
     return applied
 
 
@@ -405,6 +425,10 @@ def get_settings():
 def save(updates):
     """Merge `updates` ({ENV: value}) into .env, preserving unrelated lines and
     comments. Empty value clears the key's value in place."""
+    if not isinstance(updates, dict):
+        raise SystemExit("updates must be an object")
+    if any(not isinstance(k, str) for k in updates):
+        raise SystemExit("setting names must be strings")
     unknown = sorted(k for k in updates if k not in ALL_KEYS)
     if unknown:
         raise SystemExit(f"unknown setting(s): {', '.join(unknown)}")
@@ -428,7 +452,16 @@ def save(updates):
                 replaced.add(k)
         lines += [f"{k}={_shell_quote(v)}" for k, v in updates.items()
                   if k not in replaced]
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        try:
+            with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+                fh.write("\n".join(lines) + "\n")
+            if path.exists():
+                os.chmod(tmp, path.stat().st_mode)
+            fs_lock.replace_atomic(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
     return {"updated": sorted(updates)}
 
 

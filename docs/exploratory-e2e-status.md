@@ -25,7 +25,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 11 | Activity and alerts | transaction filters/CSV, degraded log, rule evaluation, firing/resolution lifecycle | fixed-retested | E2E-EXP-023–027 | Browser + API/CLI: success/refusal/failure/corrupt events, filters, formula-safe CSV, unevaluable/firing/disabled/resolved states, mock delivery, rule save/test, restart persistence |
 | 12 | Test catalog | search, repo/status filters, mapping, CI health, orphan/quarantine | fixed-retested | E2E-EXP-028–030 | Browser + CLI: four-row isolated catalog, valid/empty/orphan mappings, synthetic mixed CI health, flaky quarantine lifecycle, concurrent decisions and empty/no-match filters |
 | 13 | Repositories | app/test repo CRUD, scopes, curated guidance, contracts/routes | fixed-retested | E2E-EXP-031–034 | Browser + API: isolated app/test CRUD, service dependencies, generated scope/covers, contract/routes, notes/curated guidance, malformed bodies, removal guards and restart persistence |
-| 14 | Settings and integrations | flags, adapters, credentials metadata, SSO/token modes | untested | — | Safe non-secret fixtures, invalid endpoints, clear/reset behavior |
+| 14 | Settings and integrations | flags, adapters, credentials metadata, SSO/token modes | fixed-retested | E2E-EXP-035–038 | Browser + API: isolated save/reload/removal, write-only secrets, safe connection checks, token/SSO coverage, malformed-body and atomic-write resilience |
 | 15 | API and CLI parity | dashboard APIs, `bin/qa.py`, hooks/TaskEvent receiver | untested | — | Compare UI outcomes with supported API/CLI paths |
 | 16 | Bootstrap/deployment/upgrade | onboarding, manifests, state bundle, migration/rollback checks | untested | — | Fresh isolated estate and compatibility smoke checks |
 
@@ -523,3 +523,47 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   Detailed review: `docs/reviews/exploratory-e2e-iteration-014.md`.
 - Next slice: Settings and integrations, including flags, adapter metadata,
   authentication modes and safe reset behavior.
+
+### 2026-08-07 — Iteration 15: Settings and integrations
+
+- Seed data: an ignored `out/exploratory-e2e-iter15/settings.env` stored one
+  synthetic JIRA URL and one explicitly non-secret SMTP placeholder. The
+  localhost server ran with mock adapters, a test bearer token and every known
+  external credential removed from its environment; no production probe ran.
+- Happy and boundary paths: the served Settings UI rendered every integration
+  section, saved and reloaded a non-secret value, retained a write-only secret
+  without returning it through the API, explicitly cleared the JIRA value,
+  and ran all 11 connection checks as safely not configured. Token access
+  returned 200 while an unauthenticated settings read returned 401; existing
+  SSO fail-closed and trusted-header paths passed their compatibility suite.
+- Finding `E2E-EXP-035` (P1): clearing a `.env` setting left the previous value
+  in the long-lived dashboard process. A later connection check or adapter
+  entry point could therefore keep using a removed credential, URL or proxy.
+  Refresh now removes prior file-owned values and only removes/updates standard
+  proxy aliases that the settings loader itself supplied.
+- Finding `E2E-EXP-036` (P1): Settings rewrote `.env` in place. Interruption or
+  disk failure could truncate the estate's full integration configuration.
+  Save now writes a same-directory temporary file and uses the shared retried
+  atomic replacement helper; fault injection preserved the complete original.
+- Finding `E2E-EXP-037` (P2): arrays, null, numbers and strings sent to either
+  Settings POST endpoint raised outside request handling and reset the client
+  connection. Both endpoints now require a JSON object, and settings updates
+  additionally require an object, returning stable 400 responses.
+- Finding `E2E-EXP-038` (P2): malformed or unknown integration selectors could
+  fall through the checker's legacy CLI default and run every configured
+  external probe. The HTTP contract now accepts only a list of known string
+  identifiers; invalid input is rejected before any checker runs.
+- Review finding fixed before commit: the shared live-server fixture inherited
+  developer integration credentials. It now uses an isolated `.env` and drops
+  all known external URLs/tokens so adversarial tests cannot contact real
+  systems even when the parent shell is configured.
+- Validation: 17 focused regressions failed before the fixes and passed after;
+  the final settings/UI/integration/token/SSO/adversarial compatibility run
+  passed 245 tests. Python compilation and high-signal Ruff checks passed. A
+  transient Windows reset while reading a deliberately rejected 2 MB request
+  passed alone and in the final suite. A post-review ownership refinement then
+  passed 80 settings/properties/integration checks and 16 live-API regressions.
+  Detailed review:
+  `docs/reviews/exploratory-e2e-iteration-015.md`.
+- Next slice: API and CLI parity, including dashboard APIs, `bin/qa.py`, hooks
+  and the TaskEvent receiver.

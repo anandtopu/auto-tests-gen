@@ -52,6 +52,73 @@ def test_inline_comments_stripped_on_read(env_file):
     assert settings_store.load()["CONFLUENCE_SPACE"] == "ENG"
 
 
+def test_refresh_removes_a_setting_cleared_from_the_env_file(env_file):
+    target = {}
+    settings_store.save({"JIRA_URL": "https://jira.synthetic.invalid",
+                         "AIQE_HTTPS_PROXY": "http://proxy.synthetic.invalid:8080"})
+    settings_store.load_env_into(target)
+    assert target["JIRA_URL"] == "https://jira.synthetic.invalid"
+    assert target["HTTPS_PROXY"] == "http://proxy.synthetic.invalid:8080"
+
+    settings_store.save({"JIRA_URL": "", "AIQE_HTTPS_PROXY": ""})
+    settings_store.load_env_into(target, refresh=True)
+    assert "JIRA_URL" not in target
+    assert "AIQE_HTTPS_PROXY" not in target
+    assert "HTTPS_PROXY" not in target
+
+    settings_store.save({"JIRA_URL": "https://jira.reconfigured.invalid"})
+    settings_store.load_env_into(target, refresh=True)
+    assert target["JIRA_URL"] == "https://jira.reconfigured.invalid"
+
+
+def test_refresh_preserves_explicit_environment_and_proxy_values(env_file):
+    target = {
+        "JIRA_URL": "https://jira.from-shell.invalid",
+        "HTTPS_PROXY": "http://proxy.from-shell.invalid:8080",
+    }
+    settings_store.save({"JIRA_URL": "https://jira.from-file.invalid",
+                         "AIQE_HTTPS_PROXY": "http://proxy.from-file.invalid:8080"})
+    settings_store.load_env_into(target)
+    assert target["JIRA_URL"] == "https://jira.from-shell.invalid"
+    assert target["HTTPS_PROXY"] == "http://proxy.from-shell.invalid:8080"
+
+    settings_store.save({"JIRA_URL": "", "AIQE_HTTPS_PROXY": ""})
+    settings_store.load_env_into(target, refresh=True)
+    assert target["JIRA_URL"] == "https://jira.from-shell.invalid"
+    assert target["HTTPS_PROXY"] == "http://proxy.from-shell.invalid:8080"
+
+
+def test_save_is_atomic_when_replacement_fails(env_file, monkeypatch):
+    original = "# keep this complete\nJIRA_URL=https://old.synthetic.invalid\n"
+    env_file.write_text(original, encoding="utf-8")
+
+    def fail_replace(tmp, dest):
+        assert pathlib.Path(tmp).read_text(encoding="utf-8").find(
+            "https://new.synthetic.invalid") >= 0
+        assert pathlib.Path(dest) == env_file
+        raise OSError("synthetic replace interruption")
+
+    monkeypatch.setattr(settings_store.fs_lock, "replace_atomic", fail_replace)
+    with pytest.raises(OSError, match="synthetic replace interruption"):
+        settings_store.save({"JIRA_URL": "https://new.synthetic.invalid"})
+    assert env_file.read_text(encoding="utf-8") == original
+    assert not list(env_file.parent.glob(".*.tmp"))
+
+
+def test_save_preserves_existing_env_file_mode(env_file, monkeypatch):
+    env_file.write_text("JIRA_URL=https://old.synthetic.invalid\n", encoding="utf-8")
+    original_mode = env_file.stat().st_mode
+    calls = []
+    monkeypatch.setattr(settings_store.os, "chmod",
+                        lambda path, mode: calls.append((pathlib.Path(path), mode)))
+
+    settings_store.save({"JIRA_URL": "https://new.synthetic.invalid"})
+
+    assert len(calls) == 1
+    assert calls[0][0].parent == env_file.parent
+    assert calls[0][1] == original_mode
+
+
 def test_every_spec_key_documented_in_env_example():
     example = (ROOT / ".env.example").read_text(encoding="utf-8")
     documented = {line.split("=", 1)[0].strip() for line in example.splitlines()
