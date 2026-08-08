@@ -515,7 +515,7 @@ the reviewer (S3/S4) is what makes the resumed generation trustworthy.
 | E2 | Under `require`, should a refused run auto-create a review-board item assigned via the reviewer rota, or only comment? | LEAD + Product | S4 |
 | E3 | Reviewer model tier: generate-tier quality vs. validate-tier cost — decide from S3 warn-mode data, not upfront | EM | S4 |
 | E4 | Panel trigger threshold for B5.3 (escape-rate % that justifies a second lens) | Product | after one real quarter |
-| E5 | Should discovered tickets auto-link the PR on the ticket (Tracker `comment`) even when generation is not plan-first? | Product | S1 |
+| E5 | Should discovered tickets auto-link the PR on the ticket (Tracker `comment`) even when generation is not plan-first? **Resolved 2026-08-06:** yes — the delivery comment goes to both surfaces; specified as A2.4 of [prd-jira-comments-and-ticket-search.md](prd-jira-comments-and-ticket-search.md) | Product | ~~S1~~ done |
 
 ---
 

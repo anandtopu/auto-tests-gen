@@ -2,7 +2,7 @@
 
 |  |  |
 |---|---|
-| **Status** | Draft for review |
+| **Status** | Draft v2 — revised after adversarial gap review (Appendix B) |
 | **Author** | Product Management (QE Platform) |
 | **Date** | 2026-08-06 |
 | **Doc** | `docs/prd-jira-comments-and-ticket-search.md` |
@@ -126,10 +126,12 @@ such; the approval ask and how to act on it.
   rendering** — the one-source-of-truth rule that already governs
   `testplans/<KEY>.md`. A second scenario renderer in the comment builder is
   how the comment and the plan drift.
-- **A1.2** — Length SHALL be bounded (JIRA comment limits are real): scenario
-  lines first, then truncation stated honestly — "N more scenarios — full plan
-  attached/linked" — with the existing attach/link mechanisms unchanged. A
-  truncated list that does not say so reads as the whole plan.
+- **A1.2** — Length SHALL be bounded by org-config `comments.max_chars`
+  (default **8,000** — JIRA's hard ceiling is 32,767 and a comment anywhere
+  near it is unreadable): scenario lines first, then truncation stated
+  honestly — "N more scenarios — full plan attached/linked" — with the
+  existing attach/link mechanisms unchanged. A truncated list that does not
+  say so reads as the whole plan.
 - **A1.3** — Free-form (legacy) plans get the current summary comment
   unchanged — no structured spec means nothing to itemize, and inventing
   structure from prose is a lie with bullet points.
@@ -154,20 +156,51 @@ reviewer/critic lines as today, and the basis-labelled cost line.
   learn nothing arrived.
 - **A2.3** — Cost renders under the iron rule: basis-labelled, `~` for
   estimated/simulated, never a blended number.
+- **A2.4** — **PR-mode runs with a discovered ticket comment that ticket too
+  (v2 decision — resolves the fused-context PRD's open question E5).**
+  Plan-from-PR delivery already routes to the discovered ticket
+  (`PLAN_TICKET`, `pipeline.sh:1105`); a plain `pr`-mode run with a fused
+  ticket commented only the PR, so the requester watching the ticket the PR
+  implements heard nothing. The delivery comment goes to both surfaces; the
+  ticket's copy names the PR it came from. One decision, made once, cited by
+  both PRDs.
+- **A2.5** — **Plain-text-safe rendering is the guaranteed floor**, whatever
+  the ADF decision (Q1): every comment SHALL render meaningfully as plain
+  text, with richer formatting a per-adapter capability on top — never a
+  precondition. A comment that requires ADF to be readable fails closed on
+  Server/DC.
 
 ### A3. Idempotency — comments that update instead of accumulate
 
 **Requirement.** Re-running a key SHALL NOT accumulate duplicate comments.
 
 - **A3.1** — Every platform comment SHALL carry a stable, machine-readable
-  marker (kind + key; invisible or unobtrusive in JIRA rendering). The marker
-  is identity: it is how "this is the plan comment for PROJ-301" is knowable
-  a run later.
+  marker (kind + key) as a **visible but unobtrusive footer line**
+  (`⚙ aiqe:delivery:PROJ-410 · run 1754…`) — v1 said "invisible", and JIRA
+  plain-text comments have no reliable hidden markup; pretending otherwise
+  would have surfaced as a formatting surprise in S4. The visible footer also
+  gives the requester run attribution for free.
 - **A3.2** — The Tracker port gains an **`update_comment`** verb, capability
   ed like the LLM adapters' `tool_policy`: an adapter that cannot update
   (API limitation, permissions) says so, and the platform falls back to
   append-with-supersession ("supersedes the plan comment above") — stated
   fallback, never silent duplication.
+- **A3.2a** — **Only comments authored by the platform's own account are ever
+  updated.** A marker is not authority: a third party's comment carrying a
+  forged or coincidental marker must never be edited by us — that is
+  tampering with a human's words, and on most deployments a permissions
+  error besides. Authorship mismatch → the append-with-supersession path,
+  and the mismatch is recorded.
+- **A3.5** — **How a later run finds the comment to update (v2 — v1 specified
+  update semantics with no way to locate the target):** posted comment ids
+  are **persisted where the comment's subject lives** — `plan_state` for plan
+  comments (the `mark_linked` precedent, same store, same shape) and the run
+  record's `comments` block for delivery comments, which a retry reads from
+  the key's prior run records (a store and lookup that already exist). A
+  `find_comment` search verb was considered and rejected: it widens the port
+  for a lookup the platform's own records can answer, and a marker search
+  against a long comment thread is the slow, spoofable version of reading
+  our own receipt.
 - **A3.3** — Unchanged content SHALL NOT be re-sent at all: same marker, same
   rendered body → skip, recorded as `skipped_unchanged`. A retry that changes
   nothing should leave no trace on the ticket.
@@ -181,10 +214,20 @@ reviewer/critic lines as today, and the basis-labelled cost line.
 **Requirement.** Every comment attempt SHALL record its outcome.
 
 - **A4.1** — The run record gains a `comments` block: per attempt — kind,
-  target ticket, outcome (`posted | updated | skipped_unchanged | failed`),
-  and the failure detail when failed. The event log gets the same
-  (`ticket.comment` kind). Today `|| true` swallows everything: a tracker
-  outage means the requester never heard, and nothing anywhere knows.
+  target ticket, comment id when posted (A3.5's lookup source), outcome
+  (`posted | updated | skipped_unchanged | failed`), and the failure detail
+  when failed. The event log gets the same (`ticket.comment` kind). Today
+  `|| true` swallows everything: a tracker outage means the requester never
+  heard, and nothing anywhere knows.
+- **A4.1a** — **Plan-mode outcomes have a stated home, because a run record
+  does not exist there.** The plan comment (A1 — the headline feature) is
+  posted by plan mode, which writes no run record *by design* — v1's "the run
+  record gains a comments block" was unimplementable for the feature's own
+  flagship path. This is the cost PRD's G1 shape (an invariant silently
+  taking a record down with it), reproduced by this document one week after
+  citing it. Plan-mode comment outcomes land in the **event log** plus
+  **`plan_state` provenance** — the `mark_linked` precedent: same store, same
+  shape, already carried by the state bundle.
 - **A4.2** — Comments REMAIN best-effort — a failed comment never aborts a
   run, exactly as today. What changes is that the failure is a recorded fact
   (C13: not-delivered is its own state), surfaced in Run progress and
@@ -215,19 +258,32 @@ fixVersions, status.
   `x" OR key in (SEC-1)//` must arrive as a literal string, on both adapters).
   Structured-filters-only (§3.2) is what makes this provable: an escaping
   guarantee over raw JQL is a promise nobody can keep.
-- **B1.4** — Filter vocabulary = `ticket_fields`' vocabulary (components,
-  labels, issue_type, fix_versions) — the fields you can search are the
-  fields the run will process, one definition.
+- **B1.4** — The filter set is **closed and defined in one module**, a
+  *superset* of `ticket_fields`' vocabulary: components, labels, issue_type,
+  fix_versions are shared with what the run processes (shared by
+  construction, one definition), plus `status` and `text`, which are
+  search-only. v1 claimed equality, which was internally false — `status`
+  is discovery provenance, not a processed field, and pretending the two
+  sets match is how a "supported field" quietly becomes an unprocessed one.
+- **B1.5** — **Results carry `returned` and `total`, and truncation is always
+  stated.** JIRA search paginates (default 50); a verb that returns a page
+  as if it were the population makes every downstream count a lie — see
+  B2.2, where that lie would live inside the safety confirmation. The UI
+  renders "showing N of M"; fetching further pages is a UI affordance, not
+  an adapter default.
 
 ### B2. The UI
 
 - **B2.1** — The Intake fetch grows a filter row: release (as today, free
   text + autocomplete), type, component, label, status, text. Results list
   shows the attributes; each row keeps Queue / Plan-only.
-- **B2.2** — **Queue filtered set** (bulk): one confirmation naming the count
-  ("Queue 14 tickets?"), items queued individually through existing intake
-  validation — a bulk path that bypasses per-item validation is a bulk path
-  for bad items. Rate-limited by the existing queue mechanics.
+- **B2.2** — **Queue filtered set** (bulk): one confirmation naming **both
+  figures** — "Queue 50 of 140 matched?" — because with pagination (B1.5) the
+  fetched page and the matched population differ, and a confirmation naming
+  only the page is the safety feature doing the lying. Items queue
+  individually through existing intake validation — a bulk path that bypasses
+  per-item validation is a bulk path for bad items. Rate-limited by the
+  existing queue mechanics.
 - **B2.3** — A failed search says so in-view (the loadFailed convention —
   an empty result list and a failed fetch must not look alike).
 
@@ -265,10 +321,14 @@ is what reading one on a real ticket during rollout is for.
 |---|---|---|---|
 | **S1 — Search verb + escaping** | B1 (incl. **G6 fix**) | — (verb addition; G6 fix is unconditional) | `search` on both adapters, conformance green, injection fixture green, `search_release` reimplemented over it |
 | **S2 — UI filters + bulk** | B2, B3 | `AIQE_TICKET_SEARCH` (default 0 until S1 conformance ships) | filter row live against mock; bulk with confirmation + per-item validation; queue attribute display; defensive reads pinned |
-| **S3 — Rich comments** | A1, A2 | `AIQE_TICKET_COMMENTS_RICH` (default 0) | plan comment through `spec_store` render; delivery comment sharing `pr_comment`'s projection (pin); bounded lengths; refusals commented |
-| **S4 — Idempotency + accounting** | A3, A4 | rides S3's flag | markers + `update_comment` capability verb + fallback; `skipped_unchanged`; `comments` block + events; explain/Run-progress surfacing |
+| **S3 — Accounting first** | A4 | **unconditional** — pure observability on comments that already post; v1 had it riding the rich flag, which would have left today's silent failures running forever in flag-off estates | `comments` block + `plan_state` provenance + events on all five existing sites; explain/Run-progress surfacing |
+| **S4 — Rich comments** | A1, A2 | `AIQE_TICKET_COMMENTS_RICH` (default 0) | plan comment through `spec_store` render; delivery comment sharing `pr_comment`'s projection (pin); PR-path fused-ticket delivery comment (A2.4); plain-text floor (A2.5); bounded lengths; refusals commented |
+| **S5 — Idempotency** | A3 | unconditional for the existing summary comment; rich comments inherit | markers + id persistence (A3.5) + `update_comment` capability verb + author guard (A3.2a) + fallback; `skipped_unchanged`; retry fixture green |
 
 S1 first because G6 is a live defect and every later slice widens that surface.
+S3 (accounting) precedes the rich comments deliberately: knowing whether
+today's comments land is worth more than making tomorrow's prettier, and it
+is the slice with zero behavioral risk.
 
 ---
 
@@ -289,7 +349,7 @@ S1 first because G6 is a live defect and every later slice widens that surface.
 
 | # | Question | Owner | Needed by |
 |---|---|---|---|
-| Q1 | Comment formatting: Jira Cloud v3 wants ADF for rich comments; Server/DC takes wiki markup. Ship plain-text-safe first with per-adapter formatting as capability, or ADF from day one? | EM | S3 |
+| Q1 | Comment formatting: Jira Cloud v3 wants ADF for rich comments; Server/DC takes wiki markup. **Narrowed in v2:** the plain-text floor is now AC A2.5, not an option — the remaining question is only whether S4 also ships ADF/wiki rendering as adapter capability, or defers it | EM | S4 |
 | Q2 | Should the delivery comment @-mention the reporter/assignee? (Notification value vs. noise; JIRA already notifies watchers of comments) | Product + LEAD | S3 |
 | Q3 | Saved filter presets in the UI — worth persisting, and where (they are per-user, and the platform has no per-user store)? | Product | after S2 usage data |
 | Q4 | Should `needs_follow_up` from selective approval also comment the ticket (the reviewer excluded a committed test)? It is the one message the requester most needs and currently lives only in the approved-artifact manifest | Product | S3 |
@@ -333,3 +393,24 @@ After approval and generation, the *same* comment thread:
 
 And in the run record, for the audit that follows any incident:
 `comments: [{kind: plan, outcome: posted}, {kind: delivery, outcome: updated}]`.
+
+---
+
+## Appendix B — Revision history
+
+**v2 (2026-08-06)** — after an adversarial gap review of v1, ten findings. The
+two largest made v1 unimplementable as written, and one of them reproduced a
+defect class this document series had named seven days — one document — earlier.
+
+| Change | Driven by |
+|---|---|
+| A3.5: comment-id persistence decided (plan_state for plan comments, run-record `comments` blocks for delivery; `find_comment` verb considered and rejected with reasons) | Finding 1 — v1 specified update semantics with **no way to locate the comment to update**: no id store, no list verb. S4 would have stalled at design |
+| A4.1a: plan-mode outcomes land in the event log + plan_state provenance | Finding 2 — v1 put outcomes in "the run record", and the plan comment is posted by plan mode, **which writes no run record by design**. The cost PRD's G1 shape, reproduced by this document one week after citing it |
+| S3 (accounting) unconditional and re-ordered before rich comments; idempotency covers the existing summary comment | Finding 3 — v1 had A4 riding the rich-comments flag, leaving today's silent failures and retry spam running forever in flag-off estates |
+| B1.5 `returned`/`total` contract; B2.2 confirmation names both figures | Finding 4 — JIRA search paginates; a confirmation naming the fetched page as the population is the safety feature doing the lying |
+| A3.2a: update only own-account comments; mismatch → append + recorded | Finding 5 — a forged or coincidental marker in a third party's comment must never let the platform edit a human's words |
+| A2.4: PR-mode fused runs comment the discovered ticket (resolves fused-PRD E5, closed there with a pointer here) | Finding 6 — plan-from-PR delivery already routed to the ticket; plain pr-mode fused runs left the requester unheard |
+| A3.1: marker is a visible footer, not "invisible" | Finding 7 — JIRA plain text has no hidden markup; the footer doubles as run attribution |
+| B1.4: filter set is a stated *superset* of `ticket_fields`' vocabulary | Finding 8 — v1 claimed equality while including `status`/`text`, which the run does not process |
+| A1.2: `comments.max_chars` org-config knob, default 8,000, ceiling named | Finding 9 |
+| A2.5: plain-text floor as an AC; Q1 narrowed to the rich-format question | Finding 10 |
