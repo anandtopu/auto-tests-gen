@@ -23,6 +23,7 @@ import re
 import subprocess
 import sys
 import env_flag                     # AIQE_MOCK means what it says
+import sdd_messages
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
@@ -80,14 +81,18 @@ def check(notify=False):
         if not spec:
             continue
         stale = []
+        stale_surfaces = {}
         for s in spec.get("scenarios", []):
             refs = _scenario_refs(s)
             gone = {p for p in refs if all_paths and p not in all_paths}
             if gone:
-                stale.append(s.get("id", "?"))
+                scenario_id = s.get("id", "?")
+                stale.append(scenario_id)
+                stale_surfaces[scenario_id] = sorted(gone)
         entry = plan_state.get(key)
         prev = set(entry.get("stale_scenarios") or [])
-        changed = set(stale) != prev
+        previous_surfaces = entry.get("stale_surfaces") or {}
+        changed = set(stale) != prev or stale_surfaces != previous_surfaces
         approved = entry.get("status") == "approved"
 
         # Deliver BEFORE recording. `_record` used to persist the new stale set
@@ -97,10 +102,11 @@ def check(notify=False):
         # change is committed once the notification actually lands.
         delivered = True
         if notify and approved and changed and stale:
-            delivered = _notify(
-                f"[ai-qe] APPROVED spec for {key} went stale: "
-                f"scenarios {', '.join(stale)} reference surface that "
-                f"no longer exists — re-approve, edit, or waive")
+            messages = [sdd_messages.refusal(
+                "drift_stale", key=key, scenario=scenario_id,
+                surfaces=stale_surfaces.get(scenario_id))["text"]
+                for scenario_id in stale]
+            delivered = _notify("\n".join(messages))
 
         # An undelivered alarm leaves the previous state in place so the next
         # run reports it again. Resolution still records: `delivered` starts
@@ -110,14 +116,15 @@ def check(notify=False):
         # stale`; the second clause is unreachable, and a condition that cannot
         # be exercised is the kind of thing this codebase keeps finding.)
         if changed and delivered:
-            _record(key, stale)
+            _record(key, stale, stale_surfaces)
         if stale:
             results.append({"key": key, "stale": stale, "approved": approved,
+                            "stale_surfaces": stale_surfaces,
                             "delivered": delivered})
     return results
 
 
-def _record(key, stale):
+def _record(key, stale, stale_surfaces=None):
     try:
         import fs_lock
         import plan_state
@@ -126,8 +133,10 @@ def _record(key, stale):
             e = state.get(key, {"history": []})
             if stale:
                 e["stale_scenarios"] = stale
+                e["stale_surfaces"] = stale_surfaces or {}
             else:
                 e.pop("stale_scenarios", None)
+                e.pop("stale_surfaces", None)
             state[key] = e
             plan_state._save(state)
     except Exception:

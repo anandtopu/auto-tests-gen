@@ -8,7 +8,7 @@ Source: [prd-sdd-usability.md](prd-sdd-usability.md) (Draft v2)
 | Order | Item | PRD mapping | Dependencies | Status | Implementation boundary |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | SDD-S1 Vocabulary and state labels | A1.0–A1.2, A2.1–A2.2, A3.1–A3.2, M1 | none | Implemented | Presentation-only glossary/markup, exact state labels, machine-name disclosure, pinned user-facing docs |
-| 2 | SDD-S2 Journey actions and refusal contract | B1.1–B1.2, B3.1, M2–M3 | SDD-S1 | Pending | One action from `spec_workflow`, shared Python refusal builder, CLI/UI message parity |
+| 2 | SDD-S2 Journey actions and refusal contract | B1.1–B1.2, B3.1, M2–M3 | SDD-S1 | Implemented | One action from `spec_workflow`, shared Python refusal builder, CLI/UI message parity |
 | 3 | SDD-S3 Adoption levels | C1.0–C1.3, M5 | SDD-S1 | Pending | One level mapping over existing resolved knobs, visible warn/strict sub-state, Custom truth |
 | 4 | SDD-S4 Wizard and approval benefit | B2.1–B2.2, B4, M4 | SDD-S1, SDD-S2 | Pending | Conditional acceptance-criteria step and signed/prose-aware approval confirmation |
 | 5 | SDD-FINAL Broad verification | M1–M6, risks, non-goals | SDD-S1–S4 | Pending | Full compatibility, mock journey, docs currency, final review and status reconciliation |
@@ -52,14 +52,28 @@ that visual check passed.
 
 ## Later-slice acceptance summary
 
-### SDD-S2
+## SDD-S2 acceptance mapping
 
-- Render the current blocker and exactly one action from `spec_workflow`; never
-  infer state in JavaScript.
-- Relabel the journey consistently while preserving `data-view="specflow"`.
-- Add `engine/lib/sdd_messages.py`; pipeline Bash and dashboard surfaces consume
-  its tested refusal contracts for criteria, plan approval, exit 8, expired
-  waiver, and stale drift.
+| Criterion | Implementation | Verification |
+| --- | --- | --- |
+| B1.1 | Every `spec_workflow` row computes one action label, equivalent command, and destination view; dashboard buttons consume those fields and the ticket key without branching on machine state | Six-state behavior pin, source mutation pin, served API rows all contain the three fields |
+| B1.2 | Visible name remains **Plan → tests journey** and `data-view="specflow"` remains the machine id | Existing S1 currency/navigation pin remains green |
+| B3 | `sdd_messages.py` owns five closed contracts: requirements, plan approval, uncovered scenario, expired waiver, and stale drift; each has what/why/one-action/command fields and one canonical text | Parameterized contract fixtures plus plan, gate, drift, queue, and dashboard integration assertions |
+| B3.1 | `pipeline.sh` enters ticket plan/requirements gates through the builder CLI; `plan_state`, strict `spec_check`, `spec_drift`, queue failures, and dashboard APIs consume the same text | Direct Bash wiring pin; exact message equality tests; strict/warn truthfulness test |
+| M2 | All five required refusal kinds are fixture-pinned; warn-mode coverage stays advisory and never says delivery refused | Five-kind parameterization and strict/warn captured-output test |
+| M3 | All six states retain plain S1 labels and now expose one computed next action with its command | Six-state row fixture; real `/api/spec-workflow` returned six states and no row missing action metadata |
+
+Implementation evidence: the combined dashboard/API/workflow/docs/adversarial
+suite passed 354/354. Review fixes then passed 167/167 focused tests. Python compilation,
+Ruff correctness checks, Bash syntax, dashboard generation, and a served local
+HTTP/API check passed. The served board returned six states, one row, and zero
+rows missing action metadata.
+
+Two cross-file defects found during review were fixed: a stale scenario whose
+vanished surface changed now updates evidence and re-notifies even when its id
+does not change; coverage `warn` output remains advisory instead of falsely
+saying delivery was refused. Computed dashboard refusal fields now win over
+durable-entry keys and malformed legacy `stale_surfaces` degrades safely.
 
 ### SDD-S3
 

@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "engine/lib"))
 import spec_drift as sd  # noqa: E402
 import spec_store as ss  # noqa: E402
 import plan_state as ps  # noqa: E402
+import sdd_messages  # noqa: E402
 
 
 @pytest.fixture
@@ -80,8 +81,32 @@ def test_approved_drift_notifies_once_per_change(estate, monkeypatch):
     monkeypatch.setattr(sd, "_notify", lambda msg: sent.append(msg) or True)
     sd.check(notify=True)
     assert len(sent) == 1 and "K-1-S2" in sent[0]
+    assert sent[0] == sdd_messages.refusal(
+        "drift_stale", key="K-1", scenario="K-1-S2",
+        surfaces=["/v1/legacy/rebates"])["text"]
     sd.check(notify=True)                           # unchanged -> silent
     assert len(sent) == 1, "an unchanged stale set must not re-alarm nightly"
+
+
+def test_changed_vanished_surface_realarms_even_when_scenario_id_is_unchanged(
+        estate, monkeypatch):
+    seed, _ = estate
+    scenario = {**SC_GONE, "verification": [
+        "GET /v1/legacy/rebates and GET /v1/legacy/coupons are rejected"]}
+    seed([scenario])
+    ps.set_status("K-1", "approved", "lead")
+    sent = []
+    monkeypatch.setattr(sd, "_notify", lambda msg: sent.append(msg) or True)
+
+    monkeypatch.setattr(sd, "_current_surface",
+                        lambda: {"orders-api": {"/v1/legacy/rebates"}})
+    sd.check(notify=True)
+    assert "/v1/legacy/coupons" in sent[-1]
+
+    monkeypatch.setattr(sd, "_current_surface",
+                        lambda: {"orders-api": {"/v1/legacy/coupons"}})
+    sd.check(notify=True)
+    assert len(sent) == 2 and "/v1/legacy/rebates" in sent[-1]
 
 
 def test_no_surface_harvested_means_no_false_stale(estate, monkeypatch):

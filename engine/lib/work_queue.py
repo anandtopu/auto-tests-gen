@@ -312,7 +312,7 @@ EXIT_MEANING = {
 # adapters' actionable errors. Matched case-sensitively — they are emitted, not typed.
 _SIGNALS = ("NO_STASH_PROJECT", "PIPELINE_BUSY", "BUDGET_EXCEEDED", "INVALID_KEY",
             "INVALID_MODE", "PLAN_SNAPSHOT_MISSING", "not approved",
-            "needs_clarification", "GATE_STATUS=", "clone failed", "fatal:",
+            "needs_clarification", "SDD_REFUSAL[", "GATE_STATUS=", "clone failed", "fatal:",
             "HTTP 4", "HTTP 5", "Failed to authenticate", "error:")
 
 
@@ -329,7 +329,9 @@ def failure_reason(exit_code, stdout="", stderr="", limit=400):
 
     for line in reversed(lines):                    # most recent signal wins
         if any(sig in line for sig in _SIGNALS):
-            return line[:limit]
+            # Shared SDD contracts are already bounded and must reach CLI and
+            # UI byte-for-byte. The ordinary log-line limit remains unchanged.
+            return line[:1000] if "SDD_REFUSAL[" in line else line[:limit]
 
     meaning = EXIT_MEANING.get(exit_code)
     if meaning:

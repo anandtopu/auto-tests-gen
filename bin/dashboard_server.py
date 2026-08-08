@@ -71,7 +71,7 @@ import alert_rules, demo_data, email_notify, event_log, export_plan, \
     guidance_sync, inline_ticket, integration_check, openhands_client, \
     openhands_events, openhands_mode, plan_state, pr_url, repo_admin, \
     repo_guidance_gen, review_state, settings_store, spec_workflow, \
-    team_report, ticket_search, waiver_store, work_queue
+    sdd_messages, team_report, ticket_search, waiver_store, work_queue
 import governance_page
 import http_body
 import spec_savings
@@ -581,12 +581,32 @@ class Handler(BaseHTTPRequestHandler):
                 # reviewer sees WHAT the ticket left undefined beside the
                 # scenarios that had to route around it.
                 import spec_store
-                self._send(200, {"key": key, "text": snapshot["text"],
+                entry = snapshot["entry"]
+                waivers = spec_store.load_waivers(key)
+                stored_surfaces = entry.get("stale_surfaces") or {}
+                if not isinstance(stored_surfaces, dict):
+                    stored_surfaces = {}
+                stale_messages = {
+                    scenario: sdd_messages.refusal(
+                        "drift_stale", key=key, scenario=scenario,
+                        surfaces=stored_surfaces.get(scenario))
+                    for scenario in entry.get("stale_scenarios") or []
+                }
+                waiver_messages = {
+                    scenario: sdd_messages.refusal(
+                        "waiver_expired", key=key, scenario=scenario,
+                        expiry=waiver.get("expires"))
+                    for scenario, waiver in waivers.items()
+                    if waiver.get("expired")
+                }
+                self._send(200, {**entry,
+                                 "key": key, "text": snapshot["text"],
                                  "revision": snapshot["revision"],
                                  "ambiguities": spec_store.ambiguities(key),
                                  "spec": spec_store.load(key),
-                                 "waivers": spec_store.load_waivers(key),
-                                 **snapshot["entry"]})
+                                 "waivers": waivers,
+                                 "stale_messages": stale_messages,
+                                 "waiver_messages": waiver_messages})
         elif url.path == "/api/repos":
             self._send(200, repo_admin.summary())
         elif url.path == "/api/repos/sync":

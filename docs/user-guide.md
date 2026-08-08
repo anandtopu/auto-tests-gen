@@ -920,6 +920,12 @@ Two safety properties are enforced, not merely documented:
   changes status first, the stale action is refused with a reload instruction;
   it cannot silently overwrite the newer edit or approval decision.
 
+Workflow refusals use one contract from `engine/lib/sdd_messages.py`: **what
+refused**, **why**, and **one next action with its command**. This wording is
+shared by the Bash plan/requirements gates, coverage exit 8, expired-waiver and
+stale-drift evidence, queue failure reasons, and the dashboard. A refusal that
+only says “not approved” or “exit 8” is a contract regression.
+
 The generation step feeds the **reviewed markdown** to the phases alongside the
 snapshotted plan contract, so reviewer edits actually shape the generated tests.
 Tests are produced by the same framework and gate as every other run — nothing about

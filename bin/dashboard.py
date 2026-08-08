@@ -2048,6 +2048,11 @@ async function refreshSpecFlow() {
         (i < r.state_index ? '●' : (i === r.state_index ? '◉' : '○')) +
         '</span>').join(' ');
       const stateLabel = SDD_STATE_LABELS[r.state] || r.state;
+      const next = '<button class="btn btn-sm" data-sf-go="' +
+        escHtml(r.action_view || 'specflow') + '" data-sf-key="' +
+        escHtml(r.key) + '">' + escHtml(r.action) +
+        '</button><div class="sm mono" style="margin-top:5px"><code>' +
+        escHtml(r.command) + '</code></div>';
       return '<tr><td class="mono sm">' + escHtml(r.key) + '</td>' +
         '<td class="sm">' + trail + '<div><b>' + escHtml(stateLabel) + '</b></div>' +
           '<div class="muted sm" title="engine/lib/spec_workflow.py">machine state: <code>' +
@@ -2055,11 +2060,29 @@ async function refreshSpecFlow() {
         '<td class="sm">' + (done ? '<span class="chip">complete</span>'
                                   : escHtml(r.blocker)) + '</td>' +
         '<td class="sm">' + escHtml(r.owner || '—') + '</td>' +
-        '<td class="sm mono">' + escHtml(r.action || '—') + '</td></tr>';
+        '<td class="sm">' + next + '</td></tr>';
     }).join('');
   } catch (e) { loadFailed('#sf-table tbody', 5, e); }
 }
 if ($('#sf-refresh')) $('#sf-refresh').addEventListener('click', refreshSpecFlow);
+if ($('#sf-table')) $('#sf-table').addEventListener('click', e => {
+  const action = e.target.closest('[data-sf-go]');
+  if (!action) return;
+  const view = action.dataset.sfGo;
+  const key = action.dataset.sfKey || '';
+  go(view);
+  if (view === 'specflow' && $('#rq-key')) {
+    $('#rq-key').value = key; loadRequirements();
+  } else if (view === 'plans') {
+    openPlan(key);
+  } else if (view === 'wizard' && $('#wz-key')) {
+    $('#wz-mode').value = 'jira';
+    $('#wz-mode').dispatchEvent(new Event('change'));
+    $('#wz-key').value = key;
+  } else if (view === 'progress' && $('#rp-key')) {
+    $('#rp-key').value = key; rpLoad(false);
+  }
+});
 refreshSpecFlow();
 onEnter('specflow', refreshSpecFlow);
 
@@ -2701,6 +2724,8 @@ async function openPlan(key) {
     const sc = (p.spec && p.spec.scenarios) || [];
     if (sc.length) {
       const wv = p.waivers || {};
+      const staleMessages = p.stale_messages || {};
+      const waiverMessages = p.waiver_messages || {};
       specEl.innerHTML = sc.map(x => {
         const steps = x.steps || {};
         const gwt = ['given', 'when', 'then'].filter(k => steps[k])
@@ -2714,11 +2739,14 @@ async function openPlan(key) {
         const wchip = w ? '<span class="chip ' + (w.expired ? 'chip-danger' : 'chip-warning') + '">' +
           (w.expired ? 'waiver EXPIRED' : 'waived') + '</span>' : '';
         const stale = (p.stale_scenarios || []).includes(x.id)
-          ? '<span class="chip chip-danger" title="This scenario references application surface that no longer exists (spec drift) — re-approve, edit, or waive.">stale</span>' : '';
+          ? '<span class="chip chip-danger">stale</span>' : '';
+        const refusal = [waiverMessages[x.id], staleMessages[x.id]].filter(Boolean)
+          .map(m => '<div class="sm" style="color:var(--sr-danger-fg);margin-top:5px">' +
+                    escHtml(m.text) + '</div>').join('');
         return '<div style="border:1px solid var(--sr-border); border-radius:8px; padding:8px 12px">' +
           '<div><b class="mono sm">' + escHtml(x.id) + '</b> ' + escHtml(x.title || '') +
           ' <span class="muted sm">[' + escHtml(x.layer || '') + ' · ' + escHtml(x.target_repo || '') + ']</span> ' +
-          req + ' ' + wchip + ' ' + stale + '</div>' + gwt + ver + '</div>';
+          req + ' ' + wchip + ' ' + stale + '</div>' + gwt + ver + refusal + '</div>';
       }).join('');
       specEl.classList.remove('hidden');
     } else { specEl.classList.add('hidden'); }
@@ -3729,8 +3757,9 @@ page = f"""<!doctype html>
     <section class="card">
       <div class="card-h"><div><h2>How an E2E test gets built here</h2>
         <div class="sub">Six states, one owner each. The platform authors; a
-        human decides. Every transition below is a command — this view never
-        advances a workflow, it only shows you where things are.</div></div>
+        human decides. Every row has one next-action button and its equivalent
+        command — this view never advances a workflow, it only shows you where
+        things are.</div></div>
         <span class="grow"></span>
         <button class="btn btn-sm" id="sf-refresh">Refresh</button>
       </div>

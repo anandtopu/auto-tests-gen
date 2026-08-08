@@ -132,7 +132,10 @@ Six states render as plain-language milestones: acceptance criteria awaiting
 validation → test plan being authored → plan awaiting your approval → tests
 awaiting generation → tests awaiting delivery → delivered and running in CI.
 The greppable machine name remains behind ⓘ. Each row names the *specific*
-blocker, the next command, and who is meant to run it.
+blocker, who owns it, and exactly one next-action button. The equivalent CLI
+command is printed directly below the button. Both values come from
+`spec_workflow.py`; browser code does not infer a second workflow from the
+machine-state name.
 
 The **How this works** card teaches the loop in five sentences and owns the
 in-product glossary. Its important distinction is explicit: an **approved test
@@ -156,7 +159,8 @@ Three more cards live here:
   a reason (at least a sentence — it must be answerable by someone reading it in
   six months), an owner, and an expiry capped at 90 days, so "temporarily"
   cannot quietly become "forever". Expired ones stay listed: a lapsed exception
-  is the row worth reading.
+  is the row worth reading. Expired waivers and stale scenarios render the same
+  refusal contract the CLI emits: what refused, why, and one next action.
 - **Work this test plan makes unnecessary** — approved scenarios a cataloged test
   already covers, so they need no authoring call. It counts them and refuses to
   price them: converting a skipped scenario into money needs a measured

@@ -1291,7 +1291,9 @@ it makes the existing one usable and honest about its own configuration.
 
 **The workflow as a state machine** (`engine/lib/spec_workflow.py`). Six states —
 requirements → plan → approved → tests → committed → live — computed per ticket
-with the *specific* blocker, the next command, and its owner. It **computes and
+with the *specific* blocker, exactly one next action, its equivalent command,
+the destination UI view, and its owner. The dashboard renders those fields and
+does not branch on the machine state to invent another action map. It **computes and
 never mutates**: rendering a workflow view must not advance a workflow, so every
 transition stays behind the approve/edit commands that already sign and record an
 actor (pinned by asserting the module calls no mutator).
@@ -1303,6 +1305,15 @@ generated" forever. And `linked` means *the plan is attached to the ticket*, not
 *the gate committed* — so the commit state comes from the gate's own per-repo
 result in the run record, totally, skipping torn records rather than taking the
 board down over one bad file.
+
+**One refusal contract** (`engine/lib/sdd_messages.py`). Requirements gating,
+plan approval, strict coverage, expired waivers, and stale drift all build a
+closed presentation-neutral record containing what refused, why, one action,
+its command, and the canonical one-line text. `pipeline.sh` enters the two
+human gates through the module's CLI wrapper; Python enforcement and
+notification paths call the same builder; dashboard APIs return the same
+record and browser code escapes it. The module owns wording only — state and
+enforcement authority remain in `plan_state`, `spec_check`, and `spec_drift`.
 
 **Governance is reported, never assumed.** `requirements_gate` and `spec.enforce`
 ship OFF, so the same ticket is "blocked on approval" in one estate and "free to

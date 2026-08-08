@@ -60,7 +60,7 @@ def test_pr_plan_requirements_exemption_is_explicit_and_jira_still_refuses(
     decision = plan_state.require_requirements(KEY, pr_target=True)
     assert decision == {"exempt": True,
                         "reason": "PR-keyed plans use diff + fused ticket context"}
-    with pytest.raises(SystemExit, match="requirements gate is ON"):
+    with pytest.raises(SystemExit, match=r"SDD_REFUSAL\[requirements_gate\]"):
         plan_state.require_requirements("PROJ-301")
 
 

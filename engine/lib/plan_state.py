@@ -536,11 +536,9 @@ def require_requirements(key, pr_target=False):
         return None
     st = get(key).get("requirements_status")
     if st != "approved":
-        raise SystemExit(
-            f"requirements gate is ON and {key}'s requirements are "
-            f"'{st or 'absent'}', not approved — run `make requirements "
-            f"KEY={key}`, review specs/{key}/requirements.yaml, then "
-            f"`make requirements-approve KEY={key}`")
+        import sdd_messages
+        raise SystemExit(sdd_messages.refusal(
+            "requirements_gate", key=key, status=st or "absent")["text"])
     return get(key)
 
 
@@ -548,11 +546,13 @@ def require_approved(key):
     """Gate for test generation — raises unless the plan is approved."""
     e = get(key)
     if not e:
-        raise SystemExit(f"no test plan for {key}: run `make plan KEY={key}` first")
+        import sdd_messages
+        raise SystemExit(sdd_messages.refusal(
+            "plan_approval", key=key, status="absent")["text"])
     if e.get("status") != "approved":
-        raise SystemExit(
-            f"test plan for {key} is '{e.get('status')}', not approved — "
-            f"review and approve it first (make plan-approve KEY={key})")
+        import sdd_messages
+        raise SystemExit(sdd_messages.refusal(
+            "plan_approval", key=key, status=e.get("status") or "draft")["text"])
     return e
 
 

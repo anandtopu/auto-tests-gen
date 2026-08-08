@@ -13,6 +13,7 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
+import sdd_messages  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location(
     "spec_check", ROOT / "engine/gate/spec_check.py")
@@ -73,6 +74,9 @@ def test_uncovered_scenario_is_named_with_the_fix(estate):
     assert len(findings) == 1
     assert "UNCOVERED_SCENARIO: K-1-S2" in findings[0]
     assert "waivers.yaml" in findings[0], "the finding names the escape hatch"
+    refused, _ = sc.check("K-1", "repo-x", ["a.spec.js"], refusal=True)
+    assert sdd_messages.refusal(
+        "coverage_uncovered", key="K-1", scenario="K-1-S2")["text"] in refused[0]
 
 
 def test_other_repos_scenarios_are_not_this_gates_business(estate):
@@ -96,6 +100,10 @@ def test_waiver_covers_expired_does_not(estate):
                    "expires": "2020-01-01"}])
     findings, _ = sc.check("K-1", "repo-x", ["a.spec.js"])
     assert len(findings) == 1 and "EXPIRED_WAIVER: K-1-S2" in findings[0]
+    refused, _ = sc.check("K-1", "repo-x", ["a.spec.js"], refusal=True)
+    assert sdd_messages.refusal(
+        "waiver_expired", key="K-1", scenario="K-1-S2",
+        expiry="2020-01-01")["text"] in refused[0]
 
 
 def test_forged_scenario_id_is_a_violation(estate):
@@ -155,15 +163,20 @@ def test_unapproved_or_absent_spec_is_exempt(estate):
     assert exempt, "PR-path keys have no spec by construction"
 
 
-def test_modes(estate, monkeypatch):
+def test_modes(estate, monkeypatch, capsys):
     seed, tmp = estate
     seed(tests=[])                                  # everything uncovered
     monkeypatch.setenv("AIQE_SPEC_ENFORCE", "off")
     assert sc.main(["x", "K-1", "repo-x"]) == 0
     monkeypatch.setenv("AIQE_SPEC_ENFORCE", "warn")
     assert sc.main(["x", "K-1", "repo-x"]) == 0, "warn prints, never blocks"
+    warning = capsys.readouterr().out
+    assert "SPEC_WARNING" in warning and "Delivery refused" not in warning
     monkeypatch.setenv("AIQE_SPEC_ENFORCE", "strict")
     assert sc.main(["x", "K-1", "repo-x"]) == sc.EXIT_SPEC
+    refused = capsys.readouterr().out
+    assert "SDD_REFUSAL[coverage_uncovered]" in refused
+    assert "Delivery refused" in refused
 
 
 def test_default_mode_is_off_in_org_config():

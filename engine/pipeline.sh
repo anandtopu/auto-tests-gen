@@ -563,7 +563,7 @@ elif [ "$MODE" = "tests" ]; then
   # The existing approval gate remains the single resume authority for both
   # ticket and PR plans. Target metadata only tells this run where to fetch and
   # report; it does not create another state machine.
-  python3 engine/lib/plan_state.py require-approved "$KEY"
+  python3 engine/lib/sdd_messages.py require-approved "$KEY"
   PLAN_TARGET_KIND=$(python3 -c "import sys;sys.path.insert(0,'engine/lib');import plan_state;print((plan_state.get('$KEY').get('target') or {}).get('kind',''))")
   if [ "$PLAN_TARGET_KIND" = "pr" ]; then
     case "$(printf '%s' "${AIQE_PR_PLAN:-0}" | tr 'A-Z' 'a-z')" in
@@ -686,12 +686,12 @@ else
   case "$KEY" in *[!A-Za-z0-9._-]*|"") echo "INVALID_KEY: $KEY"; exit 64;; esac
   # Generation from a plan is gated on human approval — check BEFORE any clone/LLM work
   if [ "$MODE" = "tests" ]; then
-    python3 engine/lib/plan_state.py require-approved "$KEY"
+    python3 engine/lib/sdd_messages.py require-approved "$KEY"
   fi
   # SDD 2.2: when the requirements gate is ON, planning requires validated
   # requirements — checked BEFORE any clone/LLM work, like the plan gate.
   if [ "$MODE" = "plan" ] || [ "$MODE" = "jira" ]; then
-    python3 engine/lib/plan_state.py require-requirements "$KEY"
+    python3 engine/lib/sdd_messages.py require-requirements "$KEY"
   fi
   # P0: inline JIRA context ("pass JIRA context as text input") bypasses the tracker
   if [ -n "${AIQE_INLINE_FILE:-}" ]; then

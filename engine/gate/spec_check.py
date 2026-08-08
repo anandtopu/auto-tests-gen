@@ -27,6 +27,7 @@ import sys
 ROOT = pathlib.Path(os.environ.get("AIQE_ROOT") or
                     pathlib.Path(__file__).resolve().parents[2])
 sys.path.insert(0, str(ROOT / "engine/lib"))
+import sdd_messages
 
 EXIT_SPEC = 8
 
@@ -86,7 +87,7 @@ def mode(warn=None):
         return "off"
 
 
-def check(key, test_repo, changed):
+def check(key, test_repo, changed, refusal=False):
     """(findings, exempt). Total: any failure to read state = exempt — the
     spec check must never break a gate on its own malfunction."""
     try:
@@ -141,12 +142,17 @@ def check(key, test_repo, changed):
         if w and not w.get("expired"):
             continue
         if w and w.get("expired"):
-            findings.append(f"EXPIRED_WAIVER: {sid} ({w.get('reason', '')}, "
-                            f"expired {w.get('expires')}) — renew or cover")
+            detail = (sdd_messages.refusal(
+                "waiver_expired", key=key, scenario=sid,
+                expiry=w.get("expires"))["text"] if refusal else
+                f"waiver expired {w.get('expires')} — renew or cover")
+            findings.append(f"EXPIRED_WAIVER: {sid} — {detail}")
         else:
-            findings.append(f"UNCOVERED_SCENARIO: {sid} is approved but no "
-                            f"test in this run covers it (waive with a reason "
-                            f"in specs/{key}/waivers.yaml, or cover it)")
+            detail = (sdd_messages.refusal(
+                "coverage_uncovered", key=key, scenario=sid)["text"] if refusal else
+                f"approved but uncovered (waive with a reason in "
+                f"specs/{key}/waivers.yaml, or cover it)")
+            findings.append(f"UNCOVERED_SCENARIO: {sid} — {detail}")
     return findings, False
 
 
@@ -159,14 +165,15 @@ def main(argv):
     if len(argv) > 3 and pathlib.Path(argv[3]).exists():
         changed = [l.strip() for l in open(argv[3], encoding="utf-8")
                    if l.strip()]
-    findings, exempt = check(key, test_repo, changed)
+    findings, exempt = check(key, test_repo, changed, refusal=m == "strict")
     if exempt or not findings:
         return 0
-    for f in findings:
-        print(f"SPEC_{'VIOLATION' if m == 'strict' else 'WARNING'}: {f}")
     if m == "strict":
         print(f"SPEC_UNSATISFIED: {len(findings)} finding(s) — the approved "
               f"spec is a signed contract; cover, waive, or re-approve")
+    for f in findings:
+        print(f"SPEC_{'VIOLATION' if m == 'strict' else 'WARNING'}: {f}")
+    if m == "strict":
         return EXIT_SPEC
     return 0
 

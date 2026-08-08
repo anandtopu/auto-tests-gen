@@ -169,40 +169,50 @@ def status(key, committed=None):
         return _row(key, "requirements", gov,
                     blocker=f"{len(blocking)} blocking ambiguity/ambiguities — "
                             f"the ticket does not say what should happen",
-                    action="answer them on the ticket, then re-run "
-                           f"`make requirements KEY={key}`",
+                    action="Answer the ticket's blocking questions",
+                    command=f"make requirements KEY={key}", view="specflow",
                     owner="BA / QE lead", detail=locals())
     if has_req and req_status != "approved":
         return _row(key, "requirements", gov,
                     blocker="requirements are drafted but not approved",
-                    action=f"review, then `make requirements-approve KEY={key}`",
+                    action="Review and approve the acceptance criteria",
+                    command=f"make requirements-approve KEY={key}", view="specflow",
                     owner="QE lead",
                     # Honest about consequence: without the gate this is advisory.
                     soft=not gov["requirements_gate"], detail=locals())
     if not has_plan:
         return _row(key, "plan", gov,
                     blocker="no test plan authored yet",
-                    action=f"`make plan KEY={key}`", owner="platform",
+                    action="Start plan authoring", command=f"make plan KEY={key}",
+                    view="wizard", owner="platform",
                     detail=locals())
     if plan_status != "approved":
         return _row(key, "approved", gov,
                     blocker=f"plan is `{plan_status or 'draft'}` — not approved",
-                    action=f"review in the Test plans view, then `make plan-approve KEY={key}`",
+                    action="Review and approve the test plan",
+                    command=f"make plan-approve KEY={key}", view="plans",
                     owner="reviewer", detail=locals())
     if not generated:
         return _row(key, "tests", gov,
                     blocker="plan approved; tests not generated",
-                    action=f"`make plan-tests KEY={key}`", owner="platform",
+                    action="Generate tests from the approved plan",
+                    command=f"make plan-tests KEY={key}", view="plans",
+                    owner="platform",
                     detail=locals())
     if not committed:
         return _row(key, "committed", gov,
                     blocker="tests generated but no gate commit recorded",
-                    action="check the run in Activity / Runs — the gate may have refused",
+                    action="Inspect the delivery run",
+                    command=f"python3 engine/lib/run_progress.py {key}",
+                    view="progress",
                     owner="QE lead", detail=locals())
-    return _row(key, "live", gov, blocker="", action="", owner="", detail=locals())
+    return _row(key, "live", gov, blocker="", action="Verify delivered tests",
+                command=f"make spec-verify KEY={key}", view="trace",
+                owner="QE lead", detail=locals())
 
 
-def _row(key, state, gov, blocker="", action="", owner="", soft=False, detail=None):
+def _row(key, state, gov, blocker="", action="", command="", view="", owner="",
+         soft=False, detail=None):
     d = detail or {}
     return {
         "key": key,
@@ -210,6 +220,8 @@ def _row(key, state, gov, blocker="", action="", owner="", soft=False, detail=No
         "state_index": STATES.index(state),
         "blocker": blocker,
         "action": action,
+        "command": command,
+        "action_view": view,
         "owner": owner,
         # `soft` = this step is not currently enforced by configuration. Shown
         # so nobody is taught a rule the platform is not applying (gap G1).
