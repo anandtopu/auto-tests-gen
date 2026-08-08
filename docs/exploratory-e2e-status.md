@@ -24,7 +24,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 10 | Artifacts | plan/data/tests/diff/code view, coverage report, export/publish | fixed-retested | E2E-EXP-022 | Browser + CLI/API: JIRA/PR artifacts, scenarios/data/generated code/raw diff, coverage download, four export formats, mock publish/attach, missing/unsafe diff evidence |
 | 11 | Activity and alerts | transaction filters/CSV, degraded log, rule evaluation, firing/resolution lifecycle | fixed-retested | E2E-EXP-023–027 | Browser + API/CLI: success/refusal/failure/corrupt events, filters, formula-safe CSV, unevaluable/firing/disabled/resolved states, mock delivery, rule save/test, restart persistence |
 | 12 | Test catalog | search, repo/status filters, mapping, CI health, orphan/quarantine | fixed-retested | E2E-EXP-028–030 | Browser + CLI: four-row isolated catalog, valid/empty/orphan mappings, synthetic mixed CI health, flaky quarantine lifecycle, concurrent decisions and empty/no-match filters |
-| 13 | Repositories | app/test repo CRUD, scopes, curated guidance, contracts/routes | untested | — | Isolated synthetic repo; required-field and dependency checks |
+| 13 | Repositories | app/test repo CRUD, scopes, curated guidance, contracts/routes | fixed-retested | E2E-EXP-031–034 | Browser + API: isolated app/test CRUD, service dependencies, generated scope/covers, contract/routes, notes/curated guidance, malformed bodies, removal guards and restart persistence |
 | 14 | Settings and integrations | flags, adapters, credentials metadata, SSO/token modes | untested | — | Safe non-secret fixtures, invalid endpoints, clear/reset behavior |
 | 15 | API and CLI parity | dashboard APIs, `bin/qa.py`, hooks/TaskEvent receiver | untested | — | Compare UI outcomes with supported API/CLI paths |
 | 16 | Bootstrap/deployment/upgrade | onboarding, manifests, state bundle, migration/rollback checks | untested | — | Fresh isolated estate and compatibility smoke checks |
@@ -480,3 +480,46 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   `docs/reviews/exploratory-e2e-iteration-013.md`.
 - Next slice: Repositories, including app/test repository CRUD, scopes, curated
   guidance, contracts/routes and dependency checks.
+
+### 2026-08-07 — Iteration 14: Repositories
+
+- Seed data: an ignored `out/exploratory-e2e-iter14` estate copied only the
+  registry and catalog mappings, then added synthetic `zz-explore-api`,
+  `zz-explore-ui` and `zz-explore-e2e` entries. Registry, catalog, notes,
+  curated/generated guidance, AGENTS, skills, sync cache and database paths
+  were redirected. No production adapter, real credential or customer data
+  was used.
+- Happy and boundary paths: the served Repositories UI created service and UI
+  apps with a dependency link, displayed contract and route metadata, created
+  a Playwright API test repo scoped to both apps, regenerated `covers`, edited
+  domains, saved team and curated guidance, rejected an unknown service and
+  unknown scope, refused removal while covered, and retained all metadata and
+  guidance across a server restart.
+- Finding `E2E-EXP-031` (P2): every repository mutation assumed parsed JSON was
+  an object. Arrays, null, numbers and strings raised outside the handler and
+  reset the connection. All eight endpoints now return a stable 400 and the
+  next request remains healthy.
+- Finding `E2E-EXP-032` (P1): repository removal and guidance generation used
+  Python truthiness for `force`; the JSON string `"false"` bypassed the app
+  dependency guard and deleted a covered repository. Both operations now use
+  the platform's fail-safe JSON flag resolver; the real HTTP reproduction
+  changed from 200/removal to 400/preservation.
+- Finding `E2E-EXP-033` (P1): team guidance remained hardcoded below the source
+  checkout while all other durable estate paths followed `AIQE_STATE_DIR`.
+  A container or isolated test could therefore write the wrong estate and
+  regenerate AGENTS from split state. Notes now resolve through
+  `app_paths.knowledge_dir`; the browser confirmed the isolated path and
+  restart persistence.
+- Finding `E2E-EXP-034` (P2): a missing or misspelled removal `section`
+  silently selected the app-repository remover. The API now requires exactly
+  `app` or `test`, preventing a malformed request from reaching either
+  destructive path.
+- Review finding fixed before commit: the adversarial server fixture initially
+  copied the complete catalog directory. It now seeds JSONL data only, keeping
+  code, generated caches and configuration out of mutable test state.
+- Validation: all 34 initial focused cases failed before their fixes. The final
+  adversarial/state-path suite passed 100 tests, and the broad repository,
+  guidance, routing, catalog-path, UI and API compatibility run passed 215.
+  Detailed review: `docs/reviews/exploratory-e2e-iteration-014.md`.
+- Next slice: Settings and integrations, including flags, adapter metadata,
+  authentication modes and safe reset behavior.

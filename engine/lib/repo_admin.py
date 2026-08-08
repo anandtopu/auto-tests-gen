@@ -37,7 +37,7 @@ def _locked(fn):
     return wrap
 
 REG_PATH = app_paths.registry_file(ROOT)
-NOTES_DIR = ROOT / "knowledge/repos"
+NOTES_DIR = app_paths.knowledge_dir("repos", ROOT)
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,63}$")
 SCM_KINDS = ("github", "bitbucket", "stash")
 APP_KINDS = {"ui": "frontend", "frontend": "frontend",

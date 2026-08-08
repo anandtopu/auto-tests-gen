@@ -47,6 +47,19 @@ def test_state_dir_redirects_every_mutable_path(monkeypatch, tmp_path):
         assert value.startswith(str(tmp_path)), f"{key} escaped the state root: {value}"
 
 
+def test_repository_team_notes_follow_the_state_directory(tmp_path):
+    """Repository notes are durable estate data, not checkout-local code."""
+    env = dict(os.environ, AIQE_STATE_DIR=str(tmp_path))
+    code = (
+        "import pathlib,sys; "
+        f"sys.path.insert(0, {str(ROOT / 'engine/lib')!r}); "
+        "import repo_admin; print(repo_admin.NOTES_DIR)"
+    )
+    result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env,
+                            check=True, capture_output=True, text=True)
+    assert pathlib.Path(result.stdout.strip()) == tmp_path / "knowledge" / "repos"
+
+
 def test_specific_knob_outranks_the_state_dir(monkeypatch, tmp_path):
     """Test isolation must survive a container that redirects everything —
     the state adversarial suite drives the per-path knobs directly."""

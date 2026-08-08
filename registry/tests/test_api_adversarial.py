@@ -22,6 +22,7 @@ import datetime
 import json
 import os
 import pathlib
+import shutil
 import socket
 import subprocess
 import sys
@@ -64,8 +65,22 @@ def live_server(tmp_path_factory):
     d = tmp_path_factory.mktemp("api-adv")
     (d / "runs").mkdir()
     port = _free_port()
+    registry = d / "registry.yaml"
+    shutil.copy2(ROOT / "registry/repo-registry.yaml", registry)
+    catalog = d / "catalog"
+    catalog.mkdir()
+    for source in (ROOT / "catalog").glob("*.jsonl"):
+        shutil.copy2(source, catalog / source.name)
     env = dict(os.environ,
                AIQE_MOCK="1", AIQE_UI_PORT=str(port), AIQE_UI_TOKEN=TOKEN,
+               AIQE_REGISTRY_FILE=str(registry),
+               AIQE_CATALOG_DIR=str(catalog),
+               AIQE_CATALOG_DB=str(d / "catalog.db"),
+               AIQE_AGENTS_FILE=str(d / "AGENTS.md"),
+               AIQE_KNOWLEDGE_DIR=str(d / "knowledge"),
+               AIQE_GENERATED_GUIDANCE_DIR=str(d / "generated-guidance"),
+               AIQE_SYNC_DIR=str(d / "sync"),
+               AIQE_SKILLS_DIR=str(d / "skills"),
                AIQE_PLAN_DIR=str(d / "plans"),
                AIQE_TESTPLAN_DIR=str(d / "testplans"),
                AIQE_SPEC_DIR=str(d / "specs"),
@@ -342,6 +357,47 @@ def test_malformed_bodies_never_produce_a_server_error(live_server, payload):
     queue = d / "runs/queue.json"
     if queue.exists():
         json.loads(queue.read_text(encoding="utf-8"))     # never left corrupt
+
+
+@pytest.mark.parametrize("path", [
+    "/api/repos/app", "/api/repos/test", "/api/repos/scope",
+    "/api/repos/remove", "/api/repos/notes", "/api/repos/guidance",
+    "/api/repos/curated", "/api/repos/sync",
+])
+@pytest.mark.parametrize("payload", ["[]", "null", "123", '"repo"'])
+def test_repo_mutations_reject_non_object_json_without_dropping_connection(
+        live_server, path, payload):
+    base, _ = live_server
+    status, text = _request(base + path, method="POST", body=payload,
+                            headers=_auth())
+    assert 400 <= status < 500, (path, payload, status, text)
+    status, _ = _request(base + "/api/repos", headers=_auth())
+    assert status == 200, "the malformed request killed the server"
+
+
+def test_repo_remove_string_false_cannot_bypass_dependency_guard(live_server):
+    base, _ = live_server
+    status, text = _request(
+        base + "/api/repos/remove", method="POST",
+        body=json.dumps({"name": "web-storefront-ui", "section": "app",
+                         "force": "false"}), headers=_auth())
+    assert status == 400, text
+    status, text = _request(base + "/api/repos", headers=_auth())
+    assert status == 200
+    assert "web-storefront-ui" in {
+        row["name"] for row in json.loads(text)["app_repos"]}
+
+
+def test_repo_remove_rejects_an_unknown_section(live_server):
+    base, _ = live_server
+    payload = {"name": "payments-api", "section": "tests"}
+    status, text = _request(base + "/api/repos/remove", method="POST",
+                            body=json.dumps(payload), headers=_auth())
+    assert status == 400, text
+    status, text = _request(base + "/api/repos", headers=_auth())
+    assert status == 200
+    assert "payments-api" in {
+        row["name"] for row in json.loads(text)["app_repos"]}
 
 
 def test_a_large_body_is_handled_cleanly(live_server):

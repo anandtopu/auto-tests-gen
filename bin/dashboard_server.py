@@ -1116,6 +1116,8 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path.startswith("/api/repos/"):
             try:
                 p = json.loads(body or b"{}")
+                if not isinstance(p, dict):
+                    raise ValueError("JSON body must be an object")
                 if self.path == "/api/repos/app":
                     result = repo_admin.upsert_app(
                         p["name"], kind=p.get("kind"), scm=p.get("scm"),
@@ -1136,9 +1138,13 @@ class Handler(BaseHTTPRequestHandler):
                     # answered ok — a typo'd payload must not destroy configuration.
                     result = repo_admin.set_scope(p["test_repo"], p["apps"])
                 elif self.path == "/api/repos/remove":
-                    fn = (repo_admin.remove_test if p.get("section") == "test"
+                    section = p.get("section")
+                    if section not in ("app", "test"):
+                        raise ValueError("section must be app or test")
+                    fn = (repo_admin.remove_test if section == "test"
                           else repo_admin.remove_app)
-                    result = fn(p["name"], force=bool(p.get("force")))
+                    result = fn(p["name"], force=_json_flag(
+                        p.get("force"), unusable=False))
                 elif self.path == "/api/repos/notes":
                     result = repo_admin.set_notes(p["repo"], p.get("text", ""))
                 elif self.path == "/api/repos/guidance":
@@ -1146,9 +1152,10 @@ class Handler(BaseHTTPRequestHandler):
                     # stops contributing nothing to the knowledge every phase reads.
                     # A repo-owned file always wins, so this never overwrites theirs.
                     repo = p.get("repo")
-                    rows = ([repo_guidance_gen.ensure(repo, force=bool(p.get("force")))]
+                    force = _json_flag(p.get("force"), unusable=False)
+                    rows = ([repo_guidance_gen.ensure(repo, force=force)]
                             if repo else
-                            repo_guidance_gen.ensure_all(force=bool(p.get("force"))))
+                            repo_guidance_gen.ensure_all(force=force))
                     if any(r["status"] == "written" for r in rows):
                         guidance_sync.regenerate_agents_md()
                     result = {"generated": rows}
@@ -1170,7 +1177,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(404, {"error": "not found"})
                     return
                 self._send(200, {"ok": True, **result})
-            except (KeyError, json.JSONDecodeError) as e:
+            except (KeyError, json.JSONDecodeError, ValueError) as e:
                 self._send(400, {"error": _err(e)})
             except SystemExit as e:                     # validation failures
                 self._send(400, {"error": _err(e)})
