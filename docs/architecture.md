@@ -960,11 +960,16 @@ measured results and per-layer summary: [cost-optimization.md](cost-optimization
 §5). Six layers, each independently killable (Settings → "Cost levers"):
 
 1. **Spend telemetry** (`spend_ledger.py`, `spend_history.py`,
-   `cost_report.py`, `cost_statement.py`). Live enforcement remains the
+   `cost_report.py`, `cost_statement.py`, `cost_reconcile.py`). Live enforcement remains the
    per-run budget TSV. On every exit, durable ledger rows preserve spend even
    when a plan/requirements/aborted invocation deliberately has no run record;
    `spend_rows()` unions those rows with enriched run-record spend and
-   deduplicates by run/phase. Rollups by workflow/key/phase/model tier
+   deduplicates by run/phase. Optional per-attempt evidence preserves exact UTC
+   reconciliation boundaries across consolidated retries. Reconciliation calls
+   provider billing only through the LLM adapter `usage` port, compares
+   same-provider `reported` dollars in the provider's `[start, end)` window,
+   keeps every other basis separate, and never auto-corrects. Rollups by
+   workflow/key/phase/model tier
    feed `make cost-report`, the dashboard Cost view, and the team report; turn
    calibration (p50/p95 vs ceiling) makes §5.12's "cap max_turns" lever
    evidence-based. `make cost-baseline` freezes measured medians (refusing

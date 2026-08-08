@@ -13,7 +13,7 @@ Source: [prd-token-cost-accounting.md](prd-token-cost-accounting.md) (Draft v2)
 | 4 | TCA-C1 Per-task cost statement | C1.1–C1.3, G5 | TCA-A3 | Implemented | CLI, API, artifacts-adjacent panel, per-basis totals, incomplete-state counts, CSV/Markdown exports |
 | 5 | TCA-B1 Complete consumer report | B1.1–B1.4, M2 | TCA-A3, TCA-C1 | Implemented | Basis-aware daily embedding section, durable probe attribution outside user totals, mandatory unmeterable counts, shared provider/basis rollups |
 | 6 | TCA-C2 Provider usage port | C2.1, C2.1a | TCA-A3 | Implemented | Adapter-family `usage <window>` verb, mock fixture, conformance suite, write-only admin credential, Make entry point |
-| 7 | TCA-C3 Reconciliation arithmetic | C2.1b, C2.2 | TCA-C2 | Planned | Provider-aligned UTC windows, reported-only comparison, reconcilable fraction, deterministic drift evidence |
+| 7 | TCA-C3 Reconciliation arithmetic | C2.1b, C2.2 | TCA-C2 | Implemented | Provider-aligned UTC windows, reported-only comparison, reconcilable fraction, deterministic drift evidence |
 | 8 | TCA-C4 Reconciliation operations | C2.3, C2.4, M4 | TCA-C3 | Planned | Notify alarm, three-state Cost badge, DEGRADED maintenance step, no-credential/API-down honesty |
 | 9 | TCA-FINAL Broad verification | M1–M4 and guardrails | TCA-A2–TCA-C4 | Planned | Full compatibility suite, report/runtime regression checks, final docs/status reconciliation |
 
@@ -142,6 +142,31 @@ the documented mock Make journey. The full registry command was attempted but
 timed out at 600 seconds without an exit result; it is not counted as passing.
 That attempt exposed a tracked-plan test-isolation defect, which was fixed and
 retested with before/after file hashes unchanged.
+
+#### TCA-C3 completion evidence
+
+`cost_reconcile.py` calls only `provider_usage.retrieve()` and
+`spend_history.spend_rows()`. It uses the adapter-returned UTC `[start, end)`
+window, filters to the same provider, and compares only `reported` dollars.
+Drift is an exact Decimal amount plus provider-denominated percentage and an
+under/over direction; provider-zero disagreement is explicit with a null
+percentage rather than a fabricated finite ratio. Dollar evidence remains
+partitioned in `usd_by_basis` and is never summed across bases. The
+reconcilable percentage is call-attempt weighted across all same-provider
+evidence in the window, with that denominator named in `fraction_basis`.
+
+To prevent retries straddling midnight from being assigned wholly to the first
+day, durable phase rows now preserve optional call-level timestamp/provider/
+basis/cost evidence while retaining the existing `(run, phase)` aggregate.
+The history union preserves those details when an enriched run record wins.
+Older multi-attempt rows remain readable and are explicitly labelled
+`legacy-aggregate` because exact boundary splitting is no longer recoverable.
+No live budget, run record, ledger identity, persistence, notification, alert
+threshold, or UI state changed; those operations remain TCA-C4.
+
+Focused C2/C3/history/ledger checks passed (33), the broad cost/history/adapter/
+settings/state/maintenance compatibility set passed (353), the mock Make
+journey passed, and changed Python files passed Ruff and syntax checks.
 
 ## Review and delivery gate
 

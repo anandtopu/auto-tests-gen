@@ -5,8 +5,8 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 
-import cost_report  # noqa: E402
-import spend_history  # noqa: E402
+import cost_report
+import spend_history
 
 
 def _write(path, payload):
@@ -54,6 +54,19 @@ def test_retry_aggregate_is_not_replaced_by_last_run_record_row(tmp_path):
     row = spend_history.spend_rows(runs_dir=runs, costs_dir=costs)[0]
     assert (row["attempts"], row["cost_usd"], row["input_tokens"], row["turns"]) == (2, 0.3, 240, 5)
     assert row["max_turns"] == 9
+
+
+def test_attempt_details_survive_the_union_for_exact_reconciliation_windows(tmp_path):
+    runs, costs = tmp_path / "runs", tmp_path / "costs"
+    details = [{"ts": 10, "provider": "claude", "model": "sonnet",
+                "basis": "reported", "cost_usd": .1},
+               {"ts": 11, "provider": "claude", "model": "sonnet",
+                "basis": "reported", "cost_usd": .2}]
+    _write(costs / "r1.json", _ledger("r1", attempts=2, cost_usd=.3,
+                                       attempt_details=details))
+    _write(runs / "r1.json", _record("r1"))
+    row = spend_history.spend_rows(runs_dir=runs, costs_dir=costs)[0]
+    assert row["attempt_details"] == details
 
 
 def test_cost_report_includes_abort_only_ledger_and_never_double_counts(tmp_path, monkeypatch):

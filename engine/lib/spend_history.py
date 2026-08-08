@@ -55,6 +55,29 @@ def _count(value, default=0):
     return value if value >= 0 else None
 
 
+def _attempt_details(raw):
+    value = raw.get("attempt_details")
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value:
+        if not isinstance(item, dict):
+            return []
+        ts = _number(item.get("ts"))
+        basis = str(item.get("basis") or "").strip()
+        cost = _number(item.get("cost_usd"))
+        if ts is None or not basis:
+            return []
+        if basis in ("unknown", "unrecorded", "not-reconciled"):
+            cost = None
+        out.append({"ts": ts, "provider": str(item.get("provider") or ""),
+                    "model": str(item.get("model") or ""), "basis": basis,
+                    "cost_usd": cost})
+    return out
+
+
 def _base(raw, source):
     run_id = str(raw.get("run_id") or "").strip()
     phase = str(raw.get("phase") or raw.get("name") or "").strip()
@@ -75,6 +98,7 @@ def _base(raw, source):
         "cost_usd": cost, "simulated": simulated,
         "attribution": str(raw.get("attribution") or ""), "source": source,
         "artifact_reuse": raw.get("artifact_reuse") or {},
+        "attempt_details": _attempt_details(raw),
     }
     for field in _COUNTS:
         default = 1 if field == "attempts" else (None if basis == "unrecorded" else 0)
@@ -133,6 +157,9 @@ def _merge(ledger, record):
     merged = {**ledger, **record, "source": "run_record"}
     attempts = ledger.get("attempts") or 1
     merged["attempts"] = attempts
+    # A run record has enriched phase metadata but not call-level timestamps.
+    # Never let its normalized empty list erase the ledger evidence C3 needs.
+    merged["attempt_details"] = ledger.get("attempt_details") or []
     if attempts > 1:
         for field in ("cost_usd", "input_tokens", "output_tokens",
                       "cache_read_tokens", "cache_creation_tokens", "turns"):

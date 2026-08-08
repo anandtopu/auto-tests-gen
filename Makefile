@@ -197,7 +197,7 @@ cost-baseline:        # freeze per-phase MEASURED medians as the regression base
 	python3 engine/lib/cost_report.py baseline
 
 cost-reconcile:       # provider-reported cost through adapter port (DAYS=N [PROVIDER=name])
-	python3 engine/lib/provider_usage.py --days $(or $(DAYS),30) $(if $(PROVIDER),--provider $(PROVIDER),)
+	python3 engine/lib/cost_reconcile.py --days $(or $(DAYS),30) $(if $(PROVIDER),--provider $(PROVIDER),)
 
 cache-probe:          # measure whether provider prompt caching engages (real CLI auth; ~$$0.02)
 	bash bin/cache-probe.sh

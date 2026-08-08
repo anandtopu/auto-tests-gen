@@ -107,6 +107,12 @@ def test_same_phase_attempts_are_counted_once_without_losing_spend(isolated):
     assert len(rows) == 1 and rows[0]["attempts"] == 2
     assert rows[0]["cost_usd"] == pytest.approx(.3)
     assert rows[0]["input_tokens"] == 30 and rows[0]["turns"] == 3
+    assert rows[0]["attempt_details"] == [
+        {"ts": 10, "provider": "claude", "model": "m",
+         "basis": "reported", "cost_usd": pytest.approx(.1)},
+        {"ts": 11, "provider": "claude", "model": "m",
+         "basis": "reported", "cost_usd": pytest.approx(.2)},
+    ]
 
 
 def test_incompatible_attempt_bases_are_incomplete_not_blended(isolated):

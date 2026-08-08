@@ -1184,9 +1184,14 @@ make cost-reconcile DAYS=7 PROVIDER=mock
 
 Every adapter implements `usage <window>`. Providers that cannot report billing
 return an explicit `unavailable` state with no cost field; they never fabricate
-zero spend. This command exposes the provider side of the port in TCA-C2. The
-provider-aligned ledger comparison and persisted reconciliation state are added
-by TCA-C3/C4, so this command does not yet claim that costs are reconciled.
+zero spend. The command compares the adapter's UTC `[start, end)` window only
+with same-provider, `reported` ledger evidence. It prints the two figures,
+absolute/percentage drift, under/over direction, per-basis call and dollar
+evidence, and the reconcilable share of same-provider call attempts. Dollar
+bases remain separate; the share is call-weighted precisely so estimated,
+simulated, local, unknown, and unrecorded evidence is disclosed without making
+a blended dollar total. `auto_corrected` is always false. Persisted state,
+alerts, maintenance scheduling, and the Cost badge remain TCA-C4.
 Set `AIQE_EXPORTS_DIR` to relocate generated exports independently; otherwise
 they follow `AIQE_STATE_DIR` and default to `reports/exports`.
 

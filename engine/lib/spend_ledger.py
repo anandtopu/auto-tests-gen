@@ -110,6 +110,7 @@ def _completed_rows(path):
     out = {}
     for phase, rows in grouped.items():
         bases = []
+        attempt_details = []
         for row in rows:
             basis = str(row.get("cost_basis") or "").strip()
             if not basis:
@@ -122,6 +123,14 @@ def _completed_rows(path):
                          (os.environ.get("AIQE_MOCK_PHASE_COST") or "").strip())
                          else "unrecorded")
             bases.append(basis)
+            attempt_details.append({
+                "ts": int(row.get("ts") or 0),
+                "provider": str(row.get("provider") or ""),
+                "model": str(row.get("model") or ""),
+                "basis": basis,
+                "cost_usd": (_finite_cost(row.get("cost_usd"))
+                             if basis not in ("unknown", "unrecorded") else None),
+            })
         basis = bases[0] if len(set(bases)) == 1 else "unknown"
         known_costs = [_finite_cost(row.get("cost_usd")) for row in rows]
         cost = (round(sum(known_costs), 6)
@@ -139,6 +148,10 @@ def _completed_rows(path):
             "cost_usd": cost,
             "ts": min((int(r.get("ts") or 0) for r in rows), default=0),
             "attempts": len(rows),
+            # Reconciliation windows may cut through retries around midnight.
+            # Preserve each call's timestamp/basis/cost while keeping the
+            # existing phase aggregate as the history union identity.
+            "attempt_details": attempt_details,
         }
     return out
 
