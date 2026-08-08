@@ -298,6 +298,19 @@ record. Every attempt emits a `ticket.comment` activity event. The **Run progres
 view calls out failed requester notification and incomplete receipt history, and
 `make explain KEY=PROJ-301` reports the same evidence.
 
+Set `AIQE_TICKET_COMMENTS_RICH=1` to replace terse plan and delivery bodies
+with bounded plain-text detail. Structured plans list each scenario from the
+canonical `spec_store` rendering (including deterministic adversary-added marks),
+then state any omitted scenario count and the approval action. Legacy free-form
+plans retain their existing summary unchanged. Delivery comments use the same
+normalized projection as the PR coverage comment: created/updated files and
+scenario ids, validation, per-repository commit/no-change/quarantine state,
+reviewer and critic signals, and separate basis-labelled cost lines. A fused PR
+run also comments the discovered ticket and names its source PR. The flag defaults
+off; `comments.max_chars` in `registry/org-config.yaml` defaults to 8,000 and is
+capped below Jira's 32,767-character hard limit. Rich rendering failure is visible
+on stderr and safely falls back to the legacy body before the Tracker boundary.
+
 **The dashboard** (`reports/dashboard.html`, self-contained, light/dark aware) shows:
 KPI tiles (runs, quarantines, catalog health, uncovered repos), the recent-runs table,
 the app-repo × test-repo coverage matrix, and the full catalog with client-side

@@ -120,6 +120,10 @@ review:
 resolution:
   confidence_threshold: 0.8
   clarify_channels: [tracker, notify]   # post question to Jira + Slack when below threshold
+# Ticket bodies remain far below Jira's 32,767-character hard ceiling.  The
+# JCTS-S4 renderer truncates only on whole lines and states the omitted count.
+comments:
+  max_chars: 8000
 catalog:
   auto_accept_confidence: 0.85
   review_band: [0.5, 0.85]

@@ -10,7 +10,7 @@ Source: [prd-jira-comments-and-ticket-search.md](prd-jira-comments-and-ticket-se
 | 1 | JCTS-S1 Structured search and escaping | B1.1–B1.5, G6, M3, M4 | none | Implemented | Closed structured filters, safe adapter-side JQL, mock parity, truthful page envelope, legacy `search_release` wrapper |
 | 2 | JCTS-S2 Intake filters and queue handoff | B2.1–B2.3, B3.1–B3.2 | JCTS-S1 | Implemented | `AIQE_TICKET_SEARCH`-guarded UI/API, result attributes, N-of-M bulk confirmation, per-item intake validation, backward-compatible queue reads |
 | 3 | JCTS-S3 Comment outcome accounting | A4.1–A4.2, M1 | none; follows S2 by PRD order | Implemented | Unconditional receipts for all five existing comment sites, run/event/plan-state homes, failure visibility without changing best-effort behavior |
-| 4 | JCTS-S4 Rich plan and delivery comments | A1.1–A1.3, A2.1–A2.5, M5 | JCTS-S3 | Pending | Flagged scenario-first plan rendering and one shared delivery/PR projection, bounded plain-text output, fused-ticket delivery |
+| 4 | JCTS-S4 Rich plan and delivery comments | A1.1–A1.3, A2.1–A2.5, M5 | JCTS-S3 | Implemented | Flagged scenario-first plan rendering and one shared delivery/PR projection, bounded plain-text output, fused-ticket delivery |
 | 5 | JCTS-S5 Comment idempotency | A3.1–A3.5, M2 | JCTS-S3, JCTS-S4 | Pending | Stable visible markers, owned-comment update guard, persisted ids, unchanged skip, append-with-supersession fallback |
 | 6 | JCTS-FINAL Broad verification | M1–M6, risks and constraints | JCTS-S1–S5 | Pending | Full compatibility, mock journeys, feature-flag defaults, docs/status reconciliation |
 
@@ -83,14 +83,23 @@ and Ruff, Python/Bash syntax, rendered JavaScript, and diff checks passed.
 
 ### JCTS-S4 — Rich plan and delivery comments
 
-- Render structured plan scenarios through `spec_store`; retain legacy summary
-  for free-form plans. Apply `comments.max_chars` default 8,000 using a
-  scenario-first truncation algorithm with an honest omitted-count footer.
-- Extract one delivery projection from `pr_comment` and consume it from PR and
-  ticket comments. Include per-repo action, files, validation, review, commit,
-  branch, quarantine/refusal, and basis-labeled cost state.
-- Comment the discovered ticket in fused PR runs, including refused runs, and
-  guarantee a plain-text path before any optional Jira-format capability.
+| Criterion | Implementation | Verification |
+| --- | --- | --- |
+| A1.1 | `spec_store.render_comment` consumes the canonical structured spec; arbiter-only additions receive deterministic `adversary_added` provenance during the existing fold | Unit and mock plan journey prove scenario id/title/layer/repo plus adversary marker come from the stored spec |
+| A1.2 | Scenario lines are admitted whole under `comments.max_chars` (default 8,000, capped at Jira's 32,767); omitted counts and full-plan/approval actions remain explicit | Normal, truncating, long-key, invalid-config, and hard-ceiling tests |
+| A1.3 | The flagged facade returns the byte-identical legacy summary when no structured spec exists or the flag is off | Free-form and flag-off regression tests plus adjacent legacy journeys |
+| A2.1 / M5 | `pr_comment.delivery_projection` is the single normalized composition consumed by `render_pr` and `render_ticket` | Behavioral identity test feeds one projection to both renderers; existing live-vs-record PR parity remains green |
+| A2.2 | Ticket rendering names files/actions/scenario ids, aggregate validation, commit/no-change/quarantine/clone/refusal truth, branch/sha, reviewer and critic evidence | Unit fixtures cover every outcome; mock fused PR covers a committed plus no-change fan-out |
+| A2.3 | Projection groups reported, estimated, simulated and unavailable rows separately; early budget refusal reads the same live ledger and never blends bases | Mixed-basis and simulated-refusal adversarial tests |
+| A2.4 | Rich fused PR success, reviewer refusal, and budget refusal comment only the validated selected ticket and name the source PR before run-record assembly | Source ordering pin and full mock fused-PR journey with receipt in the run record |
+| A2.5 | Ticket formatting is bounded plain text; control characters are sanitized and renderer failures visibly fall back before Tracker delivery | Malformed/control-character, degradation, bound, and adapter-conformance tests |
+
+Implementation evidence: the focused rich-comment suite passed 12/12, the
+closest post-review compatibility set passed 75/75, the expanded adjacent set
+passed 139/139, and the bounded broad compatibility set passed 312/312.
+Tracker adapter conformance, Ruff, Python/Bash syntax, and diff checks passed.
+The all-registry pytest command was attempted but reached its 20-minute cap
+without a result and is not counted as passing.
 
 ### JCTS-S5 — Comment idempotency
 

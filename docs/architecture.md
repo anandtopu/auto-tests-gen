@@ -172,6 +172,20 @@ because those modes create no run record. Comment bodies and raw adapter respons
 are never persisted as accounting metadata. Run progress and `make explain`
 surface failed delivery and explicitly report unreadable receipt rows.
 
+Rich bodies are an upstream, pure-rendering concern and never widen that port.
+With `AIQE_TICKET_COMMENTS_RICH=1`, `spec_store.render_comment` projects the
+canonical structured scenario spec into a bounded plain-text plan comment; a
+free-form plan returns no projection and therefore keeps its legacy summary.
+`pr_comment.delivery_projection` is the single normalized delivery statement
+consumed by both the Markdown PR renderer and the plain-text ticket renderer.
+It keeps reported, estimated, simulated and unavailable cost bases separate,
+names per-repository outcomes, and remains total against malformed historical
+contracts. `ticket_comment_render.py` owns the default-off flag, the org-level
+`comments.max_chars` bound (8,000 by default, never above 32,767), fallback, and
+sanitized degradation signal. Fused PR runs post the ticket rendering to the
+validated selected ticket before run-record assembly; runtime ticket content
+still comes from `Tracker get_item`, and all delivery still goes through Tracker.
+
 ### 4.3 Why OpenHands + Claude Code (division of responsibility)
 
 | Concern | Owner | Rationale |

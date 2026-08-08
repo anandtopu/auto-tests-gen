@@ -192,6 +192,68 @@ def render(key, spec=None):
     return "\n".join(L)
 
 
+def _comment_field(value, limit):
+    return re.sub(r"[\x00-\x1f\x7f]", " ", str(value or ""))[:limit]
+
+
+def render_comment(key, spec=None, max_chars=8000, target=None):
+    """Render the structured plan as a bounded, plain-text-safe ticket comment.
+
+    This lives beside :func:`render` deliberately: the structured spec remains
+    the sole scenario source for both the review document and the ticket.  A
+    caller must fall back to its legacy summary when ``None`` is returned.
+    """
+    spec = spec or load(key)
+    if not spec or not is_structured(spec):
+        return None
+    try:
+        limit = max(256, min(32767, int(max_chars)))
+    except (TypeError, ValueError):
+        limit = 8000
+
+    subject = _comment_field(target or key, 128)
+    plan_key = _comment_field(key, 200)
+    scenarios = [s for s in spec.get("scenarios", []) if isinstance(s, dict)]
+    header = [f"AI-QE test plan for {subject}",
+              f"{len(scenarios)} scenarios proposed - awaiting approval:"]
+    scenario_lines = []
+    for scenario in scenarios:
+        sid = _comment_field(scenario.get("id") or "?", 160)
+        title = _comment_field(scenario.get("title") or "untitled", 500)
+        layer = _comment_field(scenario.get("layer") or "unspecified", 80)
+        repo = _comment_field(scenario.get("target_repo") or "unassigned", 160)
+        added = " - added by adversarial review" if scenario.get("adversary_added") is True else ""
+        scenario_lines.append(f"- {sid} - {title} ({layer} -> {repo}{added})")
+
+    tail = [f"Full plan: testplans/{plan_key}.md (attach/link mechanisms unchanged).",
+            f"Approve with: make plan-approve KEY={plan_key}"]
+    kept = []
+    for line in scenario_lines:
+        remaining = len(scenario_lines) - len(kept) - 1
+        footer = ([f"- {remaining} more scenarios - full plan attached/linked."]
+                  if remaining else [])
+        candidate = "\n".join(header + kept + [line] + footer + [""] + tail)
+        if len(candidate) > limit:
+            break
+        kept.append(line)
+
+    omitted = len(scenario_lines) - len(kept)
+    footer = ([f"- {omitted} more scenarios - full plan attached/linked."]
+              if omitted else [])
+    text = "\n".join(header + kept + footer + [""] + tail)
+    if len(text) <= limit:
+        return text
+
+    # Even a pathologically small configured bound remains honest.  Never cut
+    # a scenario line in half and make a partial line look like a complete one.
+    minimal = "\n".join([
+        f"AI-QE test plan for {subject[:64]}",
+        f"{len(scenario_lines)} scenarios omitted - full plan attached/linked.",
+        "Approve this plan in the AI-QE plan editor.",
+    ])
+    return minimal
+
+
 def render_to_plan(key):
     """Write the rendering over testplans/<KEY>.md. Returns the path or None."""
     md = render(key)
@@ -379,6 +441,10 @@ def merge_fold(original_path, folded_path):
             for f in ("steps", "verification", "requirement_refs", "data"):
                 if not s.get(f) and src.get(f):
                     s[f] = src[f]
+        elif isinstance(s, dict):
+            # This is deterministic evidence, not an inference: only the
+            # arbiter may add rows to the folded contract.
+            s["adversary_added"] = True
     p = pathlib.Path(original_path)
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(folded, indent=1), encoding="utf-8", newline="\n")

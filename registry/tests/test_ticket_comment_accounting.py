@@ -154,7 +154,7 @@ def test_pipeline_routes_all_ticket_comments_through_accounting_boundary():
         assert f"TICKET_COMMENT {kind}" in source
     refusal = source[source.index('if [ "$REVIEW_POLICY_RC" -eq 78 ]'):]
     refusal = refusal[:refusal.index('elif [ "$REVIEW_POLICY_RC" -ne 0 ]')]
-    assert refusal.index("TICKET_COMMENT delivery") < refusal.index("run_record.py")
+    assert refusal.index("TICKET_DELIVERY_COMMENT") < refusal.index("run_record.py")
     assert "out/comment-attempts.jsonl" in source
 
 

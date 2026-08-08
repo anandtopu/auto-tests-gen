@@ -161,6 +161,42 @@ TICKET_COMMENT() {
     "${plan_args[@]}" >/dev/null || true
 }
 
+# JCTS-S4: rendering is separate from delivery.  Each helper returns the exact
+# legacy summary while the flag is off or rendering degrades, so rollout cannot
+# change today's comment bodies accidentally.  Posting remains the S3 boundary.
+TICKET_RICH_ENABLED() {
+  python3 engine/lib/ticket_comment_render.py enabled >/dev/null 2>&1
+}
+TICKET_PLAN_COMMENT() {
+  local target=$1 fallback=$2
+  local body="$fallback" rendered=""
+  if rendered=$(python3 engine/lib/ticket_comment_render.py plan \
+      "$KEY" "$target" "$fallback") && [ -n "$rendered" ]; then
+    body=$rendered
+  fi
+  TICKET_COMMENT plan "$target" "$body"
+}
+TICKET_DELIVERY_COMMENT() {
+  local target=$1 fallback=$2 pr_ref=${3:-}
+  local body="$fallback" rendered=""
+  if rendered=$(python3 engine/lib/ticket_comment_render.py delivery \
+      "$RUN_ID" "$KEY" "$target" "$fallback" "$pr_ref") \
+      && [ -n "$rendered" ]; then
+    body=$rendered
+  fi
+  TICKET_COMMENT delivery "$target" "$body"
+}
+TICKET_REFUSAL_COMMENT() {
+  local kind=$1 target=$2 fallback=$3 reason=$4 fix=$5 pr_ref=${6:-}
+  local body="$fallback" rendered=""
+  if rendered=$(python3 engine/lib/ticket_comment_render.py refusal \
+      "$RUN_ID" "$KEY" "$target" "$fallback" "$reason" "$fix" "$pr_ref") \
+      && [ -n "$rendered" ]; then
+    body=$rendered
+  fi
+  TICKET_COMMENT "$kind" "$target" "$body"
+}
+
 # Budget enforcement (docs/product-direction.md H1): every phase's actual spend —
 # claude -p reports total_cost_usd in out/<phase>.json — lands in out/cost.tsv, and
 # the guard runs BEFORE each phase. Over the cost or wall-clock limit the run aborts
@@ -181,7 +217,20 @@ _budget_guard() {
   if ! why=$(python3 engine/lib/budget.py check --start "$RUN_START"); then
     echo "$why"
     local msg="AI-QE run ${RUN_ID:-?} for ${KEY:-?} ABORTED before phase '$1': $why"
-    case "${MODE:-}" in jira|plan|tests) TICKET_COMMENT budget_abort "$KEY" "$msg" ;; esac
+    case "${MODE:-}" in
+      jira|plan|tests)
+        TICKET_REFUSAL_COMMENT budget_abort "$KEY" "$msg" "$why" \
+          "reduce the run scope or raise the configured workflow envelope, then retry"
+        ;;
+      pr)
+        if [ "${PR_TICKET_FUSED:-0}" = "1" ] && [ -n "${PLAN_TICKET:-}" ] \
+            && TICKET_RICH_ENABLED; then
+          TICKET_REFUSAL_COMMENT budget_abort "$PLAN_TICKET" "$msg" "$why" \
+            "reduce the run scope or raise the configured workflow envelope, then retry" \
+            "$REPO#$PR"
+        fi
+        ;;
+    esac
     NOTIFY post "$msg" || true
     EV run.aborted "${KEY:-?}" failed "phase=$1 reason=budget"
     exit 77
@@ -943,9 +992,9 @@ else
     if [ -n "$ADVERSARY_LINE" ]; then MSG="${MSG} (${ADVERSARY_LINE})"; fi
     if [ "$PR_PLAN" = "1" ]; then
       SCM comment "$REPO" "$PR" "$MSG" || true
-      if [ -n "$PLAN_TICKET" ]; then TICKET_COMMENT plan "$PLAN_TICKET" "$MSG"; fi
+      if [ -n "$PLAN_TICKET" ]; then TICKET_PLAN_COMMENT "$PLAN_TICKET" "$MSG"; fi
     else
-      TICKET_COMMENT plan "$KEY" "$MSG"
+      TICKET_PLAN_COMMENT "$KEY" "$MSG"
     fi
     NOTIFY post "$MSG" || true
     echo "PLAN_STATUS=DRAFT testplans/${KEY}.md"
@@ -990,9 +1039,17 @@ if [ "$REVIEW_POLICY_RC" -eq 78 ]; then
   SUMMARY+=$'\n'"- ${REVIEW_POLICY_LINE}"
   echo "[reviewer] $REVIEW_POLICY_LINE"
   if [ "$MODE" = "tests" ] && [ "$PR_PLAN" = "1" ]; then
-    if [ -n "$PLAN_TICKET" ]; then TICKET_COMMENT delivery "$PLAN_TICKET" "$SUMMARY"; fi
+    if [ -n "$PLAN_TICKET" ]; then TICKET_DELIVERY_COMMENT "$PLAN_TICKET" "$SUMMARY" "$REPO#$PR"; fi
   else
-    case "$MODE" in jira|tests) TICKET_COMMENT delivery "$KEY" "$SUMMARY" ;; esac
+    case "$MODE" in
+      jira|tests) TICKET_DELIVERY_COMMENT "$KEY" "$SUMMARY" ;;
+      pr)
+        if [ "$PR_TICKET_FUSED" = "1" ] && [ -n "$PLAN_TICKET" ] \
+            && TICKET_RICH_ENABLED; then
+          TICKET_DELIVERY_COMMENT "$PLAN_TICKET" "$SUMMARY" "$REPO#$PR"
+        fi
+        ;;
+    esac
   fi
   python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY" \
     | tee "reports/runs/${RUN_ID}.json" | TELEM emit_event
@@ -1115,9 +1172,17 @@ fi
 # before the run record, build status, and review-state transition are persisted.
 # tests mode is the plan-first resume of a JIRA ticket — the ticket gets the summary too
 if [ "$MODE" = "tests" ] && [ "$PR_PLAN" = "1" ]; then
-  if [ -n "$PLAN_TICKET" ]; then TICKET_COMMENT delivery "$PLAN_TICKET" "$SUMMARY"; fi
+  if [ -n "$PLAN_TICKET" ]; then TICKET_DELIVERY_COMMENT "$PLAN_TICKET" "$SUMMARY" "$REPO#$PR"; fi
 else
-  case "$MODE" in jira|tests) TICKET_COMMENT delivery "$KEY" "$SUMMARY" ;; esac
+  case "$MODE" in
+    jira|tests) TICKET_DELIVERY_COMMENT "$KEY" "$SUMMARY" ;;
+    pr)
+      if [ "$PR_TICKET_FUSED" = "1" ] && [ -n "$PLAN_TICKET" ] \
+          && TICKET_RICH_ENABLED; then
+        TICKET_DELIVERY_COMMENT "$PLAN_TICKET" "$SUMMARY" "$REPO#$PR"
+      fi
+      ;;
+  esac
 fi
 NOTIFY post "$SUMMARY" || true
 # P0: surface the outcome as a build status on the PR head (merge-gate visibility)
