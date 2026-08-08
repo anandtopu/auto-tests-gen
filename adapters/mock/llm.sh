@@ -10,6 +10,11 @@ set -euo pipefail
 VERB=${1:?verb}; shift || true
 
 case "$VERB" in
+  usage)
+    DAYS=${1:-}; case "$DAYS" in ''|*[!0-9]*) echo "usage window must be positive integer days" >&2; exit 64 ;; esac
+    [ "$DAYS" -ge 1 ] 2>/dev/null || exit 64
+    cat "$(dirname "$0")/fixtures/usage.json"
+    ;;
   run_phase)
     echo "mock provider: phases run via engine/phases/mock_phase.sh under" \
          "AIQE_MOCK=1 (the pipeline short-circuits before provider selection)" >&2

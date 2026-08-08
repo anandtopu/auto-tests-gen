@@ -1172,6 +1172,21 @@ Probe/other non-user attribution is listed outside the task total. The
 Artifacts view shows the same summary and download links, including plan-only
 or aborted keys that deliberately have no run record. The JSON API is
 `GET /api/cost-statement?key=<KEY>`; add `format=md|csv` for an export response.
+
+Provider billing is accessed only through the LLM adapter family. Configure the
+write-only `ANTHROPIC_ADMIN_KEY` in Settings (an organization Admin API key with
+read-only usage/cost scope), then inspect the normalized provider result with:
+
+```bash
+make cost-reconcile DAYS=7             # configured default provider
+make cost-reconcile DAYS=7 PROVIDER=mock
+```
+
+Every adapter implements `usage <window>`. Providers that cannot report billing
+return an explicit `unavailable` state with no cost field; they never fabricate
+zero spend. This command exposes the provider side of the port in TCA-C2. The
+provider-aligned ledger comparison and persisted reconciliation state are added
+by TCA-C3/C4, so this command does not yet claim that costs are reconciled.
 Set `AIQE_EXPORTS_DIR` to relocate generated exports independently; otherwise
 they follow `AIQE_STATE_DIR` and default to `reports/exports`.
 

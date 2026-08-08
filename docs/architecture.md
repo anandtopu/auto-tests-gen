@@ -1632,6 +1632,7 @@ computed from the wrong population all reported themselves as normal operation.
 | SCM credentials | Fine-grained deploy token: contents write on feature branches only; branch protection blocks agent pushes to `main`/release branches |
 | JIRA credentials | Dedicated service account; project-scoped read + comment write; API token rotated; admin MCP-client allowlisting enabled |
 | LLM credentials | `ANTHROPIC_API_KEY` injected as secret at runtime; never written to repo, logs, or prompts; usage-scoped key with spend limit |
+| Billing credential | `ANTHROPIC_ADMIN_KEY` is a separate write-only secret with read-only organization usage/cost scope; only the Claude adapter reads it for the normalized `usage` port |
 | Prompt injection | Ticket/PR text framed as data (verified across every standalone prompt); per-phase `allowedTools` whitelist that each LLM adapter must declare it can enforce (`tool_policy`, conformance-checked as never *more* permissive); no arbitrary network tools; deterministic gate blocks out-of-scope diffs and secret-like strings |
 | Trusted-executor integrity | The gate executes the test repo's `commands.{lint,test}`, so `.ai-qe/` is OFF the writable scope and those commands are read from the COMMITTED config — a run cannot rewrite what the component holding the push credential will execute (§5.5.1) |
 | Provider trust | No silent fallback: an unreachable or unconfigured LLM provider ends the phase naming the fix, never reroutes to another (possibly paid) one. Model ids are configured, never guessed (C12) |

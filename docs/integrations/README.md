@@ -40,6 +40,7 @@ that is the conformance-tested contract (`make conformance`).
 | Variable | Needed for | Scope to request |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | LLM phases (`AIQE_MOCK=0`) | — |
+| `ANTHROPIC_ADMIN_KEY` | Provider cost report (`make cost-reconcile`) | read-only organization usage/cost scope |
 | `ATLASSIAN_MCP_TOKEN` | Jira + Confluence + Bitbucket Cloud via one MCP connection | service account: project read + comment write |
 | `GITHUB_TOKEN` | GitHub repos | fine-grained: contents RW on branches, PR comments |
 | `BITBUCKET_TOKEN` | Bitbucket **Cloud** repos | repo read + PR comment; RW for test repos |

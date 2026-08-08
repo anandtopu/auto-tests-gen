@@ -12,7 +12,7 @@ Source: [prd-token-cost-accounting.md](prd-token-cost-accounting.md) (Draft v2)
 | 3 | TCA-A3 Unified spend accessor | A1.2, A1.2a | TCA-A1 | Implemented | One deduplicating `spend_rows()` authority; run-record enrichment wins; every enumerated consumer migrates or remains explicitly live-run-only |
 | 4 | TCA-C1 Per-task cost statement | C1.1–C1.3, G5 | TCA-A3 | Implemented | CLI, API, artifacts-adjacent panel, per-basis totals, incomplete-state counts, CSV/Markdown exports |
 | 5 | TCA-B1 Complete consumer report | B1.1–B1.4, M2 | TCA-A3, TCA-C1 | Implemented | Basis-aware daily embedding section, durable probe attribution outside user totals, mandatory unmeterable counts, shared provider/basis rollups |
-| 6 | TCA-C2 Provider usage port | C2.1, C2.1a | TCA-A3 | Planned | Adapter-family `usage <window>` verb, mock fixture, conformance suite, write-only admin credential, Make entry point |
+| 6 | TCA-C2 Provider usage port | C2.1, C2.1a | TCA-A3 | Implemented | Adapter-family `usage <window>` verb, mock fixture, conformance suite, write-only admin credential, Make entry point |
 | 7 | TCA-C3 Reconciliation arithmetic | C2.1b, C2.2 | TCA-C2 | Planned | Provider-aligned UTC windows, reported-only comparison, reconcilable fraction, deterministic drift evidence |
 | 8 | TCA-C4 Reconciliation operations | C2.3, C2.4, M4 | TCA-C3 | Planned | Notify alarm, three-state Cost badge, DEGRADED maintenance step, no-credential/API-down honesty |
 | 9 | TCA-FINAL Broad verification | M1–M4 and guardrails | TCA-A2–TCA-C4 | Planned | Full compatibility suite, report/runtime regression checks, final docs/status reconciliation |
@@ -121,6 +121,27 @@ only the port. Align requested and ledger windows to provider UTC buckets, compa
 only reported-basis dollars, state the reconcilable share, and never auto-correct.
 Persist the latest result, notify above configured drift, and expose
 `not reconciled`, `reconciled/no drift`, and `reconciled/drift` distinctly.
+
+#### TCA-C2 completion evidence
+
+Every LLM adapter now implements the normalized `usage <days>` verb. Claude is
+the only current live implementation: it calls the Anthropic Admin cost-report
+endpoint, follows bounded pagination, uses exact decimal fractional-cent to USD
+conversion, and returns the provider's actual UTC bucket window. Codex, Ollama,
+OpenHands, and an unconfigured Claude adapter return `unavailable` without a
+cost field. The mock adapter reads a deterministic synthetic fixture. The
+engine resolves and validates only this port; vendor endpoint and credential
+names are pinned out of engine code. `ANTHROPIC_ADMIN_KEY` is write-only in
+Settings and is declared in both local and OpenShift examples. `make
+cost-reconcile [DAYS=N] [PROVIDER=name]` exposes the normalized evidence without
+prematurely claiming the TCA-C3 ledger comparison is complete.
+
+Validation passed across 165 focused tests, adapter conformance, 343 broad
+cost/adapter/settings/state compatibility tests, Python and shell syntax, and
+the documented mock Make journey. The full registry command was attempted but
+timed out at 600 seconds without an exit result; it is not counted as passing.
+That attempt exposed a tracked-plan test-isolation defect, which was fixed and
+retested with before/after file hashes unchanged.
 
 ## Review and delivery gate
 

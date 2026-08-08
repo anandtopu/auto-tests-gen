@@ -1,0 +1,1 @@
+{"schema":1,"state":"available","provider":"mock","window":{"starting_at":"2026-01-01T00:00:00Z","ending_at":"2026-01-08T00:00:00Z","bucket_width":"1d"},"cost":{"amount_usd":"12.34","currency":"USD","basis":"provider-reported"},"source":"deterministic-mock-fixture"}

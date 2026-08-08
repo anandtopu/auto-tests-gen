@@ -44,6 +44,11 @@ VERB=${1:?verb}; shift || true
 CODEX_BIN="${CODEX_BIN:-codex}"
 
 case "$VERB" in
+  usage)
+    DAYS=${1:-}; case "$DAYS" in ''|*[!0-9]*) echo "usage window must be positive integer days" >&2; exit 64 ;; esac
+    [ "$DAYS" -ge 1 ] 2>/dev/null || exit 64
+    printf '%s\n' '{"schema":1,"state":"unavailable","provider":"codex","reason_code":"unsupported","reason":"provider billing usage is not exposed by this adapter"}'
+    ;;
   run_phase)
     MODEL=${1:?model}; TURNS=${2:-1}; TOOLS=${3:-}; OUT_JSON=${4:?out_json}
     command -v "$CODEX_BIN" >/dev/null 2>&1 || {

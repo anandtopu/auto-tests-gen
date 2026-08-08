@@ -37,6 +37,8 @@ def test_defaults_apply_when_unset(env_file):
     assert flat["AIQE_MOCK"]["value"] == "1"
     assert flat["SCM_KIND"]["value"] == "github"
     assert flat["ANTHROPIC_API_KEY"]["set"] is False
+    assert flat["ANTHROPIC_ADMIN_KEY"]["set"] is False
+    assert flat["ANTHROPIC_ADMIN_KEY"]["secret"] is True
 
 
 def test_save_rejects_unknown_key_bad_option_and_newlines(env_file):

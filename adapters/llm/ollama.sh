@@ -20,6 +20,11 @@ VERB=${1:?verb}; shift || true
 BASE="${OLLAMA_URL:-http://localhost:11434/v1}"
 
 case "$VERB" in
+  usage)
+    DAYS=${1:-}; case "$DAYS" in ''|*[!0-9]*) echo "usage window must be positive integer days" >&2; exit 64 ;; esac
+    [ "$DAYS" -ge 1 ] 2>/dev/null || exit 64
+    printf '%s\n' '{"schema":1,"state":"unavailable","provider":"ollama","reason_code":"unsupported","reason":"local inference has no provider billing report"}'
+    ;;
   run_phase)
     MODEL=${1:?model}; TURNS=${2:-1}; TOOLS=${3:-}; OUT_JSON=${4:?out_json}
     # The heredoc below owns stdin — park the assembled prompt in a file first.

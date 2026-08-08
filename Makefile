@@ -7,7 +7,7 @@ SHELL := /bin/bash
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
         demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config \
-        cost-report cost-statement index-rebuild index-stats cache-probe cost-baseline \
+        cost-report cost-statement cost-reconcile index-rebuild index-stats cache-probe cost-baseline \
         requirements demo-requirements requirements-approve spec-verify \
         test-providers test-state test-routing-adv test-observability test-bootstrap test-entrypoint \
         parity-compare repo-facts explain select select-finalize
@@ -195,6 +195,9 @@ cost-statement:       # exact-key auditable spend lines (KEY=... FORMAT=md|csv)
 
 cost-baseline:        # freeze per-phase MEASURED medians as the regression baseline (refuses simulated)
 	python3 engine/lib/cost_report.py baseline
+
+cost-reconcile:       # provider-reported cost through adapter port (DAYS=N [PROVIDER=name])
+	python3 engine/lib/provider_usage.py --days $(or $(DAYS),30) $(if $(PROVIDER),--provider $(PROVIDER),)
 
 cache-probe:          # measure whether provider prompt caching engages (real CLI auth; ~$$0.02)
 	bash bin/cache-probe.sh

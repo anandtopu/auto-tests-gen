@@ -33,6 +33,11 @@ VERB=${1:?verb}; shift || true
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 case "$VERB" in
+  usage)
+    DAYS=${1:-}; case "$DAYS" in ''|*[!0-9]*) echo "usage window must be positive integer days" >&2; exit 64 ;; esac
+    [ "$DAYS" -ge 1 ] 2>/dev/null || exit 64
+    printf '%s\n' '{"schema":1,"state":"unavailable","provider":"openhands","reason_code":"unsupported","reason":"delegated provider billing is not exposed by this adapter"}'
+    ;;
   run_phase)
     MODEL=${1:-}; TURNS=${2:-1}; TOOLS=${3:-}; OUT_JSON=${4:?out_json}
     [ "${AIQE_OPENHANDS_PROVIDER:-}" = "1" ] || {

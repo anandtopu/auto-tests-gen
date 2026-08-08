@@ -21,11 +21,11 @@ declare -A verbs=( [scm/github.sh]="clone_ro clone_rw changed_files diff pr_cont
                    [notify/slack.sh]="post digest"
                    [notify/email.sh]="post digest"
                    [telemetry/splunk.sh]="emit_event"
-                   [llm/claude.sh]="run_phase capabilities check tool_policy"
-                   [llm/ollama.sh]="run_phase capabilities check tool_policy"
-                   [llm/codex.sh]="run_phase capabilities check tool_policy"
-                   [llm/openhands.sh]="run_phase capabilities check tool_policy"
-                   [mock/llm.sh]="run_phase capabilities check tool_policy"
+                   [llm/claude.sh]="run_phase capabilities check tool_policy usage"
+                   [llm/ollama.sh]="run_phase capabilities check tool_policy usage"
+                   [llm/codex.sh]="run_phase capabilities check tool_policy usage"
+                   [llm/openhands.sh]="run_phase capabilities check tool_policy usage"
+                   [mock/llm.sh]="run_phase capabilities check tool_policy usage"
                    [embed/http.sh]="embed_texts dims"
                    [mock/embed.sh]="embed_texts dims" )
 for a in "${!verbs[@]}"; do
@@ -33,6 +33,31 @@ for a in "${!verbs[@]}"; do
   for v in ${verbs[$a]}; do
     grep -q "$v" "adapters/$a" || { echo "FAIL missing verb $v in $a"; fail=1; }
   done
+done
+
+# Provider usage port: unsupported/unconfigured providers say unavailable
+# without inventing zero cost; the mock fixture proves the available shape.
+for a in llm/claude.sh llm/codex.sh llm/ollama.sh llm/openhands.sh mock/llm.sh; do
+  out=$(env -u ANTHROPIC_ADMIN_KEY bash "adapters/$a" usage 7 2>&1) || {
+    echo "FAIL usage errored: $a ($out)"; fail=1; continue; }
+  AIQE_USAGE_JSON="$out" python3 - "$a" <<'PY' || fail=1
+import json, os, sys
+name = sys.argv[1]
+try:
+    value = json.loads(os.environ["AIQE_USAGE_JSON"])
+except Exception as exc:
+    print(f"FAIL usage JSON: {name}: {exc}")
+    raise SystemExit(1)
+if value.get("schema") != 1 or value.get("state") not in {"available", "unavailable"}:
+    print(f"FAIL usage schema/state: {name}")
+    raise SystemExit(1)
+if value["state"] == "unavailable" and ("cost" in value or "cost_usd" in value):
+    print(f"FAIL unavailable usage invented cost: {name}")
+    raise SystemExit(1)
+if name == "mock/llm.sh" and value.get("cost", {}).get("basis") != "provider-reported":
+    print("FAIL mock usage is not provider-reported")
+    raise SystemExit(1)
+PY
 done
 
 # --- LLM tool policy (multi-LLM 5.1) -----------------------------------------

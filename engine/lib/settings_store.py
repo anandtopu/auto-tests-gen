@@ -37,6 +37,9 @@ SPEC = [
         {"env": "AIQE_STATUS_URL", "label": "Build-status link URL",
          "help": "URL the ai-qe PR build status links to (e.g. the dashboard)"},
         {"env": "ANTHROPIC_API_KEY", "label": "Anthropic API key", "secret": True},
+        {"env": "ANTHROPIC_ADMIN_KEY", "label": "Anthropic Admin API key",
+         "secret": True,
+         "help": "read-only organization usage/cost scope; used only by cost-reconcile"},
         {"env": "AIQE_SSO_HEADER", "label": "SSO identity header",
          "help": "e.g. X-Forwarded-User — set ONLY behind a reverse proxy that "
                  "terminates auth and overwrites this header; fails closed (401) "

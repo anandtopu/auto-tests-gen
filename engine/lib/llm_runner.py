@@ -87,6 +87,15 @@ def provider_for(phase, cfg=None):
     return str(per.get(base) or cfg.get("provider") or "claude").lower()
 
 
+def default_provider(cfg=None):
+    """Estate default without arbitrarily applying a phase override."""
+    env = os.environ.get("AIQE_LLM_PROVIDER", "").strip().lower()
+    if env:
+        return env
+    cfg = cfg if cfg is not None else _cfg()
+    return str(cfg.get("provider") or "claude").lower()
+
+
 def adapter_path(provider):
     if provider == "mock":
         return ROOT / "adapters/mock/llm.sh"

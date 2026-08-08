@@ -24,6 +24,8 @@ SCM_KIND=github
 AIQE_STATUS_URL=
 # Anthropic API key  ·  SECRET
 ANTHROPIC_API_KEY=
+# Anthropic Admin API key  ·  SECRET  ·  read-only organization usage/cost scope
+ANTHROPIC_ADMIN_KEY=
 # SSO identity header  ·  e.g. X-Forwarded-User — set ONLY behind a reverse proxy that terminates auth and overwrites this header; fails closed (401) when the header is missing. The value signs approvals.
 AIQE_SSO_HEADER=
 # SSL verification  ·  one of: 1|0

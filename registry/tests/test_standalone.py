@@ -174,7 +174,13 @@ def test_mode_is_configurable_from_the_settings_ui():
 def test_full_run_commits_with_openhands_unreachable(tmp_path):
     """The headline claim: routed -> generated -> gated -> COMMITTED, exit 0."""
     env = {**os.environ, "AIQE_MOCK": "1", "OPENHANDS_URL": DEAD,
-           "OPENHANDS_API_KEY": "x"}
+           "OPENHANDS_API_KEY": "x",
+           # This is a real pipeline run, but its authored plan is test data.
+           # Never rewrite the checkout's tracked PROJ-301 artifacts.
+           "AIQE_SPEC_DIR": str(tmp_path / "specs"),
+           "AIQE_PLAN_DIR": str(tmp_path / "plans"),
+           "AIQE_TESTPLAN_DIR": str(tmp_path / "testplans"),
+           "AIQE_TESTDATA_DIR": str(tmp_path / "testdata")}
     r = subprocess.run([work_queue.bash_exe(), "engine/pipeline.sh", "jira", "PROJ-301"],
                        cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
                        errors="replace", stdin=subprocess.DEVNULL, env=env, timeout=900)
