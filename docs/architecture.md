@@ -971,7 +971,12 @@ measured results and per-layer summary: [cost-optimization.md](cost-optimization
    simulated estates) and `make maintain` alarms on >25% regressions, naming
    the phase and the likely causes. Exact-key `cost-statement` views partition
    reported/estimated/simulated dollars, local tokens and incomplete counts;
-   Markdown/CSV exports never create one mixed-basis total.
+   Markdown/CSV exports never create one mixed-basis total. The complete report
+   also normalizes the vector index's daily embedding ledger and non-user probe
+   rows into separate sections. One provider/basis rollup function spans task,
+   probe and embedding consumers, while the task total and measured/simulated
+   badge remain user-only. Unknown provider spend always emits a numeric
+   unmeterable phase/task line, including the zero state.
 2. **Knowledge chunks** (`knowledge_chunks.py`, story 2.1). The same sources
    `gen_agents_md.py` reads, chunked into addressed units (repo-surface,
    guidance, exemplar, spec, testcase (flagged), catalog, scenario, testdata) with content-

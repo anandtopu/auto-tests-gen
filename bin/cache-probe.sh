@@ -41,22 +41,53 @@ if [ "$_mock" = "1" ] && [ "$_real" != "1" ]; then
   exit 2
 fi
 
-probe() {  # one triage run; prints "input cache_read" from the result JSON
-  rm -f out/triage.json out/triage.contract.json
-  bash engine/phases/run_phase.sh triage prompts/pr-triage.md workspace \
-    AGENTS.md > /dev/null
-  python3 - <<'PY'
+# This script shares the pipeline's mutable scratch and durable spend path, so
+# it must share the run lock as well.  Every real probe call is labelled before
+# dispatch by run_phase.sh, metered by budget.py, and flushed on EXIT even when
+# the second call fails.  The explicit attribution keeps measurements outside
+# a user's task statement.
+export RUN_ID="cache-probe-$(date +%s)-$$"
+export MODE="probe" AIQE_RUN_MODE="probe"
+export KEY="${KEY:-CACHE-PROBE}"
+export AIQE_COST_ATTRIBUTION="probe"
+STARTS_FILE="${AIQE_PHASE_STARTS_FILE:-out/phase-starts.jsonl}"
+_probe_exit() {
+  local rc="${1:-0}" flush_error=""
+  if ! flush_error=$(python3 engine/lib/spend_ledger.py flush "$RUN_ID" \
+      "$MODE" "$KEY" 2>&1); then
+    echo "[cost-ledger] $flush_error" >&2
+  fi
+  rmdir out/.pipeline.lock 2>/dev/null || true
+  return "$rc"
+}
+mkdir -p out
+if ! mkdir out/.pipeline.lock 2>/dev/null; then
+  echo "PIPELINE_BUSY: another run holds out/.pipeline.lock" >&2
+  exit 75
+fi
+trap '_probe_exit "$?"' EXIT
+rm -f "${AIQE_COST_LEDGER:-out/cost.tsv}" "$STARTS_FILE"
+
+probe() {  # $1=ledger label; prints "input cache_read" from the result JSON
+  local label="$1" rc=0
+  rm -f "out/$label.json" "out/$label.contract.json"
+  AIQE_PHASE_LABEL="$label" bash engine/phases/run_phase.sh triage \
+    prompts/pr-triage.md workspace AGENTS.md > /dev/null || rc=$?
+  python3 engine/lib/budget.py record "$label" "out/$label.json" "$rc" || true
+  [ "$rc" -eq 0 ] || return "$rc"
+  python3 - "$label" <<'PY'
 import json
-u = (json.load(open("out/triage.json", encoding="utf-8")).get("usage") or {})
+import sys
+u = (json.load(open(f"out/{sys.argv[1]}.json", encoding="utf-8")).get("usage") or {})
 print(u.get("input_tokens", 0), u.get("cache_read_input_tokens", 0))
 PY
 }
 
 export AIQE_PHASE_CACHE=0   # the CONTENT cache would hide the second call entirely
 echo "probe 1/2 (cold)..."
-read -r IN1 CR1 <<< "$(probe)"
+read -r IN1 CR1 <<< "$(probe cache-probe-cold)"
 echo "probe 2/2 (warm, immediately after)..."
-read -r IN2 CR2 <<< "$(probe)"
+read -r IN2 CR2 <<< "$(probe cache-probe-warm)"
 
 python3 - "$IN1" "$CR1" "$IN2" "$CR2" <<'PY'
 import sys

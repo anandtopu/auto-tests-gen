@@ -11,7 +11,7 @@ Source: [prd-token-cost-accounting.md](prd-token-cost-accounting.md) (Draft v2)
 | 2 | TCA-A2 Exit-path coverage proof | A2.1, M1 | TCA-A1 | Implemented | Isolated instrumented sweep of five modes plus clarification, budget-abort, and mid-call failure paths; M1 measured at 8/8 |
 | 3 | TCA-A3 Unified spend accessor | A1.2, A1.2a | TCA-A1 | Implemented | One deduplicating `spend_rows()` authority; run-record enrichment wins; every enumerated consumer migrates or remains explicitly live-run-only |
 | 4 | TCA-C1 Per-task cost statement | C1.1–C1.3, G5 | TCA-A3 | Implemented | CLI, API, artifacts-adjacent panel, per-basis totals, incomplete-state counts, CSV/Markdown exports |
-| 5 | TCA-B1 Complete consumer report | B1.1–B1.4, M2 | TCA-A3, TCA-C1 | Planned | Embedding section, probe attribution separation, unmeterable line, shared provider/basis rollups |
+| 5 | TCA-B1 Complete consumer report | B1.1–B1.4, M2 | TCA-A3, TCA-C1 | Implemented | Basis-aware daily embedding section, durable probe attribution outside user totals, mandatory unmeterable counts, shared provider/basis rollups |
 | 6 | TCA-C2 Provider usage port | C2.1, C2.1a | TCA-A3 | Planned | Adapter-family `usage <window>` verb, mock fixture, conformance suite, write-only admin credential, Make entry point |
 | 7 | TCA-C3 Reconciliation arithmetic | C2.1b, C2.2 | TCA-C2 | Planned | Provider-aligned UTC windows, reported-only comparison, reconcilable fraction, deterministic drift evidence |
 | 8 | TCA-C4 Reconciliation operations | C2.3, C2.4, M4 | TCA-C3 | Planned | Notify alarm, three-state Cost badge, DEGRADED maintenance step, no-credential/API-down honesty |
@@ -95,10 +95,24 @@ checks passed (15 and 26), and the full registry suite passed (1,734).
 
 ### TCA-B1 — Complete consumer report
 
-Normalize daily embedding rows into the report without moving its cap. Mark
-cache-probe pipeline invocations as `probe` and exclude them from user task
-totals. Count unknown/OpenHands rows explicitly, then feed all sections through
-the existing provider and basis rollup representation.
+| Criterion | Implementation | Verification |
+| --- | --- | --- |
+| B1.1 | `vector_index` preserves its cap authority while upgrading new daily spend entries to basis/provider/call/token rows; legacy scalar days normalize as estimated with unknown call/token counts. `cost_report` renders daily embeddings separately from the user-task LLM total | Legacy + structured ledger, cap-total, window and Markdown section tests |
+| B1.2 | `cache-probe.sh` takes the shared run lock, labels cold/warm calls, uses `budget.py record`, and EXIT-flushes through `spend_ledger` with `AIQE_COST_ATTRIBUTION=probe`. Report and statement views exclude those rows from user task totals and list them separately | Probe wiring/guard tests; mixed user/probe statement and report fixtures |
+| B1.3 | Unknown-basis user phases produce an always-present `Unmeterable: N phases across N tasks` line with providers named; zero is rendered rather than omitted | OpenHands unknown fixture and zero-count C13 regression |
+| B1.4 | One `add_rollup` path feeds phase, probe and embedding rows into `by_provider` and `by_basis` without combining basis-specific statement totals | Cross-consumer provider/basis arithmetic assertions and Cost-view contract test |
+
+Implementation evidence: embedding spend remains enforced only by
+`vector_index`; its locked atomic day ledger now adds evidence without breaking
+legacy scalar entries. Probe calls follow the same mark/meter/flush lifecycle as
+pipeline phases and use the existing non-user statement partition. The report
+keeps the legacy user-task LLM total, adds separate embedding/probe sections,
+and exposes all-consumer provider/basis rollups plus mandatory unmeterable
+counts. Targeted and adjacent post-review checks passed (110); the earlier
+compatibility set passed (199). Two full registry sweeps each passed 1,738
+tests: the first exposed the vector-store isolation gap fixed in this item, and
+the second proved that fix but hit one unrelated plan-arbitration test that
+passed immediately when rerun alone.
 
 ### TCA-C2/C3/C4 — Reconciliation
 

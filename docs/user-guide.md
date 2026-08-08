@@ -1149,6 +1149,12 @@ turn calibration (observed p50/p95 vs the configured ceiling) and prompt-cache
 hit rates — every number badged **measured** or **simulated** (`~`), and savings
 print `n/a` until at least one measured run exists. The same data serves
 `make cost-report [DAYS=N]`, `qa.py status --cost` and `artifacts <KEY>`.
+The task LLM total deliberately excludes separately labelled embedding and
+cache-probe spend. Daily embedding rows retain their reported/estimated/unknown
+basis; probe rows are attributed `probe`; and an **Unmeterable** line always
+states how many unknown-basis phases and tasks exist, including zero. The
+provider and basis tables cover all three consumer classes without turning an
+unknown amount into `$0`.
 
 For an auditable statement of one exact task key, run:
 
@@ -1179,6 +1185,11 @@ a VERIFY checklist). Budget envelopes per workflow and the degradation ladder
 live in org-config `budgets:`; a run that degraded says so on the wizard's
 generate step. After real runs exist, `make cost-baseline` freezes per-phase
 medians and `make maintain` alarms on >25% regressions.
+
+`make cache-probe` still requires real provider access and makes two billed
+calls. It takes the normal pipeline lock and durably records those calls as
+non-user `probe` activity even if the probe fails partway through; they appear
+in the report's Probe section and never inflate a ticket's statement total.
 
 Generated-test review is judgement work: `reviewer` and `reviewrepair` stay
 on the capable tier even near the envelope. When review actually runs, the

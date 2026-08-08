@@ -2403,11 +2403,24 @@ async function refreshCost() {
     if (el) el.innerHTML = badge + incomplete;
     const modes = Object.entries(d.by_mode || {}).map(([m, v]) =>
       escHtml(m) + ': ' + v.runs + ' run(s) $' + v.cost_usd.toFixed(4)).join(' · ');
+    const unmeterable = d.unmeterable || {};
+    const embeddingCosts = Object.entries((d.embeddings || {}).costs_by_basis || {})
+      .map(([basis, value]) => escHtml(basis) + ' $' + Number(value).toFixed(6)).join(' + ');
+    const embeddingSummary = ((d.embeddings || {}).rows || []).length
+      ? ' · <b>embeddings:</b> ' + ((d.embeddings || {}).rows || []).length +
+        ' daily row(s), ' + (embeddingCosts || 'cost unknown')
+      : '';
+    const probeSummary = (d.probe || {}).rows
+      ? ' · <b>probe:</b> ' + d.probe.rows + ' row(s), ' + d.probe.calls +
+        ' call(s), excluded from user tasks'
+      : '';
     const sum = document.getElementById('cost-summary');
     if (sum) sum.innerHTML = '<b>Total $' + (d.total_cost_usd || 0).toFixed(4) +
       '</b> across ' + d.runs + ' run(s)' + (modes ? ' — ' + modes : '') +
       (d.unpriced_calls ? ' · <b>incomplete:</b> excludes ' + d.unpriced_calls +
-        ' call(s) without pricing' : '');
+        ' call(s) without pricing' : '') +
+      ' · <b>unmeterable:</b> ' + (unmeterable.phases || 0) + ' phase(s) across ' +
+        (unmeterable.tasks || 0) + ' task(s)' + embeddingSummary + probeSummary;
     const pt = document.querySelector('#cost-phase-table tbody');
     if (pt) pt.innerHTML = Object.entries(d.by_phase || {}).sort().map(([k, v]) =>
       '<tr><td class="mono sm">' + escHtml(k) + '</td><td>' + v.calls + '</td>' +

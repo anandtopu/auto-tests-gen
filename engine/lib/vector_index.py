@@ -23,10 +23,9 @@ Contracts:
 
 CLI: vector_index.py refresh|rebuild|stats|query <text>
 """
-import json
+import datetime
 import math
 import os
-
 import pathlib
 import sqlite3
 import struct
@@ -35,8 +34,9 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import embeddings
+import env_flag  # AIQE_MOCK means what it says
+import fs_lock
 import knowledge_chunks
-import env_flag                     # AIQE_MOCK means what it says
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 DB = pathlib.Path(os.environ.get("AIQE_VECTOR_DB",
@@ -103,22 +103,101 @@ def _day():
 
 
 def _spend_today():
+    d = fs_lock.read_json_guarded(SPEND, {})
+    row = d.get(_day(), 0.0) if isinstance(d, dict) else 0.0
+    if isinstance(row, dict):
+        row = row.get("cost_usd")
     try:
-        d = json.load(open(SPEND, encoding="utf-8"))
-        return float(d.get(_day(), 0.0))
-    except Exception:
+        value = float(row or 0.0)
+        return value if math.isfinite(value) and value >= 0 else 0.0
+    except (TypeError, ValueError, OverflowError):
         return 0.0
 
 
-def _record_spend(usd):
-    try:
-        d = json.load(open(SPEND, encoding="utf-8"))
-    except Exception:
-        d = {}
-    d = {k: v for k, v in d.items() if k >= _day()}   # keep today only
-    d[_day()] = round(d.get(_day(), 0.0) + usd, 6)
-    SPEND.parent.mkdir(parents=True, exist_ok=True)
-    SPEND.write_text(json.dumps(d), encoding="utf-8", newline="\n")
+def _record_spend(usd, tokens=0):
+    """Record one embedding adapter call without changing cap ownership.
+
+    Older ledgers stored a scalar dollar total per day.  They remain readable;
+    the first new write upgrades today's value to a structured daily row so the
+    cost report can state call/token evidence instead of guessing it.
+    """
+    def count(value):
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
+    with fs_lock.lock(SPEND):
+        d = fs_lock.read_json_guarded(SPEND, {})
+        d = d if isinstance(d, dict) else {}
+        d = {k: v for k, v in d.items()
+             if k.startswith("notified-") or k >= _day()}  # keep today + markers
+        old = d.get(_day(), {})
+        if isinstance(old, dict):
+            old_cost = old.get("cost_usd", 0.0)
+            old_calls = old.get("calls", 0)
+            old_tokens = old.get("tokens", 0)
+        else:                              # legacy scalar daily total
+            old_cost, old_calls, old_tokens = old, 0, 0
+        try:
+            old_cost = float(old_cost or 0.0)
+        except (TypeError, ValueError, OverflowError):
+            old_cost = 0.0
+        d[_day()] = {
+            "cost_usd": round(old_cost + float(usd), 6),
+            "basis": "estimated", "provider": "embeddings",
+            "calls": count(old_calls) + 1,
+            "tokens": count(old_tokens) + count(tokens),
+        }
+        fs_lock.write_json_atomic(SPEND, d, sort_keys=True)
+
+
+def spend_rows(days=None):
+    """Return honest daily embedding rows, including legacy scalar entries."""
+    doc = fs_lock.read_json_guarded(SPEND, {})
+    if not isinstance(doc, dict):
+        return []
+    cutoff = None
+    if days is not None:
+        cutoff = datetime.date.today() - datetime.timedelta(days=max(0, int(days) - 1))
+    rows = []
+
+    def count(value):
+        try:
+            value = int(value or 0)
+            return value if value >= 0 else 0
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
+    for day, raw in sorted(doc.items()):
+        try:
+            stamp = datetime.date.fromisoformat(day)
+        except (TypeError, ValueError):
+            continue                       # notification markers / malformed keys
+        if cutoff is not None and stamp < cutoff:
+            continue
+        legacy = not isinstance(raw, dict)
+        value = raw if legacy else raw.get("cost_usd")
+        try:
+            cost = float(value)
+            cost = cost if math.isfinite(cost) and cost >= 0 else None
+        except (TypeError, ValueError, OverflowError):
+            cost = None
+        basis = "estimated" if legacy else str(raw.get("basis") or "unknown")
+        if basis not in ("reported", "estimated", "local", "simulated",
+                         "unknown", "unrecorded", "not-reconciled"):
+            basis = "unknown"
+        if basis in ("unknown", "unrecorded", "not-reconciled"):
+            cost = None
+        rows.append({
+            "day": day, "provider": "embeddings" if legacy else
+                   str(raw.get("provider") or "embeddings"),
+            "basis": basis, "cost_usd": cost,
+            "calls": None if legacy else count(raw.get("calls")),
+            "tokens": None if legacy else count(raw.get("tokens")),
+            "legacy": legacy,
+        })
+    return rows
 
 
 def _est_usd(texts):
@@ -173,7 +252,7 @@ def refresh(force=False):
         except RuntimeError as e:
             stopped = f"embed adapter failed: {e}"
             break
-        _record_spend(est)
+        _record_spend(est, sum(len(c["text"]) for c in batch) // 4)
         with con:
             for c, v in zip(batch, vecs):
                 con.execute(
@@ -192,10 +271,8 @@ def refresh(force=False):
 def _notify_once(msg):
     """Best-effort Notify-port ping, at most once per day (the marker rides the
     spend ledger's keyspace)."""
-    try:
-        d = json.load(open(SPEND, encoding="utf-8"))
-    except Exception:
-        d = {}
+    d = fs_lock.read_json_guarded(SPEND, {})
+    d = d if isinstance(d, dict) else {}
     marker = f"notified-{_day()}"
     if d.get(marker):
         return
@@ -207,6 +284,7 @@ def _notify_once(msg):
     delivered = False
     try:
         import subprocess
+
         import work_queue
         adapter = ROOT / ("adapters/mock/notify.sh"
                           if env_flag.mock()
@@ -221,9 +299,11 @@ def _notify_once(msg):
         delivered = False                  # best-effort, but not a silent one
     if not delivered:
         return                             # no marker: the next run retries
-    d[marker] = True
-    SPEND.parent.mkdir(parents=True, exist_ok=True)
-    SPEND.write_text(json.dumps(d), encoding="utf-8", newline="\n")
+    with fs_lock.lock(SPEND):
+        current = fs_lock.read_json_guarded(SPEND, {})
+        current = current if isinstance(current, dict) else {}
+        current[marker] = True
+        fs_lock.write_json_atomic(SPEND, current, sort_keys=True)
 
 
 # ---------------------------------------------------------------- query
