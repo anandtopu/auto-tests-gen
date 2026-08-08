@@ -12,7 +12,7 @@ Source: [prd-jira-comments-and-ticket-search.md](prd-jira-comments-and-ticket-se
 | 3 | JCTS-S3 Comment outcome accounting | A4.1–A4.2, M1 | none; follows S2 by PRD order | Implemented | Unconditional receipts for all five existing comment sites, run/event/plan-state homes, failure visibility without changing best-effort behavior |
 | 4 | JCTS-S4 Rich plan and delivery comments | A1.1–A1.3, A2.1–A2.5, M5 | JCTS-S3 | Implemented | Flagged scenario-first plan rendering and one shared delivery/PR projection, bounded plain-text output, fused-ticket delivery |
 | 5 | JCTS-S5 Comment idempotency | A3.1–A3.5, M2 | JCTS-S3, JCTS-S4 | Implemented | Stable visible markers, owned-comment update guard, persisted ids, unchanged skip, append-with-supersession fallback |
-| 6 | JCTS-FINAL Broad verification | M1–M6, risks and constraints | JCTS-S1–S5 | Pending | Full compatibility, mock journeys, feature-flag defaults, docs/status reconciliation |
+| 6 | JCTS-FINAL Broad verification | M1–M6, risks and constraints | JCTS-S1–S5 | Implemented | Full compatibility, mock journeys, feature-flag defaults, docs/status reconciliation |
 
 This order is the PRD's delivery plan. S1 is first because the current release
 search has a live injection defect. S3 stays before rich comments so delivery
@@ -121,6 +121,22 @@ and diff checks passed. Multi-pass review fixed unsafe historical id/timestamp
 reuse, overly broad run-id hash normalization, ambiguous-update duplication
 risk, TLS/authorship handling on Jira's update path, and final marker-aware
 length enforcement. No P0-P2 finding remains.
+
+### JCTS-FINAL — PRD-wide verification
+
+| Area | Final evidence |
+| --- | --- |
+| M1 / M2 | Accounting and idempotency suites cover every comment site, failure outcomes, unchanged skips, author-verified updates, and explicit supersession fallback. |
+| M3 / M4 | Both Tracker adapters pass the named injection fixture, all six closed filters, combinations, paging totals, and conformance. |
+| M5 | PR and Jira delivery renderers consume one normalized projection, with live/replay and fused-ticket paths pinned. |
+| M6 | Comment-update counts are retained in receipt outcomes. Bulk-search/queue adoption remains report-only and must be baselined from real operational traffic; no synthetic target was invented. |
+| Compatibility | The complete registry suite passed 1,827/1,827. Tracker adapter conformance, Python compilation, Ruff correctness checks, Bash syntax, fixture-cleanliness, and diff checks passed. |
+| Flags / invariants | Search and rich-comment flags remain default-off. Tracker remains the Jira boundary; no raw JQL enters the port; queue discovery metadata does not cross the runtime `get_item` boundary; plan mode creates no run record. |
+
+The final two-pass review found no open P0-P2 issue. A sandbox Jira rollout
+read remains an operational validation because this repository deliberately
+uses no live credentials or customer tickets. The M6 real-quarter baseline is
+also operational follow-up, not an implementation gate.
 
 ## Review and delivery gate
 
