@@ -49,6 +49,14 @@ _finalize() {
 }
 trap _finalize EXIT
 
+# TCA-A2's instrumented sweep needs a deterministic provider-child death after
+# the durable start fact but before any usage result exists. This knob lives in
+# the mock provider only: it cannot affect a real adapter or turn an ordinary
+# mock run into a failure unless the evaluator explicitly names the phase.
+if [ -n "${AIQE_MOCK_KILL_PHASE:-}" ] && [ "$AIQE_MOCK_KILL_PHASE" = "$OUT" ]; then
+  kill -TERM "$$"
+fi
+
 case "$PHASE" in
   triage)
     cat > out/triage.contract.json << EOF
@@ -99,14 +107,19 @@ EOF
 EOF
     ;;
   analyze)
+    BLOCKING_FIELD=""
+    if [ "${AIQE_MOCK_BLOCKING_CLARIFICATION:-0}" = "1" ]; then
+      BLOCKING_FIELD=', "blocking_ambiguity":"AC-3 is contradictory and requires a product decision"'
+    fi
     cat > out/analyze.contract.json << 'EOF'
 {"behaviors":[{"id":"B1","statement":"discount 1-90% accepted and total recalculated","source":"AC-1","layer":"api"},
               {"id":"B2","statement":"out-of-range discount rejected with 400","source":"AC-2","layer":"api"}],
  "requirements":[{"id":"R1","ears":"WHEN a discount over 90% is submitted, THE SYSTEM SHALL reject it and leave the order total unchanged","source":"AC-2"},
                  {"id":"R2","ears":"WHEN a valid discount is applied, THE SYSTEM SHALL recalculate the order total","source":"AC-1",
-                  "ambiguity":"AC-3 does not define stacking behavior for multiple discounts"}],
+                  "ambiguity":"AC-3 does not define stacking behavior for multiple discounts"BLOCKING_PLACEHOLDER}],
  "open_questions":["AC-3 does not define stacking behavior for multiple discounts"]}
 EOF
+    python3 -c 'import pathlib,sys; p=pathlib.Path("out/analyze.contract.json"); p.write_text(p.read_text(encoding="utf-8").replace("BLOCKING_PLACEHOLDER", sys.argv[1]), encoding="utf-8", newline="\n")' "$BLOCKING_FIELD"
     ;;
   testplan)
     mkdir -p testplans

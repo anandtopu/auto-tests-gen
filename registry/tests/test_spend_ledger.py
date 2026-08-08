@@ -71,6 +71,22 @@ def test_started_without_result_is_unrecorded_never_zero(isolated):
         assert row[field] is None, f"{field} must be unknown, never zero"
 
 
+def test_failed_mock_call_is_unrecorded_not_promoted_to_simulated(
+        isolated, monkeypatch):
+    live, starts, costs = isolated
+    monkeypatch.setenv("AIQE_MOCK", "1")
+    monkeypatch.setenv("AIQE_MOCK_PHASE_COST", "0.01")
+    sl.mark_start("1700000001-9", "jira", "PROJ-2", "analyze",
+                  "mock", "mock", starts)
+    # pipeline passes the child status so a missing provider result cannot be
+    # mistaken for a successful simulated call.
+    budget.record("analyze", str(live.parent / "missing.json"),
+                  allow_simulation=False)
+    target = sl.flush("1700000001-9", "jira", "PROJ-2", live, starts, costs)
+    row = json.loads(target.read_text(encoding="utf-8"))["rows"][0]
+    assert row["basis"] == "unrecorded" and row["cost_usd"] is None
+
+
 def test_never_started_has_no_row_and_no_file(isolated):
     live, starts, costs = isolated
     live.write_text("generate\t0.000000\t0\t10\t\t0\t0\t0\t0\t0\t\t\n",

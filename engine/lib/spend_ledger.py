@@ -113,8 +113,13 @@ def _completed_rows(path):
         for row in rows:
             basis = str(row.get("cost_basis") or "").strip()
             if not basis:
-                basis = ("simulated" if env_flag.mock(default=False) or
-                         (os.environ.get("AIQE_MOCK_PHASE_COST") or "").strip()
+                # A mock success has a metered simulated amount. A failed child
+                # has only the start marker plus budget.record's empty fallback
+                # row. Mock mode alone must not promote that unknown call into a
+                # completed simulated charge.
+                basis = ("simulated" if row.get("metered") and (
+                         env_flag.mock(default=False) or
+                         (os.environ.get("AIQE_MOCK_PHASE_COST") or "").strip())
                          else "unrecorded")
             bases.append(basis)
         basis = bases[0] if len(set(bases)) == 1 else "unknown"

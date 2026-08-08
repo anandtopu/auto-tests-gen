@@ -194,7 +194,7 @@ PHASE() {
   local rc=0
   _ARCHIVE_INPUTS "$RUN_ID" "$KEY" "$label" initial "prompts/$2" "${@:3}"
   _PHASE_IMPL "$@" || rc=$?
-  python3 engine/lib/budget.py record "$label" "out/$label.json" || true
+  python3 engine/lib/budget.py record "$label" "out/$label.json" "$rc" || true
   # Context-retry escape hatch (cost-reduction 2.3): a phase that ran on a
   # SCOPED context and reported `missing_context` gets ONE re-run with the full
   # estate — the miss is recorded so the scoping policy can be tuned instead of
@@ -212,7 +212,7 @@ PHASE() {
         _ARCHIVE_INPUTS "$RUN_ID" "$KEY" "$label" retry \
           "prompts/${args[1]}" "${args[@]:2}"
         _PHASE_IMPL "${args[@]}" || rc=$?
-        python3 engine/lib/budget.py record "$label" "out/$label.json" || true
+        python3 engine/lib/budget.py record "$label" "out/$label.json" "$rc" || true
       fi
     fi
   fi
@@ -387,7 +387,7 @@ REVIEW_TESTS() {
     if [ "${AIQE_REVIEW_BUDGET_GUARD:-0}" = "1" ]; then _budget_guard "$label"; fi
     _ARCHIVE_INPUTS "$RUN_ID" "$KEY" "$label" initial prompts/test-reviewer.md "${ctx[@]}"
     _PHASE_IMPL reviewer test-reviewer.md "${ctx[@]}" || rc=$?
-    python3 engine/lib/budget.py record "$label" "out/${label}.json" || true
+    python3 engine/lib/budget.py record "$label" "out/${label}.json" "$rc" || true
     unset AIQE_PHASE_LABEL AIQE_TARGET_REPO
     if [ "$rc" -eq 0 ] && python3 engine/lib/test_reviewer.py validate \
         "$repo" "out/${label}.contract.json"; then
@@ -1018,7 +1018,7 @@ elif python3 engine/lib/critic.py enabled; then
   CRITIC_RC=0
   _ARCHIVE_INPUTS "$RUN_ID" "$KEY" critic initial prompts/critic.md "${CRITIC_CTX[@]}"
   _PHASE_IMPL critic critic.md "${CRITIC_CTX[@]}" || CRITIC_RC=$?
-  python3 engine/lib/budget.py record critic out/critic.json || true
+  python3 engine/lib/budget.py record critic out/critic.json "$CRITIC_RC" || true
   if [ "$CRITIC_RC" -ne 0 ]; then
     echo "[critic] phase failed — advisory signal skipped, run continues"
     rm -f out/critic.contract.json

@@ -8,7 +8,7 @@ Source: [prd-token-cost-accounting.md](prd-token-cost-accounting.md) (Draft v2)
 | Order | Item | PRD mapping | Dependencies | Status | Implementation boundary |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | TCA-A1 Durable spend ledger | A1.1, A1.1a, A1.3–A1.5a, A1.7 | none | Implemented | Default-on durable per-run ledger, chained EXIT flush, exact start markers, state lifecycle, attribution, no run-record regression |
-| 2 | TCA-A2 Exit-path coverage proof | A2.1, M1 | TCA-A1 | Planned | Instrumented sweep of five modes plus clarification, budget-abort, and mid-call failure paths |
+| 2 | TCA-A2 Exit-path coverage proof | A2.1, M1 | TCA-A1 | Implemented | Isolated instrumented sweep of five modes plus clarification, budget-abort, and mid-call failure paths; M1 measured at 8/8 |
 | 3 | TCA-A3 Unified spend accessor | A1.2, A1.2a | TCA-A1 | Planned | One deduplicating `spend_rows()` authority; run-record enrichment wins; every enumerated consumer migrates or remains explicitly live-run-only |
 | 4 | TCA-C1 Per-task cost statement | C1.1–C1.3, G5 | TCA-A3 | Planned | CLI, API, artifacts-adjacent panel, per-basis totals, incomplete-state counts, CSV/Markdown exports |
 | 5 | TCA-B1 Complete consumer report | B1.1–B1.4, M2 | TCA-A3, TCA-C1 | Planned | Embedding section, probe attribution separation, unmeterable line, shared provider/basis rollups |
@@ -45,6 +45,16 @@ Drive `pr`, `jira`, `plan`, `tests`, and `requirements` in the mock estate.
 Add controlled clarification (65), budget abort (77), and provider child failure
 cases. Assert one durable entry for every invocation that actually starts a call,
 no row for a guard-stopped never-started phase, and no stale pipeline lock.
+
+Implementation evidence: `eval/token_cost_coverage.py` snapshots the tracked
+working tree into a disposable estate, drives all eight enumerated scenarios
+through `engine/pipeline.sh`, and writes its ignored machine-readable result to
+`eval/results/token-cost-coverage.json`. The measured result is M1 **8/8
+(100%)**. Exit 77 records only the completed `analyze` call, while a terminated
+provider child records one `unrecorded` `analyze` row; every scenario releases
+`out/.pipeline.lock`. The sweep exposed and fixed an empty failed-mock row that
+had been mislabeled `simulated`. Focused accounting/evaluator checks passed (33)
+and the full registry compatibility suite passed (1,716).
 
 ### TCA-A3 — Unified spend accessor
 

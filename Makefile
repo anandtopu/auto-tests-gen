@@ -42,7 +42,7 @@ run-jira:
 	bash engine/pipeline.sh jira $(KEY)
 
 eval:
-	bash eval/replay.sh && python3 eval/context_check.py && python3 eval/discovery_quality.py && python3 eval/retrieval_quality.py && python3 eval/reviewer_quality.py && python3 eval/scorecard.py
+	bash eval/replay.sh && python3 eval/context_check.py && python3 eval/discovery_quality.py && python3 eval/retrieval_quality.py && python3 eval/reviewer_quality.py && python3 eval/token_cost_coverage.py && python3 eval/scorecard.py
 
 discovery-eval:
 	python3 eval/discovery_quality.py

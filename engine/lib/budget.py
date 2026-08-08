@@ -150,7 +150,7 @@ def _model_for(label):
     return ""
 
 
-def record(phase, json_file=None):
+def record(phase, json_file=None, allow_simulation=True):
     """Append one phase's spend to the ledger. Never fails the caller.
 
     Row format (columns 5+ added by cost-reduction story 1.1; readers of the
@@ -172,7 +172,7 @@ def record(phase, json_file=None):
             priced_cost, basis = priced(provider, _model_for(phase), usage)
             if priced_cost is not None:
                 cost, metered = priced_cost, (basis == "estimated")
-    if not metered:
+    if not metered and allow_simulation:
         # Mock phases produce no cost JSON; a simulated cost keeps the whole
         # enforcement path testable without API spend.
         sim = os.environ.get("AIQE_MOCK_PHASE_COST", "").strip()
@@ -467,7 +467,8 @@ if __name__ == "__main__":
     if cmd == "record":
         phase = sys.argv[2]
         jf = sys.argv[3] if len(sys.argv) > 3 else None
-        cost, metered = record(phase, jf)
+        succeeded = len(sys.argv) < 5 or sys.argv[4] == "0"
+        cost, metered = record(phase, jf, allow_simulation=succeeded)
         if metered and cost:
             tot, _, _ = total()
             print(f"[budget] {phase}: ${cost:.4f} (run total ${tot:.2f})")
