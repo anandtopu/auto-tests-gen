@@ -123,13 +123,23 @@ not the document on faith), the adversarial review summary, ambiguities raised
 during analysis, and — when a similar prior plan was adapted — a banner naming
 what it was reused from and how similar it was.
 
-## Spec workflow
+## Plan → tests journey
 
-**Answers:** where is each ticket in the spec-driven process, and what is
+**Answers:** where is each ticket between an approved plan and delivered tests, and what is
 blocking it?
 
-Six states: requirements → plan → approved → tests → committed → live. Each row
-names the *specific* blocker and the next command, and who is meant to run it.
+Six states render as plain-language milestones: acceptance criteria awaiting
+validation → test plan being authored → plan awaiting your approval → tests
+awaiting generation → tests awaiting delivery → delivered and running in CI.
+The greppable machine name remains behind ⓘ. Each row names the *specific*
+blocker, the next command, and who is meant to run it.
+
+The **How this works** card teaches the loop in five sentences and owns the
+in-product glossary. Its important distinction is explicit: an **approved test
+plan (signed)** has a structured signature, while an **approved test plan
+(prose — not signed)** may proceed without scenario-level drift and enforcement
+guarantees. **Acceptance criteria (EARS)** are the formalized ticket behaviors,
+not another name for the test plan.
 
 Read the header first. It states whether any of this is **enforced** in your
 estate, because "blocked" means different things under different configuration —
@@ -139,7 +149,7 @@ a rule nobody applies.
 
 Three more cards live here:
 
-- **Requirements** — the EARS statements formalized from the ticket, and the
+- **Acceptance criteria (EARS)** — the testable statements formalized from the ticket, and the
   ambiguities found in it. Approving signs the file. A *blocking* ambiguity
   stops planning with a question on the ticket rather than a guess.
 - **Waivers** — an approved scenario shipping without a test. Every waiver needs
@@ -147,7 +157,7 @@ Three more cards live here:
   six months), an owner, and an expiry capped at 90 days, so "temporarily"
   cannot quietly become "forever". Expired ones stay listed: a lapsed exception
   is the row worth reading.
-- **Work this spec makes unnecessary** — approved scenarios a cataloged test
+- **Work this test plan makes unnecessary** — approved scenarios a cataloged test
   already covers, so they need no authoring call. It counts them and refuses to
   price them: converting a skipped scenario into money needs a measured
   authoring cost, and until `make parity-*` can run, this estate has none. It is

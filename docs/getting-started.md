@@ -85,7 +85,7 @@ label=api-only) flows through **analyze** (with a mock linked-Confluence PRD) �
 correctly restricts routing to the API test repo, and the summary is posted back to the
 (mock) JIRA ticket and Slack.
 
-### The spec-driven demo (the full governed journey)
+### The test-plan demo (the full governed journey)
 
 `make demo-jira` runs the pipeline end to end in one shot. This variant walks the
 same ticket through the **governed** route, stopping where a human is meant to
@@ -103,7 +103,8 @@ make demo-plan-tests KEY=PROJ-301     # resume: testdata -> generate -> validate
 
 What each stop is for:
 
-- **`make requirements`** writes `specs/PROJ-301/requirements.yaml` and comments on
+- **`make requirements`** writes the **acceptance criteria (EARS)** to
+  `specs/PROJ-301/requirements.yaml` and comments on
   the ticket. If the ticket does not say what should happen, this is where you
   find out — a *blocking* ambiguity halts with exit 65 and a question rather
   than a guess. The cheapest artifact to change is a sentence.
@@ -112,7 +113,10 @@ What each stop is for:
   `2 gap(s) raised, 2 high-severity, 2 accepted, 3 scenario(s) in the final plan`
   — the adversary may only ADD scenarios, so it changes what you approve, never
   whether you are asked.
-- **`make plan-approve`** *signs* the plan against a content hash. Editing an
+- **`make plan-approve`** makes a structured plan an **approved test plan
+  (signed)** against a content hash. A legacy prose approval is instead an
+  **approved test plan (prose — not signed)** and does not receive the signed
+  guarantees. Editing an
   approved plan revokes the approval, so "approved" always names text somebody
   read.
 
@@ -138,7 +142,7 @@ looks clean — `warn` first, `strict` after. The trace matrix will show two of 
 three scenarios with no test, which is exactly what `strict` would refuse to
 commit.
 
-All of this is in the UI too, under **Spec workflow** — see
+All of this is in the UI too, under **Plan → tests journey** — see
 [ui-guide.md](ui-guide.md).
 
 ### After the demos: monitor, query, manage

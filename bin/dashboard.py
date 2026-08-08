@@ -15,7 +15,7 @@ import yaml
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import app_paths, env_flag
+import app_paths, env_flag, glossary
 import run_progress                      # R12: mutable paths resolve here
 from registry import load_registry
 import review_state, test_health, work_queue
@@ -869,6 +869,8 @@ nav_badges = {
     "runs": len(pending_review_keys),
 }
 gen_ts = time.strftime("%Y-%m-%d %H:%M")
+sdd_how_html = glossary.how_it_works_html()
+sdd_glossary_html = glossary.glossary_card_html()
 
 # (group, id, icon, label). Fifteen flat items gave a newcomer no way to tell
 # which three they need from the twelve they do not; the groups say what each
@@ -880,7 +882,7 @@ NAV = [("Start",     "overview", "◧", "Overview"),
        ("Work",      "progress", "◉", "Run progress"),
        ("Work",      "plans",    "✎", "Test plans"),
        ("Work",      "runs",     "▶", "Runs & reviews"),
-       ("Insight",   "specflow", "✓", "Spec workflow"),
+       ("Insight",   "specflow", "✓", "Plan → tests journey"),
        ("Insight",   "trace",    "⇢", "Trace"),
        ("Insight",   "cost",     "└", "Cost"),
        ("Insight",   "artifacts", "❏", "Artifacts"),
@@ -894,7 +896,7 @@ TITLES = {"overview": "Overview", "wizard": "Guided run — PR or JIRA, step by 
           "progress": "Run progress — where a request is, and why it failed",
           "queue": "Intake & work queue",
           "plans": "Test plans — review & approval",
-          "specflow": "Spec workflow — how an E2E test gets built here",
+          "specflow": "Plan → tests journey — how an E2E test gets built here",
           "runs": "Runs & team reviews",
           "activity": "Activity — every transaction, who did it and what happened",
           "alerts": "Alerts — rules over the transaction log",
@@ -1080,6 +1082,12 @@ th.gap { color:var(--sr-danger-fg); }
 .chip-danger { background:var(--sr-danger-bg); color:var(--sr-danger-fg); }
 .chip-info { background:var(--sr-info-bg); color:var(--sr-info-fg); }
 .chip-muted { background:var(--sr-bg-muted); color:var(--sr-fg-muted); }
+.sdd-term { border-bottom:1px dotted var(--sr-fg-muted); cursor:help; }
+.sdd-term [aria-hidden="true"] { color:var(--sr-info-fg); font-size:10px; }
+.sdd-glossary { display:grid; grid-template-columns:minmax(180px, .5fr) 1.5fr;
+  gap:8px 18px; margin:0; }
+.sdd-glossary dt { font-weight:600; }
+.sdd-glossary dd { margin:0; color:var(--sr-fg-muted); }
 /* A chip inside a column-flex .stack label would otherwise stretch to the full
    field width and read as a coloured band rather than a tag. */
 .stack > .lbl { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
@@ -1270,6 +1278,7 @@ JS = """
 const served = location.protocol.startsWith('http');
 const PR_PLAN_ENABLED = __PR_PLAN_ENABLED__;
 const TICKET_SEARCH_ENABLED = __TICKET_SEARCH_ENABLED__;
+const SDD_STATE_LABELS = __SDD_STATE_LABELS__;
 const FETCH_COLS = TICKET_SEARCH_ENABLED ? 9 : 5;
 const QUEUE_COLS = TICKET_SEARCH_ENABLED ? 8 : 7;
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
@@ -1329,7 +1338,7 @@ const TITLES = { overview: 'Overview', wizard: 'Guided run — PR or JIRA, step 
   progress: 'Run progress — where a request is, and why it failed',
   queue: 'Intake & work queue',
   plans: 'Test plans — review & approval',
-  specflow: 'Spec workflow — how an E2E test gets built here',
+  specflow: 'Plan → tests journey — how an E2E test gets built here',
   runs: 'Runs & team reviews',
   activity: 'Activity — every transaction, who did it and what happened',
   alerts: 'Alerts — rules over the transaction log',
@@ -2015,11 +2024,11 @@ async function refreshSpecFlow() {
           escHtml((g.problems || []).join(' · ')) + '</div>'
         : '';
       gov.innerHTML = probs + (d.enforced
-        ? '<b>Enforced.</b> requirements gate: <code>' +
-          escHtml(String(g.requirements_gate)) + '</code> · spec enforce: <code>' +
+        ? '<b>Enforced.</b> acceptance-criteria gate: <code>' +
+          escHtml(String(g.requirements_gate)) + '</code> · coverage enforcement: <code>' +
           escHtml(g.spec_enforce) + '</code><br>' + escHtml(g.spec_enforce_effect)
-        : '<b>Nothing below is enforced yet.</b> requirements gate is off and ' +
-          'spec enforce is <code>off</code>, so every step is advisory — the ' +
+        : '<b>Nothing below is enforced yet.</b> the acceptance-criteria gate and ' +
+          'coverage enforcement are <code>off</code>, so every step is advisory — the ' +
           'platform will not stop a run that skips it. Turn them on in Settings ' +
           'when the signal looks clean (start with <code>warn</code>).');
     }
@@ -2035,11 +2044,14 @@ async function refreshSpecFlow() {
       // The progress trail makes "how far along" readable at a glance.
       const trail = d.states.map((s, i) =>
         '<span class="' + (i < r.state_index ? '' : (i === r.state_index ? 'chip ' + cls : 'muted')) +
-        '" title="' + escHtml(s) + '">' + (i < r.state_index ? '●' : (i === r.state_index ? '◉' : '○')) +
+        '" title="' + escHtml((SDD_STATE_LABELS[s] || s) + ' (machine state: ' + s + ')') + '">' +
+        (i < r.state_index ? '●' : (i === r.state_index ? '◉' : '○')) +
         '</span>').join(' ');
+      const stateLabel = SDD_STATE_LABELS[r.state] || r.state;
       return '<tr><td class="mono sm">' + escHtml(r.key) + '</td>' +
-        '<td class="sm">' + trail + '<div class="muted sm">' + escHtml(r.state) +
-          (r.advisory ? ' (advisory)' : '') + '</div></td>' +
+        '<td class="sm">' + trail + '<div><b>' + escHtml(stateLabel) + '</b></div>' +
+          '<div class="muted sm" title="engine/lib/spec_workflow.py">machine state: <code>' +
+          escHtml(r.state) + '</code> ⓘ' + (r.advisory ? ' · advisory' : '') + '</div></td>' +
         '<td class="sm">' + (done ? '<span class="chip">complete</span>'
                                   : escHtml(r.blocker)) + '</td>' +
         '<td class="sm">' + escHtml(r.owner || '—') + '</td>' +
@@ -2059,7 +2071,7 @@ async function loadSavings() {
     const d = await api('/api/spec-savings');
     const s = d.savings || {};
     if (!d.scenarios) {
-      el.innerHTML = '<div class="muted sm">No signed specs yet — nothing to ' +
+      el.innerHTML = '<div class="muted sm">No signed test plans yet — nothing to ' +
         'subtract. Approve a plan with structured scenarios to start.</div>';
       return;
     }
@@ -3461,6 +3473,8 @@ document.addEventListener('click', async function (ev) {
 JS = JS.replace("__PR_PLAN_ENABLED__", "true" if pr_plan_enabled else "false")
 JS = JS.replace("__TICKET_SEARCH_ENABLED__",
                 "true" if ticket_search_enabled else "false")
+JS = JS.replace("__SDD_STATE_LABELS__",
+                json.dumps(glossary.STATE_LABELS, ensure_ascii=False))
 
 ticket_search_filters = ("""
         <label class="f">Issue type <input id="fetch-type" class="h32"
@@ -3705,6 +3719,14 @@ page = f"""<!doctype html>
 
   <div data-view="specflow">
     <section class="card">
+      <div class="card-h"><div><h2>How this works</h2>
+        <div class="sub">Five sentences describe the whole journey. Hover or
+        focus any ⓘ term to see its consequence and greppable machine name.</div></div>
+      </div>
+      <div class="card-b">{sdd_how_html}</div>
+    </section>
+
+    <section class="card">
       <div class="card-h"><div><h2>How an E2E test gets built here</h2>
         <div class="sub">Six states, one owner each. The platform authors; a
         human decides. Every transition below is a command — this view never
@@ -3720,8 +3742,8 @@ page = f"""<!doctype html>
     </section>
 
     <section class="card">
-      <div class="card-h"><div><h2>Requirements</h2>
-        <div class="sub">EARS statements formalized from the ticket, plus what
+      <div class="card-h"><div><h2>Acceptance criteria (EARS)</h2>
+        <div class="sub">Testable EARS statements formalized from the ticket, plus what
         the ticket does NOT say. Approving signs the file's hash — the cheapest
         place to fix a misunderstanding is here, before anything is generated.</div></div>
         <span class="grow"></span>
@@ -3757,7 +3779,7 @@ page = f"""<!doctype html>
     </section>
 
     <section class="card">
-      <div class="card-h"><div><h2>Work this spec makes unnecessary</h2>
+      <div class="card-h"><div><h2>Work this test plan makes unnecessary</h2>
         <div class="sub">An approved scenario a cataloged test already exercises
         needs no authoring call. This counts them. It deliberately does NOT
         price them: putting money on it needs a measured authoring cost, and an
@@ -3778,11 +3800,11 @@ page = f"""<!doctype html>
       </div>
       <div id="gv-body" style="padding:0 14px 8px"></div>
       <div style="padding:4px 14px 16px" class="sm">
-        <p><b>1. A spec is signed, not just saved.</b> Approving binds to a
+        <p><b>1. A structured test plan is signed, not just saved.</b> Approving binds to a
         content hash. Editing an approved plan revokes the approval — so
         "approved" always refers to the text somebody actually read.</p>
         <p><b>2. Prose a human wrote wins.</b> A free-form edit that diverges
-        from the structured spec supersedes it; the old spec is kept for
+        from the structured test plan supersedes it; the old structured plan is kept for
         forensics, never silently discarded.</p>
         <p><b>3. An approved scenario is covered, waived, or refused.</b>
         Waivers carry a reason, an owner and an <b>expiry</b> — so
@@ -3796,6 +3818,13 @@ page = f"""<!doctype html>
         planning with a question on the ticket rather than a guess — the
         cheapest artifact to change is a sentence, not a committed test.</p>
       </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><div><h2>Glossary</h2>
+        <div class="sub">Plain-language terms stay connected to the internal
+        names and paths operators use for search and troubleshooting.</div></div></div>
+      <div class="card-b">{sdd_glossary_html}</div>
     </section>
   </div>
 

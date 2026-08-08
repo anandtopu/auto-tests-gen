@@ -231,8 +231,9 @@ import state_bundle as sb
 d = pathlib.Path(os.environ["AIQE_TMPD"])
 b = d / "tampered.tar.gz"
 payload = b"tampered bytes"
-manifest = {"schema": sb.SCHEMA, "files": {"reports/runs/zz-probe.json":
-                                           hashlib.sha256(b"original").hexdigest()}}
+manifest = {"schema": sb.SCHEMA, "profile": "full", "file_count": 1,
+            "files": {"reports/runs/zz-probe.json":
+                      hashlib.sha256(b"original").hexdigest()}}
 with tarfile.open(b, "w:gz") as t:
     for name, data in (("manifest.json", json.dumps(manifest).encode()),
                        ("state/reports/runs/zz-probe.json", payload)):
@@ -242,7 +243,9 @@ try:
     r = sb.import_bundle(b, dry_run=True)
     print("ok" if r["mismatched"] and not r["written"] else f"{r}")
 except SystemExit as e:
-    print(f"refused outright: {e}")
+    message = str(e)
+    print("ok" if "mismatched" in message and "file_count" not in message
+          else f"wrong refusal: {message}")
 PY
 )
 check ok "$r" "a bundle member whose sha does not match the manifest is rejected"

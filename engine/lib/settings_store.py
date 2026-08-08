@@ -278,7 +278,7 @@ SPEC = [
      "hint": "Off by default. Turning these on changes what the platform "
              "REFUSES. Roll out in two steps — warn until the signal is clean, "
              "then strict; enabling strict first only teaches people to route "
-             "around the gate. Current state is shown in the Spec workflow view.",
+             "around the gate. Current state is shown in the Plan → tests journey view.",
      "fields": [
         {"env": "AIQE_REQUIREMENTS_GATE", "label": "Requirements gate",
          "options": [["", "use org-config (default: off)"],

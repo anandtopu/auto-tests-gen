@@ -434,10 +434,16 @@ between "nothing happened" and "we could not reach you".
 **You want** the team to write requirements before tests, and coverage to be
 provable — but not at the cost of a gate that starts refusing commits on Monday.
 
-Open **Spec workflow**. The header states, in plain words, whether anything is
+Open **Plan → tests journey**. The header states, in plain words, whether anything is
 enforced in your estate. Out of the box the answer is no: every step is advisory
 and the platform will not stop a run that skips one. That is deliberate — the
 process is visible before it is mandatory.
+
+The journey distinguishes an **approved test plan (signed)** from an **approved
+test plan (prose — not signed)**. Only the structured, signed form receives
+scenario-level drift and coverage-enforcement guarantees. The first step is
+named **acceptance criteria (EARS)** so ticket expectations are not confused
+with the plan that follows them.
 
 ```bash
 make requirements KEY=PROJ-301
@@ -448,9 +454,9 @@ ticket does not say what should happen, planning halts with exit 65 and a
 question on the ticket rather than a guess — the cheapest artifact to change is a
 sentence, not a committed test.
 
-Approve them (`make requirements-approve KEY=PROJ-301`, or the Requirements
-card), then plan and approve as usual. Approval **signs** the spec; editing an
-approved plan revokes the approval.
+Approve them (`make requirements-approve KEY=PROJ-301`, or the Acceptance
+criteria card), then plan and approve as usual. Approval signs a structured
+test plan; editing an approved plan revokes the approval.
 
 When the signal looks clean, turn enforcement on in Settings — **`warn` first**.
 `warn` reports uncovered scenarios and still commits; `strict` makes the gate
@@ -491,7 +497,7 @@ It is advisory: nothing skips authoring automatically. A wrong join would
 silently drop coverage, which is the one failure this platform cannot see, so the
 join gets proven against real runs before it is allowed to remove work.
 
-Same numbers in the UI under **Spec workflow → Work this spec makes
+Same numbers in the UI under **Plan → tests journey → Work this test plan makes
 unnecessary**.
 
 ## 16. Where is my request, right now?

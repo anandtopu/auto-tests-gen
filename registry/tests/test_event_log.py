@@ -732,7 +732,7 @@ def test_the_ui_guide_covers_every_view_the_dashboard_has():
     # dashboard's own nav uses for each view.
     NAMES = {"overview": "overview", "wizard": "guided run",
              "progress": "run progress", "queue": "queue",
-             "plans": "test plans", "specflow": "spec workflow", "runs": "runs",
+             "plans": "test plans", "specflow": "plan → tests journey", "runs": "runs",
              "activity": "activity", "alerts": "alerts", "trace": "trace",
              "cost": "cost", "artifacts": "artifacts", "catalog": "catalog",
              "repos": "repositories", "settings": "settings"}

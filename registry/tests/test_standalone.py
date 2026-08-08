@@ -197,7 +197,11 @@ def test_full_run_commits_with_openhands_unreachable(tmp_path):
     delivery = [c for c in record["comments"] if c["kind"] == "delivery"]
     assert len(delivery) == 1
     assert delivery[0]["target"] == "PROJ-301"
-    assert delivery[0]["outcome"] == "posted"
+    # This test owns OpenHands failover, not the comment's retry position.
+    # S5 deliberately makes repeated pipeline runs idempotent, so a checkout
+    # with prior durable receipts may update or skip the same successful
+    # delivery. A real comment failure must still fail this assertion.
+    assert delivery[0]["outcome"] in {"posted", "updated", "skipped_unchanged"}
     assert delivery[0]["comment_id"].startswith("mock-")
 
 

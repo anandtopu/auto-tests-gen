@@ -101,11 +101,11 @@ one: what it answers, what you can do in it, and what it deliberately refuses to
 tell you (an unmeasured cost is never rendered as a measured one, and a view
 that could not load says so rather than showing an empty table).
 
-Start there if you are new. The two views most people miss are **Spec workflow**
+Start there if you are new. The two views most people miss are **Plan → tests journey**
 — where each ticket is in the six-state process and what is blocking it — and
 **Activity**, the transaction log of who did what.
 
-In Spec workflow, a waiver needs the scenario id, a durable reason, an owner,
+In Plan → tests journey, a waiver needs the scenario id, a durable reason, an owner,
 and an expiry. Enter the owner explicitly in local/token mode; behind trusted
 SSO the configured identity header overrides the typed owner. Add/remove and
 requirements approval are authenticated JSON mutations, while simply loading
@@ -521,7 +521,7 @@ app whose sidebar is grouped **Start** / **Work** / **Insight** / **Configure**:
 |---|---|
 | Start | **Overview** (KPI tiles, needs-attention feed, coverage matrix, Start-here panel), **Guided run** (paste a PR URL or ticket and follow the ladder) |
 | Work | **Intake & queue**, **Run progress** (which step a request is on), **Test plans**, **Runs & reviews** |
-| Insight | **Spec workflow**, **Trace**, **Cost**, **Artifacts**, **Activity**, **Alerts** |
+| Insight | **Plan → tests journey**, **Trace**, **Cost**, **Artifacts**, **Activity**, **Alerts** |
 | Configure | **Test catalog**, **Repositories**, **Settings** |
 
 Toast feedback and pending-work badges appear on the nav.
