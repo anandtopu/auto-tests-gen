@@ -422,7 +422,10 @@ def record_comment_attempt(key, item):
         item.get("kind"), item.get("target"), item.get("outcome"),
         comment_id=item.get("comment_id"),
         failure_detail=item.get("failure_detail"),
-        run_id=item.get("run_id"), ts=item.get("ts"))
+        run_id=item.get("run_id"), ts=item.get("ts"),
+        body_sha256=item.get("body_sha256"), marker=item.get("marker"),
+        supersedes_comment_id=item.get("supersedes_comment_id"),
+        fallback_reason=item.get("fallback_reason"))
     with fs_lock.lock(FILE):
         state = load()
         entry = state.get(key, {"history": []})

@@ -18,7 +18,15 @@ case "$VERB" in
     mkdir -p out/mock-jira-attachments
     cp "$2" "out/mock-jira-attachments/$1-$(basename "$2")"
     echo "[mock-jira] attached to $1: out/mock-jira-attachments/$1-$(basename "$2")" ;;
-  comment)  ID="mock-${RANDOM}-${RANDOM}"
+  comment_capabilities) echo "update_comment=available" ;;
+  comment)  RESULT=$(python3 engine/lib/mock_tracker_comments.py post "$1" "$2")
+            ID=${RESULT#comment_id=}
             echo "[mock-jira] $1 <- $2 comment_id=$ID" | tee -a out/mock-comments.log ;;
+  update_comment) # key id body expected-platform-author
+            RESULT=$(python3 engine/lib/mock_tracker_comments.py update \
+              "$1" "$2" "$3" "$4")
+            ID=${RESULT#comment_id=}
+            echo "[mock-jira] $1 updated $ID <- $3 comment_id=$ID" \
+              | tee -a out/mock-comments.log ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

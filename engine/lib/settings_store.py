@@ -80,6 +80,8 @@ SPEC = [
          "help": "https://your-domain.atlassian.net"},
         {"env": "ATLASSIAN_MCP_TOKEN", "label": "Atlassian API token", "secret": True,
          "help": "service account token (shared with Confluence)"},
+        {"env": "AIQE_JIRA_PLATFORM_ACCOUNT", "label": "Platform Jira account",
+         "help": "exact accountId (Cloud) or key/name (Server/DC); required before AI-QE may update an existing comment"},
         {"env": "ATLASSIAN_MCP_URL", "label": "Atlassian MCP URL",
          "default": "https://mcp.atlassian.com/v1/mcp"},
      ]},

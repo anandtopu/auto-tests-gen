@@ -2,7 +2,8 @@
 set -euo pipefail
 VERB=${1:?verb}; shift || true
 
-# Tracker port: get_item | search | search_release | comment | attach
+# Tracker port: get_item | search | search_release | comment |
+#               comment_capabilities | update_comment | attach
 # Primary path: Atlassian Remote MCP inside the Claude Code session (registered in
 # sandbox/mcp-setup.sh). This CLI adapter is the pipeline-side fallback via REST.
 # JIRA_API_VERSION: 2 = Jira Server / Data Center (on-prem); 3 = Jira Cloud (ADF bodies).
@@ -93,10 +94,65 @@ print(json.dumps({'key':i['key'],'summary':f['summary'],
 import json,sys
 r=json.load(sys.stdin)
 print('attached: ' + ', '.join(a['filename'] for a in r))" ;;
+  comment_capabilities)
+    if [[ -n "${AIQE_JIRA_PLATFORM_ACCOUNT:-}" ]]; then
+      echo "update_comment=available"
+    else
+      echo "update_comment=unavailable reason=platform_account_not_configured"
+    fi ;;
   comment) curl "${CURL_FLAGS[@]}" -X POST -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
     -H 'Content-Type: application/json' \
     -d "$(python3 -c "import json,sys;print(json.dumps({'body':{'type':'doc','version':1,'content':[{'type':'paragraph','content':[{'type':'text','text':sys.argv[1]}]}]}}))" "$2")" \
     "$J/issue/$1/comment" | python3 -c \
       "import json,sys; r=json.load(sys.stdin); print('comment_id=' + str(r['id']))" ;;
+  update_comment) # update_comment <KEY> <id> <body> <expected-platform-author>
+    EXPECTED=${4:-}
+    [[ -n "$EXPECTED" ]] || { echo "authorship_unverified" >&2; exit 69; }
+    UPDATE_FLAGS=(-s)
+    if [[ "${AIQE_SSL_VERIFY:-1}" == "0" ]]; then UPDATE_FLAGS+=(-k); fi
+    CURRENT=$(mktemp "${TMPDIR:-/tmp}/aiqe-jira-comment.XXXXXX")
+    UPDATED=$(mktemp "${TMPDIR:-/tmp}/aiqe-jira-update.XXXXXX")
+    trap 'rm -f "$CURRENT" "$UPDATED"' EXIT
+    HTTP=$(curl "${UPDATE_FLAGS[@]}" -o "$CURRENT" -w '%{http_code}' \
+      -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
+      "$J/issue/$1/comment/$2") || { echo "update_failed" >&2; exit 1; }
+    case "$HTTP" in
+      [0-9][0-9][0-9]) ;;
+      \{*) printf '%s\n' "$HTTP" > "$CURRENT"; HTTP=200 ;;
+      *) echo "authorship_unverified" >&2; exit 69 ;;
+    esac
+    [[ "$HTTP" != "404" ]] || { echo "comment_missing" >&2; exit 70; }
+    [[ "$HTTP" = "200" ]] || { echo "authorship_unverified" >&2; exit 69; }
+    python3 -c "
+import json,sys
+try:
+    comment=json.load(open(sys.argv[1], encoding='utf-8'))
+except (OSError, ValueError):
+    print('authorship_unverified', file=sys.stderr); raise SystemExit(69)
+author=comment.get('author') or {}
+if not isinstance(author, dict):
+    print('authorship_unverified', file=sys.stderr); raise SystemExit(69)
+identities={str(author.get(k) or '') for k in ('accountId','key','name')}
+identities.discard('')
+if not identities:
+    print('authorship_unverified', file=sys.stderr); raise SystemExit(69)
+if sys.argv[2] not in identities:
+    print('author_mismatch', file=sys.stderr); raise SystemExit(68)
+" "$CURRENT" "$EXPECTED"
+    PAYLOAD=$(python3 -c "import json,sys;print(json.dumps({'body':{'type':'doc','version':1,'content':[{'type':'paragraph','content':[{'type':'text','text':sys.argv[1]}]}]}}))" "$3")
+    HTTP=$(curl "${UPDATE_FLAGS[@]}" -o "$UPDATED" -w '%{http_code}' -X PUT \
+      -H "Authorization: Bearer ${ATLASSIAN_MCP_TOKEN}" \
+      -H 'Content-Type: application/json' -d "$PAYLOAD" \
+      "$J/issue/$1/comment/$2") || { echo "update_failed" >&2; exit 1; }
+    case "$HTTP" in
+      [0-9][0-9][0-9]) ;;
+      \{*) printf '%s\n' "$HTTP" > "$UPDATED"; HTTP=200 ;;
+      *) echo "update_failed" >&2; exit 1 ;;
+    esac
+    [[ "$HTTP" != "403" ]] || { echo "permission_denied" >&2; exit 77; }
+    [[ "$HTTP" != "404" ]] || { echo "comment_missing" >&2; exit 70; }
+    [[ "$HTTP" = "200" ]] || { echo "update_failed" >&2; exit 1; }
+    python3 -c "import json,sys; r=json.load(sys.stdin); print('comment_id=' + str(r['id']))" \
+      < "$UPDATED" ;;
   *) echo "unknown verb $VERB"; exit 64 ;;
 esac

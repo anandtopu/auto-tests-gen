@@ -311,6 +311,26 @@ off; `comments.max_chars` in `registry/org-config.yaml` defaults to 8,000 and is
 capped below Jira's 32,767-character hard limit. Rich rendering failure is visible
 on stderr and safely falls back to the legacy body before the Tracker boundary.
 
+Every platform-authored ticket comment also carries a visible footer such as
+`⚙ aiqe:delivery:PROJ-410 · run 1754…`. Retries locate prior comments only from
+AI-QE's own plan state and run receipts. If normalized content is unchanged, no
+Jira request is made and the new receipt says `skipped_unchanged`; changed plan,
+delivery, refusal, and link comments are updated in place when the Tracker
+adapter supports it. Questions and progress (`routing_clarification`,
+`requirements`, `clarification`) intentionally remain append-only.
+
+Safe updates require `AIQE_JIRA_PLATFORM_ACCOUNT` to equal the service account's
+Jira `accountId` (Cloud) or `key`/`name` (Server/DC). The adapter fetches the
+recorded comment id and verifies that stable identity before PUT. An absent
+setting, unsupported update, permission denial, missing comment, or author
+mismatch never edits existing words: AI-QE appends a comment that explicitly
+states what it supersedes and records the closed fallback reason. An ambiguous
+network/update failure is recorded as `failed` without appending, because the
+platform cannot safely know whether the update landed.
+The attribution footer is counted inside `comments.max_chars`; if it consumes
+the final space of an already bounded rich body, AI-QE removes whole lines and
+adds an explicit Run-progress truncation notice.
+
 **The dashboard** (`reports/dashboard.html`, self-contained, light/dark aware) shows:
 KPI tiles (runs, quarantines, catalog health, uncovered repos), the recent-runs table,
 the app-repo × test-repo coverage matrix, and the full catalog with client-side

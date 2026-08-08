@@ -11,7 +11,7 @@ Source: [prd-jira-comments-and-ticket-search.md](prd-jira-comments-and-ticket-se
 | 2 | JCTS-S2 Intake filters and queue handoff | B2.1–B2.3, B3.1–B3.2 | JCTS-S1 | Implemented | `AIQE_TICKET_SEARCH`-guarded UI/API, result attributes, N-of-M bulk confirmation, per-item intake validation, backward-compatible queue reads |
 | 3 | JCTS-S3 Comment outcome accounting | A4.1–A4.2, M1 | none; follows S2 by PRD order | Implemented | Unconditional receipts for all five existing comment sites, run/event/plan-state homes, failure visibility without changing best-effort behavior |
 | 4 | JCTS-S4 Rich plan and delivery comments | A1.1–A1.3, A2.1–A2.5, M5 | JCTS-S3 | Implemented | Flagged scenario-first plan rendering and one shared delivery/PR projection, bounded plain-text output, fused-ticket delivery |
-| 5 | JCTS-S5 Comment idempotency | A3.1–A3.5, M2 | JCTS-S3, JCTS-S4 | Pending | Stable visible markers, owned-comment update guard, persisted ids, unchanged skip, append-with-supersession fallback |
+| 5 | JCTS-S5 Comment idempotency | A3.1–A3.5, M2 | JCTS-S3, JCTS-S4 | Implemented | Stable visible markers, owned-comment update guard, persisted ids, unchanged skip, append-with-supersession fallback |
 | 6 | JCTS-FINAL Broad verification | M1–M6, risks and constraints | JCTS-S1–S5 | Pending | Full compatibility, mock journeys, feature-flag defaults, docs/status reconciliation |
 
 This order is the PRD's delivery plan. S1 is first because the current release
@@ -103,13 +103,24 @@ without a result and is not counted as passing.
 
 ### JCTS-S5 — Comment idempotency
 
-- Add visible `(aiqe:<kind>:<key>:<run>)` attribution markers and a Tracker
-  `update_comment` capability.
-- Persist plan ids in `plan_state` and delivery ids in comment receipts. On
-  retry, update only a comment verified as authored by the configured platform
-  account; otherwise append a superseding comment and record why.
-- Compare normalized bodies before delivery and record `skipped_unchanged`.
-  Clarification and progress comments remain append-only.
+| Criterion | Implementation | Verification |
+| --- | --- | --- |
+| A3.1 | The unconditional delivery boundary appends `⚙ aiqe:<kind>:<target> · run <id>` to every platform ticket comment; the stable marker excludes the changing run attribution | Marker/body-hash unit tests cover every routed kind and run normalization |
+| A3.2 | Tracker adapters expose `comment_capabilities` plus `update_comment`; explicit unsupported, permission, missing-comment, and authorship failures append a plainly stated supersession | Adapter conformance, unit fallback matrix, and mock retry journey |
+| A3.2a | Jira fetches the recorded comment id and compares only stable `accountId`/`key`/`name` identifiers with `AIQE_JIRA_PLATFORM_ACCOUNT` before PUT; a display name or marker is never authority | Owned-author functional stub and forged-author no-PUT adversarial test |
+| A3.5 | Plan receipts retain id/hash/marker in `plan_state`; delivery lookup scans prior run-record `comments` blocks plus current scratch, never Jira thread search | Plan-state preservation and historical-run lookup tests |
+| A3.3 | Receipts store only a SHA-256 of normalized content; unchanged retries record `skipped_unchanged` without invoking the adapter | Unit retry proves one post followed by a skip; no body enters receipt/event metadata |
+| A3.4 | `routing_clarification`, `requirements`, and `clarification` remain append-only while still receiving visible attribution | Parameterized append-only test |
+| M2 | Mock Tracker persists synthetic comment authorship and update history across pipeline scratch cleanup | Two-run Jira pipeline fixture proves one post then one in-place update when the new gate SHA changes |
+
+Implementation evidence: the focused S5 suite passed 14/14, including a
+two-run mock Jira pipeline journey; the combined comment/plan lifecycle set
+passed 53/53 and the bounded broad compatibility set passed 397/397. Tracker
+adapter conformance, strict Ruff for new/changed S5 files, Python/Bash syntax,
+and diff checks passed. Multi-pass review fixed unsafe historical id/timestamp
+reuse, overly broad run-id hash normalization, ambiguous-update duplication
+risk, TLS/authorship handling on Jira's update path, and final marker-aware
+length enforcement. No P0-P2 finding remains.
 
 ## Review and delivery gate
 

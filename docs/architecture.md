@@ -186,6 +186,22 @@ sanitized degradation signal. Fused PR runs post the ticket rendering to the
 validated selected ticket before run-record assembly; runtime ticket content
 still comes from `Tracker get_item`, and all delivery still goes through Tracker.
 
+Idempotency is also owned by the delivery boundary, not the renderers. It adds a
+stable visible marker and hashes normalized content without persisting the body.
+The final decorated body is re-bounded there, so adding attribution can never
+push an already bounded rich rendering beyond `comments.max_chars`; any extra
+omission is stated explicitly.
+Plan comment ids/hashes live with `plan_state`; delivery ids/hashes are recovered
+from prior run-record receipts. The Tracker port advertises
+`comment_capabilities` and performs `update_comment`, but Jira PUT is allowed
+only after the adapter fetches that exact comment id and matches its stable
+author identity against `AIQE_JIRA_PLATFORM_ACCOUNT`. Marker text is never
+authority. Explicit unsupported/permission/missing/authorship states append a
+stated supersession; ambiguous failures do not append because doing so could
+duplicate a PUT that actually landed. Human-facing question/progress kinds stay
+append-only. Mock Tracker state is synthetic JSONL outside durable run truth and
+exists only to exercise the same retry/update boundary credential-free.
+
 ### 4.3 Why OpenHands + Claude Code (division of responsibility)
 
 | Concern | Owner | Rationale |

@@ -20,6 +20,7 @@ Jira + Confluence + Bitbucket Cloud (§5.7, §5.10).
    ```bash
    ATLASSIAN_MCP_URL=https://mcp.atlassian.com/v1/mcp
    ATLASSIAN_MCP_TOKEN=<service-account API token>
+   AIQE_JIRA_PLATFORM_ACCOUNT=<service-account accountId, key, or name>
    ```
    Use the `/mcp` endpoint — the legacy `/sse` endpoint is unsupported after
    June 30, 2026 (§3.3). Admins can allowlist which MCP clients may connect; access
@@ -32,9 +33,13 @@ Jira + Confluence + Bitbucket Cloud (§5.7, §5.10).
 | **Atlassian Remote MCP** (primary) | Claude Code phases in-session (read ticket, linked Confluence pages, comment) | `sandbox/mcp-setup.sh` registers it: `claude mcp add atlassian --transport http $ATLASSIAN_MCP_URL --header "Authorization: Bearer $ATLASSIAN_MCP_TOKEN"` |
 | **REST adapter** (pipeline-side) | `engine/pipeline.sh` itself (`TRACKER get_item/comment`) | Edit [adapters/tracker/jira.sh](../../adapters/tracker/jira.sh): set `J=` to your site, e.g. `https://your-domain.atlassian.net/rest/api/3` (Server/DC: `https://jira.company.com/rest/api/2`) |
 
-The adapter's verbs are the port contract: `get_item` (returns key, summary,
-description, components, labels, linked_repos) and `comment`. `make conformance`
-guards them.
+The adapter's verbs are the port contract: `get_item`, structured `search`,
+`comment`, `comment_capabilities`, `update_comment`, and `attach`.
+`AIQE_JIRA_PLATFORM_ACCOUNT` is not a display name: use Cloud `accountId` or the
+Server/DC stable `key`/`name`. It is the trust anchor checked before an existing
+AI-QE comment is updated. Leave it empty if update permission is unavailable;
+AI-QE will append a stated supersession instead of risking an edit to another
+author's words. `make conformance` guards the port surface.
 
 ## Step 3 — Routing configuration
 
@@ -87,7 +92,10 @@ bash adapters/tracker/jira.sh get_item PROJ-123   # expect the JSON summary
 # 2. Adapter comments (use a sandbox ticket):
 bash adapters/tracker/jira.sh comment PROJ-123 "AI-QE integration check"
 
-# 3. End-to-end: label a well-formed story `ai-test-gen`, then in the control repo:
+# 3. Confirm whether safe update is configured:
+bash adapters/tracker/jira.sh comment_capabilities
+
+# 4. End-to-end: label a well-formed story `ai-test-gen`, then in the control repo:
 make status          # run appears with per-repo gate outcomes
 python3 bin/qa.py artifacts PROJ-123   # plan, data, generated tests, commit
 ```
@@ -102,6 +110,8 @@ that's the never-guess contract, not a failure.
 |---|---|
 | 401/403 from adapter | Token is the *service account's*; Bearer header (Cloud API v3); account has project read |
 | Comment posted but no tests | Look for the clarification comment — routing confidence below threshold; fix `jira_component_map` |
+| Retry appended a supersession | Check `AIQE_JIRA_PLATFORM_ACCOUNT`, comment ownership, and the service account's edit-comment permission; the run receipt records the closed fallback reason |
+| Comment update recorded `failed` | Treat as an ambiguous adapter/network failure and inspect Run progress before retrying; AI-QE deliberately does not append a possible duplicate |
 | Confluence pages not in analyze context | Links must be on the ticket (remote links or in description); check page-count/token budgets |
 | Webhook fires twice | Expected on Jira retries — receiver dedupe on `(key, updated)` makes it a no-op |
 | Rule doesn't fire | Automation rule scope includes the project? Label spelled `ai-test-gen`? |
