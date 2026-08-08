@@ -959,15 +959,19 @@ Built as 8 slices against [cost-reduction-stories.md](cost-reduction-stories.md)
 measured results and per-layer summary: [cost-optimization.md](cost-optimization.md)
 §5). Six layers, each independently killable (Settings → "Cost levers"):
 
-1. **Spend telemetry** (`cost_report.py`, story 1.x). Every run record carries
-   per-phase `spend` blocks harvested from the CLI's own usage JSON — model,
-   tokens in/out/cache-read, turns, cost, and a `simulated` flag that can never
-   masquerade as a measured dollar. Rollups by workflow/key/phase/model tier
+1. **Spend telemetry** (`spend_ledger.py`, `spend_history.py`,
+   `cost_report.py`, `cost_statement.py`). Live enforcement remains the
+   per-run budget TSV. On every exit, durable ledger rows preserve spend even
+   when a plan/requirements/aborted invocation deliberately has no run record;
+   `spend_rows()` unions those rows with enriched run-record spend and
+   deduplicates by run/phase. Rollups by workflow/key/phase/model tier
    feed `make cost-report`, the dashboard Cost view, and the team report; turn
    calibration (p50/p95 vs ceiling) makes §5.12's "cap max_turns" lever
    evidence-based. `make cost-baseline` freezes measured medians (refusing
    simulated estates) and `make maintain` alarms on >25% regressions, naming
-   the phase and the likely causes.
+   the phase and the likely causes. Exact-key `cost-statement` views partition
+   reported/estimated/simulated dollars, local tokens and incomplete counts;
+   Markdown/CSV exports never create one mixed-basis total.
 2. **Knowledge chunks** (`knowledge_chunks.py`, story 2.1). The same sources
    `gen_agents_md.py` reads, chunked into addressed units (repo-surface,
    guidance, exemplar, spec, testcase (flagged), catalog, scenario, testdata) with content-

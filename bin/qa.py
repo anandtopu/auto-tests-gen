@@ -63,6 +63,7 @@ from registry import load_registry
 import review_state
 import test_reviewer
 import spend_history
+import cost_statement
 
 
 def _load_catalog_file(path):
@@ -308,6 +309,17 @@ def cmd_artifacts(args):
         keys.update(row["key"] for row in all_spend if row["key"])
         keys = sorted(keys)
         sys.exit(f"no runs recorded for '{args.key}'. Known keys: {', '.join(keys) or 'none'}")
+    statement = cost_statement.statement(args.key, history_rows=all_spend)
+    totals = statement["totals"]
+    print("Cost statement: "
+          f"reported=${totals['reported_usd']:.6f}, "
+          f"estimated=~${totals['estimated_usd']:.6f}, "
+          f"simulated=~${totals['simulated_usd']:.6f}, "
+          f"local={totals['local_tokens']} tokens, "
+          f"unknown={totals['unknown_rows']}, unrecorded={totals['unrecorded_rows']}, "
+          f"incomplete-priced={totals['incomplete_priced_rows']}"
+          f"  ({totals['phases']} phase line(s); "
+          f"bin/qa.py cost-statement {args.key})\n")
     for r in runs if args.all else runs[:1]:
         key = r["trigger"]["key"]
         rev = review_state.load().get(key, {})
@@ -390,6 +402,18 @@ def cmd_artifacts(args):
         print()
     if not args.full:
         print("(--full prints the plan and the generated test code; --all shows every run)")
+
+
+def cmd_cost_statement(args):
+    try:
+        doc = cost_statement.statement(args.key)
+        if args.format:
+            path = cost_statement.export(args.key, args.format, args.out)
+            print(f"exported: {path}")
+        else:
+            print(cost_statement.to_markdown(doc), end="")
+    except (OSError, TimeoutError, ValueError) as exc:
+        sys.exit(f"cost statement: {exc}")
 
 
 def cmd_reviews(args):
@@ -951,6 +975,11 @@ if __name__ == "__main__":
     s.add_argument("--full", action="store_true", help="print plan + generated test code")
     s.add_argument("--all", action="store_true", help="every run for the key, not just latest")
     s.set_defaults(fn=cmd_artifacts)
+    s = sub.add_parser("cost-statement")
+    s.add_argument("key")
+    s.add_argument("--format", choices=cost_statement.FORMATS)
+    s.add_argument("--out")
+    s.set_defaults(fn=cmd_cost_statement)
     s = sub.add_parser("reviews"); s.set_defaults(fn=cmd_reviews)
     s = sub.add_parser("mark")
     s.add_argument("key"); s.add_argument("status", choices=review_state.VALID)

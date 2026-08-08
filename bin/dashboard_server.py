@@ -11,6 +11,7 @@ Endpoints:
   GET  /api/queue             queue contents
   GET  /api/export/plan?key=K&format=md|html|docx|pdf   download the ticket's test plan
   GET  /api/report?days=N&release=X&format=md|html|docx|pdf   team status report
+  GET  /api/cost-statement?key=K[&format=md|csv] exact-key task spend
   POST /api/email/report      {"days"?,"release"?,"to"?}  email the team report
   POST /api/email/run         {"run_id","to"?}            email a run's gate summary
   POST /api/email/digest      {"to"?}                     email the pending-review digest
@@ -592,6 +593,21 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": _err(e)})
                 return
             self._send(200, report)
+        elif url.path == "/api/cost-statement":
+            import cost_statement
+            q = urllib.parse.parse_qs(url.query)
+            key = q.get("key", [""])[0]
+            fmt = q.get("format", [""])[0]
+            try:
+                doc = cost_statement.statement(key)
+                if fmt:
+                    body = cost_statement.render(doc, fmt).encode("utf-8")
+                    self._send(200, body, ctype=("text/csv; charset=utf-8"
+                               if fmt == "csv" else "text/markdown; charset=utf-8"))
+                else:
+                    self._send(200, doc)
+            except (OSError, TimeoutError, ValueError) as e:
+                self._send(400, {"error": _err(e)})
         elif url.path == "/api/trace-matrix":
             # Requirement traceability (roadmap 3.1): key -> scenario -> spec ->
             # gate commit -> CI health, one row per scenario. ?format=csv downloads.

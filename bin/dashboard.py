@@ -439,6 +439,23 @@ for r in runs[:25]:
 latest_by_key = {}
 for r in runs:
     latest_by_key.setdefault(r["trigger"]["key"], r)
+# Plan/requirements and abort-only invocations intentionally have no run record,
+# but they still own artifacts and spend. Add a synthetic artifact shell from
+# the durable union without changing run/commit metrics.
+_all_spend = []
+try:
+    import spend_history as _spend_history
+    _all_spend = _spend_history.spend_rows()
+    for _spend in reversed(_all_spend):
+        _key = _spend.get("key") or ""
+        if _key and _key not in latest_by_key:
+            latest_by_key[_key] = {
+                "run_id": _spend["run_id"], "ts": _spend["ts"],
+                "trigger": {"type": _spend["mode"], "key": _key},
+                "overall": "aborted", "phases": [], "gates": [],
+                "_spend_only": True}
+except Exception:
+    pass
 art_keys_html, art_panels_html = "", ""
 first = True
 for key, r in latest_by_key.items():
@@ -454,6 +471,26 @@ for key, r in latest_by_key.items():
         f'{" · " + esc(release) if release else ""}</span></button>')
 
     inner = ""
+    try:
+        import cost_statement
+        statement = cost_statement.statement(key, history_rows=_all_spend)
+        totals = statement["totals"]
+        cost_summary = (
+            f"reported ${totals['reported_usd']:.6f} · "
+            f"estimated ~${totals['estimated_usd']:.6f} · "
+            f"simulated ~${totals['simulated_usd']:.6f} · "
+            f"local {totals['local_tokens']} tokens · "
+            f"unknown {totals['unknown_rows']} · unrecorded {totals['unrecorded_rows']} · "
+            f"incomplete priced {totals['incomplete_priced_rows']}")
+        inner += (
+            f'<div class="art-sec"><div class="art-row"><h3>Token-cost statement</h3>'
+            f'<span class="spacer"></span><a class="btn btn-sm info" '
+            f'href="/api/cost-statement?key={esc(key)}&format=md">md</a>'
+            f'<a class="btn btn-sm info" '
+            f'href="/api/cost-statement?key={esc(key)}&format=csv">csv</a></div>'
+            f'<div class="sm muted">{esc(cost_summary)}</div></div>')
+    except Exception:
+        pass
     if plan.exists():
         exports = "".join(
             f'<button class="btn btn-sm export" data-key="{esc(key)}" data-fmt="{f}">{f}</button>'

@@ -160,6 +160,11 @@ def costs_dir(root=None):
     return _p("AIQE_COSTS_DIR", "reports/costs", root)
 
 
+def exports_dir(root=None):
+    """Generated operator exports, relocatable with the rest of mutable state."""
+    return _p("AIQE_EXPORTS_DIR", "reports/exports", root)
+
+
 def run_diff_path(value, root=None):
     """Resolve a persisted gate diff only when it is inside reports/runs.
 
@@ -321,6 +326,9 @@ def resolve_rel(rel, root=None):
     if s == "reports/costs" or s.startswith("reports/costs/"):
         tail = s.removeprefix("reports/costs").lstrip("/")
         return costs_dir(root) / tail if tail else costs_dir(root)
+    if s == "reports/exports" or s.startswith("reports/exports/"):
+        tail = s.removeprefix("reports/exports").lstrip("/")
+        return exports_dir(root) / tail if tail else exports_dir(root)
     fn = _MUTABLE_TOP.get(head)
     if fn is None:
         return (pathlib.Path(root) if root else ROOT) / s
@@ -369,6 +377,7 @@ def describe():
         "knowledge": str(knowledge_dir()),
         "artifacts": str(artifacts_dir()),
         "costs": str(costs_dir()),
+        "exports": str(exports_dir()),
     }
 
 

@@ -95,6 +95,7 @@ make maintain                   # nightly upkeep: sync, prunes, drift alarm, sna
 make state-export / state-import BUNDLE=.. # portable state bundle across deployments
                                 #   (--knowledge profile: wisdom only, no records)
 make cost-report [DAYS=N]       # spend by workflow/key/phase/model + turn calibration
+make cost-statement KEY=K [FORMAT=md|csv] # exact-key statement -> reports/exports/
 make cost-baseline              # freeze measured medians; maintain alarms on regression
 make index-rebuild              # rebuild the semantic vector index (chunks + embeddings)
 make cache-stats                # LLM phase calls avoided by the content-addressed cache

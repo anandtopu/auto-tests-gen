@@ -1150,6 +1150,25 @@ hit rates — every number badged **measured** or **simulated** (`~`), and savin
 print `n/a` until at least one measured run exists. The same data serves
 `make cost-report [DAYS=N]`, `qa.py status --cost` and `artifacts <KEY>`.
 
+For an auditable statement of one exact task key, run:
+
+```bash
+make cost-statement KEY=PROJ-301                 # Markdown export
+make cost-statement KEY=PROJ-301 FORMAT=csv      # finance line-item export
+python3 bin/qa.py cost-statement PROJ-301        # print without exporting
+```
+
+Exports land in `reports/exports/<KEY>-cost-statement.{md,csv}` with one row
+per run phase. Reported, estimated and simulated dollars remain separate;
+local usage is tokens, while unknown and started-but-unrecorded phases are
+counts; a priced row missing its numeric amount is also counted as incomplete.
+Probe/other non-user attribution is listed outside the task total. The
+Artifacts view shows the same summary and download links, including plan-only
+or aborted keys that deliberately have no run record. The JSON API is
+`GET /api/cost-statement?key=<KEY>`; add `format=md|csv` for an export response.
+Set `AIQE_EXPORTS_DIR` to relocate generated exports independently; otherwise
+they follow `AIQE_STATE_DIR` and default to `reports/exports`.
+
 Settings → **Cost levers** holds one kill switch per mechanism: the phase cache
 (`AIQE_PHASE_CACHE`), retrieval-scoped context (`AIQE_CONTEXT_SCOPE`; per-phase
 policy in org-config `context_scope:`), the missing-context retry
@@ -1377,7 +1396,7 @@ Every `make` target, grouped. Details are in the section linked from each group.
 | Services | `serve`, `hook-server`, `dashboard` |
 | Estate & knowledge | `repos`, `repo-facts`, `repo-agents`, `sync-guidance`, `sync-status`, `catalog-db`, `ingest-results`, `index-rebuild`, `index-stats` |
 | Plan sharing | `export-plan`, `publish-plan`, `attach-plan` |
-| Cost (§5a) | `cost-report`, `cost-baseline`, `cache-stats`, `cache-clear`, `cache-probe` |
+| Cost (§5a) | `cost-report`, `cost-statement`, `cost-baseline`, `cache-stats`, `cache-clear`, `cache-probe` |
 | State portability | `state-export`, `state-inspect`, `state-import`, `clear-demo` |
 | Deployment | `docker-build`, `deploy-local`, `deploy-local-down`, `deploy-openshift` |
 | Verification | `review` (everything below, in sequence), `test-routing`, `test-routing-adv`, `test-gate`, `test-state`, `test-providers`, `test-bootstrap`, `test-entrypoint`, `test-observability`, `conformance`, `eval`, `retrieval-eval`, `check-integrations`, `smoke-openhands` |

@@ -121,6 +121,7 @@ def test_qa_artifacts_view():
     assert r.returncode == 0, r.stderr
     assert "testplans/PROJ-301.md" in r.stdout
     assert "Generated tests:" in r.stdout
+    assert "Cost statement:" in r.stdout and "bin/qa.py cost-statement PROJ-301" in r.stdout
     # PR keys resolve with or without the PR- prefix
     r2 = subprocess.run([sys.executable, str(ROOT / "bin/qa.py"), "artifacts", "orders-api-201"],
                         capture_output=True, text=True, cwd=ROOT, stdin=subprocess.DEVNULL)

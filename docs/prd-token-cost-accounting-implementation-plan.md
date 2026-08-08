@@ -10,7 +10,7 @@ Source: [prd-token-cost-accounting.md](prd-token-cost-accounting.md) (Draft v2)
 | 1 | TCA-A1 Durable spend ledger | A1.1, A1.1a, A1.3–A1.5a, A1.7 | none | Implemented | Default-on durable per-run ledger, chained EXIT flush, exact start markers, state lifecycle, attribution, no run-record regression |
 | 2 | TCA-A2 Exit-path coverage proof | A2.1, M1 | TCA-A1 | Implemented | Isolated instrumented sweep of five modes plus clarification, budget-abort, and mid-call failure paths; M1 measured at 8/8 |
 | 3 | TCA-A3 Unified spend accessor | A1.2, A1.2a | TCA-A1 | Implemented | One deduplicating `spend_rows()` authority; run-record enrichment wins; every enumerated consumer migrates or remains explicitly live-run-only |
-| 4 | TCA-C1 Per-task cost statement | C1.1–C1.3, G5 | TCA-A3 | Planned | CLI, API, artifacts-adjacent panel, per-basis totals, incomplete-state counts, CSV/Markdown exports |
+| 4 | TCA-C1 Per-task cost statement | C1.1–C1.3, G5 | TCA-A3 | Implemented | CLI, API, artifacts-adjacent panel, per-basis totals, incomplete-state counts, CSV/Markdown exports |
 | 5 | TCA-B1 Complete consumer report | B1.1–B1.4, M2 | TCA-A3, TCA-C1 | Planned | Embedding section, probe attribution separation, unmeterable line, shared provider/basis rollups |
 | 6 | TCA-C2 Provider usage port | C2.1, C2.1a | TCA-A3 | Planned | Adapter-family `usage <window>` verb, mock fixture, conformance suite, write-only admin credential, Make entry point |
 | 7 | TCA-C3 Reconciliation arithmetic | C2.1b, C2.2 | TCA-C2 | Planned | Provider-aligned UTC windows, reported-only comparison, reconcilable fraction, deterministic drift evidence |
@@ -82,6 +82,17 @@ Build a pure statement model first, then expose it through `make cost-statement`
 by basis and count `unknown`/`unrecorded`. CSV and Markdown exports use the
 existing `reports/exports` location and one line per phase.
 
+Implementation evidence: `cost_statement.py` selects exact keys from the TCA-A3
+union, lists every run/phase with attempts, and partitions user totals into
+reported, estimated, simulated, local-token, unknown, unrecorded,
+not-reconciled, and structurally incomplete states. Non-user attribution is
+listed and exported outside task totals. `make cost-statement`, the QA CLI,
+authenticated JSON/Markdown/CSV API, and artifact-panel downloads share the
+same model. Ledger-only plan/requirements/abort keys appear in Artifacts without
+entering run metrics. Exports use a locked atomic replace under relocatable
+`AIQE_EXPORTS_DIR`. Targeted/adjacent checks passed (151), final focused review
+checks passed (15 and 26), and the full registry suite passed (1,734).
+
 ### TCA-B1 — Complete consumer report
 
 Normalize daily embedding rows into the report without moving its cap. Mark
@@ -109,8 +120,8 @@ HEAD/upstream/remote parity before the loop advances.
 
 - Q1 is implemented as the current run-record KEEP value, per the PRD delivery
   plan; Finance can request a longer independent retention later.
-- Q2 remains a Product decision for TCA-C1. The first statement groups exact keys
-  only and does not infer PR/ticket identity.
+- Q2 is implemented conservatively: statements group exact keys only and do not
+  infer PR/ticket identity.
 - A same-label retry is one union identity but may represent multiple provider
   calls. TCA-A1 records the attempt count and compatible aggregate; TCA-A3 must
   preserve that aggregate when a completed run record wins.

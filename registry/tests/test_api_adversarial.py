@@ -291,6 +291,26 @@ def test_cost_report_rejects_out_of_range_windows_without_dropping_connection(li
     assert status == 200, "the invalid cost window killed the server connection"
 
 
+def test_cost_statement_api_returns_schema_and_exports(live_server):
+    base, _ = live_server
+    status, body = _request(f"{base}/api/cost-statement?key=PROJ-301", headers=_auth())
+    assert status == 200, body
+    doc = json.loads(body)
+    assert doc["schema"] == 1 and doc["key"] == "PROJ-301"
+    assert isinstance(doc["rows"], list) and isinstance(doc["totals"], dict)
+    assert "total_cost_usd" not in doc["totals"]
+    status, body = _request(
+        f"{base}/api/cost-statement?key=PROJ-301&format=csv", headers=_auth())
+    assert status == 200 and body.startswith("key,run_id,mode,phase,")
+
+
+@pytest.mark.parametrize("query", ["key=../escape", "key=PROJ-301&format=pdf"])
+def test_cost_statement_api_refuses_unsafe_key_or_format(live_server, query):
+    base, _ = live_server
+    status, body = _request(f"{base}/api/cost-statement?{query}", headers=_auth())
+    assert status == 400, body
+
+
 def test_plan_save_rejects_a_stale_editor_revision(live_server):
     """Two reviewers must not get a successful last-write-wins data loss."""
     base, _ = live_server

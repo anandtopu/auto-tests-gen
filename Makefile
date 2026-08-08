@@ -7,7 +7,7 @@ SHELL := /bin/bash
         docker-build deploy-local deploy-local-down deploy-openshift email \
         plan plan-show plan-approve plan-changes plan-edit plan-link plan-tests plans \
         demo-plan demo-plan-tests sync-guidance sync-status check-integrations skills repo-agents config \
-        cost-report index-rebuild index-stats cache-probe cost-baseline \
+        cost-report cost-statement index-rebuild index-stats cache-probe cost-baseline \
         requirements demo-requirements requirements-approve spec-verify \
         test-providers test-state test-routing-adv test-observability test-bootstrap test-entrypoint \
         parity-compare repo-facts explain select select-finalize
@@ -189,6 +189,9 @@ state-import:         # restore a bundle here (BUNDLE=path [REPLACE=1] [DRY=1])
 
 cost-report:          # LLM spend attribution: by workflow/key/phase/model + turn calibration (DAYS=N)
 	python3 engine/lib/cost_report.py report $(if $(DAYS),--days $(DAYS),)
+
+cost-statement:       # exact-key auditable spend lines (KEY=... FORMAT=md|csv)
+	python3 engine/lib/cost_statement.py $(KEY) --format $(or $(FORMAT),md)
 
 cost-baseline:        # freeze per-phase MEASURED medians as the regression baseline (refuses simulated)
 	python3 engine/lib/cost_report.py baseline

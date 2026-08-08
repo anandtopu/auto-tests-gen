@@ -38,6 +38,8 @@ def test_defaults_are_the_checkout_unchanged():
     assert d["skills"] == str(ROOT / ".agents" / "skills")
     assert d["knowledge"] == str(ROOT / "knowledge")
     assert d["artifacts"] == str(ROOT / "reports" / "agent-artifacts")
+    assert d["costs"] == str(ROOT / "reports" / "costs")
+    assert d["exports"] == str(ROOT / "reports" / "exports")
 
 
 def test_state_dir_redirects_every_mutable_path(monkeypatch, tmp_path):
@@ -60,6 +62,7 @@ def test_resolve_rel_with_a_caller_root_keeps_every_mutable_top_on_state(
         "testplans/PROJ-1.md": state / "testplans/PROJ-1.md",
         "testdata/PROJ-1/data.json": state / "testdata/PROJ-1/data.json",
         "specs/PROJ-1/spec.json": state / "specs/PROJ-1/spec.json",
+        "reports/exports/PROJ-1.csv": state / "reports/exports/PROJ-1.csv",
     }
     assert {rel: app_paths.resolve_rel(rel, checkout)
             for rel in expected} == expected
