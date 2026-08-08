@@ -9,7 +9,7 @@ Source: [prd-token-cost-accounting.md](prd-token-cost-accounting.md) (Draft v2)
 | ---: | --- | --- | --- | --- | --- |
 | 1 | TCA-A1 Durable spend ledger | A1.1, A1.1a, A1.3–A1.5a, A1.7 | none | Implemented | Default-on durable per-run ledger, chained EXIT flush, exact start markers, state lifecycle, attribution, no run-record regression |
 | 2 | TCA-A2 Exit-path coverage proof | A2.1, M1 | TCA-A1 | Implemented | Isolated instrumented sweep of five modes plus clarification, budget-abort, and mid-call failure paths; M1 measured at 8/8 |
-| 3 | TCA-A3 Unified spend accessor | A1.2, A1.2a | TCA-A1 | Planned | One deduplicating `spend_rows()` authority; run-record enrichment wins; every enumerated consumer migrates or remains explicitly live-run-only |
+| 3 | TCA-A3 Unified spend accessor | A1.2, A1.2a | TCA-A1 | Implemented | One deduplicating `spend_rows()` authority; run-record enrichment wins; every enumerated consumer migrates or remains explicitly live-run-only |
 | 4 | TCA-C1 Per-task cost statement | C1.1–C1.3, G5 | TCA-A3 | Planned | CLI, API, artifacts-adjacent panel, per-basis totals, incomplete-state counts, CSV/Markdown exports |
 | 5 | TCA-B1 Complete consumer report | B1.1–B1.4, M2 | TCA-A3, TCA-C1 | Planned | Embedding section, probe attribution separation, unmeterable line, shared provider/basis rollups |
 | 6 | TCA-C2 Provider usage port | C2.1, C2.1a | TCA-A3 | Planned | Adapter-family `usage <window>` verb, mock fixture, conformance suite, write-only admin credential, Make entry point |
@@ -63,6 +63,17 @@ Deduplicate source collisions by run and phase, with the enriched run-record row
 winning. Move cost report, queue warning, baseline/regression, team/overview,
 parity, PR comments, and artifact views to it as specified. Add a repository pin
 that rejects production modules resolving either history source directly.
+
+Implementation evidence: `engine/lib/spend_history.py` is the read-only union
+authority and normalizes both durable sources into explicit basis-aware rows.
+Collisions use `(run_id, phase)`; enriched run-record fields win while the
+ledger's compatible quantitative aggregate and `attempts` survive retries.
+`cost_report` now feeds queue warnings, baselines/regression, team/overview and
+dashboard totals from the union. Parity, historical PR comments, `qa status
+--cost`, and artifacts use the same accessor; abort-only histories are visible
+without displacing the newest rich artifact record. The live `budget.py` path
+is unchanged. Focused/adjacent verification passed (16), the normalization
+regressions passed (10), and the full registry suite passed (1,720).
 
 ### TCA-C1 — Per-task cost statement
 

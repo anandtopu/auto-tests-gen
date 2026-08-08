@@ -28,6 +28,10 @@ import pathlib
 import sys
 import time
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import app_paths
+import spend_history
+
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 RUNS = ROOT / "reports/runs"
 SKIP = {"reviews.json", "queue.json", "hooks-seen.json"}
@@ -47,10 +51,9 @@ def _records(days=0):
         yield rec
 
 
-def _provider_of(rec):
+def _provider_of(spend):
     """Which provider ran this run's phases — `mixed:...` when more than one."""
-    provs = {(p.get("spend") or {}).get("provider") or ""
-             for p in rec.get("phases") or []}
+    provs = {row.get("provider") or "" for row in spend}
     provs.discard("")
     if not provs:
         return "unknown"
@@ -59,16 +62,20 @@ def _provider_of(rec):
     return "mixed:" + "+".join(sorted(provs))
 
 
-def _simulated(rec):
-    return any((p.get("spend") or {}).get("simulated")
-               for p in rec.get("phases") or [])
+def _simulated(spend):
+    return any(row.get("simulated") for row in spend)
 
 
 def compare(days=0):
     rows, simulated = {}, {}
+    costs = app_paths.costs_dir(ROOT) if RUNS == ROOT / "reports/runs" else RUNS.parent / "costs"
+    by_run = {}
+    for spend in spend_history.spend_rows(days or None, runs_dir=RUNS, costs_dir=costs):
+        by_run.setdefault(spend["run_id"], []).append(spend)
     for rec in _records(days):
-        prov = _provider_of(rec)
-        bucket = simulated if _simulated(rec) else rows
+        spend = by_run.get(str(rec.get("run_id") or ""), [])
+        prov = _provider_of(spend)
+        bucket = simulated if _simulated(spend) else rows
         e = bucket.setdefault(prov, {"provider": prov, "runs": 0, "committed": 0,
                                      "cost_usd": 0.0, "turns": 0,
                                      "critic": [], "bases": {}})
@@ -76,12 +83,12 @@ def compare(days=0):
         gates = rec.get("gates") or rec.get("repos") or []
         if any(str(g.get("status", "")).upper() == "COMMITTED" for g in gates):
             e["committed"] += 1
-        for ph in rec.get("phases") or []:
-            sp = ph.get("spend") or {}
+        for sp in spend:
+            attempts = max(1, int(sp.get("attempts") or 1))
             e["cost_usd"] += float(sp.get("cost_usd") or 0)
-            e["turns"] += int(sp.get("turns_used") or 0)
-            basis = sp.get("cost_basis") or "unknown"
-            e["bases"][basis] = e["bases"].get(basis, 0) + 1
+            e["turns"] += int(sp.get("turns") or 0)
+            basis = sp.get("basis") or "unknown"
+            e["bases"][basis] = e["bases"].get(basis, 0) + attempts
         score = ((rec.get("critic") or {}).get("overall")
                  if isinstance(rec.get("critic"), dict) else None)
         if isinstance(score, (int, float)):

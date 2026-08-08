@@ -62,6 +62,7 @@ import app_paths                      # R12: mutable paths resolve here
 from registry import load_registry
 import review_state
 import test_reviewer
+import spend_history
 
 
 def _load_catalog_file(path):
@@ -162,6 +163,10 @@ def cmd_status(args):
             "review_refused": "RV "}
     reviews = review_state.load()
     with_cost = getattr(args, "cost", False)
+    spend_by_run = {}
+    if with_cost:
+        for row in spend_history.spend_rows():
+            spend_by_run.setdefault(row["run_id"], []).append(row)
     cost_col = f" {'cost':<9}" if with_cost else ""
     print(f"{'run_id':<18} {'trigger':<22} {'overall':<18} {'team review':<18} {'release':<10}{cost_col} gates")
     for r in runs[: args.n]:
@@ -177,7 +182,7 @@ def cmd_status(args):
         rel = e.get("release") or "-"
         cost_cell = ""
         if with_cost:
-            spends = [p.get("spend") for p in r.get("phases", []) if p.get("spend")]
+            spends = spend_by_run.get(str(r.get("run_id") or ""), [])
             tot = sum(s.get("cost_usd") or 0 for s in spends)
             sim = any(s.get("simulated") for s in spends)
             # `~` marks a figure containing simulated components — a simulated
@@ -268,7 +273,26 @@ def _runs_for_key(key):
 
 def cmd_artifacts(args):
     """Everything a run generated for one PR key or JIRA story, newest run first."""
+    all_spend = spend_history.spend_rows()
+    spend_by_run = {}
+    for row in all_spend:
+        spend_by_run.setdefault(row["run_id"], []).append(row)
     runs = _runs_for_key(args.key)
+    known_ids = {str(run.get("run_id") or "") for run in runs}
+    for run_id, rows in spend_by_run.items():
+        row = rows[0]
+        key = row["key"]
+        if (run_id not in known_ids
+                and args.key.lower() in (key.lower(), key.lower().replace("pr-", ""))):
+            runs.append({"run_id": run_id, "ts": row["ts"],
+                         "trigger": {"type": row["mode"], "key": key},
+                         "overall": "aborted", "phases": [], "gates": [],
+                         "_spend_only": True})
+    # The default artifact view remains the newest rich run record. Abort-only
+    # history is visible when it is all that exists, or alongside records with
+    # --all; it must not hide generated artifacts merely because it exited later.
+    runs.sort(key=lambda row: (bool(row.get("_spend_only")),
+                               -float(row.get("ts", 0))))
     if not runs:
         # Guarded like every other run-record read: records are written via tee
         # (non-atomic by design), and one torn record used to crash this error
@@ -281,6 +305,7 @@ def cmd_artifacts(args):
                 continue
             if k:
                 keys.add(k)
+        keys.update(row["key"] for row in all_spend if row["key"])
         keys = sorted(keys)
         sys.exit(f"no runs recorded for '{args.key}'. Known keys: {', '.join(keys) or 'none'}")
     for r in runs if args.all else runs[:1]:
@@ -323,27 +348,27 @@ def cmd_artifacts(args):
             print(f"\nValidation: {v.get('passed', '?')} passed, {v.get('failed', '?')} failed, "
                   f"{v.get('repair_loops', '?')} repair loop(s)")
 
-        spends = [(p["name"], p["spend"]) for p in r.get("phases", [])
-                  if p.get("spend")]
+        spends = [(s["phase"], s) for s in spend_by_run.get(str(r.get("run_id") or ""), [])]
         if spends:
             print("\nSpend ($ reported · ~$ estimated/simulated · $0 local):")
             print(f"  {'phase':<28} {'provider':<10} {'model':<26} {'cost':>11} "
                   f"{'in':>8} {'out':>7} {'cache-rd':>8} {'turns':>5}")
             for name, s in spends:
                 # The four cost-basis classes, never crossed (multi-LLM 4.1).
-                basis = s.get("cost_basis") or ""
+                basis = s.get("basis") or ""
                 if basis == "local":
                     cost = "$0 (local)"
-                elif basis == "unknown":
-                    cost = "unknown"
+                elif basis in ("unknown", "unrecorded", "not-reconciled"):
+                    cost = basis
                 else:
                     mark = "~" if (s.get("simulated") or basis == "estimated") else ""
                     cost = f"{mark}${s.get('cost_usd', 0):.4f}"
+                def count(field):
+                    return "-" if s.get(field) is None else str(s.get(field, 0))
                 print(f"  {name:<28} {s.get('provider') or '-':<10} "
                       f"{s.get('model') or '-':<26} {cost:>11} "
-                      f"{s.get('input_tokens', 0):>8} {s.get('output_tokens', 0):>7} "
-                      f"{s.get('cache_read_tokens', 0):>8} "
-                      f"{s.get('turns_used', 0):>5}")
+                      f"{count('input_tokens'):>8} {count('output_tokens'):>7} "
+                      f"{count('cache_read_tokens'):>8} {count('turns'):>5}")
 
         print("\nCommits & diffs:")
         for g in r.get("gates", []):

@@ -22,6 +22,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import run_progress  # noqa: E402
 import test_reviewer as reviewer_lib  # noqa: E402
 import ticket_discovery  # noqa: E402
+import spend_history  # noqa: E402
 
 
 def _load(p):
@@ -84,11 +85,15 @@ def from_record(record):
     c = contracts.get("critic") or {}
     if isinstance(c.get("score"), (int, float)) and c.get("verdict"):
         critic_sig = {"score": c["score"], "verdict": c["verdict"]}
-    cost = record.get("cost_usd") if record.get("cost_usd") else None
+    run_id = str(record.get("run_id") or "")
+    historical = [row for row in spend_history.spend_rows()
+                  if row["run_id"] == run_id]
+    priced = [row["cost_usd"] for row in historical if row["cost_usd"] is not None]
+    cost = sum(priced) if priced else (record.get("cost_usd") or None)
     return _compose(contracts.get("triage") or {}, contracts.get("generate") or {},
                     contracts.get("validate") or {}, gates, critic_sig,
                     reviewer_lib.recorded(record), cost,
-                    record.get("run_id", ""),
+                    run_id,
                     record.get("trigger", {}).get("key", ""),
                     record.get("duplicate_warnings") or {},
                     record.get("ticket_discovery") or {},

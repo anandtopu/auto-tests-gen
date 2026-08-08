@@ -25,6 +25,8 @@ import time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import fs_lock
 import env_flag                     # AIQE_MOCK means what it says
+import app_paths
+import spend_history
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 RUNS = ROOT / "reports/runs"
@@ -32,9 +34,6 @@ RUNS = ROOT / "reports/runs"
 # glob in this codebase honours.
 SKIP = ("reviews.json", "queue.json", "hooks-seen.json")
 MAX_WINDOW_DAYS = 36500
-_SPEND_INTS = ("input_tokens", "output_tokens", "cache_read_tokens",
-               "cache_creation_tokens", "turns_used", "max_turns")
-_SPEND_LABELS = ("provider", "model", "cost_basis")
 
 
 def _window_days(days):
@@ -50,83 +49,56 @@ def _window_days(days):
     return value
 
 
-def _clean_spend(spend):
-    """Normalize a persisted spend mapping, refusing shape-corrupt rows."""
-    clean = dict(spend)
-    try:
-        cost = float(spend.get("cost_usd") or 0)
-        if not math.isfinite(cost) or cost < 0:
-            return None
-        clean["cost_usd"] = cost
-        for field in _SPEND_INTS:
-            value = int(spend.get(field) or 0)
-            if value < 0:
-                return None
-            clean[field] = value
-    except (TypeError, ValueError, OverflowError):
-        return None
-    for field in _SPEND_LABELS:
-        value = spend.get(field)
-        if value is not None and not isinstance(value, str):
-            return None
-        clean[field] = value or ""
-    simulated = spend.get("simulated", False)
-    if not isinstance(simulated, bool):
-        return None
-    clean["simulated"] = simulated
-    return clean
-
-
 def collect(days=None):
     """[{run_id, key, mode, ts, phases: [{name, spend}...]}] oldest-first,
     spend-carrying phases only. Torn records are skipped, never fatal."""
     days = _window_days(days)
-    cutoff = time.time() - days * 86400 if days is not None else 0
-    out = []
-    if not RUNS.is_dir():
-        return out
-    for f in sorted(RUNS.glob("*.json")):
-        if f.name in SKIP:
-            continue
-        rec = fs_lock.read_json_guarded(f, None) if hasattr(fs_lock, "read_json_guarded") else None
-        if rec is None:
+    # Tests and embedders historically override RUNS. Keep their history
+    # isolated by resolving its sibling costs directory; production continues
+    # to honor AIQE_COSTS_DIR through app_paths.
+    costs = app_paths.costs_dir(ROOT) if RUNS == ROOT / "reports/runs" else RUNS.parent / "costs"
+    grouped = {}
+    # Run records still own non-spend metrics such as artifact reuse. Seed that
+    # metadata without inspecting their spend blocks, then overlay the accessor.
+    if RUNS.is_dir():
+        cutoff = time.time() - days * 86400 if days is not None else 0
+        for path in sorted(RUNS.glob("*.json")):
+            if path.name in SKIP:
+                continue
+            rec = fs_lock.read_json_guarded(path, None)
+            trigger = rec.get("trigger") if isinstance(rec, dict) else None
+            phases = rec.get("phases") if isinstance(rec, dict) else None
             try:
-                rec = json.load(open(f, encoding="utf-8"))
-            except Exception:
+                ts = float(rec.get("ts", 0))
+            except (AttributeError, TypeError, ValueError, OverflowError):
                 continue
-        if not isinstance(rec, dict):
-            continue
-        trigger = rec.get("trigger")
-        phase_rows = rec.get("phases", [])
-        try:
-            ts = float(rec.get("ts", 0))
-        except (TypeError, ValueError, OverflowError):
-            continue
-        if (not math.isfinite(ts) or ts < cutoff
-                or not isinstance(trigger, dict)
-                or not isinstance(phase_rows, list)):
-            continue
-        phases = []
-        corrupt_spend = False
-        for phase in phase_rows:
-            if not isinstance(phase, dict) or not isinstance(phase.get("spend"), dict):
+            if (not math.isfinite(ts) or ts < cutoff or not isinstance(trigger, dict)
+                    or not isinstance(phases, list)):
                 continue
-            name = phase.get("name", "")
-            spend = _clean_spend(phase["spend"])
-            if not isinstance(name, str) or spend is None:
-                corrupt_spend = True
-                break
-            phases.append({"name": name, "spend": spend})
-        if corrupt_spend:
-            continue
-        key, mode = trigger.get("key", ""), trigger.get("type", "")
-        if not isinstance(key, str) or not isinstance(mode, str):
-            continue
-        out.append({"run_id": rec.get("run_id", f.stem),
-                    "key": key, "mode": mode,
-                    "ts": ts, "phases": phases,
-                    "artifact_reuse": rec.get("artifact_reuse") or {}})
-    return out
+            # Spend-bearing records are admitted only after spend_history has
+            # validated their rows. Seed metadata-only records here so metrics
+            # such as artifact reuse remain visible without allowing a corrupt
+            # spend mapping to inflate the run count.
+            if any(isinstance(phase, dict) and "spend" in phase for phase in phases):
+                continue
+            run_id = str(rec.get("run_id") or path.stem)
+            grouped[run_id] = {
+                "run_id": run_id, "key": str(trigger.get("key") or ""),
+                "mode": str(trigger.get("type") or ""), "ts": ts, "phases": [],
+                "artifact_reuse": rec.get("artifact_reuse") or {}}
+    for row in spend_history.spend_rows(days, runs_dir=RUNS, costs_dir=costs):
+        run = grouped.setdefault(row["run_id"], {
+            "run_id": row["run_id"], "key": row["key"], "mode": row["mode"],
+            "ts": row["ts"], "phases": [], "artifact_reuse": row["artifact_reuse"]})
+        run["phases"].append({"name": row["phase"], "spend": {
+            "provider": row["provider"], "model": row["model"],
+            "cost_basis": row["basis"], "cost_usd": row["cost_usd"],
+            "input_tokens": row["input_tokens"], "output_tokens": row["output_tokens"],
+            "cache_read_tokens": row["cache_read_tokens"],
+            "cache_creation_tokens": row["cache_creation_tokens"],
+            "turns_used": row["turns"], "max_turns": row["max_turns"],
+            "simulated": row["simulated"], "attempts": row["attempts"]}})
+    return sorted(grouped.values(), key=lambda row: (row["ts"], row["run_id"]))
 
 
 def _policy_phase(label):
@@ -168,14 +140,15 @@ def report(days=None):
             s = p["spend"]
             cost = float(s.get("cost_usd") or 0)
             run_cost += cost
-            spend_rows += 1
+            attempts = max(1, int(s.get("attempts") or 1))
+            spend_rows += attempts
             if s.get("simulated"):
-                simulated_rows += 1
+                simulated_rows += attempts
             ph = by_phase.setdefault(_policy_phase(p["name"]), {
                 "calls": 0, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0,
                 "cache_read_tokens": 0, "turns": [], "max_turns": 0,
                 "measured_costs": []})
-            ph["calls"] += 1
+            ph["calls"] += attempts
             ph["cost_usd"] += cost
             ph["input_tokens"] += int(s.get("input_tokens") or 0)
             ph["output_tokens"] += int(s.get("output_tokens") or 0)
@@ -191,13 +164,13 @@ def report(days=None):
             pv = by_provider.setdefault(prov, {
                 "calls": 0, "cost_usd": 0.0, "input_tokens": 0,
                 "output_tokens": 0, "bases": {}})
-            pv["calls"] += 1
+            pv["calls"] += attempts
             pv["cost_usd"] += cost
             pv["input_tokens"] += int(s.get("input_tokens") or 0)
             pv["output_tokens"] += int(s.get("output_tokens") or 0)
             basis = s.get("cost_basis") or ("simulated" if s.get("simulated") else "")
             if basis:
-                pv["bases"][basis] = pv["bases"].get(basis, 0) + 1
+                pv["bases"][basis] = pv["bases"].get(basis, 0) + attempts
             toks = int(s.get("input_tokens") or 0) + int(s.get("output_tokens") or 0)
             if basis == "local":
                 local_tokens += toks
@@ -206,7 +179,7 @@ def report(days=None):
             mdl = s.get("model") or "unknown"
             m = by_model.setdefault(mdl, {"calls": 0, "cost_usd": 0.0,
                                           "input_tokens": 0, "output_tokens": 0})
-            m["calls"] += 1
+            m["calls"] += attempts
             m["cost_usd"] += cost
             m["input_tokens"] += int(s.get("input_tokens") or 0)
             m["output_tokens"] += int(s.get("output_tokens") or 0)
@@ -282,9 +255,11 @@ def report(days=None):
             # every surface that prints the total must print this beside it or
             # a partial figure reads as the whole bill.
             "unpriced_calls": sum(
-                v["bases"].get("unknown", 0) for v in by_provider.values()),
+                sum(v["bases"].get(b, 0) for b in ("unknown", "unrecorded", "not-reconciled"))
+                for v in by_provider.values()),
             "unpriced_providers": sorted(
-                k for k, v in by_provider.items() if v["bases"].get("unknown")),
+                k for k, v in by_provider.items()
+                if any(v["bases"].get(b) for b in ("unknown", "unrecorded", "not-reconciled"))),
             "phase_cache_hits": cache_hits,
             "phase_cache_savings_usd": cache_savings,
             # B3 stays separate from phase-cache dollars. Tokens are the work
