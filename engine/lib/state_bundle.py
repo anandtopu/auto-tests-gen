@@ -86,7 +86,7 @@ INCLUDE_DIRS = [
     # somebody's work" this bundle exists to carry. The derived tier
     # under knowledge/facts/derived/ is EXCLUDED below: it rebuilds.
     "knowledge/facts",
-    "catalog", "reports/runs", "reports/plans", "reports/openhands",
+    "catalog", "reports/runs", "reports/costs", "reports/plans", "reports/openhands",
     "reports/agent-artifacts",
     # The finalized product of a selective review: which scenarios and tests a
     # named reviewer approved, which they excluded and why, and the
@@ -423,6 +423,8 @@ def import_bundle(bundle, replace=False, dry_run=False, force=False):
                 anchor = app_paths.resolve_rel(head, ROOT).resolve()
                 if rel.startswith("reports/agent-artifacts/"):
                     anchor = app_paths.artifacts_dir(ROOT).resolve()
+                if rel.startswith("reports/costs/"):
+                    anchor = app_paths.costs_dir(ROOT).resolve()
                 if rel in INCLUDE_FILES or rel in KNOWLEDGE_FILES:
                     anchor = target
                 if target != anchor and anchor not in target.parents:

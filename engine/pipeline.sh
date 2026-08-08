@@ -69,11 +69,29 @@ if [ ! -w "$(dirname "$LOCK")" ]; then
 fi
 ACQUIRED=0
 for i in $(seq 1 120); do
-  if mkdir "$LOCK" 2>/dev/null; then trap 'rmdir "$LOCK" 2>/dev/null' EXIT; ACQUIRED=1; break; fi
+  if mkdir "$LOCK" 2>/dev/null; then ACQUIRED=1; break; fi
   if [ -n "$(find "$LOCK" -maxdepth 0 -mmin +90 2>/dev/null)" ]; then rmdir "$LOCK" 2>/dev/null || true; fi
   sleep 1
 done
 if [ "$ACQUIRED" != "1" ]; then echo "PIPELINE_BUSY: another run holds $LOCK"; exit 75; fi
+# One EXIT handler owns both durable spend and the run lock. Bash traps replace
+# rather than stack, so adding a second trap would strand the lock. Capture the
+# incoming status, flush first, release second, and return the original status.
+_pipeline_exit() {
+  local rc="${1:-0}" flush_error=""
+  if [ -n "${RUN_ID:-}" ]; then
+    if ! flush_error=$(python3 engine/lib/spend_ledger.py flush "$RUN_ID" \
+        "${MODE:-}" "${KEY:-}" 2>&1); then
+      echo "[cost-ledger] $flush_error" >&2
+      if declare -F EV >/dev/null 2>&1; then
+        EV cost.ledger_failed "${KEY:-?}" degraded "run_id=$RUN_ID"
+      fi
+    fi
+  fi
+  rmdir "$LOCK" 2>/dev/null || true
+  return "$rc"
+}
+trap '_pipeline_exit "$?"' EXIT
 # An unrecognized NOTIFY_KIND used to fall through the `*)` arm to slack, so a
 # typo'd `emails` delivered nothing to the address it was configured for and
 # said nothing about it. A notification channel that silently is not the one you
@@ -144,7 +162,7 @@ RUN_START=$(date +%s)
 # AIQE_MOCK_PHASE_COST simulation never applies and the exit-77 guard is dead).
 rm -f "${AIQE_COST_LEDGER:-out/cost.tsv}" out/*.json out/gate_results.tsv \
       out/context-*.md out/context-retries.tsv out/cost-degrade.tsv \
-      out/phase-skips.tsv
+      out/phase-skips.tsv out/phase-starts.jsonl
 _budget_guard() {
   local why
   if ! why=$(python3 engine/lib/budget.py check --start "$RUN_START"); then

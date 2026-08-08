@@ -116,6 +116,8 @@ CONTEXT+=$'\n--- END RUN PARAMETERS ---'
 # receives the ASSEMBLED prompt on stdin (cache-ordering preserved byte for
 # byte) plus this phase's policy, and writes the normalized result JSON to
 # out/<OUT>.json, using the FINAL_MODEL resolved above.
+python3 engine/lib/spend_ledger.py mark-start "${RUN_ID:-}" \
+  "${MODE:-${AIQE_RUN_MODE:-}}" "${KEY:-}" "$OUT" "$PROVIDER" "$FINAL_MODEL" || true
 printf '%s' "$PROMPT_TEXT$CONTEXT" | \
   bash "$RUNNER" run_phase "$FINAL_MODEL" "$TURNS" "$TOOLS" "out/${OUT}.json"
 # Extract the trailing JSON contract the prompt requires the agent to print:

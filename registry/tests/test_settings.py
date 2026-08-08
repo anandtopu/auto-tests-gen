@@ -129,6 +129,7 @@ def test_every_spec_key_documented_in_env_example():
 
 def _demo_tree(tmp_path):
     for rel in ["reports/runs/1-x.json", "reports/runs/1-x-repo.diff",
+                "reports/costs/1-x.json",
                 "reports/runs/reviews.json", "reports/PROJ-1-repo.log",
                 "reports/dashboard.html", "reports/exports/P-1-testplan.pdf",
                 "testplans/PROJ-1.md", "testdata/PROJ-1/cases.json",
@@ -154,8 +155,9 @@ def _demo_tree(tmp_path):
 def test_clear_demo_removes_generated_keeps_estate(tmp_path):
     root = _demo_tree(tmp_path)
     r = demo_data.clear(root=root)
-    assert r["removed"] == 20
+    assert r["removed"] == 21
     for gone in ["reports/runs/1-x.json", "reports/runs/reviews.json",
+                 "reports/costs/1-x.json",
                  "reports/PROJ-1-repo.log", "reports/dashboard.html",
                  "reports/exports/P-1-testplan.pdf", "testplans/PROJ-1.md",
                  "testdata/PROJ-1/cases.json", "out/pr.diff",
@@ -197,7 +199,7 @@ def test_every_writable_state_store_is_a_clear_target():
 
     Keep this list in step with the stores the platform writes; if you add one,
     add it to demo_data.CLEAR_DIRS in the same change."""
-    for rel in ("reports/runs", "reports/plans", "reports/openhands",
+    for rel in ("reports/runs", "reports/costs", "reports/plans", "reports/openhands",
                 "reports/inline", "reports/exports",
                 "knowledge/generated", "knowledge/synced",
                 "out", "workspace", "testplans", "testdata"):
@@ -209,7 +211,7 @@ def test_every_writable_state_store_is_a_clear_target():
 def test_clear_demo_dry_run_touches_nothing(tmp_path):
     root = _demo_tree(tmp_path)
     r = demo_data.clear(root=root, dry=True)
-    assert r["removed"] == 20
+    assert r["removed"] == 21
     assert (root / "reports/runs/1-x.json").exists()
 
 

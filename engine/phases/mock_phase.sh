@@ -12,6 +12,8 @@ OUT="${AIQE_PHASE_LABEL:-$PHASE}"
 : "${AIQE_P_TESTPLANS:=testplans}"
 : "${AIQE_P_TESTDATA:=testdata}"
 mkdir -p out
+python3 engine/lib/spend_ledger.py mark-start "${RUN_ID:-}" \
+  "${MODE:-${AIQE_RUN_MODE:-}}" "${KEY:-}" "$OUT" mock mock || true
 
 # Every stub below writes out/<OUT>.contract.json directly, which meant the mock
 # path SKIPPED engine/lib/extract_contract.py — the step the real path uses to

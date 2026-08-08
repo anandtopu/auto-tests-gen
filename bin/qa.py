@@ -694,6 +694,10 @@ def cmd_prune(args):
         removed += 1
     print(f"kept {min(len(records), args.keep)} run record(s); "
           f"removed {len(doomed)} old record(s) ({removed} files)")
+    import spend_ledger
+    costs = spend_ledger.prune(args.keep)
+    print(f"cost ledger: kept {costs['kept']} entry/entries; "
+          f"removed {costs['removed']} old entry/entries")
     # Queue HISTORY retention rides along: done items accumulate one per drained
     # run and nothing else ever trims them.
     import work_queue

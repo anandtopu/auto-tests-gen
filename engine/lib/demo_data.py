@@ -62,7 +62,7 @@ def _rmtree(d):
 # carrying state from before the clear. The most damaging was reports/plans/: an
 # approval survived while the plan it approved was deleted, so generation would run
 # against a stale sign-off for a plan that no longer existed.
-CLEAR_DIRS = ["reports/runs", "reports/exports", "reports/inline",
+CLEAR_DIRS = ["reports/runs", "reports/costs", "reports/exports", "reports/inline",
               "reports/plans",            # plan-first state + contract snapshots
               "reports/openhands",        # agent conversation/event ingest
               "knowledge/generated",      # generated per-repo AGENTS.md
@@ -168,7 +168,8 @@ def clear(root=None, dry=False, force=False, factory=False):
             # so it needs the same protection from an interleaved save()
             locks.enter_context(fs_lock.lock(root / "reports/plans/state.json"))
         for rel in CLEAR_DIRS:
-            d = root / rel
+            d = (_state(root, app_paths.costs_dir(), rel)
+                 if rel == "reports/costs" else root / rel)
             keep = KEEP_SUBDIRS.get(rel, set())
             files = [f for f in _files_under(d)
                      if not (keep and f.relative_to(d).parts[0] in keep)]

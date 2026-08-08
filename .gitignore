@@ -65,6 +65,10 @@ reports/events.db
 reports/runs/[0-9]*.json
 reports/runs/[0-9]*.diff
 
+# Durable spend ledger entries. Match generated run ids by name shape so a
+# future named policy/state file under reports/costs remains visible to git.
+reports/costs/[0-9]*.json
+
 # Guidance fetched from other repositories (guidance_sync). A CACHE — re-pulled by
 # `make sync-guidance`, and it holds files those repos own, not this one.
 knowledge/synced/

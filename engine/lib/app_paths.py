@@ -155,6 +155,11 @@ def artifacts_dir(root=None):
     return _p("AIQE_ARTIFACTS_DIR", "reports/agent-artifacts", root)
 
 
+def costs_dir(root=None):
+    """Durable per-run spend history, independently isolatable for tests."""
+    return _p("AIQE_COSTS_DIR", "reports/costs", root)
+
+
 def run_diff_path(value, root=None):
     """Resolve a persisted gate diff only when it is inside reports/runs.
 
@@ -313,6 +318,9 @@ def resolve_rel(rel, root=None):
     if s == "reports/agent-artifacts" or s.startswith("reports/agent-artifacts/"):
         tail = s.removeprefix("reports/agent-artifacts").lstrip("/")
         return artifacts_dir(root) / tail if tail else artifacts_dir(root)
+    if s == "reports/costs" or s.startswith("reports/costs/"):
+        tail = s.removeprefix("reports/costs").lstrip("/")
+        return costs_dir(root) / tail if tail else costs_dir(root)
     fn = _MUTABLE_TOP.get(head)
     if fn is None:
         return (pathlib.Path(root) if root else ROOT) / s
@@ -360,6 +368,7 @@ def describe():
         "skills": str(skills_dir()),
         "knowledge": str(knowledge_dir()),
         "artifacts": str(artifacts_dir()),
+        "costs": str(costs_dir()),
     }
 
 
