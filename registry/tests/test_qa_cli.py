@@ -51,6 +51,41 @@ def test_set_mapping_rejects_unregistered_repo():
         qa._set_mapping(entry, "no-such-repo")
 
 
+@pytest.mark.parametrize("decision", ["", "   ", ",,", " ; , "])
+def test_set_mapping_rejects_empty_repo_lists_without_mutation(decision):
+    entry = {"mapping": {"app_repos": ["orders-api"], "services": ["orders-api"],
+                         "status": "confirmed", "confidence": 1.0,
+                         "method": ["human_review"]}}
+    before = json.loads(json.dumps(entry))
+
+    with pytest.raises(SystemExit, match="use ORPHAN"):
+        qa._set_mapping(entry, decision)
+
+    assert entry == before, "a refused decision must leave the durable row unchanged"
+
+
+def test_catalog_save_is_atomic_when_serialization_is_interrupted(tmp_path, monkeypatch):
+    path = tmp_path / "catalog.jsonl"
+    original = '{"generation":"old-1"}\n{"generation":"old-2"}\n'
+    path.write_text(original, encoding="utf-8")
+    real_dumps = qa.json.dumps
+    calls = 0
+
+    def fail_second(value):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("simulated interruption")
+        return real_dumps(value)
+
+    monkeypatch.setattr(qa.json, "dumps", fail_second)
+    with pytest.raises(OSError, match="simulated interruption"):
+        qa.save_catalog(path, [{"generation": "new-1"}, {"generation": "new-2"}])
+
+    assert path.read_text(encoding="utf-8") == original
+    assert not list(tmp_path.glob(".*.tmp")), "a failed save must not leak temp files"
+
+
 def test_qa_status_and_coverage_run_clean():
     for sub in ("status", "coverage", "review"):
         r = subprocess.run([sys.executable, str(ROOT / "bin/qa.py"), sub],

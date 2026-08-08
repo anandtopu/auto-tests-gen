@@ -53,7 +53,7 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
   bin/qa.py apply-review <queue.csv>            apply QE decisions back into the catalog
   bin/qa.py map <test_id> --repos a,b|ORPHAN    set one mapping directly (confirmed)
 """
-import argparse, csv, glob, json, pathlib, subprocess, sys
+import argparse, csv, glob, json, os, pathlib, subprocess, sys
 
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -64,19 +64,67 @@ import review_state
 import test_reviewer
 
 
-def load_catalog():
+def _load_catalog_file(path):
     entries = []
-    for f in app_paths.catalog_files(ROOT):
-        for line in open(f, encoding="utf-8"):
-            if line.strip():
-                entries.append((f, json.loads(line)))
+    for line in open(path, encoding="utf-8"):
+        if line.strip():
+            entries.append(json.loads(line))
     return entries
 
 
+def load_catalog():
+    entries = []
+    for f in app_paths.catalog_files(ROOT):
+        entries.extend((f, e) for e in _load_catalog_file(f))
+    return entries
+
+
+def _write_catalog_atomic(path, entries):
+    """Replace one JSONL shard without ever exposing a partial catalog.
+
+    Build the complete payload before touching disk, then use the same-volume
+    atomic replace used by the other durable state stores. Callers that perform
+    a read-modify-write hold the shard lock around both halves of the operation.
+    """
+    import fs_lock
+    path = pathlib.Path(path)
+    payload = "".join(json.dumps(e) + "\n" for e in entries)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(payload)
+        fs_lock.replace_atomic(tmp, path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def save_catalog(path, entries):
-    with open(path, "w", encoding="utf-8", newline="\n") as fh:
-        for e in entries:
-            fh.write(json.dumps(e) + "\n")
+    import fs_lock
+    with fs_lock.lock(path):
+        _write_catalog_atomic(path, entries)
+
+
+def _mutate_catalog_entry(test_id, mutate):
+    """Atomically mutate one catalog row, returning its post-mutation value.
+
+    Mapping and quarantine are human decisions. Loading before taking the lock
+    lets simultaneous jobs overwrite one another even if the eventual file
+    replace is atomic, so the lock covers the full transaction.
+    """
+    import fs_lock
+    for f in app_paths.catalog_files(ROOT):
+        with fs_lock.lock(f):
+            entries = _load_catalog_file(f)
+            for e in entries:
+                if e["test_id"] == test_id:
+                    mutate(e)
+                    _write_catalog_atomic(f, entries)
+                    return e
+    return None
 
 
 def regen_coverage():
@@ -701,6 +749,9 @@ def _set_mapping(entry, decision):
         entry["mapping"].update(app_repos=[], services=[], status="orphan", confidence=0.0)
     else:
         repos = sorted(r.strip() for r in decision.replace(";", ",").split(",") if r.strip())
+        if not repos:
+            sys.exit("mapping requires at least one source repo; use ORPHAN to "
+                     "record that no application mapping exists")
         reg_names = {s["name"] for s in load_registry()["source_repositories"]}
         unknown = [r for r in repos if r not in reg_names]
         if unknown:
@@ -720,18 +771,18 @@ def cmd_apply_review(args):
     if not decisions:
         sys.exit("no filled-in decisions found in the CSV's decision column")
     applied = 0
-    by_file = {}
-    for f, e in load_catalog():
-        by_file.setdefault(f, []).append(e)
-    for f, entries in by_file.items():
-        touched = False
-        for e in entries:
-            if e["test_id"] in decisions:
-                _set_mapping(e, decisions.pop(e["test_id"]))
-                applied += 1
-                touched = True
-        if touched:
-            save_catalog(f, entries)
+    import fs_lock
+    for f in app_paths.catalog_files(ROOT):
+        with fs_lock.lock(f):
+            entries = _load_catalog_file(f)
+            touched = False
+            for e in entries:
+                if e["test_id"] in decisions:
+                    _set_mapping(e, decisions.pop(e["test_id"]))
+                    applied += 1
+                    touched = True
+            if touched:
+                _write_catalog_atomic(f, entries)
     for missed in decisions:
         print(f"warning: test_id not found in catalog: {missed}")
     regen_coverage()
@@ -822,50 +873,37 @@ def cmd_quarantine(args):
     humans and reports — the platform never edits the test repo's CI config; the
     printed exclusion line is a PROPOSAL for the repo owner to apply."""
     lift = getattr(args, "lift", False)
-    for f, entries in _catalog_by_file().items():
-        for e in entries:
-            if e["test_id"] == args.test_id:
-                if lift:
-                    # Remove the tag entirely — `"quarantined": false` residue in a
-                    # TRACKED file makes every quarantine cycle permanent git noise.
-                    e.setdefault("mapping", {}).pop("quarantined", None)
-                    e["mapping"].pop("quarantine_note", None)
-                else:
-                    e.setdefault("mapping", {})["quarantined"] = True
-                    if getattr(args, "note", ""):
-                        e["mapping"]["quarantine_note"] = args.note
-                save_catalog(f, entries)
-                state = "LIFTED" if lift else "QUARANTINED"
-                print(f"{state}: {args.test_id}")
-                if not lift:
-                    spec = e.get("file", "")
-                    print("Propose to the repo owner (their CI config, not ours):")
-                    print(f"  exclude-from-required: {spec}")
-                return
+    def change(e):
+        if lift:
+            # Remove the tag entirely — `"quarantined": false` residue in a
+            # TRACKED file makes every quarantine cycle permanent git noise.
+            e.setdefault("mapping", {}).pop("quarantined", None)
+            e["mapping"].pop("quarantine_note", None)
+        else:
+            e.setdefault("mapping", {})["quarantined"] = True
+            if getattr(args, "note", ""):
+                e["mapping"]["quarantine_note"] = args.note
+
+    e = _mutate_catalog_entry(args.test_id, change)
+    if e:
+        state = "LIFTED" if lift else "QUARANTINED"
+        print(f"{state}: {args.test_id}")
+        if not lift:
+            spec = e.get("file", "")
+            print("Propose to the repo owner (their CI config, not ours):")
+            print(f"  exclude-from-required: {spec}")
+        return
     sys.exit(f"no cataloged test with id '{args.test_id}' — bin/qa.py sql "
              "\"SELECT test_id FROM tests\" lists them")
 
 
-def _catalog_by_file():
-    by_file = {}
-    for f, e in load_catalog():
-        by_file.setdefault(f, []).append(e)
-    return by_file
-
-
 def cmd_map(args):
-    by_file = {}
-    for f, e in load_catalog():
-        by_file.setdefault(f, []).append(e)
-    for f, entries in by_file.items():
-        for e in entries:
-            if e["test_id"] == args.test_id:
-                _set_mapping(e, args.repos)
-                save_catalog(f, entries)
-                regen_coverage()
-                print(f"mapped: {args.test_id} -> {e['mapping']['app_repos'] or 'ORPHAN'} "
-                      f"(status={e['mapping']['status']})")
-                return
+    e = _mutate_catalog_entry(args.test_id, lambda row: _set_mapping(row, args.repos))
+    if e:
+        regen_coverage()
+        print(f"mapped: {args.test_id} -> {e['mapping']['app_repos'] or 'ORPHAN'} "
+              f"(status={e['mapping']['status']})")
+        return
     sys.exit(f"test_id not found: {args.test_id}  (list ids with: bin/qa.py tests)")
 
 

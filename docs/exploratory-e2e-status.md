@@ -23,7 +23,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 9 | Cost | measured/simulated spend, caching savings, filters | fixed-retested | 2026-08-07: deterministic mixed-basis corpus covered reported, estimated, local, simulated and unpriced spend, turn/cache calibration, reuse evidence, filters and corrupt-state resilience; four disclosure/reliability defects fixed | — |
 | 10 | Artifacts | plan/data/tests/diff/code view, coverage report, export/publish | fixed-retested | E2E-EXP-022 | Browser + CLI/API: JIRA/PR artifacts, scenarios/data/generated code/raw diff, coverage download, four export formats, mock publish/attach, missing/unsafe diff evidence |
 | 11 | Activity and alerts | transaction filters/CSV, degraded log, rule evaluation, firing/resolution lifecycle | fixed-retested | E2E-EXP-023–027 | Browser + API/CLI: success/refusal/failure/corrupt events, filters, formula-safe CSV, unevaluable/firing/disabled/resolved states, mock delivery, rule save/test, restart persistence |
-| 12 | Test catalog | search, repo/status filters, mapping, CI health, orphan/quarantine | untested | — | Existing four-row seed plus empty/no-match searches |
+| 12 | Test catalog | search, repo/status filters, mapping, CI health, orphan/quarantine | fixed-retested | E2E-EXP-028–030 | Browser + CLI: four-row isolated catalog, valid/empty/orphan mappings, synthetic mixed CI health, flaky quarantine lifecycle, concurrent decisions and empty/no-match filters |
 | 13 | Repositories | app/test repo CRUD, scopes, curated guidance, contracts/routes | untested | — | Isolated synthetic repo; required-field and dependency checks |
 | 14 | Settings and integrations | flags, adapters, credentials metadata, SSO/token modes | untested | — | Safe non-secret fixtures, invalid endpoints, clear/reset behavior |
 | 15 | API and CLI parity | dashboard APIs, `bin/qa.py`, hooks/TaskEvent receiver | untested | — | Compare UI outcomes with supported API/CLI paths |
@@ -432,3 +432,51 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   review: docs/reviews/exploratory-e2e-iteration-012.md.
 - Next slice: Test catalog search, filters, mapping, CI health, orphan and
   quarantine lifecycle.
+
+### 2026-08-07 — Iteration 13: Test catalog
+
+- Seed data: the four tracked catalog rows were copied into ignored
+  `out/exploratory-e2e-iter13` with an isolated registry, generated AGENTS
+  path, query index and CI-health file. One synthetic Jenkins result contained
+  two passes, one failure and one unmatched case. It was deterministic,
+  PII-free, credential-free, local-only and never contacted a production
+  service.
+- Happy and boundary paths: the served Catalog rendered all four rows; repo,
+  status, title/file/app search and a no-match search produced counts of 1/4,
+  1/4, 1/4 and 0/4. Valid mapping to `catalog-api` and restoration to
+  ORPHAN regenerated isolated coverage. CI ingest matched three cases, left one
+  unmatched, calculated 67% pass/FLAKY after three runs, and CLI/UI agreed.
+  Quarantine, note display, unquarantine behavior and two simultaneous
+  quarantine writers were exercised through supported entry points.
+- Finding `E2E-EXP-028` (P2): `qa.py map --repos ''` accepted an
+  empty repository list and wrote `status=confirmed` with confidence 1.0.
+  Overview counted the row as mapped while Catalog displayed app repo `—`.
+  Empty or delimiter-only decisions now fail with guidance to use the explicit
+  ORPHAN decision, before mutating the row.
+- Finding `E2E-EXP-029` (P1): catalog JSONL mutation opened the durable
+  shard directly. Fault injection after serializing the first row left only
+  that partial new row, losing the prior catalog; simultaneous read-before-lock
+  writers could also overwrite one another. Serialization now completes before
+  disk I/O, same-volume replacement is atomic, and mapping/review/quarantine
+  hold the existing cross-process lock across the full read-modify-replace
+  transaction. Two simultaneous real CLI writes preserved both notes.
+- Finding `E2E-EXP-030` (P2): quarantine existed in catalog state and the
+  flaky CLI, but the Catalog UI rendered only the mapping-status chip. The
+  served row now shows an escaped quarantine badge and human note next to
+  mapping status; the original browser reproduction changed from invisible to
+  `⚠ quarantined` plus the synthetic note.
+- Broad-check findings: a ticket-discovery test still asserted the retired
+  direct subprocess argv instead of the supported Git-Bash normalization
+  boundary; it now asserts the semantic pipeline script/arguments. A
+  multi-agent integration test shared phase-cache state with unrelated pipeline
+  tests and intermittently read the authored one-scenario plan; the adversary
+  lifecycle tests now disable cache so they measure fresh arbitration.
+- Validation: 18 focused catalog/quarantine checks, 97 adjacent catalog,
+  health, integrity, portability and API-adversarial checks, 12 work-queue
+  checks, and all 35 multi-agent checks passed. Two full 1,628-test runs each
+  passed 1,627 tests and exposed one different pre-existing suite-isolation
+  defect; both failing contracts pass after their focused fixes. Compilation,
+  high-signal Ruff and whitespace checks passed. Detailed review:
+  `docs/reviews/exploratory-e2e-iteration-013.md`.
+- Next slice: Repositories, including app/test repository CRUD, scopes, curated
+  guidance, contracts/routes and dependency checks.

@@ -92,12 +92,21 @@ def test_queue_carries_validated_explicit_intake_to_the_runner(tmp_path, monkeyp
     with pytest.raises(SystemExit, match="only be supplied in pr mode"):
         work_queue.add("jira", "PROJ-301", ticket="PROJ-301")
 
+    normalized = {}
+
+    def normalize(script, *args, env=None, **kwargs):
+        normalized["script"] = pathlib.Path(script)
+        normalized["args"] = args
+        return ["normalized-git-bash", str(script), *args], dict(env or {})
+
     calls = []
+    monkeypatch.setattr(work_queue, "git_bash_command", normalize)
     monkeypatch.setattr(work_queue.subprocess, "run", lambda cmd, **kw: (
         calls.append((cmd, kw)) or types.SimpleNamespace(returncode=0, stdout="", stderr="")))
     work_queue.run_all()
     assert calls[0][1]["env"]["AIQE_PR_TICKET"] == "PROJ-301"
-    assert calls[0][0][-3:] == ["pr", "orders-api", "201"]
+    assert normalized["script"].as_posix().endswith("engine/pipeline.sh")
+    assert normalized["args"] == ("pr", "orders-api", "201")
 
 
 def test_queue_dedupe_does_not_hide_a_new_explicit_link(tmp_path, monkeypatch):

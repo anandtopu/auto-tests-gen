@@ -229,7 +229,7 @@ def test_fanout_can_be_switched_off_without_changing_the_outcome():
 def test_adversarial_review_adds_scenarios_and_reaches_the_reviewer():
     import plan_state
     r = _run([str(BASH), "engine/pipeline.sh", "plan", "PROJ-301"],
-             env={**os.environ, "AIQE_MOCK": "1"})
+             env={**os.environ, "AIQE_MOCK": "1", "AIQE_PHASE_CACHE": "0"})
     assert r.returncode == 0, r.stdout[-2000:]
     assert "[plan-adversary]" in r.stdout
 
@@ -248,7 +248,8 @@ def test_adversarial_review_adds_scenarios_and_reaches_the_reviewer():
 def test_disabling_the_adversary_leaves_the_authored_plan_untouched():
     """The escape hatch has to be real: off means the pre-adversary behavior, exactly."""
     r = _run([str(BASH), "engine/pipeline.sh", "plan", "PROJ-301"],
-             env={**os.environ, "AIQE_MOCK": "1", "AIQE_PLAN_ADVERSARY": "0"})
+             env={**os.environ, "AIQE_MOCK": "1", "AIQE_PLAN_ADVERSARY": "0",
+                  "AIQE_PHASE_CACHE": "0"})
     assert r.returncode == 0, r.stdout[-2000:]
     assert "[plan-adversary]" not in r.stdout
     assert not (ROOT / "out/planadversary.contract.json").exists()

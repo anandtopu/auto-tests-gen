@@ -686,6 +686,11 @@ repo_opts = "".join(f"<option>{esc(t['name'])}</option>" for t in trepos)
 cat_rows = ""
 for e in sorted(catalog, key=lambda e: (e["test_repo"], e["file"])):
     m = e["mapping"]
+    mapping_cell = chip(m["status"])
+    if m.get("quarantined"):
+        mapping_cell += f'<div style="margin-top:4px">{chip("quarantined")}</div>'
+        if m.get("quarantine_note"):
+            mapping_cell += f'<div class="sm muted">{esc(m["quarantine_note"])}</div>'
     h = health.get(e["test_id"])
     if h:
         hcls = "success" if h.get("pass_rate", 0) >= 0.8 and not h.get("flaky") else "warning"
@@ -705,7 +710,7 @@ for e in sorted(catalog, key=lambda e: (e["test_repo"], e["file"])):
         f'<td class="mono sm">{esc(", ".join(m["app_repos"])) or "—"}</td>'
         f'<td class="num">{m["confidence"]}</td>'
         f'<td class="sm muted">{esc(", ".join(m["method"]))}</td>'
-        f'<td>{chip(m["status"])}</td><td>{health_cell}</td></tr>')
+        f'<td>{mapping_cell}</td><td>{health_cell}</td></tr>')
 
 # ---------------------------------------------------------------- plans view
 # Server-rendered like every other view, so the static snapshot (make dashboard,

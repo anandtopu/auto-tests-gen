@@ -7,7 +7,9 @@ removes tag and note; an unknown test id fails with guidance.
 """
 import importlib.util
 import json
+import os
 import pathlib
+import subprocess
 import sys
 
 import pytest
@@ -97,3 +99,39 @@ def test_empty_health_points_at_the_ingest_paths(tmp_path, monkeypatch, capsys):
     qa.cmd_flaky(None)
     out = capsys.readouterr().out
     assert "/hooks/ci/results" in out and "ingest-results" in out
+
+
+def test_dashboard_exposes_quarantine_decision_and_escaped_note(tmp_path):
+    cat = tmp_path / "catalog"
+    cat.mkdir()
+    entry = {
+        "test_id": "t-repo::suites/a.spec.js::flaky one",
+        "test_repo": "e2e-api-tests-1",
+        "file": "suites/a.spec.js",
+        "title": "flaky one",
+        "layer": "api",
+        "tags": [],
+        "evidence": {"endpoints": ["GET /v1/a"], "ui_routes": [], "fixtures": [],
+                     "git_jira_keys": []},
+        "mapping": {"app_repos": ["orders-api"], "services": ["orders-api"],
+                    "status": "confirmed", "confidence": 1.0,
+                    "method": ["human_review"], "quarantined": True,
+                    "quarantine_note": "fails <sometimes> & needs review"},
+    }
+    (cat / "t-repo.jsonl").write_text(json.dumps(entry) + "\n", encoding="utf-8")
+    health = cat / "health.json"
+    health.write_text("{}", encoding="utf-8")
+
+    r = subprocess.run(
+        [sys.executable, str(ROOT / "bin/dashboard.py")],
+        cwd=ROOT, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+        env={**os.environ, "AIQE_CATALOG_DIR": str(cat),
+             "AIQE_HEALTH_FILE": str(health)},
+        timeout=120,
+    )
+
+    assert r.returncode == 0, r.stderr
+    html = (ROOT / "reports/dashboard.html").read_text(encoding="utf-8")
+    assert "⚠ quarantined" in html
+    assert "fails &lt;sometimes&gt; &amp; needs review" in html
+    assert "fails <sometimes>" not in html
