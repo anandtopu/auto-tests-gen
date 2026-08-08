@@ -35,10 +35,13 @@ def relocated(tmp_path, monkeypatch):
     state = tmp_path / "state"
     (state / "registry").mkdir(parents=True)
     (state / "catalog").mkdir(parents=True)
+    (state / "knowledge/repos").mkdir(parents=True)
     real = (ROOT / "registry/repo-registry.yaml").read_text(encoding="utf-8")
     (state / "registry/repo-registry.yaml").write_text(
         real + "\n# ZZ-VOLUME-MARKER\n", encoding="utf-8")
     (state / "catalog/zz-volume.jsonl").write_text('{"id":"zz"}\n', encoding="utf-8")
+    (state / "knowledge/repos/zz-volume.md").write_text(
+        "# synthetic volume guidance\n", encoding="utf-8")
     monkeypatch.setenv("AIQE_STATE_DIR", str(state))
     import app_paths
     importlib.reload(app_paths)
@@ -59,7 +62,7 @@ def test_the_bundle_reads_the_state_volume_not_the_image(relocated):
 
 
 def test_a_file_that_exists_only_on_the_volume_is_collected(relocated):
-    state, state_bundle = relocated
+    _state, state_bundle = relocated
     names = {r.as_posix() for r in state_bundle.collect()}
     assert "catalog/zz-volume.jsonl" in names, \
         "a catalog file present only on the state volume was not bundled"
@@ -99,7 +102,7 @@ def test_an_exported_bundle_actually_carries_the_volumes_bytes(relocated, tmp_pa
     import hashlib
     import json
     import tarfile
-    state, state_bundle = relocated
+    _state, state_bundle = relocated
     out = state_bundle.export(dest=tmp_path / "b.tar.gz")
     with tarfile.open(out) as t:
         manifest = json.loads(t.extractfile("manifest.json").read())
@@ -113,3 +116,34 @@ def test_an_exported_bundle_actually_carries_the_volumes_bytes(relocated, tmp_pa
     assert recorded == hashlib.sha256(body).hexdigest(), \
         ("the manifest hash and the archived bytes disagree — import verifies "
          "each file against the manifest, so every restore would be refused")
+
+
+def test_import_restores_into_the_receiving_state_volume(relocated, tmp_path,
+                                                         monkeypatch):
+    """Export and import must resolve the same archive name independently.
+
+    Import used ``ROOT / rel`` for everything except B1 artifacts, so the bundle
+    exported correctly from a relocated pod but restored into its read-only image
+    tree rather than the receiving pod's state volume.
+    """
+    source, state_bundle = relocated
+    bundle = state_bundle.export(dest=tmp_path / "portable.tar.gz")
+    receiving_state = tmp_path / "receiving-state"
+    receiving_checkout = tmp_path / "receiving-checkout"
+    receiving_checkout.mkdir()
+    monkeypatch.setenv("AIQE_STATE_DIR", str(receiving_state))
+    monkeypatch.setattr(state_bundle, "ROOT", receiving_checkout)
+
+    result = state_bundle.import_bundle(bundle, replace=True)
+
+    restored = receiving_state / "registry/repo-registry.yaml"
+    assert restored in [state_bundle.app_paths.resolve_rel(p, receiving_checkout)
+                        for p in result["written"]]
+    assert "ZZ-VOLUME-MARKER" in restored.read_text(encoding="utf-8")
+    assert (receiving_state / "catalog/zz-volume.jsonl").exists()
+    assert (receiving_state / "knowledge/repos").exists()
+    assert not (receiving_checkout / "registry/repo-registry.yaml").exists()
+    for leaked in ("curated", "facts", "repos"):
+        assert not (receiving_checkout / leaked).exists()
+    assert "ZZ-VOLUME-MARKER" in (
+        source / "registry/repo-registry.yaml").read_text(encoding="utf-8")

@@ -27,7 +27,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 13 | Repositories | app/test repo CRUD, scopes, curated guidance, contracts/routes | fixed-retested | E2E-EXP-031–034 | Browser + API: isolated app/test CRUD, service dependencies, generated scope/covers, contract/routes, notes/curated guidance, malformed bodies, removal guards and restart persistence |
 | 14 | Settings and integrations | flags, adapters, credentials metadata, SSO/token modes | fixed-retested | E2E-EXP-035–038 | Browser + API: isolated save/reload/removal, write-only secrets, safe connection checks, token/SSO coverage, malformed-body and atomic-write resilience |
 | 15 | API and CLI parity | dashboard APIs, `bin/qa.py`, hooks/TaskEvent receiver | fixed-retested | E2E-EXP-039–040 | Authenticated API + CLI trace/artifact/alerts/status parity; token-gated TaskEvent validation, replay dedupe, body limits and CI/OpenHands hook isolation |
-| 16 | Bootstrap/deployment/upgrade | onboarding, manifests, state bundle, migration/rollback checks | untested | — | Fresh isolated estate and compatibility smoke checks |
+| 16 | Bootstrap/deployment/upgrade | onboarding, manifests, state bundle, migration/rollback checks | fixed-retested | E2E-EXP-041–046 | Real entrypoint plus export/inspect/write-free dry-run/relocated import/idempotency; manifest, maintenance, onboarding and bootstrap compatibility; archive integrity, trust, relocation and Windows harness fixes |
 
 ## Iteration log
 
@@ -602,3 +602,49 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   `docs/reviews/exploratory-e2e-iteration-016.md`.
 - Next slice: Bootstrap, deployment and upgrade, including a fresh isolated
   estate, state bundle, manifest and migration/rollback compatibility checks.
+
+### 2026-08-07 — Iteration 17: bootstrap, deployment and upgrade
+
+- Seed data: ignored `out/exploratory-e2e-iter17-feature16-*` bundles and receiving
+  state roots were deterministic, synthetic and credential-free. The real
+  entrypoint used its own temporary state; no production service or customer data
+  was touched. A bootstrap smoke that rewrites `workspace/src` was not run because
+  those user clones are outside a safe disposable boundary; isolated bootstrap
+  unit/adversarial tests covered the stages instead.
+- Happy and rollback paths: the real CLI exported and checksum-inspected 80 files,
+  performed a write-free dry-run, restored mutable state under a fresh
+  `AIQE_STATE_DIR`, and made a second merge a zero-write no-op. The entrypoint passed
+  all 17 first/restart/reseed/failure/exit-status checks. Deployment manifests,
+  teardown preservation, maintenance, onboarding, state paths and bootstrap stages
+  passed their compatibility suites.
+- `E2E-EXP-041` (P1): `state-inspect` did not hash members and import wrote valid
+  members before reporting corrupt ones while returning success. Exact membership,
+  duplicate/type/count and checksum validation now preflight the same open archive;
+  a rejected restore writes nothing and inspect returns non-zero.
+- `E2E-EXP-042` (P1): a self-consistent hostile manifest could restore arbitrary
+  checkout files, and `..\\` traversal escaped the POSIX-only guard on Windows.
+  Import now independently enforces the export allowlist, canonical POSIX archive
+  names and both-platform traversal rules.
+- `E2E-EXP-043` (P1): import resolved most members under `ROOT` instead of the
+  receiving state volume. The shared resolver also passed `root` positionally to
+  `knowledge_dir(sub, root)`, leaking `curated/`, `facts/` and `repos/` beside the
+  checkout. Every mutable member now resolves through `app_paths`, whose resolver
+  uses keyword roots; cross-root registry, catalog and knowledge restore is pinned.
+- `E2E-EXP-044` (P2): `--dry-run` acquired the artifact mutation lock and created
+  directories on an empty volume. It now skips the mutation lock and leaves no path.
+- `E2E-EXP-045` (P2): new bundles carried image-owned catalog schema/platform
+  constitution. They are excluded now; older bundles remain readable but those
+  members, and carried org policy, never overwrite the receiving image.
+- `E2E-EXP-046` (P2): onboarding tests regenerated a live path skill because their
+  isolation omitted `AIQE_SKILLS_DIR`, and the Windows large-body harness discarded
+  an already-received 400 when reading the optional response body hit TCP reset.
+  Both harnesses now preserve the real estate/status; the large-body case passed five
+  consecutive runs and the complete 104-test adversarial API suite.
+- Validation: 77 focused tests, 17 entrypoint smoke checks, the real bundle CLI and
+  configured Ruff/compilation checks passed. Broad verification reached 1,699 passes
+  twice; its first actionable policy-compatibility failure was fixed and its only
+  subsequent failure was the now-fixed Windows harness reset. The definitive broad
+  rerun passed all 1,700 tests in 726.55 seconds.
+- Detailed review: `docs/reviews/exploratory-e2e-iteration-017.md`.
+- Next slice: none. All 16 feature slices have been explored at least once and no
+  reproducible P0-P2 bug remains open.

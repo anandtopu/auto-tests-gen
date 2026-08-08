@@ -33,7 +33,7 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import work_queue  # noqa: E402
+import work_queue
 
 REAL_REGISTRY = ROOT / "registry/repo-registry.yaml"
 
@@ -46,12 +46,13 @@ def onboard(tmp_path):
     env = dict(os.environ,
                AIQE_REGISTRY_FILE=str(reg),
                AIQE_AGENTS_FILE=str(tmp_path / "AGENTS.md"),
-               AIQE_KNOWLEDGE_DIR=str(tmp_path / "knowledge"))
+               AIQE_KNOWLEDGE_DIR=str(tmp_path / "knowledge"),
+               AIQE_SKILLS_DIR=str(tmp_path / "skills"))
 
     def run(*args):
         return subprocess.run([work_queue.bash_exe(), "bin/onboard.sh", *args],
                               cwd=ROOT, env=env, capture_output=True, text=True,
-                              stdin=subprocess.DEVNULL, timeout=300)
+                              stdin=subprocess.DEVNULL, timeout=300, check=False)
     run.registry = reg
     return run
 
@@ -136,10 +137,14 @@ def test_onboarding_honours_a_relocated_registry(onboard):
     hardcoded it, so under relocation it wrote where nothing reads and the repo
     appeared not to exist."""
     before = REAL_REGISTRY.read_bytes()
+    skill = ROOT / ".agents/skills/e2e-api-conventions/SKILL.md"
+    skill_before = skill.read_bytes()
     assert onboard("test", "zz-reloc", "api", "github", "http://x").returncode == 0
     assert "zz-reloc" in _names(onboard.registry), "the relocated file was not written"
     assert REAL_REGISTRY.read_bytes() == before, \
         "onboarding wrote the image-path registry despite AIQE_REGISTRY_FILE"
+    assert skill.read_bytes() == skill_before, \
+        "onboarding regenerated path skills outside the isolated state root"
 
 
 def test_the_script_never_writes_the_registry_itself():

@@ -316,7 +316,11 @@ def resolve_rel(rel, root=None):
     fn = _MUTABLE_TOP.get(head)
     if fn is None:
         return (pathlib.Path(root) if root else ROOT) / s
-    return (fn(root) / tail) if tail else fn(root)
+    # Every resolver accepts ``root=``; knowledge_dir's first positional argument
+    # is ``sub``. Passing the checkout positionally made
+    # resolve_rel("knowledge/curated/x", checkout) resolve to
+    # ``checkout/curated/x`` instead of the configured state volume.
+    return (fn(root=root) / tail) if tail else fn(root=root)
 
 
 def ensure_dirs():

@@ -14,7 +14,7 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine" / "lib"))
-import app_paths  # noqa: E402
+import app_paths
 
 
 @pytest.fixture(autouse=True)
@@ -45,6 +45,24 @@ def test_state_dir_redirects_every_mutable_path(monkeypatch, tmp_path):
     d = app_paths.describe()
     for key, value in d.items():
         assert value.startswith(str(tmp_path)), f"{key} escaped the state root: {value}"
+
+
+def test_resolve_rel_with_a_caller_root_keeps_every_mutable_top_on_state(
+        monkeypatch, tmp_path):
+    """The generic resolver must pass caller roots by keyword. knowledge_dir's
+    first positional argument is a subdirectory, unlike the other resolvers."""
+    state = tmp_path / "state"
+    checkout = tmp_path / "checkout"
+    monkeypatch.setenv("AIQE_STATE_DIR", str(state))
+    expected = {
+        "catalog/team.jsonl": state / "catalog/team.jsonl",
+        "knowledge/curated/team.md": state / "knowledge/curated/team.md",
+        "testplans/PROJ-1.md": state / "testplans/PROJ-1.md",
+        "testdata/PROJ-1/data.json": state / "testdata/PROJ-1/data.json",
+        "specs/PROJ-1/spec.json": state / "specs/PROJ-1/spec.json",
+    }
+    assert {rel: app_paths.resolve_rel(rel, checkout)
+            for rel in expected} == expected
 
 
 def test_repository_team_notes_follow_the_state_directory(tmp_path):
@@ -156,7 +174,8 @@ def test_cli_emits_the_mapping():
     """`python3 engine/lib/app_paths.py` is how an operator checks the mapping
     inside a container without a shell in the image."""
     r = subprocess.run([sys.executable, str(ROOT / "engine" / "lib" / "app_paths.py")],
-                       capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                       capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                       check=False)
     assert r.returncode == 0, r.stderr
     assert "state_root" in r.stdout and "catalog" in r.stdout
 

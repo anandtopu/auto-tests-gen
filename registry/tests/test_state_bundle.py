@@ -32,7 +32,8 @@ def test_bundle_carries_state_and_never_credentials_or_code(tmp_path):
     assert not [n for n in names if n.endswith((".py", ".sh"))]
     # Regenerable/derived data is not state.
     for derived in ("catalog.db", "dashboard.html", "phase-cache",
-                    "knowledge/generated", "out/", "workspace/", "queue.json"):
+                    "knowledge/generated", "catalog/schema.json", "specs/platform/",
+                    "out/", "workspace/", "queue.json"):
         assert not [n for n in names if derived in n], f"{derived} should be excluded"
     # The things that ARE work somebody did.
     assert "registry/repo-registry.yaml" in names
@@ -51,7 +52,7 @@ def test_manifest_checksums_every_file_and_inspect_verifies(tmp_path):
     assert all(len(v) == 64 for v in man["files"].values()), "sha256 per file"
 
 
-def test_a_tampered_file_is_rejected_not_written(tmp_path, monkeypatch):
+def test_a_tampered_file_is_rejected_before_any_state_is_written(tmp_path, monkeypatch):
     """The manifest is the point: a bundle is untrusted input, so a member whose
     content does not match its checksum is refused rather than restored."""
     out = sb.export(tmp_path / "b.tar.gz")
@@ -70,9 +71,106 @@ def test_a_tampered_file_is_rejected_not_written(tmp_path, monkeypatch):
                 m.size = len(data)
             dst.addfile(m, io.BytesIO(data))
 
-    r = sb.import_bundle(tampered)
-    assert any("repo-registry.yaml" in x for x in r["mismatched"])
-    assert not any("repo-registry.yaml" in x for x in r["written"])
+    info = sb.inspect(tampered)
+    assert any("repo-registry.yaml" in x for x in info["mismatched"])
+    assert sb.main(["state_bundle.py", "inspect", str(tampered)]) == 1
+
+    with pytest.raises(SystemExit, match="integrity check failed"):
+        sb.import_bundle(tampered)
+    assert not list(dest.rglob("*")), \
+        "a rejected bundle must not leave a partially restored estate"
+
+
+def test_undeclared_and_duplicate_members_are_rejected_before_import(tmp_path,
+                                                                    monkeypatch):
+    """Every imported byte must be declared exactly once. A set comparison hid
+    duplicate archive names, and undeclared members had no checksum but were still
+    written by import."""
+    original = sb.export(tmp_path / "original.tar.gz")
+    hostile = tmp_path / "hostile.tar.gz"
+    extra = b'{"undeclared":true}\n'
+    with tarfile.open(original, "r:gz") as src, tarfile.open(hostile, "w:gz") as dst:
+        members = [m for m in src.getmembers() if m.isfile()]
+        for member in members:
+            data = src.extractfile(member).read()
+            dst.addfile(member, io.BytesIO(data))
+        duplicate = next(m for m in members if m.name.startswith("state/"))
+        duplicate_data = src.extractfile(duplicate).read()
+        dst.addfile(duplicate, io.BytesIO(duplicate_data))
+        undeclared = tarfile.TarInfo("state/reports/runs/undeclared.json")
+        undeclared.size = len(extra)
+        dst.addfile(undeclared, io.BytesIO(extra))
+        outside = tarfile.TarInfo("unexpected.txt")
+        outside.size = len(extra)
+        dst.addfile(outside, io.BytesIO(extra))
+
+    info = sb.inspect(hostile)
+    assert info["extra"] == ["reports/runs/undeclared.json"]
+    assert info["duplicates"]
+    assert info["invalid"] == ["unexpected.txt"]
+    assert sb.main(["state_bundle.py", "inspect", str(hostile)]) == 1
+
+    dest = tmp_path / "deployment"
+    dest.mkdir()
+    monkeypatch.setattr(sb, "ROOT", dest)
+    with pytest.raises(SystemExit, match="integrity check failed"):
+        sb.import_bundle(hostile)
+    assert not list(dest.rglob("*"))
+
+
+def test_a_self_consistent_bundle_cannot_overwrite_application_code(tmp_path,
+                                                                    monkeypatch):
+    """A checksum proves consistency, not trust. Import must enforce the state
+    allowlist independently of whatever a caller put in its own manifest."""
+    hostile = tmp_path / "code.tar.gz"
+    rel = "engine/lib/injected.py"
+    body = b"raise RuntimeError('bundle code ran')\n"
+    man = {"schema": sb.SCHEMA, "profile": "full", "file_count": 1,
+           "files": {rel: hashlib.sha256(body).hexdigest()}}
+    with tarfile.open(hostile, "w:gz") as tar:
+        manifest = json.dumps(man).encode()
+        mt = tarfile.TarInfo("manifest.json")
+        mt.size = len(manifest)
+        tar.addfile(mt, io.BytesIO(manifest))
+        member = tarfile.TarInfo("state/" + rel)
+        member.size = len(body)
+        tar.addfile(member, io.BytesIO(body))
+
+    info = sb.inspect(hostile)
+    assert info["disallowed"] == [rel]
+    dest = tmp_path / "deployment"
+    dest.mkdir()
+    monkeypatch.setattr(sb, "ROOT", dest)
+    with pytest.raises(SystemExit, match="disallowed"):
+        sb.import_bundle(hostile, replace=True)
+    assert not (dest / rel).exists()
+
+
+def test_legacy_image_owned_members_are_accepted_but_never_restored(tmp_path,
+                                                                    monkeypatch):
+    """Old schema-1 exports carried frozen configuration. Keep those bundles
+    usable without letting replace roll an older image contract over a newer one."""
+    legacy = tmp_path / "legacy.tar.gz"
+    rel = "catalog/schema.json"
+    body = b'{"legacy":true}\n'
+    man = {"schema": sb.SCHEMA, "profile": "full", "file_count": 1,
+           "files": {rel: hashlib.sha256(body).hexdigest()}}
+    with tarfile.open(legacy, "w:gz") as tar:
+        manifest = json.dumps(man).encode()
+        mt = tarfile.TarInfo("manifest.json")
+        mt.size = len(manifest)
+        tar.addfile(mt, io.BytesIO(manifest))
+        member = tarfile.TarInfo("state/" + rel)
+        member.size = len(body)
+        tar.addfile(member, io.BytesIO(body))
+
+    assert not sb.inspect(legacy)["disallowed"]
+    dest = tmp_path / "deployment"
+    dest.mkdir()
+    monkeypatch.setattr(sb, "ROOT", dest)
+    result = sb.import_bundle(legacy, replace=True)
+    assert result["skipped"] == [rel]
+    assert not (dest / rel).exists()
 
 
 def test_merge_keeps_local_state_and_replace_overwrites(tmp_path, monkeypatch):
@@ -103,6 +201,8 @@ def test_dry_run_writes_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(sb, "ROOT", dest)
     r = sb.import_bundle(out, dry_run=True)
     assert r["written"] and not (dest / "registry/repo-registry.yaml").exists()
+    assert not list(dest.rglob("*")), \
+        "dry-run must not create even an artifact-lock parent directory"
 
 
 def test_import_refuses_under_a_live_pipeline_lock(tmp_path, monkeypatch):
@@ -115,7 +215,8 @@ def test_import_refuses_under_a_live_pipeline_lock(tmp_path, monkeypatch):
     assert sb.import_bundle(out, force=True)["written"], "--force must override"
 
 
-def test_path_traversal_in_a_bundle_is_refused(tmp_path, monkeypatch):
+@pytest.mark.parametrize("rel", ["../../escaped.txt", r"..\..\escaped.txt"])
+def test_path_traversal_in_a_bundle_is_refused(tmp_path, monkeypatch, rel):
     """A bundle is untrusted input; a member escaping the root aborts the import."""
     dest = tmp_path / "deployment"
     dest.mkdir()
@@ -123,17 +224,18 @@ def test_path_traversal_in_a_bundle_is_refused(tmp_path, monkeypatch):
     evil = tmp_path / "evil.tar.gz"
     body = b"pwned"
     man = {"schema": sb.SCHEMA, "file_count": 1,
-           "files": {"../../escaped.txt": hashlib.sha256(body).hexdigest()}}
+           "files": {rel: hashlib.sha256(body).hexdigest()}}
     with tarfile.open(evil, "w:gz") as tar:
         mb = json.dumps(man).encode()
         ti = tarfile.TarInfo("manifest.json")
         ti.size = len(mb)
         tar.addfile(ti, io.BytesIO(mb))
-        ti2 = tarfile.TarInfo("state/../../escaped.txt")
+        ti2 = tarfile.TarInfo("state/" + rel)
         ti2.size = len(body)
         tar.addfile(ti2, io.BytesIO(body))
     with pytest.raises(SystemExit, match="unsafe path"):
         sb.import_bundle(evil)
+    assert not (tmp_path / "escaped.txt").exists()
 
 
 # ------------------------------- OpenHands request traceability

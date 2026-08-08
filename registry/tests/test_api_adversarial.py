@@ -55,8 +55,17 @@ def _request(url, method="GET", body=None, headers=None, timeout=15):
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
-        return e.code, e.read().decode("utf-8", "replace")
-    except (urllib.error.URLError, socket.timeout, OSError) as e:
+        # On Windows, rejecting a request before draining a multi-megabyte body
+        # can produce an RST while urllib reads the OPTIONAL error body. The HTTP
+        # status was already received and is the contract this helper returns;
+        # preserve it. Tests that require an error payload still assert that text
+        # separately and therefore cannot pass on this empty-body fallback.
+        try:
+            text = e.read().decode("utf-8", "replace")
+        except (ConnectionResetError, OSError):
+            text = ""
+        return e.code, text
+    except (urllib.error.URLError, OSError) as e:
         return 0, str(e)
 
 
@@ -98,7 +107,7 @@ def live_server(tmp_path_factory):
     env.pop("AIQE_SSO_HEADER", None)
     env.pop("AIQE_HOOK_TOKEN", None)          # hooks must stay CLOSED
     logfile = d / "server.log"
-    log = open(logfile, "w", encoding="utf-8")
+    log = open(logfile, "w", encoding="utf-8")  # noqa: SIM115 - fixture lifetime
     proc = subprocess.Popen([sys.executable, str(ROOT / "bin/dashboard_server.py")],
                             cwd=ROOT, env=env, stdout=log,
                             stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
@@ -243,7 +252,8 @@ def test_waiver_save_rejects_a_key_that_escapes_the_spec_directory(live_server):
     """
     base, d = live_server
     escaped = d / "escaped-waiver" / "waivers.yaml"
-    expires = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+    expires = (datetime.datetime.now(datetime.UTC).date() +
+               datetime.timedelta(days=1)).isoformat()
     status, text = _request(
         f"{base}/api/waivers/save", method="POST",
         body=json.dumps({
@@ -490,9 +500,6 @@ def test_the_server_survived_every_attack(live_server):
 
 # ---- destructive request flags must not ride on Python truthiness -----------
 def _flag():
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "_ds_flag", ROOT / "bin/dashboard_server.py")
     # Importing the whole server module has side effects; read the function out
     # of the source instead and exec just it.
     src = (ROOT / "bin/dashboard_server.py").read_text(encoding="utf-8")

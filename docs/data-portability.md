@@ -30,7 +30,7 @@ make state-import  BUNDLE=x.tar.gz DRY=1           # show what would change
 
 ### Carried — the state that *is* somebody's work
 
-`registry/repo-registry.yaml`, `registry/org-config.yaml`, `AGENTS.md`,
+`registry/repo-registry.yaml`, `AGENTS.md`,
 `knowledge/repos/` + `knowledge/curated/` + `knowledge/synced/`, `catalog/*.jsonl` +
 `catalog/review/`, `reports/runs/` (records, archived diffs, `reviews.json`, and
 append-only `testcase-provenance.jsonl` learning outcomes),
@@ -39,6 +39,8 @@ Full state also carries `reports/agent-artifacts/`: immutable B1 blobs, referenc
 and B2 task manifests needed to explain historical runs. Export and import hold the
 artifact-store mutation lock, and import relocates these members through
 `AIQE_ARTIFACTS_DIR`/`AIQE_STATE_DIR` rather than assuming the checkout path.
+`registry/org-config.yaml` travels as policy evidence (and remains part of the
+knowledge-only profile), but import always preserves the receiving image's copy.
 
 ### Not carried, and why
 
@@ -46,6 +48,7 @@ artifact-store mutation lock, and import relocates these members through
 |---|---|
 | `.env`, `aiqe.properties` | **Credentials.** A bundle gets emailed, copied between machines and attached to tickets. Secrets must never be in one. Configure them per deployment. |
 | every `.py` / `.sh` | Code ships in the image. Excluding by *directory* missed `catalog/review/export_review_queue.py`, so the rule is by suffix — the next script dropped next to a data file is covered too. An import must never overwrite live tooling with an older revision. |
+| `catalog/schema.json`, `specs/platform/` | Image-owned schema and platform constitution. Older schema-1 bundles are accepted, but these members are preserved rather than restored. |
 | `out/`, `workspace/` | Per-run scratch. Carrying it moves stale derived data around. |
 | `reports/phase-cache/` | Content-addressed; rebuilds itself, and its keys are local. |
 | `reports/catalog.db` | Rebuilt by `make catalog-db` from the JSONL that *is* carried. |
@@ -57,11 +60,16 @@ artifact-store mutation lock, and import relocates these members through
 ### Integrity, and why the manifest matters
 
 `manifest.json` records the schema version, origin host, timestamp and a **sha256 per
-file**. On import every member is verified against it. A bundle is untrusted input —
-it arrives over email or a shared drive — so the import:
+file**. `state-inspect` recomputes every checksum and returns non-zero for a missing,
+extra, duplicate, malformed, unsafe or mismatched member. A bundle is untrusted
+input — it arrives over email or a shared drive — so the import preflights the whole
+archive before creating a destination or acquiring a mutation lock, then:
 
-- **rejects** any file whose checksum does not match, and reports which;
-- **aborts** on any member whose path escapes the repo root (`../` traversal);
+- **rejects** any file whose checksum does not match, and writes none of the bundle;
+- **rejects** members outside the export allowlist even when their self-supplied
+  checksum is correct, so a bundle cannot overwrite application code;
+- **aborts** on POSIX or Windows path traversal (`../` and `..\\`) and duplicate,
+  undeclared, missing or non-file state members;
 - **refuses** to run while `out/.pipeline.lock` is held, because rewriting state under
   a live run is how you get a half-imported estate (`--force` overrides a stale lock).
 
@@ -69,7 +77,8 @@ it arrives over email or a shared drive — so the import:
 
 `merge` (default) writes only paths that are **absent** locally, so a populated
 deployment keeps everything it has and a second merge is a no-op. `--replace`
-overwrites every bundled path. Both report counts; `--dry-run` writes nothing.
+overwrites every mutable bundled path. Image-owned policy/schema members are always
+preserved. Both report counts; `--dry-run` writes nothing, including no lock parent.
 
 After a non-trivial import, regenerate derived data — the CLI says so:
 

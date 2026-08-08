@@ -920,9 +920,13 @@ source-scan test forbids any store from reverting to a direct write.
 `out/`/`workspace/` are deliberately `emptyDir`). A NEW deployment starts blank, so
 `engine/lib/state_bundle.py` exports one checksummed `.tar.gz` of everything that is
 somebody's work — and refuses to carry credentials, code (`.py`/`.sh`), regenerable
-scratch, or quarantine artifacts. Import verifies a sha256 per file, rejects path
-traversal, refuses to run under a live pipeline lock, and merges without destroying
-local state unless `--replace` is explicit. A `--knowledge` profile transfers an
+scratch, or quarantine artifacts. Inspect/import verify exact archive membership and
+a sha256 per file before writing, enforce the export allowlist independently of the
+self-supplied manifest, reject POSIX/Windows traversal, refuse a live pipeline lock,
+and merge without destroying local state unless `--replace` is explicit. Mutable
+targets resolve through `app_paths` on both export and import; image-owned policy,
+schema and platform constitution are carried only where documented and never restored
+over a newer image. A `--knowledge` profile transfers an
 experienced team's wisdom (guidance, catalog, conventions, plan corpus) without its
 records (run history, review decisions, topology). Full matrix:
 [data-portability.md](data-portability.md).
@@ -1529,6 +1533,16 @@ pinned in `test_deploy_manifests.py` / `test_state_bundle_relocation.py`, and bo
 directions are pinned where a "fix" could go the wrong way — compose must *keep* its
 `command:`, and the PVC must *never* appear in the teardown list while every other
 kustomization resource always does.
+
+Feature-16 migration testing found the remaining restore half of that boundary:
+import still joined most members to `ROOT`, `state-inspect` compared names but not
+checksums, and a self-consistent manifest could name arbitrary code. On Windows a
+backslash traversal also bypassed the POSIX-only guard. Restore now preflights the
+same open archive before any write, enforces exact membership/checksums plus the
+state allowlist, resolves every mutable target through `app_paths`, and keeps
+`--dry-run` completely write-free. The shared resolver also passes caller roots by
+keyword; its old positional call treated a checkout root as `knowledge_dir(sub)` and
+wrote `curated/`, `facts/` and `repos/` beside the checkout during a relocated import.
 
 **5.22.3 The untrusted boundary.** The TaskEvent receiver binds `0.0.0.0`, so its
 request-body handling is the platform's actual security perimeter, and both servers

@@ -59,6 +59,7 @@ CLI:
   state_bundle.py inspect <bundle>         manifest + file count, no writes
   state_bundle.py import <bundle> [--replace] [--dry-run]
 """
+import collections
 import contextlib
 import hashlib
 import json
@@ -71,8 +72,8 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-import app_paths  # noqa: E402
-import fs_lock  # noqa: E402
+import app_paths
+import fs_lock
 
 SCHEMA = 1
 
@@ -113,6 +114,17 @@ KNOWLEDGE_DIRS = ["knowledge/repos", "knowledge/curated", "knowledge/synced",
                   "catalog", "testplans", "specs"]
 KNOWLEDGE_FILES = ["registry/org-config.yaml", "AGENTS.md"]
 
+# Bundles carry org-config as transferable policy evidence, and older schema-1
+# exports also carried the other image-owned paths below. Import never restores any
+# of them: doing so would freeze an old policy/schema over a newer image (and fails
+# under readOnlyRootFilesystem). The receiving image remains authoritative.
+FROZEN_IMPORT_FILES = {"registry/org-config.yaml", "catalog/schema.json"}
+FROZEN_IMPORT_PREFIXES = ("specs/platform/",)
+
+
+def _frozen_import(rel):
+    return rel in FROZEN_IMPORT_FILES or rel.startswith(FROZEN_IMPORT_PREFIXES)
+
 # Never bundled. Scratch is regenerable; the last two are CREDENTIALS and a bundle is
 # something people copy between machines and attach to tickets.
 EXCLUDE_PARTS = (
@@ -127,7 +139,8 @@ EXCLUDE_PARTS = (
     # Bootstrap is CODE (extract/correlate/index), not state — it ships in the image
     # and the repo. Bundling it moved a copy of the source around for no reason and
     # would let an import overwrite live tooling with an older revision.
-    "catalog/bootstrap/", "catalog/templates/",
+    "catalog/bootstrap/", "catalog/schema.json", "catalog/templates/",
+    "specs/platform/",
 )
 EXCLUDE_NAMES = (".env", "aiqe.properties", "catalog.db", "dashboard.html",
                  "queue.json")
@@ -243,22 +256,114 @@ def _export_locked(dest=None, profile="full"):
     return out
 
 
+def _unsafe_archive_path(rel):
+    """Return why a member name is unsafe/non-canonical, or an empty string.
+
+    Tar names are POSIX paths, even when the importer runs on Windows. A backslash
+    therefore has to be rejected explicitly: PurePosixPath treats it as a normal
+    character, while WindowsPath later treats it as a separator. Without this check,
+    ``state/..\\sibling`` passed the POSIX traversal guard and escaped ROOT on Windows.
+    """
+    if not rel or "\\" in rel:
+        return "empty or backslash-separated path"
+    rel_path = pathlib.PurePosixPath(rel)
+    if rel_path.is_absolute() or ".." in rel_path.parts:
+        return "absolute or parent-traversing path"
+    if rel_path.as_posix() != rel or any(":" in part for part in rel_path.parts):
+        return "non-canonical or drive-qualified path"
+    return ""
+
+
+def _allowed_archive_path(rel, profile):
+    """A bundle may restore state, never an arbitrary file under the checkout.
+
+    Checksums prove that bytes match the manifest supplied with the bundle; they do
+    not make that manifest trusted. Apply the same include/exclude policy on import
+    that export uses so a self-consistent hostile bundle cannot overwrite code.
+    """
+    if _frozen_import(rel):
+        return True
+    files = KNOWLEDGE_FILES if profile == "knowledge" else INCLUDE_FILES
+    dirs = KNOWLEDGE_DIRS if profile == "knowledge" else INCLUDE_DIRS
+    path = pathlib.Path(rel)
+    included = rel in files or any(rel.startswith(d + "/") for d in dirs)
+    return included and not _excluded(path)
+
+
+def _inspect_tar(tar, bundle):
+    """Verify one already-open archive without changing deployment state."""
+    manifests = [m for m in tar.getmembers() if m.name == "manifest.json"]
+    if len(manifests) != 1 or not manifests[0].isfile():
+        raise SystemExit(
+            f"{bundle}: not an AI-QE state bundle (need exactly one manifest.json)")
+    try:
+        man = json.loads(tar.extractfile(manifests[0]).read().decode("utf-8"))
+    except (AttributeError, UnicodeDecodeError, ValueError):
+        raise SystemExit(
+            f"{bundle}: not an AI-QE state bundle (invalid manifest.json)") from None
+    shas = man.get("files")
+    if not isinstance(shas, dict):
+        raise SystemExit(
+            f"{bundle}: not an AI-QE state bundle (manifest files is not an object)")
+
+    profile = man.get("profile", "full")
+    if profile not in ("full", "knowledge"):
+        raise SystemExit(f"{bundle}: unsupported bundle profile: {profile}")
+
+    names, mismatched, unsafe, invalid, disallowed = [], [], [], [], []
+    for member in tar.getmembers():
+        if member.name == "manifest.json":
+            continue
+        if not member.name.startswith("state/"):
+            invalid.append(member.name)
+            continue
+        rel = member.name[len("state/"):]
+        if not member.isfile():
+            invalid.append(rel or member.name)
+            continue
+        names.append(rel)
+        if _unsafe_archive_path(rel):
+            unsafe.append(rel)
+        if not _allowed_archive_path(rel, profile):
+            disallowed.append(rel)
+        stream = tar.extractfile(member)
+        digest = hashlib.sha256(stream.read()).hexdigest() if stream else ""
+        # Equality is intentional: an undeclared member has no trusted checksum
+        # and must be reported as both extra and mismatched, never imported.
+        if shas.get(rel) != digest:
+            mismatched.append(rel)
+
+    counts = collections.Counter(names)
+    declared, present = set(shas), set(names)
+    duplicates = sorted(name for name, count in counts.items() if count != 1)
+    manifest_count = man.get("file_count")
+    count_mismatch = not isinstance(manifest_count, int) or manifest_count != len(shas)
+    return {
+        "schema": man.get("schema"), "created_h": man.get("created_h", ""),
+        "source_host": man.get("source_host", ""),
+        "declared": len(declared), "present": len(names),
+        "missing": sorted(declared - present)[:20],
+        "extra": sorted(present - declared)[:20],
+        "duplicates": duplicates[:20], "mismatched": sorted(set(mismatched))[:20],
+        "unsafe": sorted(set(unsafe))[:20], "invalid": sorted(set(invalid))[:20],
+        "disallowed": sorted(set(disallowed))[:20], "count_mismatch": count_mismatch,
+    }
+
+
+def _integrity_failures(info):
+    failures = [name for name in
+                ("missing", "extra", "duplicates", "mismatched", "unsafe", "invalid",
+                 "disallowed")
+                if info.get(name)]
+    if info.get("count_mismatch"):
+        failures.append("file_count")
+    return failures
+
+
 def inspect(bundle):
-    """Manifest + a verification of what the archive actually carries. No writes."""
+    """Manifest, membership and checksum verification. Never writes state."""
     with tarfile.open(bundle, "r:gz") as tar:
-        try:
-            man = json.loads(tar.extractfile("manifest.json").read().decode("utf-8"))
-        except (KeyError, AttributeError, ValueError):
-            raise SystemExit(f"{bundle}: not an AI-QE state bundle (no manifest.json)")
-        members = [m.name[len("state/"):] for m in tar.getmembers()
-                   if m.isfile() and m.name.startswith("state/")]
-    declared = set(man.get("files") or {})
-    present = set(members)
-    return {"schema": man.get("schema"), "created_h": man.get("created_h", ""),
-            "source_host": man.get("source_host", ""),
-            "declared": len(declared), "present": len(present),
-            "missing": sorted(declared - present)[:20],
-            "extra": sorted(present - declared)[:20]}
+        return _inspect_tar(tar, bundle)
 
 
 def _pipeline_busy():
@@ -277,19 +382,31 @@ def import_bundle(bundle, replace=False, dry_run=False, force=False):
         raise SystemExit("a pipeline run holds out/.pipeline.lock — rewriting state "
                          "under a live run risks a half-imported estate. Wait for it "
                          "to finish, or pass --force if the lock is stale.")
-    info = inspect(bundle)
-    if info["schema"] != SCHEMA:
-        raise SystemExit(f"bundle schema {info['schema']} != supported {SCHEMA}")
-
-    written, skipped, mismatched = [], [], []
+    written, skipped = [], []
     artifact_mutex = app_paths.artifacts_dir(ROOT) / ".mutation"
-    with fs_lock.lock(artifact_mutex, timeout=30), tarfile.open(bundle, "r:gz") as tar:
-        man = json.loads(tar.extractfile("manifest.json").read().decode("utf-8"))
-        shas = man.get("files") or {}
-        for m in tar.getmembers():
-            if not m.isfile() or not m.name.startswith("state/"):
-                continue
-            rel = m.name[len("state/"):]
+    # Preflight the SAME open archive before acquiring a state lock or creating a
+    # destination directory. A corrupt member used to be skipped after earlier
+    # members had already been written, and the CLI still exited 0: a failed restore
+    # could therefore leave a plausible-looking half-estate that was not rollbackable.
+    with tarfile.open(bundle, "r:gz") as tar:
+        info = _inspect_tar(tar, bundle)
+        if info["schema"] != SCHEMA:
+            raise SystemExit(f"bundle schema {info['schema']} != supported {SCHEMA}")
+        failures = _integrity_failures(info)
+        if failures:
+            labels = {"unsafe": "unsafe path", "invalid": "invalid member"}
+            raise SystemExit("bundle integrity check failed before import: " +
+                             ", ".join(labels.get(f, f) for f in failures))
+        mutation_lock = (contextlib.nullcontext() if dry_run
+                         else fs_lock.lock(artifact_mutex, timeout=30))
+        with mutation_lock:
+            for m in tar.getmembers():
+                if not m.isfile() or not m.name.startswith("state/"):
+                    continue
+                rel = m.name[len("state/"):]
+                if _frozen_import(rel):
+                    skipped.append(rel)
+                    continue
             # Refuse anything that escapes the root: a bundle is untrusted input
             # (they get emailed and attached to tickets — see the module header).
             #
@@ -297,36 +414,29 @@ def import_bundle(bundle, replace=False, dry_run=False, force=False):
             # str.startswith check accepted `../<root-name>-evil/payload`: a
             # SIBLING directory whose name merely starts with the root's does
             # satisfy the prefix while living entirely outside the checkout.
-            rel_path = pathlib.PurePosixPath(rel)
-            if (rel_path.is_absolute() or ".." in rel_path.parts or not rel_path.parts
-                    or ":" in rel_path.parts[0]):
-                raise SystemExit(f"bundle contains an unsafe path: {rel}")
-            root = ROOT.resolve()
-            artifact_root = app_paths.artifacts_dir(ROOT).resolve()
-            is_artifact = rel == "reports/agent-artifacts" or rel.startswith(
-                "reports/agent-artifacts/")
-            if is_artifact:
-                tail = rel.removeprefix("reports/agent-artifacts").lstrip("/")
-                target = (artifact_root / tail).resolve() if tail else artifact_root
-                if target != artifact_root and artifact_root not in target.parents:
-                    raise SystemExit(f"bundle contains an unsafe artifact path: {rel}")
-            else:
-                target = (ROOT / rel).resolve()
-                if target == root or root not in target.parents:
-                    raise SystemExit(f"bundle contains an unsafe path: {rel}")
-            data = tar.extractfile(m).read()
-            if shas.get(rel) and hashlib.sha256(data).hexdigest() != shas[rel]:
-                mismatched.append(rel)
-                continue
-            exists = target.exists()
-            if exists and not replace:
-                skipped.append(rel)
-                continue
-            if not dry_run:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(data)
-            written.append(rel)
-    return {"written": written, "skipped": skipped, "mismatched": mismatched,
+                target = app_paths.resolve_rel(rel, ROOT).resolve()
+                # Reject a symlink inside an allowed top-level state directory that
+                # resolves beyond its configured root. A configured state root or
+                # per-path knob may itself live outside ROOT and is intentionally the
+                # authority, so containment is relative to that resolver, not cwd.
+                head = rel.partition("/")[0]
+                anchor = app_paths.resolve_rel(head, ROOT).resolve()
+                if rel.startswith("reports/agent-artifacts/"):
+                    anchor = app_paths.artifacts_dir(ROOT).resolve()
+                if rel in INCLUDE_FILES or rel in KNOWLEDGE_FILES:
+                    anchor = target
+                if target != anchor and anchor not in target.parents:
+                    raise SystemExit(f"bundle contains an unsafe resolved path: {rel}")
+                data = tar.extractfile(m).read()
+                exists = target.exists()
+                if exists and not replace:
+                    skipped.append(rel)
+                    continue
+                if not dry_run:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(data)
+                written.append(rel)
+    return {"written": written, "skipped": skipped, "mismatched": [],
             "mode": "replace" if replace else "merge", "dry_run": dry_run}
 
 
@@ -345,9 +455,10 @@ def main(argv):
         if len(argv) < 3:
             print("usage: state_bundle.py inspect <bundle>", file=sys.stderr)
             return 64
-        for k, v in inspect(argv[2]).items():
+        info = inspect(argv[2])
+        for k, v in info.items():
             print(f"{k:<12} {v}")
-        return 0
+        return 1 if _integrity_failures(info) else 0
     if cmd == "import":
         if len(argv) < 3:
             print("usage: state_bundle.py import <bundle> [--replace] [--dry-run]",
