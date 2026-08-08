@@ -173,6 +173,56 @@ def test_openhands_events_never_enqueue_work(tmp_path):
         p.kill()
 
 
+@pytest.mark.parametrize("payload", [[], None, 123, "event"])
+def test_taskevent_rejects_non_object_json_and_stays_healthy(tmp_path, payload):
+    p, base = _serve({}, tmp_path)
+    try:
+        code, body = _post(base, "/hooks/taskevent", payload)
+        assert code == 400, body
+        assert "object" in body["error"]
+
+        code, body = _post(base, "/hooks/taskevent", {
+            "mode": "pr", "repo": "orders-api", "pr": 201,
+            "updated": "healthy-after-malformed",
+        })
+        assert code == 200 and body["accepted"] is True, body
+    finally:
+        p.kill()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("repo", ["orders-api"]),
+    ("pr", {"number": 201}),
+    ("updated", 123),
+    ("workflow_version", 2),
+])
+def test_taskevent_rejects_schema_type_mismatches(tmp_path, field, value):
+    p, base = _serve({}, tmp_path)
+    event = {"mode": "pr", "repo": "orders-api", "pr": 201,
+             "updated": "sha-1", field: value}
+    try:
+        code, body = _post(base, "/hooks/taskevent", event)
+        assert code == 400, body
+    finally:
+        p.kill()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("repo", ["orders-api"]),
+    ("pr", {"number": 201}),
+])
+def test_jira_taskevent_rejects_wrong_typed_optional_pr_fields(
+        tmp_path, field, value):
+    p, base = _serve({}, tmp_path)
+    event = {"mode": "jira", "key": "PROJ-301", "updated": "t-1",
+             field: value}
+    try:
+        code, body = _post(base, "/hooks/taskevent", event)
+        assert code == 400, body
+    finally:
+        p.kill()
+
+
 def test_malformed_openhands_payload_returns_200_not_500(tmp_path):
     """A 5xx would just make OpenHands retry the same bad batch forever."""
     p, base = _serve({}, tmp_path)

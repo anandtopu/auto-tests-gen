@@ -26,7 +26,7 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
 | 12 | Test catalog | search, repo/status filters, mapping, CI health, orphan/quarantine | fixed-retested | E2E-EXP-028–030 | Browser + CLI: four-row isolated catalog, valid/empty/orphan mappings, synthetic mixed CI health, flaky quarantine lifecycle, concurrent decisions and empty/no-match filters |
 | 13 | Repositories | app/test repo CRUD, scopes, curated guidance, contracts/routes | fixed-retested | E2E-EXP-031–034 | Browser + API: isolated app/test CRUD, service dependencies, generated scope/covers, contract/routes, notes/curated guidance, malformed bodies, removal guards and restart persistence |
 | 14 | Settings and integrations | flags, adapters, credentials metadata, SSO/token modes | fixed-retested | E2E-EXP-035–038 | Browser + API: isolated save/reload/removal, write-only secrets, safe connection checks, token/SSO coverage, malformed-body and atomic-write resilience |
-| 15 | API and CLI parity | dashboard APIs, `bin/qa.py`, hooks/TaskEvent receiver | untested | — | Compare UI outcomes with supported API/CLI paths |
+| 15 | API and CLI parity | dashboard APIs, `bin/qa.py`, hooks/TaskEvent receiver | fixed-retested | E2E-EXP-039–040 | Authenticated API + CLI trace/artifact/alerts/status parity; token-gated TaskEvent validation, replay dedupe, body limits and CI/OpenHands hook isolation |
 | 16 | Bootstrap/deployment/upgrade | onboarding, manifests, state bundle, migration/rollback checks | untested | — | Fresh isolated estate and compatibility smoke checks |
 
 ## Iteration log
@@ -567,3 +567,38 @@ Status values: `untested`, `explored-pass`, `bug-open`, `fixed-retested`,
   `docs/reviews/exploratory-e2e-iteration-015.md`.
 - Next slice: API and CLI parity, including dashboard APIs, `bin/qa.py`, hooks
   and the TaskEvent receiver.
+
+### 2026-08-07 — Iteration 16: API and CLI parity
+
+- Seed data: existing synthetic `PROJ-301` and `PR-orders-api-201` run evidence
+  was read without mutation. The TaskEvent receiver used ignored
+  `out/exploratory-e2e-iter16` queue, seen and OpenHands stores, mock mode and
+  synthetic UI/hook tokens; autorun was disabled and no external service ran.
+- Happy and boundary paths: authenticated API and `bin/qa.py` agreed on the
+  PROJ-301 trace, PR coverage/artifacts, alert state and recent committed runs;
+  unauthenticated API access returned 401. The real receiver returned 401 for
+  missing hook credentials, accepted one keyed PR event, treated its keyed/
+  unkeyed replay as a no-op and persisted exactly one queue item. Existing raw
+  CI-result, OpenHands-observability, body-limit and queue suites also passed.
+- Finding `E2E-EXP-039` (P2): the normalized TaskEvent endpoint assumed every
+  parsed JSON value was an object and validated only mode-required fields.
+  Arrays/scalars and wrong-typed optional replay fields therefore returned 500,
+  or could be accepted despite violating the published JSON schema. The
+  receiver now validates object shape and every typed property before digest or
+  queue work, returning stable 400 responses while remaining healthy.
+- Finding `E2E-EXP-040` (P2): concurrent redeliveries could both pass the seen
+  check. Queue locking prevented duplicate work, but both responses claimed
+  `accepted=true`, contradicting the receiver's idempotent no-op contract and
+  misleading senders. A non-fresh queue result now records the digest and
+  returns `accepted=false`, `queued=false` with the existing item id.
+- Review finding fixed before commit: JIRA-mode events can legally omit PR
+  fields, but supplied `repo`/`pr` values still participate in the replay
+  envelope and must satisfy their schema types. Validation is now property-first
+  and mode requirements run second, covering this cross-mode case.
+- Validation: ten focused cases exposed failures before the fixes. The final
+  QA CLI, authenticated API, TaskEvent, OpenHands hook, hook-auth, body-limit,
+  CI-ingest and work-queue compatibility suite passed 182 tests. Compilation,
+  high-signal Ruff and whitespace checks passed. Detailed review:
+  `docs/reviews/exploratory-e2e-iteration-016.md`.
+- Next slice: Bootstrap, deployment and upgrade, including a fresh isolated
+  estate, state bundle, manifest and migration/rollback compatibility checks.

@@ -3,6 +3,8 @@ import hashlib
 import importlib.util
 import json
 import pathlib
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
@@ -94,3 +96,23 @@ def test_omitted_pr_key_preserves_the_original_queue_shape(tmp_path, monkeypatch
         "mode": "pr", "repo": "orders-api", "pr": 201, "updated": "sha1"})
     assert code == 200 and body["accepted"] is True
     assert "ticket" not in receiver.work_queue.load()[0]
+
+
+def test_concurrent_redeliveries_report_exactly_one_acceptance(
+        tmp_path, monkeypatch):
+    _state(tmp_path, monkeypatch)
+    event = {"mode": "pr", "repo": "orders-api", "pr": 201,
+             "updated": "same-head"}
+    barrier = threading.Barrier(2)
+
+    def simultaneous_unseen(_digest):
+        barrier.wait(timeout=5)
+        return False
+
+    monkeypatch.setattr(receiver, "already_seen", simultaneous_unseen)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: receiver.handle_event(event), range(2)))
+
+    assert [body["accepted"] for _, body in results].count(True) == 1
+    assert [body["accepted"] for _, body in results].count(False) == 1
+    assert len(receiver.work_queue.load()) == 1

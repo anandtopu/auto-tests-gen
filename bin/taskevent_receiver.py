@@ -53,17 +53,28 @@ drain_lock = threading.Lock()
 
 
 def validate(ev):
+    if not isinstance(ev, dict):
+        return "TaskEvent body must be a JSON object"
+    if "repo" in ev and not isinstance(ev["repo"], str):
+        return "repo must be a string"
+    if "pr" in ev and (isinstance(ev["pr"], bool)
+                       or not isinstance(ev["pr"], (str, int))):
+        return "pr must be a string or integer"
+    if "key" in ev and not isinstance(ev["key"], str):
+        return "key must be a string"
+    for field in ("updated", "workflow_version"):
+        if field in ev and not isinstance(ev[field], str):
+            return f"{field} must be a string"
     mode = ev.get("mode")
     if mode == "pr":
-        if not ev.get("repo") or not ev.get("pr"):
+        if not ev.get("repo", "").strip():
+            return "pr mode requires repo as a non-empty string"
+        pr = ev.get("pr")
+        if pr is None or not str(pr).strip():
             return "pr mode requires repo and pr"
-        if ev.get("key") is not None and not isinstance(ev.get("key"), str):
-            return "key must be a string"
     elif mode == "jira":
-        if not ev.get("key"):
+        if not ev.get("key", "").strip():
             return "jira mode requires key"
-        if not isinstance(ev.get("key"), str):
-            return "key must be a string"
     else:
         return "mode must be pr|jira"
     return None
@@ -122,6 +133,12 @@ def handle_event(ev):
             item, fresh = work_queue.add("jira", ev["key"], requested_by="taskevent")
     except SystemExit as e:      # intake validation (unregistered repo / bad key)
         return 400, {"error": str(e)}
+    if not fresh:
+        record_seen(digest)
+        return 200, {"accepted": False, "queued": False,
+                     "reason": "matching work is already queued or running",
+                     "item_id": item["id"],
+                     "idempotency_key": digest[:16]}
     record_seen(digest)                     # durable enqueue first, then dedupe mark
     return 200, {"accepted": True, "queued": fresh, "item_id": item["id"],
                  "idempotency_key": digest[:16]}
