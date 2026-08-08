@@ -8,7 +8,7 @@ Source: [prd-jira-comments-and-ticket-search.md](prd-jira-comments-and-ticket-se
 | Order | Item | PRD mapping | Dependencies | Status | Implementation boundary |
 | ---: | --- | --- | --- | --- | --- |
 | 1 | JCTS-S1 Structured search and escaping | B1.1–B1.5, G6, M3, M4 | none | Implemented | Closed structured filters, safe adapter-side JQL, mock parity, truthful page envelope, legacy `search_release` wrapper |
-| 2 | JCTS-S2 Intake filters and queue handoff | B2.1–B2.3, B3.1–B3.2 | JCTS-S1 | Pending | `AIQE_TICKET_SEARCH`-guarded UI/API, result attributes, N-of-M bulk confirmation, per-item intake validation, backward-compatible queue reads |
+| 2 | JCTS-S2 Intake filters and queue handoff | B2.1–B2.3, B3.1–B3.2 | JCTS-S1 | Implemented | `AIQE_TICKET_SEARCH`-guarded UI/API, result attributes, N-of-M bulk confirmation, per-item intake validation, backward-compatible queue reads |
 | 3 | JCTS-S3 Comment outcome accounting | A4.1–A4.2, M1 | none; follows S2 by PRD order | Pending | Unconditional receipts for all five existing comment sites, run/event/plan-state homes, failure visibility without changing best-effort behavior |
 | 4 | JCTS-S4 Rich plan and delivery comments | A1.1–A1.3, A2.1–A2.5, M5 | JCTS-S3 | Pending | Flagged scenario-first plan rendering and one shared delivery/PR projection, bounded plain-text output, fused-ticket delivery |
 | 5 | JCTS-S5 Comment idempotency | A3.1–A3.5, M2 | JCTS-S3, JCTS-S4 | Pending | Stable visible markers, owned-comment update guard, persisted ids, unchanged skip, append-with-supersession fallback |
@@ -45,16 +45,23 @@ after 904 seconds without a result and is not counted as passing.
 
 ### JCTS-S2 — Intake filters and queue handoff
 
-- Change `GET /api/items` to accept only the six S1 filter names and return the
-  JIRA page envelope separately from known PR results.
-- Add release/type/component/label/status/text controls and distinguish failed
-  search from an empty page. Render `returned` of `total`.
-- Bulk queue only the returned page after an N-of-M confirmation. Reuse the
-  existing single-item queue endpoint for every item so validation and rate
-  limits cannot be bypassed.
-- Add `issue_type`, `components`, `labels`, and `fix_version` as display-only
-  queue provenance. Do not pass them to pipeline execution; `get_item` remains
-  the runtime authority. Treat absent legacy fields as empty.
+| Criterion | Implementation | Verification |
+| --- | --- | --- |
+| B2.1 | When `AIQE_TICKET_SEARCH=1`, `GET /api/items` accepts only release/type/component/label/status/text once each, maps them to the closed S1 contract, and returns JIRA `returned`/`total` separately from `prs_returned`; the default-off path retains the legacy list response | HTTP tests cover all six filters together, unknown/repeated/raw-JQL rejection, truthful counts, flag-on envelope, and flag-off rendering/record shape |
+| B2.2 | Flagged dashboard controls render issue type, components, labels, status, text, and fix version; UI distinguishes a failed request from a valid empty page and displays N of M | Rendered-HTML assertions, JavaScript syntax check, and failure-copy pins |
+| B2.3 | Bulk action confirms `Queue N of M matched?` and submits each returned ticket through the existing `/api/queue` endpoint; partial failure states that earlier items remain queued | Source/functional pins confirm per-item calls, returned-page scope, exact confirmation, and partial-failure behavior |
+| B3.1 | Queue entries optionally store bounded `issue_type`, `components`, `labels`, and `fix_version` provenance captured at fetch; malformed/unbounded metadata is rejected before dedupe | Queue unit and live HTTP tests verify normalized persistence, validation, duplicate validation, and legacy reads |
+| B3.2 | Queue provenance is display-only; `run_all` still launches JIRA work with only source and key so runtime `get_item` remains authoritative | Runner-argument regression test proves no captured attributes cross the execution boundary |
+
+Implementation evidence: both server and generated dashboard use UI schema 3,
+while `AIQE_TICKET_SEARCH` defaults off in environment, properties, and settings
+examples. The flagged endpoint validates query shape and adapter envelopes before
+returning separate JIRA and PR counts. Bulk queueing is sequential through the
+single-item endpoint, and queue metadata is bounded, optional, and never passed
+to execution. Focused suites passed 100/100 and 36/36 after review hardening;
+the broad changed-surface suite passed 325/325. Ruff checks for the new test and
+modified-file syntax/undefined-name rules, Python compilation, JavaScript syntax,
+and diff checks passed.
 
 ### JCTS-S3 — Comment outcome accounting
 

@@ -2,9 +2,11 @@
 """Manual work queue: PR / JIRA items queued from the dashboard (or CLI) and
 processed sequentially through engine/pipeline.sh.
 
-Store: reports/runs/queue.json — [{id, mode, target, pr, ticket, release, requested_by,
-status: queued|running|done|failed, ts, finished, exit_code}]. Run-record globs
-must skip this file (like reviews.json).
+Store: reports/runs/queue.json — [{id, mode, target, pr, ticket, release,
+issue_type, components, labels, fix_version, requested_by,
+status: queued|running|done|failed, ts, finished, exit_code}]. Ticket attributes
+are fetch-time display provenance only; the runner always refetches `get_item`.
+Run-record globs must skip this file (like reviews.json).
 
 CLI:
   work_queue.py add <pr|jira> <target> [pr_number] [release] [requested_by]
@@ -120,8 +122,43 @@ def _pr_plan_enabled():
         ("1", "true", "yes", "on")
 
 
+def _ticket_metadata(issue_type="", components=None, labels=None, fix_version=""):
+    """Bound untrusted fetch-time display fields before durable queue storage."""
+    def text(name, value, limit=200):
+        if value is None:
+            return ""
+        if not isinstance(value, str):
+            sys.exit(f"{name} must be a string")
+        value = value.strip()
+        if len(value) > limit:
+            sys.exit(f"{name} is too long (max {limit} characters)")
+        return value
+
+    def names(name, values):
+        if values is None:
+            return []
+        if not isinstance(values, list):
+            sys.exit(f"{name} must be a list")
+        if len(values) > 50:
+            sys.exit(f"{name} has too many values (max 50)")
+        cleaned = []
+        for value in values:
+            value = text(name, value, 100)
+            if value:
+                cleaned.append(value)
+        return cleaned
+
+    return {
+        "issue_type": text("issue_type", issue_type, 100),
+        "components": names("components", components),
+        "labels": names("labels", labels),
+        "fix_version": text("fix_version", fix_version),
+    }
+
+
 def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
-        force=False, ticket=None):
+        force=False, ticket=None, issue_type="", components=None, labels=None,
+        fix_version=""):
     # "tests" resumes generation from an approved test plan (pipeline.sh tests <KEY>)
     if mode not in ("pr", "jira", "plan", "tests"):
         sys.exit("mode must be pr|jira|plan|tests")
@@ -194,6 +231,7 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
             raise
         except Exception:
             pass                     # no plan state readable — nothing to protect
+    metadata = _ticket_metadata(issue_type, components, labels, fix_version)
     with fs_lock.lock(FILE):
         items = load()
         sig = (mode, target, str(pr or ""), str(ticket or ""))
@@ -210,6 +248,10 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
                 "requested_by": requested_by, "status": "queued", "ts": time.time(),
                 "finished": None, "exit_code": None,
                 "inline_file": str(inline_file) if inline_file else None}
+        # Preserve byte-compatible flag-off/CLI records; fetched S2 tickets carry
+        # at least one value and therefore persist the complete provenance block.
+        if any(metadata.values()):
+            item.update(metadata)
         if ticket:
             item["ticket"] = ticket
         warning = _envelope_warning(mode, target, pr)

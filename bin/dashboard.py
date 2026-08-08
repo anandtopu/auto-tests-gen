@@ -15,7 +15,7 @@ import yaml
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import app_paths
+import app_paths, env_flag
 import run_progress                      # R12: mutable paths resolve here
 from registry import load_registry
 import review_state, test_health, work_queue
@@ -59,6 +59,7 @@ health = test_health.load()
 queue = work_queue.load()
 pr_plan_enabled = os.environ.get("AIQE_PR_PLAN", "0").strip().lower() in \
     ("1", "true", "yes", "on")
+ticket_search_enabled = env_flag.flag("AIQE_TICKET_SEARCH", False)
 pr_plan_buttons = ('''<button class="btn" id="wz-start-pr-plan">Plan first</button>
           <button class="btn" id="wz-pr-approve">Approve plan</button>
           <button class="btn" id="wz-pr-generate">Generate from plan</button>'''
@@ -830,8 +831,9 @@ all_repo_opts = "".join(f"<option>{esc(r['name'])}</option>"
 
 # ---------------------------------------------------------------- queue view
 def queue_rows_html(items):
+    columns = 8 if ticket_search_enabled else 7
     if not items:
-        return ('<tr><td colspan="7"><div class="empty">Queue is empty — fetch items '
+        return (f'<tr><td colspan="{columns}"><div class="empty">Queue is empty — fetch items '
                 "above or paste JIRA context to get started.</div></td></tr>")
     out = ""
     for i in items:
@@ -844,11 +846,18 @@ def queue_rows_html(items):
         if i["status"] != "running":
             acts += (f'<button class="btn btn-sm danger qact" data-act="remove" '
                      f'data-id="{esc(i["id"])}">Remove</button>')
+        attributes = ""
+        if ticket_search_enabled:
+            details = [i.get("issue_type") or ""]
+            details.extend(i.get("components") or [])
+            details.extend(f"#{label}" for label in (i.get("labels") or []))
+            attributes = f'<td class="sm muted">{esc(" · ".join(v for v in details if v) or "—")}</td>'
         out += (f'<tr><td class="mono sm muted">{esc(i["id"])}</td>'
                 f'<td>{chip(i["status"], extra)}</td>'
                 f'<td><span class="pill">{esc(i["mode"])}</span></td>'
                 f'<td class="strong">{esc(work_queue.key_of(i))}</td>'
                 f'<td class="mono sm muted">{esc(i.get("release") or "—")}</td>'
+                f'{attributes}'
                 f'<td class="muted">{esc(i.get("requested_by") or "—")}</td>'
                 f'<td class="right nowrap">{acts or "—"}</td></tr>')
     return out
@@ -1260,6 +1269,9 @@ pre { margin:0; background:var(--sr-bg-muted); border:1px solid var(--sr-border)
 JS = """
 const served = location.protocol.startsWith('http');
 const PR_PLAN_ENABLED = __PR_PLAN_ENABLED__;
+const TICKET_SEARCH_ENABLED = __TICKET_SEARCH_ENABLED__;
+const FETCH_COLS = TICKET_SEARCH_ENABLED ? 9 : 5;
+const QUEUE_COLS = TICKET_SEARCH_ENABLED ? 8 : 7;
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 // Every client-rendered cell goes through this — queue items and fetched JIRA
 // summaries are external data and must never reach innerHTML unescaped.
@@ -1505,14 +1517,14 @@ async function refreshQueue() {
   try {
     q = await api('/api/queue');
   } catch (err) {
-    loadFailed('#queue-table tbody', 7, err);
+    loadFailed('#queue-table tbody', QUEUE_COLS, err);
     const c = $('#queue-count');
     if (c) c.textContent = 'queue status unknown — the list below is not current';
     return [];
   }
   const body = $('#queue-table tbody');
   if (!q.length) {
-    body.innerHTML = '<tr><td colspan="7"><div class="empty">Queue is empty — fetch items above or paste JIRA context to get started.</div></td></tr>';
+    body.innerHTML = '<tr><td colspan="' + QUEUE_COLS + '"><div class="empty">Queue is empty — fetch items above or paste JIRA context to get started.</div></td></tr>';
   } else {
     body.innerHTML = q.map(i => {
       const [lb, cls] = chipMap[i.status] || [i.status, 'muted'];
@@ -1520,11 +1532,16 @@ async function refreshQueue() {
       let acts = '';
       if (i.status === 'failed') acts += '<button class="btn btn-sm qact" data-act="requeue" data-id="' + escHtml(i.id) + '">Re-queue</button> ';
       if (i.status !== 'running') acts += '<button class="btn btn-sm danger qact" data-act="remove" data-id="' + escHtml(i.id) + '">Remove</button>';
+      const attrs = TICKET_SEARCH_ENABLED
+        ? '<td class="sm muted">' + escHtml([i.issue_type || '']
+            .concat(i.components || []).concat((i.labels || []).map(v => '#' + v))
+            .filter(Boolean).join(' · ') || '—') + '</td>' : '';
       return '<tr><td class="mono sm muted">' + escHtml(i.id) + '</td>' +
         '<td><span class="chip chip-' + cls + '">' + escHtml(lb + extra) + '</span></td>' +
         '<td><span class="pill">' + escHtml(i.mode) + '</span></td>' +
         '<td class="strong">' + escHtml(keyOf(i)) + '</td>' +
         '<td class="mono sm muted">' + escHtml(i.release || '—') + '</td>' +
+        attrs +
         '<td class="muted">' + escHtml(i.requested_by || '—') + '</td>' +
         '<td class="right nowrap">' + (acts || '—') + '</td></tr>';
     }).join('');
@@ -1774,16 +1791,44 @@ if ($('#wz-mode')) {
 }
 
 // ---- fetch work
+let fetchedState = { items: [], returned: 0, total: 0, prs_returned: 0 };
+function fetchedQuery() {
+  const q = new URLSearchParams();
+  q.set('release', $('#fetch-rel').value);
+  if (TICKET_SEARCH_ENABLED) {
+    [['issue_type', 'fetch-type'], ['component', 'fetch-component'],
+     ['label', 'fetch-label'], ['status', 'fetch-status'], ['text', 'fetch-text']]
+      .forEach(([name, id]) => { const v = $('#' + id).value; if (v) q.set(name, v); });
+  }
+  return q.toString();
+}
+function fetchedQueuePayload(i, mode) {
+  return { mode: mode, target: i.target, pr: i.pr, release: i.release,
+    issue_type: i.issue_type || '', components: i.components || [],
+    labels: i.labels || [], fix_version: i.fix_version || '' };
+}
+async function queueFetchedItem(i, mode) {
+  return api('/api/queue', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fetchedQueuePayload(i, mode)) });
+}
 async function refreshFetchedItems() {
   if (needsServer()) return;
   const btn = $('#fetch-btn');
   btn.disabled = true; btn.textContent = 'Fetching…';
   try {
-    const items = await api('/api/items?release=' + encodeURIComponent($('#fetch-rel').value));
+    const response = await api('/api/items?' + fetchedQuery());
+    const items = TICKET_SEARCH_ENABLED ? response.items : response;
+    fetchedState = TICKET_SEARCH_ENABLED ? response
+      : { items: items, returned: items.length, total: items.length, prs_returned: 0 };
     const card = $('#fetched-wrap'); card.classList.remove('hidden');
     $('#fetched-table tbody').innerHTML = items.length ? items.map((i, n) =>
       '<tr><td><span class="pill">' + escHtml(i.mode) + '</span></td>' +
       '<td class="strong">' + escHtml(i.key) + '</td><td>' + escHtml(i.summary) + '</td>' +
+      (TICKET_SEARCH_ENABLED ?
+        '<td>' + escHtml(i.issue_type || '—') + '</td>' +
+        '<td class="sm">' + escHtml((i.components || []).join(', ') || '—') + '</td>' +
+        '<td class="sm">' + escHtml((i.labels || []).join(', ') || '—') + '</td>' +
+        '<td>' + escHtml(i.status || '—') + '</td>' : '') +
       '<td class="mono sm muted">' + escHtml(i.release || '—') + '</td>' +
       '<td class="right">' +
       (i.mode === 'jira' || (i.mode === 'pr' && PR_PLAN_ENABLED)
@@ -1793,24 +1838,50 @@ async function refreshFetchedItems() {
         : '') +
       '<button class="btn btn-sm fq" data-n="' + n + '" ' +
       (i.queued ? 'disabled' : '') + '>' + (i.queued ? 'Queued' : 'Queue') + '</button></td></tr>'
-    ).join('') : '<tr><td colspan="5"><div class="empty">No items for this release.</div></td></tr>';
-    $('#fetch-msg').textContent = items.length + ' item(s) found';
+    ).join('') : '<tr><td colspan="' + FETCH_COLS + '"><div class="empty">No matching items.</div></td></tr>';
+    $('#fetch-msg').textContent = TICKET_SEARCH_ENABLED
+      ? 'Showing ' + response.returned + ' of ' + response.total + ' matched ticket(s)'
+        + (response.prs_returned ? ' · ' + response.prs_returned + ' PR(s)' : '')
+      : items.length + ' item(s) found';
+    const bulk = $('#fetch-queue-all');
+    if (bulk) bulk.disabled = !response.returned;
     $$('#fetched-table button.fq').forEach(b => b.addEventListener('click', async () => {
       const i = items[+b.dataset.n];
       const mode = b.dataset.mode === 'plan' ? 'plan' : i.mode;
       try {
-        await api('/api/queue', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: mode, target: i.target, pr: i.pr, release: i.release }) });
+        await queueFetchedItem(i, mode);
         b.disabled = true; b.textContent = 'Queued';
         toast('Queued ' + i.key + (mode === 'plan'
           ? ' (plan only — stops for human approval)' : '') +
           ' — press Run queue to execute'); refreshQueue();
       } catch (err) { toast(err.message); }
     }));
-  } catch (err) { toast('Fetch failed: ' + err.message); }
+  } catch (err) {
+    const card = $('#fetched-wrap'); card.classList.remove('hidden');
+    $('#fetched-table tbody').innerHTML = '<tr><td colspan="' + FETCH_COLS +
+      '"><div class="empty danger-fg">Search failed: ' + escHtml(err.message) + '</div></td></tr>';
+    $('#fetch-msg').textContent = 'search failed — results are not current';
+    const bulk = $('#fetch-queue-all'); if (bulk) bulk.disabled = true;
+    toast('Fetch failed: ' + err.message);
+  }
   btn.disabled = false; btn.textContent = 'Fetch items';
 }
 $('#fetch-btn').addEventListener('click', refreshFetchedItems);
+if ($('#fetch-queue-all')) $('#fetch-queue-all').addEventListener('click', async () => {
+  const tickets = fetchedState.items.filter(i => i.mode === 'jira');
+  if (!tickets.length) return;
+  if (!confirm('Queue ' + fetchedState.returned + ' of ' + fetchedState.total + ' matched?')) return;
+  const bulk = $('#fetch-queue-all'); bulk.disabled = true; bulk.textContent = 'Queueing…';
+  try {
+    for (const item of tickets) await queueFetchedItem(item, 'jira');
+    toast('Queued ' + tickets.length + ' ticket(s) through individual intake validation');
+    await refreshQueue(); await refreshFetchedItems();
+  } catch (err) {
+    toast('Bulk queue stopped: ' + err.message + ' — earlier items remain queued');
+  } finally {
+    bulk.disabled = false; bulk.textContent = 'Queue filtered page';
+  }
+});
 
 // ---- inline ticket
 $('#inl-queue').addEventListener('click', async () => {
@@ -2975,7 +3046,7 @@ document.addEventListener('click', async e => {
 // PROCESS keeps whatever code it started with. If its /api/version disagrees (or is
 // absent), actions like "Clear demo data" run OLD logic while the page promises the
 // new — tell the operator to restart instead of letting the mismatch look like a bug.
-const UI_SCHEMA = 2;
+const UI_SCHEMA = 3;
 if (served) {
   fetch('/api/version').then(r => r.ok ? r.json() : {ui_schema: 0})
     .catch(() => ({ui_schema: 0}))
@@ -3378,6 +3449,26 @@ document.addEventListener('click', async function (ev) {
 
 """
 JS = JS.replace("__PR_PLAN_ENABLED__", "true" if pr_plan_enabled else "false")
+JS = JS.replace("__TICKET_SEARCH_ENABLED__",
+                "true" if ticket_search_enabled else "false")
+
+ticket_search_filters = ("""
+        <label class="f">Issue type <input id="fetch-type" class="h32"
+          placeholder="Bug" style="width:120px"></label>
+        <label class="f">Component <input id="fetch-component" class="h32"
+          placeholder="Checkout" style="width:130px"></label>
+        <label class="f">Label <input id="fetch-label" class="h32"
+          placeholder="api-only" style="width:120px"></label>
+        <label class="f">Status <input id="fetch-status" class="h32"
+          placeholder="In Progress" style="width:130px"></label>
+        <label class="f">Text <input id="fetch-text" class="h32"
+          placeholder="summary, description, comments" style="width:220px"></label>"""
+                         if ticket_search_enabled else "")
+ticket_search_columns = ("<th>issue type</th><th>components</th><th>labels</th>"
+                         "<th>status</th>" if ticket_search_enabled else "")
+ticket_search_bulk = ('<button class="btn" id="fetch-queue-all" disabled>'
+                      'Queue filtered page</button>' if ticket_search_enabled else "")
+queue_attribute_header = "<th>ticket attributes</th>" if ticket_search_enabled else ""
 
 # ---------------------------------------------------------------- page assembly
 page = f"""<!doctype html>
@@ -3521,19 +3612,21 @@ page = f"""<!doctype html>
   <div data-view="queue">
     <section class="card">
       <div class="card-h"><div><h2>Fetch work from JIRA &amp; SCM</h2>
-        <div class="sub">Pull tickets and PRs for a release, queue them, then run the
-        queue — items are processed in order.</div></div></div>
+        <div class="sub">Pull tickets and PRs, queue them, then run the queue —
+        items are processed in order.</div></div></div>
       <div class="card-b filters">
         <label class="f">Release / fixVersion <input id="fetch-rel" class="h32"
           list="fetch-rel-known" placeholder="any fixVersion — empty = all"
           style="width:190px"></label>
         <datalist id="fetch-rel-known">{release_opts}</datalist>
+        {ticket_search_filters}
         <button class="btn" id="fetch-btn">Fetch items</button>
+        {ticket_search_bulk}
         <span class="sub" id="fetch-msg"></span>
       </div>
       <div class="scroll hidden" id="fetched-wrap" style="border-top:1px solid var(--sr-border)">
         <table id="fetched-table"><thead><tr><th>type</th><th>key</th>
-          <th style="width:50%">summary</th><th>release</th><th></th></tr></thead>
+          <th style="width:35%">summary</th>{ticket_search_columns}<th>release</th><th></th></tr></thead>
           <tbody></tbody></table>
       </div>
     </section>
@@ -3565,7 +3658,7 @@ page = f"""<!doctype html>
         <span class="sub" id="queue-count">{len(queue)} item(s) · {queued_n} queued</span></div>
       <div class="scroll"><table id="queue-table">
         <thead><tr><th>id</th><th>status</th><th>type</th><th>key</th><th>release</th>
-          <th>requested by</th><th class="right">actions</th></tr></thead>
+          {queue_attribute_header}<th>requested by</th><th class="right">actions</th></tr></thead>
         <tbody>{queue_rows_html(queue)}</tbody></table></div>
     </section>
   </div>

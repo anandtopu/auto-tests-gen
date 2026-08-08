@@ -7,7 +7,8 @@ Endpoints:
   GET  /                      regenerate + serve the dashboard
   GET  /runs/<file>           run diffs (reports/runs/)
   GET  /<key>.log             gate logs (reports/)
-  GET  /api/items?release=X   JIRA tickets (tracker search_release) + known PRs
+  GET  /api/items?release=X[&issue_type=&component=&label=&status=&text=]
+                              JIRA tickets (structured when enabled) + known PRs
   GET  /api/queue             queue contents
   GET  /api/export/plan?key=K&format=md|html|docx|pdf   download the ticket's test plan
   GET  /api/report?days=N&release=X&format=md|html|docx|pdf   team status report
@@ -60,7 +61,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 # request) compares this against its own copy: a mismatch means the SERVER process
 # predates the code on disk — the exact condition that made "Clear demo data" run an
 # old target list while the page promised the new one. Restarting make serve fixes it.
-UI_SCHEMA = 2
+UI_SCHEMA = 3
 
 # Reverse-proxy SSO (product-direction H1): the header name a trusted proxy sets
 # with the authenticated user, e.g. X-Forwarded-User. Empty = SSO off.
@@ -70,7 +71,7 @@ import alert_rules, demo_data, email_notify, event_log, export_plan, \
     guidance_sync, inline_ticket, integration_check, openhands_client, \
     openhands_events, openhands_mode, plan_state, pr_url, repo_admin, \
     repo_guidance_gen, review_state, settings_store, spec_workflow, \
-    team_report, waiver_store, work_queue
+    team_report, ticket_search, waiver_store, work_queue
 import governance_page
 import http_body
 import spec_savings
@@ -149,14 +150,15 @@ def _csv_cell(v):
 # adapter mode and credentials configured in the UI actually reach this server.
 settings_store.load_env_into()
 MOCK = env_flag.mock()
+TICKET_SEARCH_ENABLED = env_flag.flag("AIQE_TICKET_SEARCH", False)
 TRACKER = ROOT / ("adapters/mock/tracker.sh" if MOCK else "adapters/tracker/jira.sh")
 UI_TOKEN = os.environ.get("AIQE_UI_TOKEN", "")   # empty = auth off (localhost-only dev)
 run_lock = threading.Lock()
 
 
-def jira_items(release):
+def _tracker_json(verb, *args):
     cmd, env = work_queue.git_bash_command(
-        TRACKER, "search_release", release,
+        TRACKER, verb, *args,
         prepend=(pathlib.Path(sys.executable).parent,))
     r = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True,
                        encoding="utf-8", errors="replace",
@@ -164,16 +166,81 @@ def jira_items(release):
     if r.returncode:
         detail = (r.stderr or r.stdout or "no output captured").strip()[-500:]
         raise RuntimeError(
-            f"tracker search_release failed (exit {r.returncode}): {detail}")
+            f"tracker {verb} failed (exit {r.returncode}): {detail}")
     try:
-        tickets = json.loads(r.stdout.strip().splitlines()[-1])
+        return json.loads(r.stdout.strip().splitlines()[-1])
     except (json.JSONDecodeError, IndexError) as e:
-        raise RuntimeError("tracker search_release returned invalid JSON") from e
+        raise RuntimeError(f"tracker {verb} returned invalid JSON") from e
+
+
+def _jira_row(ticket):
+    if not isinstance(ticket, dict):
+        raise RuntimeError("tracker search item must be an object")
+    for field in ("key", "summary", "issue_type", "status"):
+        if not isinstance(ticket.get(field, ""), str):
+            raise RuntimeError(f"tracker search item {field} must be a string")
+    if not ticket.get("key"):
+        raise RuntimeError("tracker search item key is required")
+    for field in ("fix_versions", "components", "labels"):
+        values = ticket.get(field) or []
+        if (not isinstance(values, list)
+                or any(not isinstance(value, str) for value in values)):
+            raise RuntimeError(f"tracker search item {field} must be a string list")
+    fix_versions = ticket.get("fix_versions") or []
+    return {"mode": "jira", "target": ticket["key"], "pr": None,
+            "key": ticket["key"], "summary": ticket.get("summary", ""),
+            "release": ",".join(fix_versions),
+            "fix_version": ", ".join(fix_versions),
+            "issue_type": ticket.get("issue_type", ""),
+            "components": list(ticket.get("components") or []),
+            "labels": list(ticket.get("labels") or []),
+            "status": ticket.get("status", "")}
+
+
+def jira_items(release):
+    tickets = _tracker_json("search_release", release)
     if not isinstance(tickets, list):
         raise RuntimeError("tracker search_release returned a non-list response")
-    return [{"mode": "jira", "target": t["key"], "pr": None, "key": t["key"],
-             "summary": t.get("summary", ""),
-             "release": ",".join(t.get("fix_versions", []))} for t in tickets]
+    return [_jira_row(ticket) for ticket in tickets]
+
+
+_SEARCH_QUERY_MAP = {
+    "release": "fixversion", "fixversion": "fixversion",
+    "issue_type": "issue_type", "component": "component", "label": "label",
+    "status": "status", "text": "text",
+}
+
+
+def ticket_filters(query):
+    """Translate the HTTP vocabulary to the closed Tracker search contract."""
+    params = urllib.parse.parse_qs(query, keep_blank_values=True)
+    unknown = sorted(set(params) - set(_SEARCH_QUERY_MAP) - {"token"})
+    if unknown:
+        raise ValueError("unsupported search parameter(s): " + ", ".join(unknown))
+    repeated = sorted(name for name, values in params.items()
+                      if name != "token" and len(values) != 1)
+    if repeated:
+        raise ValueError("search parameter must appear once: " + ", ".join(repeated))
+    if "release" in params and "fixversion" in params:
+        raise ValueError("use release or fixversion, not both")
+    filters = {_SEARCH_QUERY_MAP[name]: values[0]
+               for name, values in params.items() if name in _SEARCH_QUERY_MAP}
+    try:
+        return ticket_search.normalize_filters(filters)
+    except ticket_search.SearchInputError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+def jira_search(filters):
+    envelope = _tracker_json("search", json.dumps(filters, separators=(",", ":")))
+    if not isinstance(envelope, dict) or not isinstance(envelope.get("items"), list):
+        raise RuntimeError("tracker search returned an invalid envelope")
+    returned, total = envelope.get("returned"), envelope.get("total")
+    if (not isinstance(returned, int) or not isinstance(total, int)
+            or returned != len(envelope["items"]) or total < returned):
+        raise RuntimeError("tracker search returned invalid page counts")
+    return {"items": [_jira_row(ticket) for ticket in envelope["items"]],
+            "returned": returned, "total": total}
 
 
 def pr_items(release):
@@ -446,21 +513,40 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"events": rows, "corrupt": corrupt,
                              "health": event_log.health()})
         elif url.path == "/api/items":
-            rel = urllib.parse.parse_qs(url.query).get("release", [""])[0]
             # Mode-aware: a pending PLAN-ONLY item must not mark the ticket's
             # full-run Queue button as already queued (and vice versa).
             pending = [i for i in work_queue.load()
                        if i["status"] in ("queued", "running")]
             queued = {(i["mode"], work_queue.key_of(i)) for i in pending}
             try:
-                items = jira_items(rel) + pr_items(rel)
+                if TICKET_SEARCH_ENABLED:
+                    filters = ticket_filters(url.query)
+                    jira = jira_search(filters)
+                    # PR records do not carry JIRA type/component/label/status/text;
+                    # including them in such a result would violate AND semantics.
+                    discovery_only = set(filters) - {"fixversion"}
+                    prs = [] if discovery_only else pr_items(filters.get("fixversion", ""))
+                    items = jira["items"] + prs
+                else:
+                    rel = urllib.parse.parse_qs(url.query).get("release", [""])[0]
+                    items = jira_items(rel) + pr_items(rel)
+                    jira, prs = None, None
+            except ValueError as e:
+                self._send(400, {"error": _err(e)})
+                return
             except RuntimeError as e:
                 self._send(502, {"error": _err(e)})
                 return
             for i in items:
                 i["queued"] = (i["mode"], i["key"]) in queued
                 i["plan_queued"] = ("plan", i["key"]) in queued
-            self._send(200, items)
+            if TICKET_SEARCH_ENABLED:
+                self._send(200, {"items": items,
+                                 "returned": jira["returned"],
+                                 "total": jira["total"],
+                                 "prs_returned": len(prs)})
+            else:
+                self._send(200, items)
         elif url.path == "/api/queue":
             self._send(200, work_queue.load())
         elif url.path == "/api/openhands":
@@ -996,7 +1082,11 @@ class Handler(BaseHTTPRequestHandler):
                 item, fresh = work_queue.add(p["mode"], target, pr,
                                              p.get("release", ""), "dashboard",
                                              force=bool(p.get("force")),
-                                             ticket=p.get("ticket") or None)
+                                             ticket=p.get("ticket") or None,
+                                             issue_type=p.get("issue_type", ""),
+                                             components=p.get("components"),
+                                             labels=p.get("labels"),
+                                             fix_version=p.get("fix_version", ""))
                 self._send(200, {"queued": fresh, "item": item,
                                  "resolved_from_url": bool(parsed)})
             except (KeyError, json.JSONDecodeError, SystemExit) as e:

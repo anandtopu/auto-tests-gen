@@ -517,6 +517,15 @@ make queue-run          # drain (AIQE_MOCK=1 unless you export otherwise)
 Duplicate pending items are deduped. The server runs mock adapters by default; export
 `AIQE_MOCK=0` (with credentials) before `make serve` for real estates.
 
+Set `AIQE_TICKET_SEARCH=1` before `make serve` to enable structured JIRA intake.
+The fetch row then ANDs release, issue type, component, label, status, and text;
+shows ticket attributes plus “showing N of M”; and can queue the returned page
+after an explicit N-of-M confirmation. Bulk queue still submits each ticket
+through the ordinary intake endpoint. Queue attributes are fetch-time display
+provenance only—the runner refetches the ticket at start and uses that current
+JIRA state for routing and generation. Search failure is displayed in the results
+area and is never presented as an empty successful result.
+
 ### Repositories & mapping: manage the estate from the UI
 
 The dashboard's **Repositories** view (backed by `engine/lib/repo_admin.py`) manages

@@ -122,6 +122,8 @@ AIQE_ARTIFACT_REUSE=0
 # PR ticket discovery  ·  explicit/branch/title/commit signals, default off
 AIQE_PR_TICKET_CONTEXT=0
 AIQE_PR_PLAN=0
+# Structured JIRA search and bulk queue  ·  default off
+AIQE_TICKET_SEARCH=0
 # Duplicate semantic threshold  ·  cosine threshold when testcase embeddings are available
 AIQE_DUPLICATE_SEMANTIC_THRESHOLD=0.90
 # Duplicate lexical threshold  ·  separate threshold for zero-embedding lexical fallback
