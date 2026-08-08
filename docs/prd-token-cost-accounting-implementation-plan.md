@@ -15,7 +15,7 @@ Source: [prd-token-cost-accounting.md](prd-token-cost-accounting.md) (Draft v2)
 | 6 | TCA-C2 Provider usage port | C2.1, C2.1a | TCA-A3 | Implemented | Adapter-family `usage <window>` verb, mock fixture, conformance suite, write-only admin credential, Make entry point |
 | 7 | TCA-C3 Reconciliation arithmetic | C2.1b, C2.2 | TCA-C2 | Implemented | Provider-aligned UTC windows, reported-only comparison, reconcilable fraction, deterministic drift evidence |
 | 8 | TCA-C4 Reconciliation operations | C2.3, C2.4, M4 | TCA-C3 | Implemented | Notify alarm, three-state Cost badge, DEGRADED maintenance step, no-credential/API-down honesty |
-| 9 | TCA-FINAL Broad verification | M1–M4 and guardrails | TCA-A2–TCA-C4 | Planned | Full compatibility suite, report/runtime regression checks, final docs/status reconciliation |
+| 9 | TCA-FINAL Broad verification | M1–M4 and guardrails | TCA-A2–TCA-C4 | Implemented | Full compatibility suite, report/runtime regression checks, final docs/status reconciliation |
 
 The sequence follows the PRD delivery slices. TCA-A3 is intentionally after the
 exit-path proof: consumers should not migrate to a new history source until that
@@ -206,6 +206,23 @@ performs per-file and cross-file review, stages exact files, passes
 `git diff --cached --check`, commits with the TCA item ID, pushes, and verifies
 HEAD/upstream/remote parity before the loop advances.
 
+## TCA-FINAL — Broad verification
+
+| Gate | Current-head evidence | Result |
+| --- | --- | --- |
+| M1 durable coverage | `eval/token_cost_coverage.py`: five modes plus clarification 65, budget abort 77, and mid-call termination 143; every eligible invocation persisted the expected evidence and released the lock | **8/8 (100%)** |
+| M2 complete report | Consumer fixture and runtime `make cost-report DAYS=30` expose task phases, embeddings, probes, and the mandatory unmeterable line without folding them into the user-task total | Pass |
+| M3 union double-count rate | Both-source collision tests retain one `(run, phase)` row with run-record enrichment and ledger attempt evidence | **0 double counts** |
+| M4 reconciliation honesty | Mock provider/Notify smoke completed; absent real Admin authorization remains `not reconciled` by contract rather than producing a real-money claim | Pass; real drift externally unmeasured |
+| Accounting guardrails | Live `budget.py`/`out/cost.tsv` enforcement unchanged; durable state remains behind `AIQE_SPEND_LEDGER`/`AIQE_COSTS_DIR`; bases remain explicit; one provider call is one attempt; plan/requirements still create no run record; engine has no vendor billing branch | Pass |
+
+Current-head validation passed 81 focused accounting tests, adapter conformance,
+the isolated M1 evaluator, **1,767/1,767** registry tests, TCA-surface Ruff
+release checks, Python compilation, and Bash syntax checks. Documented runtime
+entry points (`cost-report`, `qa status --cost`, exact-key `cost-statement`, and
+isolated mock `cost-reconcile`) all completed successfully. The final two-pass
+review found no new P0–P2 defect. This completes every implementation-plan row.
+
 ## Product decisions and residual risks
 
 - Q1 is implemented as the current run-record KEEP value, per the PRD delivery
@@ -215,6 +232,9 @@ HEAD/upstream/remote parity before the loop advances.
 - A same-label retry is one union identity but may represent multiple provider
   calls. TCA-A1 records the attempt count and compatible aggregate; TCA-A3 must
   preserve that aggregate when a completed run record wins.
+- Real M4 parity remains an environment measurement, not a code completion
+  gate. Until an organization Admin usage credential is configured, the only
+  honest value is `not reconciled`, as required by the PRD.
 
 ## TCA-A1 validation evidence
 
