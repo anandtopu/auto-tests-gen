@@ -393,8 +393,13 @@ GENERATE() {
     # conventions are per-repo: an agent writing into ONE repo should not be
     # reasoning over every other repo's catalog.
     slice="out/catalog-slice-${repo}.jsonl"
+    # stderr is NOT discarded here: catalog_slice reports what it could not
+    # read (an unreadable catalog file, a malformed row), and that report is
+    # the only signal that the existing-test context handed to this agent is
+    # short. Silencing it turned an honest warning into exactly the silent
+    # duplicate-test failure the slice exists to prevent.
     python3 engine/lib/catalog_slice.py out/resolve.contract.json "$repo" \
-      > "$slice" 2>/dev/null || cp out/catalog-slice.jsonl "$slice" 2>/dev/null || : > "$slice"
+      > "$slice" || cp out/catalog-slice.jsonl "$slice" 2>/dev/null || : > "$slice"
     # Swap the all-repos conventions file for this repo's. Done by rebuilding the
     # array rather than with ${@/../..}: the pattern contains slashes, which that
     # expansion treats as delimiters.

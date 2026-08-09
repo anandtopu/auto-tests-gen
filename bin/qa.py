@@ -726,16 +726,36 @@ def cmd_prune(args):
     if artifact_keep < 1:
         raise SystemExit("AIQE_ARTIFACT_KEEP_RUNS must be a positive integer")
     runs_dir = pathlib.Path(args.dir) if args.dir else ROOT / "reports/runs"
-    records = []
+    records, unreadable = [], []
     for f in runs_dir.glob("*.json"):
         if f.name in ("reviews.json", "queue.json", "hooks-seen.json"):
             continue
         try:
             records.append((json.load(open(f, encoding="utf-8")).get("ts", 0), f))
         except (json.JSONDecodeError, OSError):
+            # An unreadable record used to be skipped entirely, which made it
+            # IMMORTAL: never in `records`, so never in `doomed`, so neither it
+            # nor its diffs were ever removed. A torn record accumulates
+            # forever and keeps its diffs alive with it — and torn records are
+            # exactly what a crashed run leaves behind, so the files retention
+            # exists to bound are the ones it never touches.
+            #
+            # Age it by mtime instead of by a `ts` we cannot read. It sorts
+            # among the rest honestly, and if it is old enough it is pruned
+            # like anything else.
+            try:
+                unreadable.append((f.stat().st_mtime, f))
+            except OSError:
+                pass
             continue
     records.sort(reverse=True)                      # newest first
     doomed = records[args.keep:]
+    # Unreadable records are never KEPT in preference to a readable one: they
+    # carry no information a reader could use, so once past the keep window
+    # they go. Ordering them by mtime keeps a just-crashed run's record around
+    # long enough to be investigated.
+    unreadable.sort(reverse=True)
+    doomed += unreadable[max(0, args.keep - len(records)):]
     removed = 0
     for _, f in doomed:
         stem = f.stem                               # <RUN_ID>
@@ -746,6 +766,12 @@ def cmd_prune(args):
         removed += 1
     print(f"kept {min(len(records), args.keep)} run record(s); "
           f"removed {len(doomed)} old record(s) ({removed} files)")
+    if unreadable:
+        # Say it out loud. These are runs whose durable evidence is damaged;
+        # an operator reading a retention summary should learn that here, not
+        # from a scorecard whose denominator quietly shrank.
+        print(f"note: {len(unreadable)} record(s) could not be parsed and were "
+              f"aged by file mtime instead of their run timestamp")
     import spend_ledger
     costs = spend_ledger.prune(args.keep)
     print(f"cost ledger: kept {costs['kept']} entry/entries; "

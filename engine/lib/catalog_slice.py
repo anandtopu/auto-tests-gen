@@ -34,8 +34,15 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 SAMPLE = "catalog.sample.jsonl"       # the committed example, excluded like every reader
 
 
-def load_rows(catalog_dir=None):
-    """Every catalog row in the estate, as (row, source_file) pairs."""
+def load_rows(catalog_dir=None, drops=None):
+    """Every catalog row in the estate.
+
+    `drops` is an optional dict the caller passes in to learn what was NOT
+    read: {"lines": n, "files": n, "detail": [...]}. Skipping is the right
+    policy here — a torn row must not starve the generate phase of the whole
+    catalog — but an uncounted skip means the phase is handed a short view of
+    existing tests and nobody, including the agent, can tell.
+    """
     d = pathlib.Path(catalog_dir) if catalog_dir else app_paths.catalog_dir(ROOT)
     out = []
     for f in sorted(glob.glob(str(d / "*.jsonl"))):
@@ -49,8 +56,23 @@ def load_rows(catalog_dir=None):
                 try:
                     out.append(json.loads(line))
                 except ValueError:
-                    continue          # one bad line never drops the file
-        except OSError:
+                    # One bad line never drops the file — but it is COUNTED.
+                    # This slice is the existing-test context handed to the
+                    # generate phase; silently short, it makes the agent
+                    # re-author coverage it cannot see, and duplicate tests are
+                    # the one outcome this file exists to prevent. A skip that
+                    # nobody counts is indistinguishable from a catalog that
+                    # never had the row.
+                    if drops is not None:
+                        drops["lines"] = drops.get("lines", 0) + 1
+                    continue
+        except OSError as exc:
+            # A whole repo's catalog vanishing is far worse than one row, and
+            # it was the same silent `continue`.
+            if drops is not None:
+                drops["files"] = drops.get("files", 0) + 1
+                drops.setdefault("detail", []).append(
+                    f"{pathlib.Path(f).name}: {type(exc).__name__}")
             continue
     return out
 
@@ -93,10 +115,26 @@ def main(argv):
         print(f"[catalog-slice] {contract} unreadable ({e}) — using the full "
               f"catalog", file=sys.stderr)
         test_repos = source_repos = []
-    rows = load_rows()
+    drops = {}
+    rows = load_rows(drops=drops)
     sel, fell_back = slice_rows(rows, test_repos, source_repos, target)
     for r in sel:
         sys.stdout.write(json.dumps(r) + "\n")
+    # Say what could NOT be read, before saying what was selected — otherwise
+    # "3/3 row(s) relevant" reads as the whole catalog when two rows were
+    # dropped on the way in. The counts make the difference visible in the run
+    # log, where a reviewer wondering why a duplicate test appeared will look.
+    if drops:
+        parts = []
+        if drops.get("files"):
+            parts.append(f"{drops['files']} catalog file(s) UNREADABLE "
+                         f"({'; '.join(drops.get('detail', []))})")
+        if drops.get("lines"):
+            parts.append(f"{drops['lines']} malformed row(s) skipped")
+        print(f"[catalog-slice] INCOMPLETE INPUT: {', '.join(parts)} — the "
+              f"existing-test context below is short by that much, so "
+              f"generation may re-author coverage it cannot see",
+              file=sys.stderr)
     scope = f"target={target}" if target else f"repos={','.join(test_repos) or '-'}"
     if fell_back:
         print(f"[catalog-slice] no rows matched ({scope}) — handing over the "
