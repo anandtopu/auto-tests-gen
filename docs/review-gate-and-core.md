@@ -385,3 +385,36 @@ asserts a secret was found, and not 0. A definite finding still wins: report the
 secret first, and report the gap only when the scan would otherwise have said
 "clean". `run_progress.EXIT_MEANINGS` gets the new code in the same change, for
 the reason G1 records.
+
+## G2 — The gate trusted its caller to have validated its arguments
+
+`gate.sh <KEY> <test_repo>` interpolates both arguments into a path
+(`$REPORT_DIR/${KEY}-${TREPO}.log`) and into the commit message, and validated
+neither. It was safe in practice because `pipeline.sh` checks its KEY at entry
+and exits 64 — but the pipeline is not the only caller.
+`.openhands/hooks/gate-check.sh` takes KEY from the environment
+(`${KEY:-${AIQE_KEY:-stop-hook}}`), and anything invoking the gate directly
+supplies both. This is the R4 shape already recorded in CLAUDE.md: one branch
+confining while its sibling does not is how a guard gets lost, and this is the
+component holding the push credential.
+
+Both arguments are now checked before anything is written, with two arms:
+
+- the charset is **byte-identical to pipeline.sh's** (`*[!A-Za-z0-9._-]*`), so
+  the two components can never disagree about what a key is;
+- a bare `.` or `..` is rejected **separately**, because `.` is a permitted
+  character and `..` therefore clears the charset arm untouched while still
+  being a path component that escapes a directory.
+
+A speculated related defect was checked and withdrawn: `spec_store.validate_key`
+already rejects `..`, `.` and `../x`, so `specs/<KEY>/` was never escapable that
+way. Recorded because a suspicion that is not written down as *checked and false*
+tends to get re-investigated.
+
+Order matters and is pinned: validating after `REPORT_DIR` is resolved would
+already have created the file the check exists to prevent.
+
+Pins: `registry/tests/test_gate_validates_its_args.py` (6). Mutation: 6
+mutations, 6 killed — including "guard rejects everything", which every other
+assertion in the file would have passed while the product was broken.
+`make test-gate` stays green (16 checks).

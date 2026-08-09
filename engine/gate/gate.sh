@@ -4,6 +4,27 @@
 # Framework-agnostic: lint/test commands come from the repo's .ai-qe/config.yaml.
 set -euo pipefail
 KEY=${1:?key}; TREPO=${2:?test_repo_name}
+# Both arguments are interpolated into a path ($REPORT_DIR/${KEY}-${TREPO}.log)
+# and into the commit message, so they are validated HERE rather than trusted to
+# have been validated by whoever called. pipeline.sh does check its KEY at entry,
+# but it is not the only caller: .openhands/hooks/gate-check.sh takes KEY from
+# the environment, and anything invoking the gate directly supplies both. A
+# guard that exists in one branch and not its sibling is how a guard gets lost
+# (the same reasoning as R4 in CLAUDE.md), and this is the component holding the
+# push credential. Charset matches pipeline.sh's exactly so the two cannot
+# disagree about what a key is; `..` is rejected separately because it PASSES
+# that charset while still being a path component that escapes.
+for _arg in "$KEY" "$TREPO"; do
+  case "$_arg" in
+    ""|*[!A-Za-z0-9._-]*)
+      echo "INVALID_ARG: '$_arg' — key and test-repo name must be 1+ characters"
+      echo "  from [A-Za-z0-9._-]. Nothing ran."; exit 64;;
+    .|..)
+      echo "INVALID_ARG: '$_arg' is a path component, not a name. Nothing ran."
+      exit 64;;
+  esac
+done
+unset _arg
 ROOT="${AIQE_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
 REPORT_DIR="$ROOT/reports"; mkdir -p "$REPORT_DIR"
 
