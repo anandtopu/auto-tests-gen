@@ -40,6 +40,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import budget  # noqa: E402
 import fs_lock  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -109,12 +110,82 @@ def clear():
 
 # --- submission -------------------------------------------------------------
 
+def estimate(reqs=None):
+    """(usd, basis, detail) for what submitting would cost.
+
+    An ESTIMATE, and labelled as one everywhere it surfaces. Input tokens are
+    approximated from prompt length (~4 chars/token) and output is charged at
+    the full `max_tokens` per request, so this is a WORST CASE — deliberately,
+    because a ceiling that is only respected on average is not a ceiling.
+    """
+    reqs = pending() if reqs is None else reqs
+    if not reqs:
+        return 0.0, "estimated", "nothing spooled"
+    total, basis = 0.0, "estimated"
+    for r in reqs:
+        usage = {"input_tokens": max(1, len(r.get("prompt") or "") // 4),
+                 "output_tokens": MAX_TOKENS}
+        cost, b = budget.priced("batch", r.get("model") or "", usage)
+        if b == "unknown" or cost is None:
+            # One unpriceable model makes the whole total unknown; adding the
+            # rest would report a partial figure as if it were the answer.
+            return None, "unknown", (
+                f"no `pricing:` entry for batch model {r.get('model')!r}")
+        total += cost
+    return round(total, 6), basis, f"{len(reqs)} request(s), worst case"
+
+
+def _ceiling():
+    """(usd, source). 0 means no ceiling was asked for."""
+    raw = (os.environ.get("AIQE_BATCH_SPOOL_MAX_USD") or "").strip()
+    if raw:
+        try:
+            return float(raw), "AIQE_BATCH_SPOOL_MAX_USD"
+        except ValueError:
+            # A typo must not silently mean "unlimited".
+            raise RuntimeError(
+                f"AIQE_BATCH_SPOOL_MAX_USD={raw!r} is not a number — refusing "
+                f"to submit rather than treat an unreadable ceiling as none")
+    try:
+        import yaml
+        cfg = yaml.safe_load(open(ROOT / "registry/org-config.yaml",
+                                  encoding="utf-8")) or {}
+        v = (cfg.get("budgets") or {}).get("batch_spool_usd")
+        if isinstance(v, (int, float)) and v > 0:
+            return float(v), "org-config budgets.batch_spool_usd"
+    except Exception:
+        pass
+    return 0.0, ""
+
+
 def submit(now=None):
     """Send every spooled request as ONE batch. Returns the batch record."""
     reqs = pending()
     if not reqs:
         return {"state": "empty",
                 "message": "nothing spooled — `add` some requests first"}
+
+    # A spool is the largest single spend this platform can commit, and the
+    # exit-77 ceiling cannot see it: that one is checked BEFORE each phase of a
+    # RUN, and this is many keys at once, committed in a single call. So the
+    # check happens here or nowhere.
+    cap, source = _ceiling()
+    est, basis, detail = estimate(reqs)
+    if cap > 0:
+        if basis == "unknown":
+            # C13: asked for a ceiling, cannot compute spend. Refusing is the
+            # only honest answer — proceeding would enforce nothing silently.
+            raise RuntimeError(
+                f"BATCH_CEILING_UNENFORCEABLE: a ${cap:.2f} ceiling is set "
+                f"({source}) but this spool cannot be priced — {detail}. "
+                f"Add the entry to `pricing:` in registry/org-config.yaml, or "
+                f"unset the ceiling to submit unpriced.")
+        if est > cap:
+            raise RuntimeError(
+                f"BATCH_CEILING_EXCEEDED: submitting would cost about "
+                f"~${est:.2f} ({detail}) against a ${cap:.2f} ceiling "
+                f"({source}). Nothing was sent and the spool is untouched — "
+                f"split it, or raise the ceiling.")
     if len(reqs) > MAX_REQUESTS:
         raise RuntimeError(
             f"{len(reqs)} requests exceeds the API's {MAX_REQUESTS}-per-batch "
@@ -137,6 +208,9 @@ def submit(now=None):
         raise RuntimeError(f"batch submit returned no id ({json.dumps(resp)[:200]})")
 
     rec = {"id": bid, "submitted": int(now or time.time()), "drained": False,
+           # Recorded so "what did that batch cost?" is answerable
+           # later; `basis` keeps it readable as an estimate.
+           "estimate_usd": est, "estimate_basis": basis,
            # The routing table. Kept HERE rather than re-derived at drain time,
            # because the spool is cleared once the batch is accepted and a
            # result whose key we cannot recover is a plan nobody can find.

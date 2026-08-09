@@ -315,6 +315,40 @@ If step 3 shows the eligible phases are a small share of spend (plausible:
 building** and the honest recommendation collapses to slice 2 only, for bulk
 authoring. This PRD should be revised, not defended.
 
+**Adversarial coverage — and why there is no `make test-batch`.**
+
+This PRD proposed a new shell suite. Building it would have duplicated pins that
+already run inside `make review` (pytest is its first stage), and the batch pins
+already drive the real adapter as a subprocess against a local HTTP stub of the
+API — the same class of test a shell suite gives, exercising real HTTP rather
+than a scaffold. A second target asserting the same things is maintenance with
+no extra defence, so the eight attacks are mapped to where they are actually
+covered instead:
+
+| # | Attack | Covered by |
+|---|---|---|
+| 1 | an expired request reports `expired`, **not billed**, never "produced nothing" | `test_batch_provider` (adapter) + `test_batch_spool` (drain) |
+| 2 | an in-flight batch is never a completed $0 phase | `test_batch_provider::…never_ends…` + `test_batch_spool::…still_running…` |
+| 3 | results returned **out of order** correlate by `custom_id` | both files; the stubs answer with a decoy row / reversed rows |
+| 4 | unavailable or unauthenticated → refusal naming the fix, never a fallback | `test_batch_provider::…missing_api_key…` + `test_batch_spool::…unreachable…` |
+| 5 | an agentic phase on batch is refused at **config time** | `test_batch_provider::…completion_class…` |
+| 6 | `tool_policy` never wider than requested | `test_batch_provider` + adapter conformance |
+| 7 | a spooled batch breaching the ceiling is refused at submission | `test_batch_spool` ceiling pins (**built in slice 3**) |
+| 8 | batch and sync must not share a phase-cache entry | already safe by construction — `run_phase.sh` passes `${PROVIDER}:${FINAL_MODEL}` into `phase_cache.key()` at **both** call sites; the existing cache-poisoning attack in `make test-providers` covers the mechanism |
+
+Attack 7 was the only one that named real missing work, and it is now built:
+`batch_spool.submit()` prices the spool at submission (worst case — output
+charged at the full `max_tokens`, because a ceiling respected on average is not
+a ceiling) and refuses over `AIQE_BATCH_SPOOL_MAX_USD` / org-config
+`budgets.batch_spool_usd`. Two refusals that matter as much as the obvious one:
+a ceiling that **cannot be priced** refuses rather than enforcing nothing
+silently, and an unreadable ceiling value refuses rather than meaning
+"unlimited". 6 mutations, 6 killed.
+
+Superseded plan, kept for the record:
+
+<!-- original list retained below -->
+
 **Adversarial suite (`make test-batch`), mirroring `make test-providers`:**
 
 - a batch that expires reports `expired` and **$0 not billed**, never "the phase

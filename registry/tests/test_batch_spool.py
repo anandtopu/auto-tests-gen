@@ -233,3 +233,91 @@ def test_status_reports_unknown_when_the_api_cannot_be_asked(spool, monkeypatch)
     st = spool.status()
     assert st and st[0]["state"] == "unknown"
     assert "could not reach" in st[0]["detail"]
+
+
+# --- the spend ceiling ------------------------------------------------------
+#
+# A spool is the largest single spend this platform can commit, and exit-77
+# cannot see it: that ceiling is checked BEFORE each phase of a RUN, while a
+# spool is many keys committed in one call. So the check happens at submit or
+# nowhere -- which is why "the envelope silently stops applying to the largest
+# workload" was called out in the PRD before any of this was built.
+
+PRICED = {"batch": {"m": {"in": 1.50, "out": 7.50}}}
+
+
+def test_a_spool_over_the_ceiling_is_refused_and_nothing_is_sent(spool, monkeypatch):
+    monkeypatch.setattr(spool.budget, "_pricing", lambda: PRICED)
+    monkeypatch.setenv("AIQE_BATCH_SPOOL_MAX_USD", "0.0001")
+    _spool_three(spool)
+    with pytest.raises(RuntimeError, match="BATCH_CEILING_EXCEEDED"):
+        spool.submit()
+    assert STATE["submitted"] is None, "requests were sent despite the ceiling"
+    assert len(spool.pending()) == 3, "the spool was consumed by a refused submit"
+
+
+def test_a_ceiling_that_cannot_be_priced_refuses_rather_than_enforcing_nothing(
+        spool, monkeypatch):
+    """C13. The operator asked for a ceiling; we cannot compute the spend.
+    Proceeding would enforce nothing while looking enforced."""
+    monkeypatch.setattr(spool.budget, "_pricing", lambda: {})   # no batch entry
+    monkeypatch.setenv("AIQE_BATCH_SPOOL_MAX_USD", "100")
+    _spool_three(spool)
+    with pytest.raises(RuntimeError, match="BATCH_CEILING_UNENFORCEABLE") as e:
+        spool.submit()
+    assert "pricing" in str(e.value), "the refusal does not name the fix"
+    assert STATE["submitted"] is None
+
+
+def test_no_ceiling_configured_still_submits(spool, monkeypatch):
+    """Control. Refusing everything would satisfy both tests above while
+    breaking the feature -- and the default estate has no ceiling set."""
+    monkeypatch.delenv("AIQE_BATCH_SPOOL_MAX_USD", raising=False)
+    monkeypatch.setattr(spool.budget, "_pricing", lambda: {})
+    _spool_three(spool)
+    rec = spool.submit()
+    assert rec["id"] == "msgbatch_spool"
+    assert STATE["submitted"] is not None
+
+
+def test_a_spool_under_the_ceiling_submits(spool, monkeypatch):
+    monkeypatch.setattr(spool.budget, "_pricing", lambda: PRICED)
+    monkeypatch.setenv("AIQE_BATCH_SPOOL_MAX_USD", "1000")
+    _spool_three(spool)
+    rec = spool.submit()
+    assert STATE["submitted"] is not None
+    assert rec["estimate_basis"] == "estimated", \
+        "the recorded figure does not say it is an estimate"
+    assert rec["estimate_usd"] > 0
+
+
+def test_an_unreadable_ceiling_is_not_treated_as_unlimited(spool, monkeypatch):
+    """A typo in the one control that stops a large spend must not mean 'off'."""
+    monkeypatch.setenv("AIQE_BATCH_SPOOL_MAX_USD", "ten dollars")
+    _spool_three(spool)
+    with pytest.raises(RuntimeError, match="not a number"):
+        spool.submit()
+    assert STATE["submitted"] is None
+
+
+def test_the_estimate_is_worst_case_not_average(spool, monkeypatch):
+    """A ceiling respected on average is not a ceiling: output is charged at
+    the full max_tokens per request."""
+    monkeypatch.setattr(spool.budget, "_pricing", lambda: PRICED)
+    spool.add("K", "testplan", "m", "x" * 4000)
+    est, basis, _ = spool.estimate()
+    floor = spool.MAX_TOKENS / 1_000_000 * 7.50
+    assert basis == "estimated"
+    assert est >= floor, (
+        f"estimate {est} is below the worst-case output cost {floor} -- output "
+        "is being charged at less than max_tokens")
+
+
+def test_one_unpriceable_model_makes_the_whole_total_unknown(spool, monkeypatch):
+    """A partial sum would be reported as if it were the answer."""
+    monkeypatch.setattr(spool.budget, "_pricing", lambda: PRICED)
+    spool.add("K1", "testplan", "m", "hello")
+    spool.add("K2", "testplan", "not-priced", "hello")
+    est, basis, detail = spool.estimate()
+    assert est is None and basis == "unknown"
+    assert "not-priced" in detail
