@@ -374,3 +374,52 @@ inside `priced()` would report every batch bill at a quarter of its real size.
 Pins: `registry/tests/test_batch_provider.py` (17), most of them driving the
 adapter end to end against a local stub of the API rather than grepping source.
 Mutation: 9 mutations, 9 killed.
+
+### Slice 2 — the batch spool (`engine/lib/batch_spool.py`)
+
+Many requests, **one** batch. To be clear about what it buys, since the first
+draft of the PRD got this wrong: **not a bigger discount.** All Batches API
+usage is 50% off, so slice 1's one-request batches already capture the whole
+saving. The spool buys **wall clock** — forty tickets submitted as forty
+one-request batches are forty sequential waits of up to an hour; as one batch
+they finish together.
+
+```bash
+make batch-spool KEY=PROJ-1 PHASE=testplan MODEL=claude-sonnet-4-6 FILE=out/prompt.txt
+make batch-pending      # what is queued but not sent
+make batch-submit       # send it all as ONE batch
+make batch-status       # per batch: what the API says, never a guess
+make batch-drain        # retrieve ended batches; every request gets an outcome
+```
+
+Two failure modes belong to N-in-one specifically, and both are pinned:
+
+- **Correlation.** Results may return in any order. With one request a
+  positional read is sloppy; with forty it files ticket A's plan under ticket
+  B's key, and nothing downstream can detect that. Everything is matched by
+  `custom_id`, and the pins answer with the rows **reversed**.
+- **Partial outcomes.** One batch can end with some succeeded, some errored and
+  some expired. Failing the whole drain throws away work already paid for;
+  dropping the failures under-delivers in silence. Every request gets an entry,
+  and `summarize()` returns counts per state so a partial drain cannot read as
+  a clean one.
+
+Other decisions worth knowing: the key/phase routing table is stored on the
+**batch record**, not the spool, because `submit` clears the spool and a result
+whose key cannot be recovered is a plan nobody can find; a failed submit leaves
+the spool **intact** so the operator can just retry; a batch that has not ended
+is `still_processing`, never "produced nothing"; and when the API cannot be
+reached, `status` says `unknown` rather than guessing `in_progress` (C13).
+
+State lives under `AIQE_BATCH_DIR` (default `reports/batch/`), written through
+`fs_lock` like every other durable store, and redirected in tests so the suite
+never writes into the estate.
+
+**Not built here, and deliberately named:** `make batch-plan RELEASE=x`. Turning
+a release into spooled prompts needs the pipeline's per-ticket context assembly
+(ticket fetch, resolve, AGENTS.md/scoped context), which is a pipeline change
+rather than a spool one. The spool is usable today by anything that can produce
+a prompt; wiring `pipeline.sh plan` to spool instead of calling the provider is
+the next slice.
+
+Pins: `registry/tests/test_batch_spool.py` (13). Mutation: 8 mutations, 8 killed.

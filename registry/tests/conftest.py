@@ -96,6 +96,7 @@ for _var, _dest in (("AIQE_QUEUE_FILE", "out/test-queue.json"),
                     ("AIQE_COSTS_DIR", "out/test-costs"),
                     ("AIQE_EXPORTS_DIR", "out/test-exports"),
                     ("AIQE_VECTOR_DB", "out/test-knowledge-index/vectors.db"),
+                    ("AIQE_BATCH_DIR", "out/test-batch"),
                     ("AIQE_TESTCASE_PROVENANCE_FILE",
                      "out/test-testcase-provenance.jsonl")):
     if not (os.environ.get(_var) or "").strip():

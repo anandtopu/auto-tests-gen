@@ -209,6 +209,16 @@ index-rebuild:        # force-rebuild the semantic vector index from the knowled
 index-stats:          # testcase parse coverage by registered E2E repository
 	python3 engine/lib/knowledge_chunks.py index-stats
 
+batch-spool:          # queue one request for the next batch (KEY=.. PHASE=.. MODEL=.. FILE=..)
+	python3 engine/lib/batch_spool.py add "$(KEY)" "$(PHASE)" "$(MODEL)" "$(FILE)"
+batch-pending:        # what is queued but not yet sent
+	python3 engine/lib/batch_spool.py pending
+batch-submit:         # send everything queued as ONE batch (50% off, async)
+	python3 engine/lib/batch_spool.py submit
+batch-status:         # per in-flight batch: what the API says (never a guess)
+	python3 engine/lib/batch_spool.py status
+batch-drain:          # retrieve ended batches; every request gets an outcome
+	python3 engine/lib/batch_spool.py drain
 cache-stats:          # phase-cache hit report (LLM calls avoided)
 	python3 engine/lib/phase_cache.py stats
 cache-clear:          # drop every cached phase result
