@@ -353,6 +353,24 @@ in any order — the API's own example returns the second request before the
 first — so even a one-request batch is correlated by id. The pins answer with a
 decoy row first, so a positional shortcut fails immediately.
 
-Pins: `registry/tests/test_batch_provider.py` (14), most of them driving the
+### Slice 1b — no batch-specific cost code was needed
+
+Checked rather than assumed: `budget.py` became provider-agnostic in multi-LLM
+slice 3, so batch already flows through it correctly. Measured on a crafted
+ledger, an unpriced batch phase gives `unpriced() -> (2, ['batch'])` and
+`enforceability() -> unenforceable`, with a message naming **batch** and the
+`pricing:` fix — i.e. the ceiling reports that it cannot fire, instead of saying
+"within budget" over spend it could not price (the R1 defect). With halved rates
+configured, the same call prices at exactly 50% of its full-price equivalent and
+carries basis `estimated`.
+
+So slice 1b added pins, not code. Three of them, because each guards a way the
+figure could silently become wrong: unknown-basis spend must keep making the
+ceiling report itself unenforceable; batch must never claim basis `reported`
+(the API returns tokens, not dollars); and the 50% must never be applied
+**twice** — org-config asks for already-halved rates, so a later multiplier
+inside `priced()` would report every batch bill at a quarter of its real size.
+
+Pins: `registry/tests/test_batch_provider.py` (17), most of them driving the
 adapter end to end against a local stub of the API rather than grepping source.
 Mutation: 9 mutations, 9 killed.

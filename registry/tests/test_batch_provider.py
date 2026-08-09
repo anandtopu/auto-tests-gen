@@ -250,3 +250,64 @@ def test_unpriced_batch_spend_is_unknown_never_zero():
                                 {"input_tokens": 10_000_000, "output_tokens": 1_000_000})
     assert basis == "unknown" and cost is None, (
         "an unpriced provider reporting 0 understates a real bill -- the R1 defect")
+
+
+# --- batch inside the generic spend-control stack ---------------------------
+#
+# No batch-specific cost code was written, and that is the finding rather than
+# an omission: budget.py became provider-agnostic in multi-LLM slice 3, so batch
+# already flows through priced() / unpriced() / enforceability() correctly. What
+# was missing is proof that it KEEPS doing so, which is what these pin.
+
+def test_unpriced_batch_makes_the_ceiling_report_itself_unenforceable(tmp_path):
+    """The R1 defect, one provider along: an unpriced provider records cost 0,
+    so the exit-77 ceiling never fires and the run reports "within budget"
+    while burning tokens. Cost cannot be invented -- but the INABILITY to
+    enforce has to be visible and has to name the provider."""
+    led = tmp_path / "cost.tsv"
+    led.write_text(
+        "testplan\t0\t0\t100\tclaude-sonnet-4-6\t1200000\t340000\t0\t0\t1\tbatch\tunknown\n",
+        encoding="utf-8")
+    calls, provs = budget.unpriced(str(led))
+    assert calls == 1 and provs == ["batch"]
+
+    import os
+    old = os.environ.get("MAX_COST_USD_PER_RUN")
+    os.environ["MAX_COST_USD_PER_RUN"] = "5"
+    try:
+        state, msg = budget.enforceability(str(led))
+    finally:
+        if old is None:
+            os.environ.pop("MAX_COST_USD_PER_RUN", None)
+        else:
+            os.environ["MAX_COST_USD_PER_RUN"] = old
+    assert state in ("partial", "unenforceable"), \
+        f"unpriced batch spend reported as {state!r} -- i.e. as enforced"
+    assert "batch" in msg, "the message does not name the provider that cannot be priced"
+    assert "pricing" in msg.lower(), "the message does not name the fix"
+
+
+def test_priced_batch_is_estimated_never_reported(monkeypatch):
+    """The Batch API returns tokens, not dollars. `reported` means the provider
+    gave us a dollar figure; claiming it here would dress an estimate up as a
+    billed number."""
+    monkeypatch.setattr(budget, "_pricing",
+                        lambda: {"batch": {"m": {"in": 1.50, "out": 7.50}}})
+    cost, basis = budget.priced("batch", "m",
+                                {"input_tokens": 1_000_000, "output_tokens": 200_000})
+    assert basis == "estimated", f"batch spend claimed basis {basis!r}"
+    assert cost == pytest.approx(3.0)
+
+
+def test_the_50_percent_discount_is_not_applied_twice(monkeypatch):
+    """org-config asks for rates ALREADY HALVED, so the discount lives in one
+    place. If a later change also multiplies by 0.5 inside priced(), every batch
+    bill is reported at a quarter of its real size -- an understatement, the
+    direction this whole stack exists to prevent."""
+    monkeypatch.setattr(budget, "_pricing",
+                        lambda: {"batch": {"m": {"in": 2.0, "out": 0.0}}})
+    cost, _ = budget.priced("batch", "m",
+                            {"input_tokens": 1_000_000, "output_tokens": 0})
+    assert cost == pytest.approx(2.0), (
+        "priced() no longer returns tokens x the configured rate -- a second "
+        f"discount is being applied somewhere (got {cost}, expected 2.0)")
