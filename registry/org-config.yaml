@@ -186,14 +186,23 @@ pricing:
   # honest, while a wrong hardcoded rate would quietly understate a real bill
   # (the R1 defect: 27.5M tokens once reported "$0.00, within budget").
   #
-  # Enter YOUR contracted rates per million tokens, ALREADY HALVED — batched
-  # requests are billed at 50% of the synchronous price, and halving here keeps
-  # one number per model instead of a discount applied in two places:
+  # Enter YOUR contracted rates per million tokens, using the published BATCH
+  # prices (already 50% of standard — halving here keeps one number per model
+  # rather than a discount applied in two places). Anthropic publishes the batch
+  # column directly; these are those figures as of 2026-08-09:
   #
   # batch:
-  #   "claude-sonnet-4-6":          {in: 1.50, out: 7.50}   # = list / 2
-  #   "claude-haiku-4-5-20251001":  {in: 0.50, out: 2.00}   # = list / 2
+  #   "claude-sonnet-4-6":          {in: 1.50, out: 7.50}
+  #   "claude-haiku-4-5-20251001":  {in: 0.50, out: 2.50}
   #   "*":                          {in: 1.50, out: 7.50}
+  #
+  # Two warnings, both learned the hard way. An earlier draft of this comment
+  # GUESSED haiku's output rate at 2.00 against a published 2.50 — a 20%
+  # understatement, i.e. exactly the failure the paragraph above warns about.
+  # Copy from the pricing page, do not infer. And these figures move: Claude
+  # Sonnet 5's introductory batch rate ($1.00/$5.00) ends 2026-08-31 and becomes
+  # $1.50/$7.50 on 2026-09-01, so an estate pricing Sonnet 5 today will silently
+  # under-report from September unless this is revisited.
   #
   # Until it is set, `budget.enforceability()` reports the ceiling as partial or
   # unenforceable and names this key — the inability to enforce is visible

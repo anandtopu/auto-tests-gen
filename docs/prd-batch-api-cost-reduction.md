@@ -1,6 +1,6 @@
 # PRD — Message Batches API as a cost-reduction provider
 
-**Status:** proposal (not built)
+**Status:** slices 1 + 1b BUILT (`adapters/llm/batch.sh`, 17 pins); slices 2-3 proposed
 **Author:** AI QE Platform, Product
 **Date:** 2026-08-09
 **Related:** `docs/multi-llm-providers.md` (the LLM Runner port this builds on),
@@ -140,6 +140,17 @@ this feature specifically to spend less.
 
 Batch is not a switch that makes the current product cheaper without changing
 it. It is worth having in three places, in descending order of value:
+
+> **Correction (2026-08-09, after slice 1 shipped).** An earlier draft of this
+> section called the spooled fan-out "the real win" and implied the saving grew
+> with batch size. It does not. The pricing page states that **all** Batches API
+> usage is charged at 50% of standard prices — the discount is a property of
+> *using* the API, not of how many requests share a batch, and a batch of one
+> gets the full 50%. **Slice 1 therefore already captures 100% of the price
+> saving.** Slice 2 buys *throughput and wall-clock*, which is still worth
+> having (40 tickets as 40 sequential one-request batches could take 40 hours;
+> as one batch it is about one) — but it must be justified on latency, not
+> money. §8 is corrected to match.
 
 ### 5.1 Bulk plan authoring (the strongest case)
 "Generate test plans for every ticket in release 24.3" is 40 tickets ×
@@ -281,7 +292,7 @@ stops applying to exactly the workload designed to be large.
 | Slice | Content | Value |
 |---|---|---|
 | 1 | `adapters/llm/batch.sh`, capabilities/tool_policy/check, blocking mode, `pricing:` + `batch_discount`, cost basis, config + Settings, conformance | 50% on eligible phases for queued/background work |
-| 2 | Spool + `make batch-plan/status/drain`, `custom_id` correlation, envelope pricing at submit | the bulk-authoring win (§5.1) |
+| 2 | Spool + `make batch-plan/status/drain`, `custom_id` correlation, envelope pricing at submit | **throughput, not extra discount** — 40 tickets in ~1h instead of ~40 sequential batches (see the §5 correction) |
 | 3 | Wire the bootstrap classify stage and `make maintain` analysis to batch | background spend halved |
 | 4 | Optional PR-triage batching behind `include_pr_triage` | org-by-org latency call |
 | 5 | `make test-batch` adversarial suite (§9) | proof the failure modes are honest |
