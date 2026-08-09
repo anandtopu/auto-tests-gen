@@ -52,8 +52,19 @@ if echo "$CHANGED" | grep -vE '^(tests/|suites/|fixtures/|data/|pages/|catalog/)
   echo "SCOPE_VIOLATION"; exit 2
 fi
 
+# What counts as a generated test file. `.spec.(ts|js)` ALONE was a hole: a file
+# named `foo.test.ts` was neither required to have a catalog sidecar nor
+# executed, yet `git add -A` committed and pushed it. Playwright's default
+# testMatch is `**/*.@(spec|test).[jt]s`, and this platform already treats all
+# four suffixes as first-class elsewhere (testcase_learning.SPEC_SUFFIXES,
+# spec_exemplars' "a mature .test.js estate must not be misread"). So for any
+# onboarded repo using .test.ts naming — a configuration explicitly supported —
+# the constitution's "every generated spec must be born-mapped or the gate
+# rejects it" was simply false, and nothing executed the tests before pushing.
+SPEC_RE='\.(spec|test)\.(ts|js)$'
+
 # 2. Born-mapped: every new spec has a catalog sidecar entry
-NEW_SPECS=$(echo "$CHANGED" | grep -E '\.spec\.(ts|js)$' || true)
+NEW_SPECS=$(echo "$CHANGED" | grep -E "$SPEC_RE" || true)
 for spec in $NEW_SPECS; do
   git ls-files --error-unmatch "$spec" >/dev/null 2>&1 && continue   # existing (modified) spec
   # Fixed-string, quote-delimited match: the path must appear as a complete JSON
@@ -77,7 +88,7 @@ bash -c "$LINT_CMD"
 
 # 4. Execute exactly the new/changed specs, inside the provisioned environment
 # (single line — a newline-separated list would make `bash -c` execute file 2+ as commands)
-SPECS=$(echo "$CHANGED" | grep -E '\.spec\.(ts|js)$' | tr '\n' ' ' || true)
+SPECS=$(echo "$CHANGED" | grep -E "$SPEC_RE" | tr '\n' ' ' || true)
 if [ -n "$SPECS" ]; then
   bash "$ROOT/bin/with-env.sh" . -- bash -c "$TEST_CMD $SPECS" \
     > "$REPORT_DIR/${KEY}-${TREPO}.log" 2>&1 || { echo "TESTS_FAILED"; tail -5 "$REPORT_DIR/${KEY}-${TREPO}.log"; exit 5; }
@@ -85,7 +96,22 @@ fi
 
 # 5. Secret / PII pattern scan on new content (capture-then-test: under pipefail a
 # failing left-hand stage must not discard a grep match via the trailing || true)
-FOUND=$({ git diff HEAD; git ls-files --others --exclude-standard -z | xargs -0 -r cat; } \
+#
+# Read the FILES, never `git diff`. `git diff HEAD` honours .gitattributes from
+# the WORKING TREE, so a run that writes `tests/.gitattributes` containing
+# `* -diff` makes the diff emit "Binary files a/x and b/x differ" — no content —
+# and the scan then sees nothing. Verified: that pair (a .gitattributes plus a
+# secret appended to an already-tracked spec) passes scope and charset, needs no
+# catalog sidecar, and the secret is committed and pushed on a SINGLE run. The
+# untracked half was never affected because it already `cat`s files raw; this
+# makes the tracked half behave the same way.
+#
+# Reading whole files also scans MORE than the diff did: a secret already
+# present in an untouched region of a modified file is now caught too.
+CHANGED_TRACKED=$(git diff --name-only HEAD || true)
+FOUND=$({ [ -n "$CHANGED_TRACKED" ] && printf '%s\n' "$CHANGED_TRACKED" \
+            | tr '\n' '\0' | xargs -0 -r cat 2>/dev/null
+          git ls-files --others --exclude-standard -z | xargs -0 -r cat 2>/dev/null; } \
   | grep -iE '(api[_-]?key|password|secret|token)\s*[:=]\s*["'"'"'][^"'"'"']+' || true)
 if [ -n "$FOUND" ]; then echo "SECRET_PATTERN"; exit 3; fi
 
@@ -111,6 +137,41 @@ case "$(printf '%s' "${AIQE_GATE_CHECK_ONLY-0}" | tr 'A-Z' 'a-z')" in
           "CHECK-ONLY. Nothing was committed or pushed." >&2
      echo "GATE_STATUS=WOULD_COMMIT"; exit 0 ;;
 esac
+
+# 5b. RE-CHECK SCOPE AGAINST THE TREE WE ARE ABOUT TO COMMIT.
+#
+# Every check above ran against $CHANGED, computed at line 36 — BEFORE step 4
+# executed LLM-authored test code. `git add -A` stages whatever exists now. So a
+# generated spec that writes a file while it runs was never scope-checked, never
+# charset-checked and never born-mapped, yet gets committed and pushed.
+#
+# The worst instance is self-perpetuating: a spec that writes `.ai-qe/config.yaml`
+# during execution gets it committed, and the NEXT run in that repo reads its
+# lint/test commands from `git show HEAD:` — the "commands come from the
+# COMMITTED config" guard — and executes the attacker's command with the
+# credential that holds push rights. Both documented defences ("`.ai-qe/` is off
+# the writable scope" and "commands are read from the committed config") are
+# defeated by the same primitive, because one is enforced too early and the
+# other trusts what the first one let through.
+#
+# Re-checking here is cheap and closes the window: the tree is inspected at the
+# last possible moment, immediately before it becomes a commit.
+FINAL=$(git diff --name-only HEAD; git ls-files --others --exclude-standard)
+FINAL=$(echo "$FINAL" | sed '/^$/d')
+if echo "$FINAL" | grep -qE '[^A-Za-z0-9._/-]'; then
+  echo "SCOPE_VIOLATION (unsafe characters in filename, appeared during execution)"
+  exit 2
+fi
+if echo "$FINAL" | grep -vE '^(tests/|suites/|fixtures/|data/|pages/|catalog/)' ; then
+  echo "SCOPE_VIOLATION (path appeared during test execution)"; exit 2
+fi
+# Born-mapped, re-applied: a spec that materialised during execution must carry a
+# sidecar exactly as one written by the generate phase does.
+for spec in $(echo "$FINAL" | grep -E "$SPEC_RE" || true); do
+  git ls-files --error-unmatch "$spec" >/dev/null 2>&1 && continue
+  grep -qF "\"$spec\"" catalog/*.jsonl 2>/dev/null || {
+    echo "UNMAPPED_TEST $spec (appeared during test execution)"; exit 4; }
+done
 
 # 6. Commit & push (branch protection blocks main; token scoped to branches)
 git add -A

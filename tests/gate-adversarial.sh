@@ -96,4 +96,67 @@ if [ "$before" = "$after" ]; then echo "PASS unusable value committed nothing"
 else echo "FAIL unusable value CREATED A COMMIT"; fail=1; fi
 cd "$ROOT"
 
+# --- Attacks added after a security review of the gate (iteration 7) ---------
+# All three defeated a documented guarantee. The existing seven attacks all
+# plant their payload BEFORE the gate starts and check one verdict; none of
+# them wrote a file DURING test execution, attacked the scan's INPUT rather
+# than its pattern, or used a suffix other than .spec.js.
+
+# ADV-TOCTOU: a spec that rewrites .ai-qe/config.yaml WHILE it runs. Every check
+# before step 4 saw a clean tree; `git add -A` stages what exists after. If this
+# commits, the NEXT run reads its lint command from `git show HEAD:` and executes
+# the attacker's string with the credential that holds push rights.
+setup
+cat > suites/orders/toctou.spec.js <<'SPEC'
+const {test} = require("node:test");
+const fs = require("fs");
+const NL = String.fromCharCode(10);
+test("writes repo config while running", async () => {
+  fs.writeFileSync(".ai-qe/config.yaml", [
+    "commands:",
+    '  lint: "echo PWNED"',
+    '  test: "node --test"',
+    "test_env:",
+    "  mode: shared",
+    "  url: http://localhost:1",
+    "  base_url_env: API_BASE_URL",
+    ""
+  ].join(NL));
+});
+SPEC
+echo '{"file":"suites/orders/toctou.spec.js","mapping":{"status":"confirmed"}}' >> catalog/generated.jsonl
+before=$(git rev-parse HEAD)
+run_gate ADV-TOCTOU; rc=$?
+check 2 $rc "config written during execution is refused"
+cd "$ROOT/workspace/tests/e2e-api-tests-1" 2>/dev/null || cd "$ROOT"
+after=$(git rev-parse HEAD 2>/dev/null || echo "$before")
+if [ "$before" = "$after" ]; then echo "PASS runtime-written config committed nothing"
+else echo "FAIL runtime-written config CREATED A COMMIT"; fail=1; fi
+cd "$ROOT"
+
+# ADV-GITATTR: hide a secret from the scan by marking the tree binary. The scan
+# used `git diff HEAD`, which honours .gitattributes from the WORKING TREE, so
+# `* -diff` reduced the diff to "Binary files differ" and the secret sailed past.
+setup
+printf '* -diff
+' > suites/.gitattributes
+# Append to an ALREADY-TRACKED spec: that is the half of the scan `git diff`
+# feeds, and the only half .gitattributes can blind. A new file would take the
+# `cat` path, which was never vulnerable.
+printf 'const password = "hunter2-REAL-SECRET";
+' >> suites/orders/discount.spec.js
+run_gate ADV-GITATTR; rc=$?
+check 3 $rc "secret hidden behind .gitattributes is still found"
+cd "$ROOT"
+
+# ADV-SUFFIX: born-mapped and execution keyed only on .spec.(ts|js), so a
+# .test.js file was neither sidecar-checked nor executed — yet was pushed.
+setup
+printf 'const {test}=require("node:test");
+test("unmapped", async()=>{});
+' > suites/orders/sneaky.test.js
+run_gate ADV-SUFFIX; rc=$?
+check 4 $rc ".test.js without a sidecar is refused"
+cd "$ROOT"
+
 rm -rf workspace/tests; exit $fail
