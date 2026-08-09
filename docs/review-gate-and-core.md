@@ -339,3 +339,49 @@ That pin searched the raw source for `exit <code>`, so my own summary string
 green. It now strips comments and double-quoted strings before looking, and
 accepts `-eq <code>` as evidence for codes we do not raise ourselves. Mutation:
 8 mutations, 8 killed, including that one.
+
+## Deferred: the secret scan cannot prove it read everything
+
+The scan reads whole files rather than the diff (see the note above the
+`CHANGED_TRACKED` block, which records why). It builds its input like this:
+
+```
+... | xargs -0 -r cat 2>/dev/null
+```
+
+`cat`'s failures are sent to `/dev/null` and its exit status is discarded by the
+pipeline, so a file the scan could not read contributes no content and is
+indistinguishable from a file containing nothing of interest. The gate then
+reports no secret and commits. That is the C13 shape in a security control, so
+it is written down rather than left as a comment nobody reads.
+
+**Why it is deferred rather than fixed now.** The consequence needs a file that
+exists, has content, and cannot be read. In this deployment the gate runs as a
+single non-root user inside the container, scanning files that same user just
+wrote, so a permission denial is not a scenario the design produces. The other
+`cat` failures are benign and must stay silent — a path listed by
+`git diff --name-only HEAD` because it was DELETED is supposed to contribute
+nothing, and refusing on it would break every run that removes a spec.
+
+Attempting to reproduce it on the development host failed: Windows ACLs
+(`icacls /deny`) do not deny the file's own owner, so no unreadable-but-present
+file could be created. Rather than harden the most security-sensitive file in
+the repo against a scenario that could not be exercised, the finding is recorded
+with its trigger.
+
+**Trigger to implement.** Do it when any of these becomes true:
+
+- the gate starts scanning files it did not write (bundle import, a shared
+  volume, a repo mounted from elsewhere), or runs as a different user than the
+  one that produced the workspace;
+- a deployment target appears where read failures are plausible (network
+  filesystem, quota, SELinux/AppArmor confinement);
+- any read failure is observed in practice.
+
+**Shape of the fix, so it is not re-derived.** Filter the list to regular files
+that still exist (`[ -f ]`, which keeps deletions silent), record every file
+whose `cat` fails to a gap file, and refuse with a NEW exit code — not 3, which
+asserts a secret was found, and not 0. A definite finding still wins: report the
+secret first, and report the gap only when the scan would otherwise have said
+"clean". `run_progress.EXIT_MEANINGS` gets the new code in the same change, for
+the reason G1 records.
