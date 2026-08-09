@@ -2320,6 +2320,15 @@ if ($('#rq-approve')) $('#rq-approve').addEventListener('click', async () => {
 let AL_RULES = [], AL_META = { kinds: [], channels: ['slack', 'email', 'both'] };
 function alRow(r, st) {
   const m = r.match || {};
+  // Screen-reader names for this row's controls. A sighted user reads the
+  // column header; a screen reader reads the control alone, and 8 of these
+  // announced as bare "edit text"/"spin button"/"checkbox" with no name
+  // (WCAG 4.1.2). Found by driving the page with a real browser. The rule's
+  // own name disambiguates — a rules table is many identical controls, and
+  // "window (m)" repeated for every rule identifies none of them. Labels reuse
+  // the column-header wording verbatim so header and label cannot drift.
+  const rn = (r.name || '').trim() || 'unnamed rule';
+  const lbl = t => ' aria-label="' + escHtml(t + ' — ' + rn) + '"';
   // Status carries its REASON when unevaluable — "ok" with no explanation is
   // exactly the lie this feature exists to avoid.
   let badge = '<span class="chip">—</span>';
@@ -2333,20 +2342,20 @@ function alRow(r, st) {
     }
   }
   return '<tr data-id="' + escHtml(r.id) + '">' +
-    '<td><input class="h32 al-f" data-f="name" value="' + escHtml(r.name || '') + '"></td>' +
-    '<td><input class="h32 al-f" data-f="kinds" style="min-width:210px" value="' +
+    '<td><input class="h32 al-f" data-f="name"' + lbl('rule name') + ' value="' + escHtml(r.name || '') + '"></td>' +
+    '<td><input class="h32 al-f" data-f="kinds" style="min-width:210px"' + lbl('kinds') + ' value="' +
       escHtml((m.kinds || []).join(',')) + '" placeholder="gate.refused,run.aborted"></td>' +
-    '<td><input class="h32 al-f" data-f="outcome" style="width:90px" value="' +
+    '<td><input class="h32 al-f" data-f="outcome" style="width:90px"' + lbl('outcome') + ' value="' +
       escHtml(m.outcome || '') + '" placeholder="any"></td>' +
-    '<td><input class="h32 al-f" data-f="target_contains" style="width:120px" value="' +
+    '<td><input class="h32 al-f" data-f="target_contains" style="width:120px"' + lbl('target has') + ' value="' +
       escHtml(m.target_contains || '') + '"></td>' +
-    '<td><input class="h32 al-f" data-f="threshold" type="number" min="1" style="width:64px" value="' +
+    '<td><input class="h32 al-f" data-f="threshold" type="number" min="1" style="width:64px"' + lbl('N (threshold)') + ' value="' +
       escHtml(String(r.threshold || 1)) + '"></td>' +
-    '<td><input class="h32 al-f" data-f="window_minutes" type="number" min="1" style="width:80px" value="' +
+    '<td><input class="h32 al-f" data-f="window_minutes" type="number" min="1" style="width:80px"' + lbl('window in minutes') + ' value="' +
       escHtml(String(r.window_minutes || 60)) + '"></td>' +
-    '<td><input class="h32 al-f" data-f="cooldown_minutes" type="number" min="0" style="width:80px" value="' +
+    '<td><input class="h32 al-f" data-f="cooldown_minutes" type="number" min="0" style="width:80px"' + lbl('cooldown in minutes') + ' value="' +
       escHtml(String(r.cooldown_minutes == null ? 60 : r.cooldown_minutes)) + '"></td>' +
-    '<td><select class="h32 al-f" data-f="channel">' +
+    '<td><select class="h32 al-f" data-f="channel"' + lbl('channel') + '>' +
       AL_META.channels.map(c => '<option' + (r.channel === c ? ' selected' : '') + '>' +
         escHtml(c) + '</option>').join('') + '</select></td>' +
     // Per-rule recipients. The backend has always honoured these (they set
@@ -2355,11 +2364,11 @@ function alRow(r, st) {
     // never deliver, and the only feedback was the rule's own "nothing will be
     // delivered" warning with nothing the user could do about it.
     '<td><input class="h32 al-f" data-f="recipients" style="width:150px" ' +
-      'placeholder="qa@example.com" value="' +
+      'placeholder="qa@example.com"' + lbl('recipients (to)') + ' value="' +
       escHtml((r.recipients || []).join(', ')) + '"></td>' +
-    '<td><input type="checkbox" class="al-f" data-f="digest"' +
+    '<td><input type="checkbox" class="al-f" data-f="digest"' + lbl('digest') +
       (r.digest ? ' checked' : '') + '></td>' +
-    '<td><input type="checkbox" class="al-f" data-f="enabled"' +
+    '<td><input type="checkbox" class="al-f" data-f="enabled"' + lbl('enabled') +
       (r.enabled === false ? '' : ' checked') + '></td>' +
     '<td>' + badge + '</td>' +
     '<td><button class="btn btn-sm al-test" title="Send through the REAL channel">Test</button>' +
@@ -4163,6 +4172,7 @@ page = f"""<!doctype html>
           style="border:1px solid var(--sr-warning-fg); border-radius:8px;
                  padding:8px 12px"></div>
         <textarea id="plan-text" rows="22" spellcheck="false"
+          aria-label="test plan text — editing revokes an existing approval"
           style="font-family:var(--sr-font-mono); font-size:12px"></textarea>
       </div>
     </section>

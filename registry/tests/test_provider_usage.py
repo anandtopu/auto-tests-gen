@@ -23,6 +23,13 @@ def run_adapter(name, days="7", env=None):
     return subprocess.run(
         [BASH, str(ROOT / "adapters" / name), "usage", days],
         cwd=ROOT, env=clean, text=True, capture_output=True, encoding="utf-8",
+        # stdin=DEVNULL is not optional on Windows: without it Popen inherits a
+        # handle pytest has already closed and every call in this file dies with
+        # `OSError: [WinError 6] The handle is invalid` before the adapter runs.
+        # The repo convention (CLAUDE.md, and ~30 other test modules) is to pass
+        # it always; these five tests were merged without it and so could only
+        # ever pass on Linux.
+        stdin=subprocess.DEVNULL,
     )
 
 

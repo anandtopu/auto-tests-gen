@@ -65,6 +65,14 @@ def retrieve(days=30, provider=None):
     result = subprocess.run(
         [work_queue.bash_exe(), str(adapter), "usage", str(days)],
         cwd=ROOT, text=True, capture_output=True, encoding="utf-8", timeout=90,
+        # Never inherit this process's stdin. The adapter is non-interactive, and
+        # an inherited handle is a liability in both directions: on Windows a
+        # parent whose stdin is closed (pytest capture, a service, a scheduled
+        # job) makes Popen raise `OSError: [WinError 6] The handle is invalid`
+        # before the adapter runs at all — reconciliation would crash inside
+        # `make maintain` rather than report a provider figure. And a hung
+        # adapter reading stdin would block the timeout it is supposed to obey.
+        stdin=subprocess.DEVNULL,
     )
     if result.returncode:
         detail = (result.stderr or result.stdout or "adapter failed").strip()

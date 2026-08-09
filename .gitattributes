@@ -1,0 +1,23 @@
+# Line-ending policy.
+#
+# The eval gold sets are INTEGRITY-PINNED: each labels.json records the sha256
+# of its fixtures/corpus, and the eval refuses to run on a mismatch (that check
+# is the point — a silently edited gold set would make every quality number a
+# lie). The recorded hashes were computed over LF content.
+#
+# With core.autocrlf=true and no policy here, Windows checks these files out
+# with CRLF. Every byte of every line ending changes, so the on-disk sha256
+# never matches the recorded one and the gold-set checks fail before they test
+# anything — on the platform this repo is primarily developed on (see
+# CLAUDE.md: "developed on Windows under Git Bash"). Measured: the reviewer
+# fixtures hash b74d7500… as stored by git and ebb8aa9d… as checked out here,
+# and labels.json expects b74d7500…
+#
+# So: data that is hashed must be byte-identical on every platform. `eol=lf`
+# pins the checkout, and `text` keeps git normalizing on commit so a file
+# edited on Windows cannot re-introduce CRLF into the blob.
+eval/**/*.json text eol=lf
+
+# Shell scripts must stay LF regardless of platform — the gate, the pipeline
+# and every adapter run under bash, and a CRLF shebang line is not executable.
+*.sh text eol=lf

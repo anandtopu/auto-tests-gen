@@ -147,7 +147,8 @@ def test_feature_flag_controls_ui_and_bulk_uses_individual_intake(tmp_path):
     js = tmp_path / "ticket-search.js"
     js.write_text(script, encoding="utf-8")
     checked = subprocess.run(["node", "--check", str(js)], capture_output=True,
-                             text=True, encoding="utf-8", timeout=60, check=False)
+                             text=True, encoding="utf-8", timeout=60, check=False,
+                             stdin=subprocess.DEVNULL)   # Windows: see CLAUDE.md
     assert checked.returncode == 0, checked.stderr
 
 
