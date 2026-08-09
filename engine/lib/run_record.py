@@ -63,7 +63,24 @@ except Exception:
 phases = []
 for f in sorted(glob.glob("out/*.contract.json")):
     name = os.path.basename(f).replace(".contract.json", "")
-    entry = {"name": name, "contract": json.load(open(f, encoding="utf-8"))}
+    # A contract is LLM output that reached disk — the same input the dashboard
+    # renderers already guard at six sites. Parsing it unguarded here made ONE
+    # malformed contract abort the whole record: run_record exits non-zero, and
+    # because the caller pipes through `tee`, the file has already been created
+    # and truncated. The durable record of a run that really happened is then a
+    # 0-byte file. Reproduced by the persistence review; a matching orphan diff
+    # (a gate commit archived with no record) sits in reports/runs/ as evidence
+    # the window is real.
+    #
+    # The phase is still LISTED, with the failure named. Skipping it silently
+    # would make an unreadable contract indistinguishable from a phase that
+    # never ran (C13) — and the phase list is what `explain` and the cost
+    # report iterate.
+    try:
+        entry = {"name": name, "contract": json.load(open(f, encoding="utf-8"))}
+    except (OSError, ValueError) as exc:
+        entry = {"name": name, "contract": None,
+                 "contract_unreadable": f"{type(exc).__name__}: {str(exc)[:160]}"}
     if name in spend_by_phase:
         entry["spend"] = spend_by_phase[name]
     phases.append(entry)

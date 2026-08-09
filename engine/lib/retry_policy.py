@@ -96,12 +96,18 @@ def limits(root=ROOT, problems=None):
 
 
 def _load(root=ROOT):
+    """Attempt counters, read through the guarded reader.
+
+    Same read-modify-write shape as selection.py: `record()` loads, mutates and
+    writes back, so an OSError read as "empty" would silently reset every key's
+    attempt history — and the limiter's whole job is to refuse a retry on the
+    strength of that history. Losing it turns a rate limiter into a permit.
+    read_json_guarded quarantines corruption and raises on an unreadable file
+    rather than letting either look like a fresh counter.
+    """
     p = pathlib.Path(root) / "reports/retries.json" if root is not ROOT else FILE
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    data = fs_lock.read_json_guarded(p, {})
+    return data if isinstance(data, dict) else {}
 
 
 def _path(root=ROOT):

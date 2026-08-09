@@ -64,11 +64,28 @@ def _path(root=ROOT):
 
 
 def _load_all(root=ROOT):
-    try:
-        data = json.loads(_path(root).read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
+    """Every recorded decision, read through the guarded reader.
+
+    This used to swallow OSError and return {} — and this store holds the
+    reviewer's include/exclude rulings, with who and why. `set_items` does a
+    read-modify-write: read {} on a transient failure, and the write that
+    follows replaces every other decision with just the current one.
+
+    That failure is not hypothetical on Windows. An AV scanner or a concurrent
+    dashboard render holding the file for a few hundred milliseconds is exactly
+    the sharing violation `replace_atomic` and `read_json_guarded` were built
+    to absorb — and this module was bypassing both. Worse than plain loss:
+    selection.py's own rule is that an item nobody ruled on is INCLUDED, so
+    silently dropped exclusions come back as inclusions. The reviewer believes
+    tests were dropped while they ship — the exact lie this module exists to
+    prevent.
+
+    read_json_guarded quarantines a CORRUPT file (preserving the bytes) and
+    RAISES on an unreadable one after retrying, so a failed read can never be
+    mistaken for an empty store.
+    """
+    data = fs_lock.read_json_guarded(_path(root), {})
+    return data if isinstance(data, dict) else {}
 
 
 def load(key, root=ROOT):
