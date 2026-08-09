@@ -136,11 +136,13 @@ def regen_coverage():
     import fs_lock
     with fs_lock.lock(app_paths.registry_file(ROOT)):
         subprocess.run([sys.executable, str(ROOT / "catalog/bootstrap/regen_coverage.py")],
-                       cwd=ROOT, check=True)
+                       cwd=ROOT, check=True, stdin=subprocess.DEVNULL)
     subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")],
-                   cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+                   cwd=ROOT, check=True, stdout=subprocess.DEVNULL,
+                   stdin=subprocess.DEVNULL)
     subprocess.run([sys.executable, str(ROOT / "catalog/bootstrap/index_db.py")],
-                   cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+                   cwd=ROOT, check=True, stdout=subprocess.DEVNULL,
+                   stdin=subprocess.DEVNULL)
 
 
 def _run_record_files():
@@ -698,7 +700,8 @@ def cmd_sql(args):
     db = ROOT / "reports/catalog.db"
     if not db.exists():
         subprocess.run([sys.executable, str(ROOT / "catalog/bootstrap/index_db.py")],
-                       cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+                       cwd=ROOT, check=True, stdout=subprocess.DEVNULL,
+                       stdin=subprocess.DEVNULL)
     con = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
     try:
         cur = con.execute(args.query)

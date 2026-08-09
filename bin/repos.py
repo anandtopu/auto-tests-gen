@@ -75,7 +75,8 @@ def save_and_verify(reg, skip_tests=False):
         if r.returncode != 0:
             print("WARNING: registry change broke routing goldens - review before committing")
     subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")],
-                   cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+                   cwd=ROOT, check=True, stdout=subprocess.DEVNULL,
+                   stdin=subprocess.DEVNULL)
     print("AGENTS.md regenerated")
 
 
