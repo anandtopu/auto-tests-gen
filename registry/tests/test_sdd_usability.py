@@ -16,7 +16,56 @@ import governance_page  # noqa: E402
 import plan_state  # noqa: E402
 import sdd_messages  # noqa: E402
 import spec_workflow  # noqa: E402
+import spec_store  # noqa: E402
 import work_queue  # noqa: E402
+
+
+# ------------------------------ SDD adoption S4: benefit at approval
+@pytest.mark.parametrize(("enforce", "needle", "forbidden"), [
+    ("off", "Drift watching is armed", "generation is held"),
+    ("warn", "dry-run mode", "generation is held"),
+    ("strict", "generation is held", "dry-run mode"),
+])
+def test_structured_approval_confirmation_uses_signed_and_resolved_truth(
+        monkeypatch, enforce, needle, forbidden):
+    monkeypatch.setattr(spec_store, "load", lambda key: {"scenarios": [{"id": "S1"}]})
+    monkeypatch.setattr(spec_store, "sha", lambda key: "a" * 64)
+    result = plan_state.approval_confirmation(
+        "K-1", {"status": "approved", "spec_sha": "a" * 64},
+        {"spec_enforce": enforce})
+    assert result["kind"] == "structured" and result["signed"] is True
+    assert result["headline"] == "Approved test plan (signed)"
+    assert "Scenario-level change review" in result["lines"][0]
+    assert needle in result["text"] and forbidden not in result["text"]
+
+
+@pytest.mark.parametrize(("loaded", "signed_sha"), [
+    (None, ""),
+    ({"scenarios": [{"id": "S1"}]}, "b" * 64),
+])
+def test_prose_or_signature_mismatch_never_claims_structured_benefits(
+        monkeypatch, loaded, signed_sha):
+    monkeypatch.setattr(spec_store, "load", lambda key: loaded)
+    monkeypatch.setattr(spec_store, "sha", lambda key: "a" * 64 if loaded else "")
+    result = plan_state.approval_confirmation(
+        "K-1", {"status": "approved", "spec_sha": signed_sha},
+        {"spec_enforce": "strict"})
+    assert result["kind"] == "prose" and result["signed"] is False
+    assert "not signed" in result["headline"]
+    assert "Generation may proceed." in result["lines"]
+    assert any("do not apply to prose plans" in line for line in result["lines"])
+    assert any("structured plan" in line for line in result["lines"])
+
+
+def test_all_approval_surfaces_render_the_server_confirmation():
+    server = (ROOT / "bin/dashboard_server.py").read_text(encoding="utf-8")
+    ui = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert "plan_state.approval_confirmation(key, result)" in server
+    assert "function approvalConfirmation(r)" in ui
+    assert ui.count("approvalConfirmation(") == 3
+    assert "{ status: 'approved' }, approvalConfirmation);" in ui
+    assert "PR plan approved — you can generate tests now" not in ui
+    assert "Plan approved — you can generate tests now" not in ui
 
 
 # ------------------------------------------ SDD adoption S3: named levels

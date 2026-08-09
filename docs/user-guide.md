@@ -489,7 +489,16 @@ does not yet know which view does what:
 - **JIRA ticket → plan → E2E tests** — enter the ticket key, then *Author test
   plan* → *Approve plan* → *Generate tests* → *Comment plan + tests on the
   ticket*, with the human-approval step rendered **blocked** until a person acts
-  (the plan-first invariant, visible rather than implied).
+  (the plan-first invariant, visible rather than implied). When the resolved
+  requirements gate is on, the ladder first shows *Validate acceptance
+  criteria*, its planning blocker, and its approve action; with the gate off,
+  that step is absent.
+
+After plan approval, the returned confirmation is evidence-aware: a valid
+structured signature names scenario change review, drift watching, and the
+resolved enforcement effect; a prose approval says it is not signed and that
+drift/enforcement do not apply. The same confirmation is used by Guided run and
+the Test plans view.
 
 Generation is **asynchronous** — a run takes minutes, an OpenHands conversation
 longer — so the wizard polls `GET /api/wizard/status?key=…&mode=pr|jira` while
@@ -498,9 +507,10 @@ ladder always reflects current engine state, because it is *derived* from the
 same stores everything else uses (work queue, run records, plan state, review
 board) rather than any wizard-private progress record.
 
-Every button drives an **existing** endpoint (`/api/queue`, `/api/plans/status`,
-`/api/plans/generate`, `/api/plans/comment`) — the wizard adds sequencing and
-visibility, never a second code path. `python3 engine/lib/wizard_status.py <KEY>
+Every button drives an **existing** endpoint (`/api/queue`,
+`/api/requirements/status`, `/api/plans/status`, `/api/plans/generate`,
+`/api/plans/comment`) — the wizard adds sequencing and visibility, never a
+second code path. `python3 engine/lib/wizard_status.py <KEY>
 [pr|jira]` prints the same status on the CLI.
 
 A visible ladder belongs to exactly one target. Editing any PR or ticket field

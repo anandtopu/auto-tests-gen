@@ -118,6 +118,12 @@ The plan editor is where the human gate lives. Approving **signs** the plan
 against a content hash; editing an approved plan revokes the approval, so
 "approved" always refers to text somebody actually read.
 
+The approval confirmation states what happened. A current structured plan
+names scenario-level change review and drift watching, plus strict enforcement
+or warn-only reporting when configured. A prose plan says it is approved but
+not signed, that generation may proceed, and that drift/enforcement do not
+apply.
+
 Also here: the diff since last approval (so re-approval reviews the *change*,
 not the document on faith), the adversarial review summary, ambiguities raised
 during analysis, and — when a similar prior plan was adapted — a banner naming
@@ -136,6 +142,12 @@ blocker, who owns it, and exactly one next-action button. The equivalent CLI
 command is printed directly below the button. Both values come from
 `spec_workflow.py`; browser code does not infer a second workflow from the
 machine-state name.
+
+When the resolved requirements gate is on, the Guided run ladder begins with
+**Validate acceptance criteria**. Its row explains why planning is blocked and,
+when the draft can be approved, carries the approval button itself. The row and
+action are absent when the gate is off; PR-keyed plans retain their documented
+requirements exemption.
 
 The **How this works** card teaches the loop in five sentences and owns the
 in-product glossary. Its important distinction is explicit: an **approved test

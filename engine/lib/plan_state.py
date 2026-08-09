@@ -147,6 +147,58 @@ def set_status(key, status, by="", note="", expected_revision=None):
     return e
 
 
+def approval_confirmation(key, entry=None, governance=None):
+    """Describe what an approval actually enabled, from signed state.
+
+    This is deliberately presentation-neutral so every approval surface can
+    render the same truth.  A markdown plan is approved but only a valid
+    structured spec whose current hash matches ``spec_sha`` is signed.
+    """
+    key = validate_key(key)
+    entry = dict(entry if entry is not None else get(key))
+    if entry.get("status") != "approved":
+        raise SystemExit(f"test plan for {key} is not approved")
+    try:
+        import spec_store
+        current_sha = spec_store.sha(key)
+        structured = bool(spec_store.load(key))
+    except Exception:
+        current_sha, structured = "", False
+    signed = bool(structured and current_sha and
+                  hmac.compare_digest(str(entry.get("spec_sha") or ""), current_sha))
+
+    if signed:
+        lines = [
+            "Scenario-level change review now compares later edits with what you approved.",
+            "Drift watching is armed for the approved scenarios.",
+        ]
+        if governance is None:
+            try:
+                import spec_workflow
+                governance = spec_workflow.governance()
+            except Exception:
+                governance = {"spec_enforce": "off"}
+        enforce = str((governance or {}).get("spec_enforce") or "off")
+        if enforce == "strict":
+            lines.append(
+                "Coverage enforcement is strict: generation is held to this approved plan.")
+        elif enforce == "warn":
+            lines.append(
+                "Coverage is checked in dry-run mode: gaps are reported, but generation is not held.")
+        headline = "Approved test plan (signed)"
+        kind = "structured"
+    else:
+        headline = "Approved test plan (prose — not signed)"
+        kind = "prose"
+        lines = [
+            "Generation may proceed.",
+            "Drift watching and coverage enforcement do not apply to prose plans.",
+            "Use a structured plan to add scenario-level change review, drift watching, and enforceable scenario coverage.",
+        ]
+    return {"kind": kind, "signed": signed, "headline": headline,
+            "lines": lines, "text": "\n".join([headline, *lines])}
+
+
 def _reuse_marker():
     """This run's reuse provenance from out/plan-reuse.json, or {} — total,
     like _adversary_detail: the record must not depend on the feature."""

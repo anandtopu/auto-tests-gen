@@ -19,7 +19,7 @@ just tells the page which step to light up and when to stop polling.
 
 CLI:  wizard_status.py <KEY>
 """
-import glob, json, pathlib, sys
+import glob, hashlib, hmac, json, pathlib, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -51,8 +51,11 @@ def _queue_for(key):
     return items
 
 
-def _step(state, label, detail=""):
-    return {"state": state, "label": label, "detail": detail}
+def _step(state, label, detail="", action=None):
+    step = {"state": state, "label": label, "detail": detail}
+    if action:
+        step["action"] = action
+    return step
 
 
 def build(key, mode="pr"):
@@ -61,7 +64,7 @@ def build(key, mode="pr"):
     state per step: pending | running | done | blocked | failed
     `busy` True means the wizard should keep polling.
     """
-    import plan_state, review_state
+    import plan_state, review_state, spec_store, spec_workflow
     runs = _runs_for(key)
     queue = _queue_for(key)
     pending = [i for i in queue if i.get("status") in ("queued", "running")]
@@ -82,6 +85,46 @@ def build(key, mode="pr"):
         plan = plan_state.get(key)
         status = plan.get("status", "")
         plan_pending = [i for i in pending if i["mode"] == "plan"]
+        # PR-keyed plans remain requirements-exempt: their requirements are
+        # fused ticket context while the PR diff is the change authority.
+        # For JIRA, render this step only when the resolved gate is active.
+        if mode == "jira" and spec_workflow.governance()["requirements_gate"]:
+            req = spec_store.load_requirements(key)
+            blocking = [a for a in (spec_store.ambiguities(key) or [])
+                        if isinstance(a, dict) and a.get("blocking")]
+            signed_sha = str(plan.get("requirements_sha") or "")
+            rp = pathlib.Path(spec_store.requirements_path(key))
+            current_sha = hashlib.sha256(rp.read_bytes()).hexdigest() \
+                if rp.exists() else ""
+            valid_approval = bool(
+                plan.get("requirements_status") == "approved"
+                and signed_sha and current_sha
+                and hmac.compare_digest(signed_sha, current_sha))
+            stale = bool(signed_sha and current_sha and not valid_approval)
+            action = None
+            if req and not blocking and not valid_approval:
+                action = {"id": "approve-requirements",
+                          "label": "Approve acceptance criteria"}
+            if blocking:
+                req_state = "blocked"
+                detail = (f"planning is blocked by {len(blocking)} unanswered "
+                          "acceptance-criteria question(s)")
+            elif not req:
+                req_state = "blocked"
+                detail = "planning is blocked until acceptance criteria are authored and approved"
+            elif valid_approval:
+                req_state = "done"
+                detail = "approved; planning may proceed"
+            elif stale:
+                req_state = "blocked"
+                detail = "planning is blocked because approved acceptance criteria changed"
+            elif plan.get("requirements_status") == "approved":
+                req_state = "blocked"
+                detail = "planning is blocked because acceptance-criteria approval is not signed"
+            else:
+                req_state = "blocked"
+                detail = "planning is blocked until a human approves the acceptance criteria"
+            steps.append(_step(req_state, "Validate acceptance criteria", detail, action))
         # Labels are STABLE across states — a step ladder whose rows rename
         # themselves mid-run is unreadable; the state carries the progress.
         if status:

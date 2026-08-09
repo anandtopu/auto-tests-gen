@@ -131,6 +131,73 @@ def test_jira_flow_gates_on_human_approval():
         "the JIRA flow must end at the ticket-linking step"
 
 
+@pytest.mark.parametrize(("gate_on", "req_status", "expected", "has_action"), [
+    (False, "draft", None, False),
+    (True, "draft", "blocked", True),
+    (True, "approved", "done", False),
+])
+def test_requirements_step_follows_resolved_gate_and_keeps_one_label(
+        monkeypatch, tmp_path, gate_on, req_status, expected, has_action):
+    """M4: present when enabled and absent when disabled, with no renamed row."""
+    import plan_state, review_state, spec_store, spec_workflow, work_queue
+    runs = tmp_path / "reports/runs"
+    runs.mkdir(parents=True)
+    (runs / "queue.json").write_text("[]", encoding="utf-8")
+    (runs / "reviews.json").write_text("{}", encoding="utf-8")
+    req = tmp_path / "specs/K-1/requirements.yaml"
+    req.parent.mkdir(parents=True)
+    req.write_text("requirements: []\nopen_questions: []\n", encoding="utf-8")
+    digest = __import__("hashlib").sha256(req.read_bytes()).hexdigest()
+    monkeypatch.setattr(wizard_status, "ROOT", tmp_path)
+    monkeypatch.setattr(review_state, "FILE", runs / "reviews.json")
+    monkeypatch.setattr(work_queue, "FILE", runs / "queue.json")
+    monkeypatch.setattr(plan_state, "get", lambda key: {
+        "requirements_status": req_status,
+        "requirements_sha": digest if req_status == "approved" else ""})
+    monkeypatch.setattr(spec_workflow, "governance",
+                        lambda: {"requirements_gate": gate_on})
+    monkeypatch.setattr(spec_store, "requirements_path", lambda key: req)
+    monkeypatch.setattr(spec_store, "load_requirements",
+                        lambda key: {"requirements": [], "open_questions": []})
+    monkeypatch.setattr(spec_store, "ambiguities", lambda key: [])
+
+    steps = wizard_status.build("K-1", "jira")["steps"]
+    criteria = [s for s in steps if s["label"] == "Validate acceptance criteria"]
+    if expected is None:
+        assert criteria == []
+    else:
+        assert len(criteria) == 1 and criteria[0]["state"] == expected
+        assert ("planning is blocked" in criteria[0]["detail"]) == (expected == "blocked")
+        assert bool(criteria[0].get("action")) is has_action
+
+
+def test_pr_plan_stays_requirements_exempt_even_when_gate_is_on(monkeypatch):
+    import plan_state, spec_workflow
+    monkeypatch.setattr(plan_state, "get", lambda key: {})
+    monkeypatch.setattr(spec_workflow, "governance",
+                        lambda: {"requirements_gate": True})
+    labels = [s["label"] for s in wizard_status.build("PR-repo-1", "pr-plan")["steps"]]
+    assert "Validate acceptance criteria" not in labels
+
+
+def test_requirements_step_fails_closed_on_unsigned_approved_state(monkeypatch, tmp_path):
+    import plan_state, spec_store, spec_workflow
+    req = tmp_path / "requirements.yaml"
+    req.write_text("requirements: []\nopen_questions: []\n", encoding="utf-8")
+    monkeypatch.setattr(plan_state, "get", lambda key: {
+        "requirements_status": "approved", "requirements_sha": ""})
+    monkeypatch.setattr(spec_workflow, "governance",
+                        lambda: {"requirements_gate": True})
+    monkeypatch.setattr(spec_store, "requirements_path", lambda key: req)
+    monkeypatch.setattr(spec_store, "load_requirements",
+                        lambda key: {"requirements": [], "open_questions": []})
+    monkeypatch.setattr(spec_store, "ambiguities", lambda key: [])
+    step = next(s for s in wizard_status.build("K-1", "jira")["steps"]
+                if s["label"] == "Validate acceptance criteria")
+    assert step["state"] == "blocked" and "not signed" in step["detail"]
+    assert step["action"]["id"] == "approve-requirements"
+
+
 def test_reauthored_plan_hides_stale_generation_summary(monkeypatch, tmp_path):
     """Re-authoring invalidates the old generated run as one atomic UI fact.
 
@@ -228,6 +295,17 @@ def _get(url):
         return e.code, json.loads(e.read().decode() or "{}")
 
 
+def _post(url, payload):
+    request = urllib.request.Request(
+        url, method="POST", data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return response.status, json.loads(response.read().decode() or "{}")
+    except urllib.error.HTTPError as error:
+        return error.code, json.loads(error.read().decode() or "{}")
+
+
 def test_status_endpoint_serves_and_validates(server):
     base = server()
     code, body = _get(base + "/api/wizard/status?key=PROJ-301&mode=jira")
@@ -236,6 +314,24 @@ def test_status_endpoint_serves_and_validates(server):
     assert code == 400, "an unknown mode must not fall through to a default flow"
     code, _ = _get(base + "/api/wizard/status?key=../etc&mode=pr")
     assert code == 400, "keys are charset-validated"
+
+
+def test_live_plan_approval_returns_truthful_prose_confirmation(server, tmp_path):
+    plans = tmp_path / "plans"
+    testplans = tmp_path / "testplans"
+    plans.mkdir()
+    testplans.mkdir()
+    (testplans / "K-1.md").write_text("# Prose plan\n", encoding="utf-8")
+    base = server(AIQE_PLAN_DIR=str(plans), AIQE_TESTPLAN_DIR=str(testplans),
+                  AIQE_SPEC_DIR=str(tmp_path / "specs"))
+    code, snapshot = _get(base + "/api/plans/one?key=K-1")
+    assert code == 200 and snapshot["revision"]
+    code, body = _post(base + "/api/plans/status", {
+        "key": "K-1", "status": "approved", "revision": snapshot["revision"]})
+    assert code == 200
+    assert body["confirmation"]["kind"] == "prose"
+    assert body["confirmation"]["signed"] is False
+    assert "do not apply to prose plans" in body["confirmation"]["text"]
 
 
 def test_wizard_view_is_present_in_the_page():
@@ -250,8 +346,12 @@ def test_wizard_view_is_present_in_the_page():
         assert marker in html, f"wizard surface missing: {marker}"
     # the wizard must reuse existing endpoints, never invent new mutations
     for endpoint in ("/api/queue", "/api/plans/status", "/api/plans/generate",
-                     "/api/plans/comment"):
+                     "/api/plans/comment", "/api/requirements/status"):
         assert endpoint in html, f"wizard should drive {endpoint}"
+    assert "data-wz-action" in html and "s.action.label" in html
+    assert "action.dataset.wzAction !== 'approve-requirements'" in html
+    assert "revision: plan.revision" in html, \
+        "wizard approval must participate in optimistic concurrency"
 
 
 def test_changing_a_wizard_target_clears_the_previous_result():
@@ -273,6 +373,7 @@ def test_changing_a_wizard_target_clears_the_previous_result():
     assert "$('#wz-steps').innerHTML = ''" in html
     assert "$('#wz-result').innerHTML = ''" in html
     assert "wzRevision += 1" in html
+    assert "$('#wz-steps').innerHTML = ''" in html
     assert "revision !== wzRevision" in html, \
         "an in-flight poll can repaint the previous target after reset"
     assert "function wzSetPrSubmitting(disabled)" in html

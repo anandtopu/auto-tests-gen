@@ -1371,6 +1371,9 @@ class Handler(BaseHTTPRequestHandler):
                                                    p.get("by") or self.user or "dashboard",
                                                    p.get("note", ""),
                                                    expected_revision=p.get("revision"))
+                    if p["status"] == "approved":
+                        result = {**result, "confirmation":
+                                  plan_state.approval_confirmation(key, result)}
                 elif self.path.endswith("/link"):
                     plan_state.require_approved(key)
                     # attach_to_jira records the reference itself — see its docstring.

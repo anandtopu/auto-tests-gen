@@ -10,7 +10,7 @@ Source: [prd-sdd-usability.md](prd-sdd-usability.md) (Draft v2)
 | 1 | SDD-S1 Vocabulary and state labels | A1.0–A1.2, A2.1–A2.2, A3.1–A3.2, M1 | none | Implemented | Presentation-only glossary/markup, exact state labels, machine-name disclosure, pinned user-facing docs |
 | 2 | SDD-S2 Journey actions and refusal contract | B1.1–B1.2, B3.1, M2–M3 | SDD-S1 | Implemented | One action from `spec_workflow`, shared Python refusal builder, CLI/UI message parity |
 | 3 | SDD-S3 Adoption levels | C1.0–C1.3, M5 | SDD-S1 | Implemented | One level mapping over existing resolved knobs, visible warn/strict sub-state, Custom truth |
-| 4 | SDD-S4 Wizard and approval benefit | B2.1–B2.2, B4, M4 | SDD-S1, SDD-S2 | Pending | Conditional acceptance-criteria step and signed/prose-aware approval confirmation |
+| 4 | SDD-S4 Wizard and approval benefit | B2.1–B2.2, B4, M4 | SDD-S1, SDD-S2 | Implemented | Resolved-gate criteria step with authoritative action; signed/prose-aware approval confirmation on every UI approval surface |
 | 5 | SDD-FINAL Broad verification | M1–M6, risks, non-goals | SDD-S1–S4 | Pending | Full compatibility, mock journey, docs currency, final review and status reconciliation |
 
 The sequence follows the PRD. Vocabulary ships first because every later
@@ -97,6 +97,20 @@ compatibility evidence are recorded in the SDD-S3 review summary.
   preserve stable ladder labels across states.
 - Make approval confirmation inspect structured/signature truth: signed plans
   state their protections; prose approvals state their exemptions.
+- **Acceptance mapping:** B2/M4 is owned by `wizard_status.build`: JIRA ladders
+  include one stable `Validate acceptance criteria` row only when the resolved
+  gate is on, explain the planning block, and expose the existing requirements
+  approval mutation only for an approvable draft/stale artifact. PR-keyed plans
+  retain their requirements exemption. B4 is owned by
+  `plan_state.approval_confirmation`: valid structured spec + matching signed
+  hash yields signed protections; prose, invalid, or mismatched artifacts yield
+  the explicit prose exemptions. Strict and warn copy remain truthful.
+- **Evidence:** focused plus adjacent wizard/usability/requirements/PR-plan set
+  passed 86 tests; authenticated API, lifecycle, signature, gate, and drift set
+  passed 249 tests. The M4 mutation (disable the resolved-gate branch) failed
+  both gate-on cases and passed after restore. Python compilation passed. The
+  repository-wide Ruff invocation found 91 pre-existing style findings and is
+  not claimed as clean; no syntax finding was reported in changed code.
 
 ## Product decisions and assumptions
 

@@ -1611,6 +1611,8 @@ function wzRender(d) {
     '<li class="' + escHtml(s.state) + '"><div><div class="wz-lb">' +
     escHtml(s.label) + '</div>' +
     (s.detail ? '<div class="wz-dt">' + escHtml(s.detail) + '</div>' : '') +
+    (s.action ? '<button class="btn" data-wz-action="' +
+      escHtml(s.action.id) + '">' + escHtml(s.action.label) + '</button>' : '') +
     '</div></li>').join('');
   $('#wz-steps').innerHTML = steps || '<li>Nothing started yet.</li>';
   const files = (d.tests || []).map(t =>
@@ -1627,6 +1629,17 @@ function wzRender(d) {
   $('#wz-hint').textContent = d.busy
     ? 'Working… this runs asynchronously; you can leave this page and come back.'
     : (d.overall ? 'Last run: ' + d.overall : 'Idle.');
+}
+function approvalConfirmation(r) {
+  const c = (r && r.confirmation) || {};
+  return [c.headline].concat(c.lines || []).filter(Boolean).join(' · ') ||
+    'Plan approval recorded.';
+}
+async function wzApprovePlan(key) {
+  const plan = await api('/api/plans/one?key=' + encodeURIComponent(key));
+  return api('/api/plans/status', { method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key: key, status: 'approved', revision: plan.revision }) });
 }
 function wzResetTarget() {
   // A ladder and its artifacts are evidence for exactly one key. As soon as
@@ -1727,10 +1740,9 @@ if ($('#wz-mode')) {
     if (needsServer() || !wzKey || wzMode !== 'pr-plan') {
       toast('Start or reopen a PR plan first'); return; }
     try {
-      await api('/api/plans/status', { method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: wzKey, status: 'approved' }) });
-      toast('PR plan approved — you can generate tests now'); wzPoll();
+      const r = await wzApprovePlan(wzKey);
+      const message = approvalConfirmation(r);
+      toast(message); $('#wz-hint').textContent = message; wzPoll();
     } catch (err) { toast(err.message); }
   });
 
@@ -1769,10 +1781,22 @@ if ($('#wz-mode')) {
     if (needsServer()) return;
     const k = wzJiraKey(); if (!k) return;
     try {
-      await api('/api/plans/status', { method: 'POST',
+      const r = await wzApprovePlan(k);
+      const message = approvalConfirmation(r);
+      toast(message); $('#wz-hint').textContent = message;
+      wzPoll();
+    } catch (err) { toast(err.message); }
+  });
+  $('#wz-steps').addEventListener('click', async event => {
+    const action = event.target.closest('[data-wz-action]');
+    if (!action || action.dataset.wzAction !== 'approve-requirements') return;
+    if (needsServer()) return;
+    const k = wzJiraKey(); if (!k) return;
+    try {
+      await api('/api/requirements/status', { method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: k, status: 'approved' }) });
-      toast('Plan approved — you can generate tests now');
+      toast('Acceptance criteria approved — planning may proceed');
       wzPoll();
     } catch (err) { toast(err.message); }
   });
@@ -2857,7 +2881,8 @@ document.addEventListener('click', async e => {
     return planPost('/api/plans/save', { text: $('#plan-text').value },
       r => 'Saved — status is now ' + r.status + (r.status === 'draft' ? ' (edits revoke approval)' : ''));
   if (id === 'plan-review')   return planPost('/api/plans/status', { status: 'in_review' }, 'Marked in review');
-  if (id === 'plan-approve')  return planPost('/api/plans/status', { status: 'approved' }, 'Plan approved — you can now link it and generate tests');
+  if (id === 'plan-approve')  return planPost('/api/plans/status',
+    { status: 'approved' }, approvalConfirmation);
   if (id === 'plan-changes') {
     const note = prompt('What needs changing?', '');
     if (note === null) return;
