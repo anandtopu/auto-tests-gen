@@ -26,7 +26,20 @@ def rebuild():
     if hf.exists():
         health = json.load(open(hf, encoding="utf-8"))
     DB.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(DB)
+    # Build BESIDE the live index, then swap. The old shape opened the real
+    # catalog.db, ran DROP TABLE via executescript (which COMMITS), and only
+    # then parsed rows — so one torn JSONL line, or one row missing `mapping`
+    # after a schema change, left the index with a valid schema and ZERO rows.
+    # `qa.py sql` then answers "no tests cover this repo" with a clean exit and
+    # correct-looking output: an inability to read the catalog presented as an
+    # established absence of coverage (C13), on the store that decides routing.
+    #
+    # Failing closed is right — a silently short index unroutes work — but the
+    # failure must not also destroy the index that was working. Build to
+    # scratch, and the previous index survives any abort below.
+    tmp = DB.with_name(DB.name + f".rebuilding-{os.getpid()}")
+    tmp.unlink(missing_ok=True)
+    con = sqlite3.connect(tmp)
     con.executescript("""
         DROP TABLE IF EXISTS tests;
         CREATE TABLE tests (
@@ -40,6 +53,32 @@ def rebuild():
         CREATE INDEX idx_tests_app ON tests(app_repos);
         CREATE INDEX idx_tests_status ON tests(status);
     """)
+    n = 0
+    try:
+        n = _fill(con, health)
+    except Exception:
+        # Nothing has touched the live index yet. Drop the scratch build and
+        # let the caller see the failure with the previous index still serving.
+        con.close()
+        tmp.unlink(missing_ok=True)
+        raise
+    con.commit()
+    con.close()
+    # One atomic swap. replace_atomic retries Windows' transient sharing
+    # violation — a reader holding the old index for a moment must not turn a
+    # successful rebuild into a lost one.
+    try:
+        sys.path.insert(0, str(ROOT / "engine/lib"))
+        import fs_lock
+        fs_lock.replace_atomic(tmp, DB)
+    except ImportError:                                  # pragma: no cover
+        os.replace(tmp, DB)
+    return n
+
+
+def _fill(con, health):
+    """Insert every catalog row. Raises on a torn line — deliberately: the
+    caller keeps the previous index rather than publishing a short one."""
     n = 0
     for f in app_paths.catalog_files(ROOT):
         for line in open(f, encoding="utf-8"):
@@ -56,9 +95,7 @@ def rebuild():
                  ",".join(m.get("method", [])), h.get("pass_rate"),
                  h.get("last_status"), int(bool(h.get("flaky")))))
             n += 1
-    con.commit()
-    con.close()
-    return n
+    return n            # commit/close belong to rebuild(), which owns the swap
 
 
 if __name__ == "__main__":

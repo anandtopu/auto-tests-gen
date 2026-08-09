@@ -264,7 +264,10 @@ def test_latest_review_supersedes_history_without_manufacturing_weight(
 def test_pipeline_and_run_record_order_the_learning_hook_before_finalization():
     pipeline = (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8")
     hook = 'testcase_learning.py index "$RUN_ID" "$KEY"'
-    record = 'python3 engine/lib/run_record.py "$RUN_ID" "$MODE" "$KEY"'
+    # The record is written by write_run_record (produce -> verify -> move);
+    # the raw `run_record.py ...` invocation now lives only inside that helper,
+    # so the ordering marker is the CALL, not the producer.
+    record = 'write_run_record "$RUN_ID" "$MODE" "$KEY"'
     assert hook in pipeline
     # B3 adds a separate pre-gate refusal record. The learning hook belongs only
     # to a run whose gate committed; preserve its order against the NORMAL final

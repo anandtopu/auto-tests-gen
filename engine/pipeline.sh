@@ -212,6 +212,37 @@ RUN_START=$(date +%s)
 rm -f "${AIQE_COST_LEDGER:-out/cost.tsv}" out/*.json out/gate_results.tsv \
       out/context-*.md out/context-retries.tsv out/cost-degrade.tsv \
       out/phase-skips.tsv out/phase-starts.jsonl out/comment-attempts.jsonl
+# Run record write. NOT `... | tee file | TELEM`: tee creates and TRUNCATES
+# the target before the producer emits a byte, so a producer that dies leaves
+# a 0-byte or half-written record on disk - the durable evidence of a run that
+# really happened. Both failure modes were reproduced (a malformed phase
+# contract exiting run_record non-zero; a kill mid-stream past the pipe
+# buffer), and the recovery story downstream is inconsistent: qa.py warns and
+# names the file while the dashboard, the team report and the SCORECARD all
+# swallow it silently - the scorecard's commit rate quietly measuring a
+# different population.
+#
+# Produce to scratch, verify, then move into place. A failed record is
+# REPORTED and leaves previous state untouched rather than replacing it with
+# a lie.
+write_run_record() {
+  local rid="$1" mode="$2" key="$3" dest tmp
+  dest="reports/runs/${rid}.json"
+  tmp="out/.run-record-${rid}.json"
+  if python3 engine/lib/run_record.py "$rid" "$mode" "$key" > "$tmp"; then
+    if [ -s "$tmp" ] && python3 engine/lib/json_ok.py "$tmp"; then
+      mv -f "$tmp" "$dest"
+      TELEM emit_event < "$dest" || true
+    else
+      echo "[run-record] REFUSING to write $dest: producer output empty or not JSON" >&2
+      rm -f "$tmp"
+    fi
+  else
+    echo "[run-record] FAILED for $rid - no record written (state left intact)" >&2
+    rm -f "$tmp"
+  fi
+}
+
 _budget_guard() {
   local why
   if ! why=$(python3 engine/lib/budget.py check --start "$RUN_START"); then
@@ -1196,37 +1227,6 @@ if [ "$MODE" = "pr" ] || { [ "$MODE" = "tests" ] && [ "$PR_PLAN" = "1" ]; }; the
   PR_COMMENT=$(python3 engine/lib/pr_comment.py "$RUN_ID" "$KEY" 2>/dev/null || true)
   if [ -n "$PR_COMMENT" ]; then SCM comment "$REPO" "$PR" "$PR_COMMENT" || true; fi
 fi
-# Run record write. NOT `... | tee file | TELEM`: tee creates and TRUNCATES
-# the target before the producer emits a byte, so a producer that dies leaves
-# a 0-byte or half-written record on disk - the durable evidence of a run that
-# really happened. Both failure modes were reproduced (a malformed phase
-# contract exiting run_record non-zero; a kill mid-stream past the pipe
-# buffer), and the recovery story downstream is inconsistent: qa.py warns and
-# names the file while the dashboard, the team report and the SCORECARD all
-# swallow it silently - the scorecard's commit rate quietly measuring a
-# different population.
-#
-# Produce to scratch, verify, then move into place. A failed record is
-# REPORTED and leaves previous state untouched rather than replacing it with
-# a lie.
-write_run_record() {
-  local rid="$1" mode="$2" key="$3" dest tmp
-  dest="reports/runs/${rid}.json"
-  tmp="out/.run-record-${rid}.json"
-  if python3 engine/lib/run_record.py "$rid" "$mode" "$key" > "$tmp"; then
-    if [ -s "$tmp" ] && python3 engine/lib/json_ok.py "$tmp"; then
-      mv -f "$tmp" "$dest"
-      TELEM emit_event < "$dest" || true
-    else
-      echo "[run-record] REFUSING to write $dest: producer output empty or not JSON" >&2
-      rm -f "$tmp"
-    fi
-  else
-    echo "[run-record] FAILED for $rid - no record written (state left intact)" >&2
-    rm -f "$tmp"
-  fi
-}
-
 # Run record: persisted for QA monitoring (reports/runs/) AND emitted as telemetry
 write_run_record "$RUN_ID" "$MODE" "$KEY"
 # Team-review tracking: committed artifacts put the key into pending_review

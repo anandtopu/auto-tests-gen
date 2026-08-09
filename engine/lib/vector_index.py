@@ -85,6 +85,19 @@ def _connect():
     return con
 
 
+# sqlite3.Error covers two very different situations, and the difference decides
+# whether destroying the file is repair or damage: a MALFORMED image is derived
+# data we rebuild, while "database is locked"/"busy" is a healthy index somebody
+# else is reading this instant. Quarantining the second would delete a working
+# index because a query arrived at a busy moment.
+_CORRUPTION_SIGNS = ("malformed", "not a database", "disk image",
+                     "file is encrypted", "corrupt")
+
+
+def _is_corruption(exc):
+    return any(s in str(exc).lower() for s in _CORRUPTION_SIGNS)
+
+
 def _quarantine():
     """A corrupt index is derived data — move it aside for forensics and
     rebuild. Never attempt repair."""
@@ -344,7 +357,24 @@ def query(text, k=5, kind=None, repo=None):
             sql += " WHERE " + " AND ".join(conds)
         rows = list(con.execute(sql, args))
         con.close()
-    except (sqlite3.Error, RuntimeError):
+    except (sqlite3.Error, RuntimeError) as exc:
+        # [] stays the contract — five consumers (context_scope, plan_reuse,
+        # spec_exemplars, duplicate_detector, impact_analysis) read it as the
+        # designed TF-IDF fallback, and raising here would break every semantic
+        # path instead of degrading it.
+        #
+        # But CORRUPTION must not degrade silently and forever. Nothing on this
+        # read path ever quarantined, and refresh()'s quarantine could not fire
+        # (it ran with the handle open), so a damaged index meant every semantic
+        # query fell back to lexical indefinitely with no signal anywhere.
+        # Quarantine here so the next refresh rebuilds; a LOCKED or busy
+        # database is transient and must NOT be destroyed, so only genuine
+        # corruption qualifies.
+        if _is_corruption(exc):
+            _quarantine()
+            print(f"[vector_index] index was corrupt ({exc}); quarantined — "
+                  f"queries use the TF-IDF fallback until the next refresh "
+                  f"rebuilds it", file=sys.stderr)
         return []
     scored = []
     for cid, ckind, crepo, dims_, blob in rows:
@@ -365,9 +395,15 @@ def stats():
             "SELECT kind, COUNT(*) FROM vectors GROUP BY kind"))
         total = sum(n for _, n in rows)
         con.close()
-    except sqlite3.Error:
-        return {"rows": 0, "by_kind": {}, "configured": embeddings.configured(),
-                "spend_today_usd": _spend_today()}
+    except sqlite3.Error as exc:
+        # An index we could not READ is not an index with nothing in it. This
+        # returned rows: 0 with an empty by_kind — indistinguishable from a
+        # freshly created index, which is exactly the reading that stops anyone
+        # investigating (C13). `rows` is None so no caller can sum it into a
+        # total, and the reason travels with it.
+        return {"rows": None, "by_kind": None, "unavailable": str(exc)[:200],
+                "configured": embeddings.configured(),
+                "spend_today_usd": _spend_today(), "db": str(DB)}
     return {"rows": total, "by_kind": dict(rows),
             "configured": embeddings.configured(),
             "spend_today_usd": _spend_today(), "db": str(DB)}

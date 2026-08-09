@@ -178,7 +178,7 @@ def test_pipeline_wires_flagged_fused_delivery_before_run_record():
     assert 'if [ "$PR_TICKET_FUSED" = "1" ]' in source
     refusal = source[source.index('if [ "$REVIEW_POLICY_RC" -eq 78 ]'):]
     refusal = refusal[:refusal.index('elif [ "$REVIEW_POLICY_RC" -ne 0 ]')]
-    assert refusal.index("TICKET_DELIVERY_COMMENT") < refusal.index("run_record.py")
+    assert refusal.index("TICKET_DELIVERY_COMMENT") < refusal.index("write_run_record")
     assert "delivery_projection" in pathlib.Path(pr_comment.__file__).read_text(
         encoding="utf-8")
 
@@ -195,7 +195,17 @@ def test_mock_fused_pr_posts_rich_delivery_to_the_selected_ticket():
         errors="replace", stdin=subprocess.DEVNULL, timeout=600, check=False)
     assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-1000:]
     added = log.read_text(encoding="utf-8", errors="replace")[len(old):]
-    assert "[mock-jira] PROJ-301 <- AI-QE delivery for PROJ-301" in added
+    # The guarantee is that the rich delivery REACHED the ticket — not which
+    # verb carried it. Once a delivery comment exists for this key, JCTS-S5
+    # idempotency correctly UPDATES it instead of posting a duplicate, so
+    # asserting "<-" (post) made this test pass only against a virgin out/ and
+    # fail on any estate that had commented before — including this one, after
+    # a single `make demo-pr`. That is an order-dependent test, not a defect in
+    # the feature. Post-vs-update is pinned where it belongs, in the accounting
+    # tests; here we assert delivery.
+    assert ("[mock-jira] PROJ-301 <- AI-QE delivery for PROJ-301" in added
+            or "[mock-jira] PROJ-301 updated" in added), (
+        f"no rich delivery reached PROJ-301 by either verb; log tail: {added[-400:]}")
     assert "Source PR: orders-api#201" in added
     assert "[PR-orders-api-201-S1]" in added
     record = json.loads(max((ROOT / "reports/runs").glob("*.json"),

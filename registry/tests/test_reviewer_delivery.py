@@ -104,7 +104,7 @@ def test_required_refusal_is_before_the_gate():
     gate = source.index(": > out/gate_results.tsv", enforce)
     assert enforce < critic < gate
     refusal = source[source.index('if [ "$REVIEW_POLICY_RC" -eq 78 ]'):critic]
-    assert "run_record.py" in refusal and "exit 78" in refusal
+    assert "write_run_record" in refusal and "exit 78" in refusal
     assert "review_state.py auto" not in refusal
 
 
