@@ -43,6 +43,13 @@ for t in "${REPOS[@]}"; do
     4) FAILS+=("$name: a new spec has no catalog sidecar entry — every test must be born-mapped (exit 4)") ;;
     5) FAILS+=("$name: the generated tests FAILED when executed (exit 5)") ;;
     6) FAILS+=("$name: not a standalone test repo (exit 6)") ;;
+    8) FAILS+=("$name: an approved spec scenario is uncovered and unwaived (exit 8)") ;;
+    # 9-11 used to arrive here as another check's code. A linter exiting 2 was
+    # announced as "out-of-scope path", which is a specific claim about the
+    # agent's work that was simply untrue.
+    9) FAILS+=("$name: the repo's own linter failed — read the lint output, this is not a scope/secret finding (exit 9)") ;;
+    10) FAILS+=("$name: the app under test never started, so the tests were never executed — nothing is known about them (exit 10)") ;;
+    11) FAILS+=("$name: the spec CHECK malfunctioned; no verdict about the spec was reached (exit 11)") ;;
     124) FAILS+=("$name: gate checks timed out after 300s") ;;
     *) FAILS+=("$name: gate exit $rc") ;;
   esac

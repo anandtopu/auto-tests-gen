@@ -129,6 +129,20 @@ EXIT_MEANINGS = {
         "and branch protection on the test repo."),
     8: ("SPEC_UNSATISFIED", "An approved spec scenario is not covered and carries no "
         "valid waiver (spec.enforce is strict)."),
+    # 9-11 exist because these three failures used to borrow another check's
+    # code, and a borrowed code is a wrong answer: a linter exiting 2 was
+    # reported as "wrote outside the allowed scope", a environment that never
+    # started as "the tests failed", and a crashed spec_check as "your spec is
+    # unsatisfied". Each sent the reader to the wrong place.
+    9: ("LINT_FAILED", "The test repo's own commands.lint exited non-zero. This is the "
+        "linter's verdict on the generated code, not a scope, secret or mapping "
+        "finding — read the lint output."),
+    10: ("ENV_PROVISION_FAILED", "The app under test never came up (with-env.sh could "
+         "not find the app repo, or it failed to start), so the generated tests were "
+         "never executed. Nothing is known about whether they pass."),
+    11: ("SPEC_CHECK_FAILED", "The spec check itself malfunctioned — it could not run, "
+         "so no verdict about the spec was reached. This is NOT a finding that a "
+         "scenario is uncovered; fix the checker, not the spec."),
     64: ("INVALID_INPUT", "The mode or key was not accepted. Nothing ran."),
     65: ("NEEDS_CLARIFICATION", "The ticket does not say what should happen. A question "
          "was posted; answer it and re-run."),

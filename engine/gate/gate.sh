@@ -81,17 +81,55 @@ echo "$CHANGED" > "$ROOT/out/gate-changed-${TREPO}.txt"
 SPEC_RC=0
 python3 "$ROOT/engine/gate/spec_check.py" "$KEY" "$TREPO" \
   "$ROOT/out/gate-changed-${TREPO}.txt" || SPEC_RC=$?
-[ "$SPEC_RC" -eq 0 ] || { echo "SPEC_UNSATISFIED"; exit 8; }
+# 8 is spec_check's OWN verdict (EXIT_SPEC): an approved scenario is uncovered
+# and unwaived. Anything else is the checker failing to run — a missing
+# python3 (127), an ImportError, a bad argv — and reporting that as
+# SPEC_UNSATISFIED sends an operator to fix a spec that is fine, which is the
+# C13 shape in the component whose verdict decides whether code is pushed.
+# Both still fail CLOSED; only the reason differs.
+if [ "$SPEC_RC" -eq 8 ]; then
+  echo "SPEC_UNSATISFIED"; exit 8
+elif [ "$SPEC_RC" -ne 0 ]; then
+  echo "SPEC_CHECK_FAILED (spec_check.py exited $SPEC_RC — the CHECK malfunctioned;"
+  echo "  this is not a finding about the spec). Nothing was committed."
+  exit 11
+fi
 
-# 3. Static checks
-bash -c "$LINT_CMD"
+# 3. Static checks. The linter's exit status must NOT become the gate's own:
+# under `set -e` it did, so eslint exiting 2 (its fatal-config code) was read
+# downstream as SCOPE_VIOLATION, 3 as SECRET_PATTERN, 4 as UNMAPPED_TEST. Every
+# other check emits a distinct token; this one had none, so a lint problem was
+# reported as a specific, different, established fact about the generated tests.
+LINT_RC=0
+bash -c "$LINT_CMD" || LINT_RC=$?
+[ "$LINT_RC" -eq 0 ] || {
+  echo "LINT_FAILED (exit $LINT_RC from the repo's own commands.lint)"
+  echo "  This is the LINTER's status, not a scope/secret/mapping finding."
+  exit 9; }
 
 # 4. Execute exactly the new/changed specs, inside the provisioned environment
 # (single line — a newline-separated list would make `bash -c` execute file 2+ as commands)
 SPECS=$(echo "$CHANGED" | grep -E "$SPEC_RE" | tr '\n' ' ' || true)
 if [ -n "$SPECS" ]; then
+  RUN_RC=0
   bash "$ROOT/bin/with-env.sh" . -- bash -c "$TEST_CMD $SPECS" \
-    > "$REPORT_DIR/${KEY}-${TREPO}.log" 2>&1 || { echo "TESTS_FAILED"; tail -5 "$REPORT_DIR/${KEY}-${TREPO}.log"; exit 5; }
+    > "$REPORT_DIR/${KEY}-${TREPO}.log" 2>&1 || RUN_RC=$?
+  if [ "$RUN_RC" -ne 0 ]; then
+    # "The app under test never started" is not "the generated tests failed".
+    # with-env.sh emits APP_REPO_NOT_FOUND / APP_START_FAILED and exits 8 / 7,
+    # and all of it was flattened into TESTS_FAILED — sending a human to
+    # debug tests when the environment never came up. Match on the MARKER
+    # rather than the code alone: with-env passes the test command's own status
+    # through, so a test that happens to exit 7 must not be misread as a
+    # provisioning failure.
+    if grep -qE '^(APP_REPO_NOT_FOUND|APP_START_FAILED)' "$REPORT_DIR/${KEY}-${TREPO}.log"; then
+      echo "ENV_PROVISION_FAILED (the app under test never came up; the generated"
+      echo "  tests were never executed, so nothing is known about them)"
+      tail -5 "$REPORT_DIR/${KEY}-${TREPO}.log"
+      exit 10
+    fi
+    echo "TESTS_FAILED"; tail -5 "$REPORT_DIR/${KEY}-${TREPO}.log"; exit 5
+  fi
 fi
 
 # 5. Secret / PII pattern scan on new content (capture-then-test: under pipefail a

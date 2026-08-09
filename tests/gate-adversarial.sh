@@ -159,4 +159,31 @@ run_gate ADV-SUFFIX; rc=$?
 check 4 $rc ".test.js without a sidecar is refused"
 cd "$ROOT"
 
+# --- Exit-code integrity (gate review F7/F8/F9) -----------------------------
+# Each failure must carry its OWN code. These three borrowed another check's,
+# and a borrowed code is a wrong answer: eslint's fatal-config exit 2 was
+# announced as "the run tried to write outside the allowed scope", an
+# environment that never started as "the generated tests FAILED", and a
+# crashed spec_check as "your approved spec is unsatisfied". Each sends the
+# reader somewhere that is not the problem.
+
+# ADV-LINTRC: the repo's linter exits 2 — the exact collision with
+# SCOPE_VIOLATION.
+setup
+python3 - <<'PYEOF'
+import pathlib, yaml
+p = pathlib.Path(".ai-qe/config.yaml")
+c = yaml.safe_load(p.read_text(encoding="utf-8"))
+c["commands"]["lint"] = "exit 2"
+p.write_text(yaml.safe_dump(c), encoding="utf-8")
+PYEOF
+git add .ai-qe/config.yaml >/dev/null 2>&1; git commit -qm "lint exits 2" >/dev/null 2>&1
+printf 'const {test}=require("node:test");
+test("ok", async()=>{});
+' > suites/orders/lintrc.spec.js
+echo '{"file":"suites/orders/lintrc.spec.js","mapping":{"status":"confirmed"}}' >> catalog/generated.jsonl
+run_gate ADV-LINTRC; rc=$?
+check 9 $rc "a linter exiting 2 is LINT_FAILED, not SCOPE_VIOLATION"
+cd "$ROOT"
+
 rm -rf workspace/tests; exit $fail
