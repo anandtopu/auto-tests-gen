@@ -180,6 +180,24 @@ pricing:
   ollama: local
   codex:
     "*": {in: 1.25, out: 10.0}
+  # batch (Message Batches API) reports TOKENS, not dollars, so it needs a price
+  # table to produce an `estimated` (~) figure. Deliberately shipped UNSET: a
+  # provider with no entry costs `unknown`, never 0 — and an unknown cost is
+  # honest, while a wrong hardcoded rate would quietly understate a real bill
+  # (the R1 defect: 27.5M tokens once reported "$0.00, within budget").
+  #
+  # Enter YOUR contracted rates per million tokens, ALREADY HALVED — batched
+  # requests are billed at 50% of the synchronous price, and halving here keeps
+  # one number per model instead of a discount applied in two places:
+  #
+  # batch:
+  #   "claude-sonnet-4-6":          {in: 1.50, out: 7.50}   # = list / 2
+  #   "claude-haiku-4-5-20251001":  {in: 0.50, out: 2.00}   # = list / 2
+  #   "*":                          {in: 1.50, out: 7.50}
+  #
+  # Until it is set, `budget.enforceability()` reports the ceiling as partial or
+  # unenforceable and names this key — the inability to enforce is visible
+  # rather than silent.
 
 # Retry rate limiting (engine/lib/retry_policy.py). A retry is a FULL pipeline
 # run — clones, an LLM call per phase, possibly a commit — so it is bounded by

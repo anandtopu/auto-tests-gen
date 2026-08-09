@@ -103,13 +103,24 @@ SPEC = [
                      ["claude", "Claude Code (agentic)"],
                      ["ollama", "Ollama / local (completion phases only)"],
                      ["codex", "OpenAI Codex CLI (agentic)"],
-                     ["openhands", "OpenHands (delegated, experimental)"]],
+                     ["openhands", "OpenHands (delegated, experimental)"],
+                     ["batch", "Claude Batch API (50% cheaper, async - completion phases only)"]],
          "help": "empty = follow registry/org-config.yaml llm.provider"},
         {"env": "OLLAMA_URL", "label": "Ollama base URL",
          "help": "OpenAI-compatible /v1 (default http://localhost:11434/v1); "
                  "also serves LM Studio / vLLM / llama.cpp"},
         {"env": "OLLAMA_API_KEY", "label": "Ollama API key (optional)",
          "secret": True, "help": "local daemons need none"},
+        {"env": "AIQE_BATCH_MAX_WAIT_MIN",
+         "label": "Batch: give up waiting after (minutes)",
+         "help": "default 90. Most batches finish within an hour; the API's "
+                 "hard expiry is 24h. Giving up does NOT cancel the batch - it "
+                 "keeps running and is still billed, so the id is printed"},
+        {"env": "AIQE_BATCH_POLL_SECONDS", "label": "Batch: poll interval (seconds)",
+         "help": "default 20"},
+        {"env": "AIQE_BATCH_MAX_TOKENS", "label": "Batch: max output tokens",
+         "help": "default 8192; the Batch API requires max_tokens on every "
+                 "request. Raise it for long test plans"},
         {"env": "CODEX_BIN", "label": "Codex CLI binary",
          "help": "default `codex` on PATH; set an absolute path if it is "
                  "installed elsewhere"},

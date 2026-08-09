@@ -292,3 +292,67 @@ Default provider stays **claude** throughout; judgement phases
 (testplan/adversary/generate) stay on an agentic, proven provider until 2.5's
 per-provider parity measures them — the same quality-gated rollout discipline
 as context scoping and plan reuse.
+
+---
+
+## 6. The Batch provider (`adapters/llm/batch.sh`, slice 1 — BUILT)
+
+Anthropic's **Message Batches API** at 50% of the synchronous price. Design and
+sizing live in `docs/prd-batch-api-cost-reduction.md`; this section is what
+shipped.
+
+**It is COMPLETION class, and that is a capability fact rather than a choice we
+made.** A batch request is a single Messages call. The model may return
+`tool_use` blocks, but every turn needing a *client* tool result would be
+another batch submission at roughly an hour each — so `generate`, `validate`
+and `reviewrepair` are refused at config time by `llm_runner.check_assignment`,
+naming `llm.phase_providers` as the fix. Everything else — `triage`, `analyze`,
+`testplan`, `planadversary`, `planarbiter`, `testdata`, `critic`, `reviewer` —
+works exactly as it does for `ollama`, with `derived_writes.py` materializing
+the plan family's artifacts from the contract.
+
+**Auth is not the CLI's.** `claude -p` commonly authenticates with a
+subscription; the Batch API needs `ANTHROPIC_API_KEY`. There is no batch flag in
+the Claude Code CLI at all (checked: `claude --help` on v2.1.220 has zero
+matches for "batch"), so this adapter talks HTTP directly. A missing key is a
+refusal that says so — never a fallback to the paid synchronous provider (C12),
+because the operator enabled batch to spend *less*.
+
+**Configuration.** Selection uses the existing mechanisms, so batch is
+per-phase configurable on day one:
+
+```yaml
+llm:
+  phase_providers:
+    testplan: batch          # authored overnight, 50% off
+    generate: claude         # agentic; must stay on the CLI
+```
+
+or `AIQE_LLM_PROVIDER=batch` for everything eligible. Waiting behaviour:
+`AIQE_BATCH_MAX_WAIT_MIN` (90), `AIQE_BATCH_POLL_SECONDS` (20),
+`AIQE_BATCH_MAX_TOKENS` (8192) — all in Settings and both example files.
+
+**Outcomes are kept distinct, because three of them are easy to get wrong:**
+
+| Outcome | Reported as |
+|---|---|
+| `succeeded` | the phase ran; tokens recorded, no dollar figure |
+| `errored` | the request failed, with the API's error |
+| `expired` / `canceled` | **not billed**, and **nothing is known** about the phase — the model never saw it. Not a refusal, not an empty answer |
+| still processing at the deadline | `BATCH_STILL_PROCESSING`, **naming the batch id** — giving up waiting does NOT cancel it; it keeps running and is still billed |
+
+**Cost is `estimated`, never `reported`.** The API returns tokens, not dollars,
+so the adapter emits no `total_cost_usd` and `budget.priced()` derives the
+figure from org-config `pricing:` with a `~`. `pricing.batch` ships **unset**,
+so batch spend reads `unknown` — never 0 — until an operator enters their own
+(already-halved) rates. An unknown cost is honest; a wrong hardcoded rate would
+understate a real bill, which is the R1 defect this stack exists to prevent.
+
+**`custom_id` is load-bearing, not decorative.** Batch results may be returned
+in any order — the API's own example returns the second request before the
+first — so even a one-request batch is correlated by id. The pins answer with a
+decoy row first, so a positional shortcut fails immediately.
+
+Pins: `registry/tests/test_batch_provider.py` (14), most of them driving the
+adapter end to end against a local stub of the API rather than grepping source.
+Mutation: 9 mutations, 9 killed.

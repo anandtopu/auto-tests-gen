@@ -26,6 +26,7 @@ declare -A verbs=( [scm/github.sh]="clone_ro clone_rw changed_files diff pr_cont
                    [llm/ollama.sh]="run_phase capabilities check tool_policy usage"
                    [llm/codex.sh]="run_phase capabilities check tool_policy usage"
                    [llm/openhands.sh]="run_phase capabilities check tool_policy usage"
+                   [llm/batch.sh]="run_phase capabilities check tool_policy usage"
                    [mock/llm.sh]="run_phase capabilities check tool_policy usage"
                    [embed/http.sh]="embed_texts dims"
                    [mock/embed.sh]="embed_texts dims" )
@@ -38,7 +39,7 @@ done
 
 # Provider usage port: unsupported/unconfigured providers say unavailable
 # without inventing zero cost; the mock fixture proves the available shape.
-for a in llm/claude.sh llm/codex.sh llm/ollama.sh llm/openhands.sh mock/llm.sh; do
+for a in llm/claude.sh llm/codex.sh llm/ollama.sh llm/openhands.sh llm/batch.sh mock/llm.sh; do
   out=$(env -u ANTHROPIC_ADMIN_KEY bash "adapters/$a" usage 7 2>&1) || {
     echo "FAIL usage errored: $a ($out)"; fail=1; continue; }
   AIQE_USAGE_JSON="$out" python3 - "$a" <<'PY' || fail=1
@@ -68,7 +69,7 @@ done
 # "read-only" (codex governs by sandbox, not per-tool) quietly giving write
 # access to the critic or the plan adversary — at which point "advisory" and
 # "an opponent that cannot edit the plan" stop being true.
-for a in llm/claude.sh llm/codex.sh llm/ollama.sh llm/openhands.sh mock/llm.sh; do
+for a in llm/claude.sh llm/codex.sh llm/ollama.sh llm/openhands.sh llm/batch.sh mock/llm.sh; do
   out=$(bash "adapters/$a" tool_policy "Read" 2>&1) || { echo "FAIL tool_policy errored: $a"; fail=1; continue; }
   case "$out" in
     readonly*|none*) ;;

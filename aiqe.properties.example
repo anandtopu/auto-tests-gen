@@ -89,6 +89,11 @@ CODEX_BIN=
 AIQE_OPENHANDS_PROVIDER=
 # OpenHands phase timeout (seconds)  ·  default 900
 OPENHANDS_PHASE_TIMEOUT=
+# Claude Batch API (50% cheaper, async; completion phases only).
+# Requires ANTHROPIC_API_KEY - the Claude Code CLI login does not work here.
+AIQE_BATCH_MAX_WAIT_MIN=
+AIQE_BATCH_POLL_SECONDS=
+AIQE_BATCH_MAX_TOKENS=
 
 # --- Cost levers ---
 # Each cost-reduction mechanism has its own kill switch.

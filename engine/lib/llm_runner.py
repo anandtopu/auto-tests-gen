@@ -27,7 +27,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
-PROVIDERS = ("claude", "ollama", "codex", "openhands", "mock")
+PROVIDERS = ("claude", "ollama", "codex", "openhands", "batch", "mock")
 # Providers that can run an agentic tool loop IN OUR WORKSPACE. Completion-only
 # providers may serve every other phase (context is pre-injected; SDD artifacts
 # derive from contracts — see docs/multi-llm-providers.md capability matrix).
@@ -162,7 +162,11 @@ def check_model_mapping(phase, provider, cfg=None):
     # claude/mock: the tier ids ARE claude ids, so this is the identity case.
     # openhands: the model is chosen by that deployment, not by us — demanding
     # a mapping for an id we never send would be a refusal with no fix.
-    if provider in ("claude", "mock", "openhands"):
+    # batch: the Message Batches API is Anthropic's own, so the tier ids are
+    # already its ids — the identity case, same as claude. Demanding a mapping
+    # here would refuse a bare switch to batch while asking the operator to map
+    # claude ids onto claude ids, which is a refusal with no sensible fix.
+    if provider in ("claude", "mock", "openhands", "batch"):
         return None
     tier = _phase_model(phase)
     if not tier:
