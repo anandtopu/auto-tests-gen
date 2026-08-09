@@ -77,7 +77,8 @@ def test_repository_team_notes_follow_the_state_directory(tmp_path):
         "import repo_admin; print(repo_admin.NOTES_DIR)"
     )
     result = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env,
-                            check=True, capture_output=True, text=True)
+                            check=True, capture_output=True, text=True,
+                            stdin=subprocess.DEVNULL)
     assert pathlib.Path(result.stdout.strip()) == tmp_path / "knowledge" / "repos"
 
 

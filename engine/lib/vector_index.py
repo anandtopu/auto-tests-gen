@@ -222,11 +222,27 @@ def refresh(force=False):
     if not chunks:
         knowledge_chunks.rebuild()
         chunks = knowledge_chunks.load()
+    # The handle must be CLOSED before quarantining. A damaged data page lets
+    # `_connect()`'s CREATE TABLE IF NOT EXISTS succeed (it only touches page 1)
+    # and surfaces only on this SELECT — so the failure arrives with `con` open,
+    # and on Windows both the rename and the unlink fallback inside _quarantine()
+    # then fail with WinError 32 (file in use). Measured against a real corrupted
+    # db: the corrupt file was left in place, unquarantined, and the next
+    # _connect() handed back the same broken file with have={} — every chunk
+    # judged stale and the first REPLACE INTO raising out of refresh(). The
+    # nightly `make maintain` would fail that way forever, because the one
+    # mechanism meant to recover it could never get the file handle-free.
+    con = None
     try:
         con = _connect()
         have = {r[0]: r[1] for r in con.execute(
             "SELECT chunk_id, sha256 FROM vectors")}
     except sqlite3.Error:
+        if con is not None:
+            try:
+                con.close()
+            except sqlite3.Error:
+                pass
         _quarantine()
         con = _connect()
         have = {}

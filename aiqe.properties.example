@@ -216,9 +216,12 @@ MAX_COST_USD_PER_RUN=4.00
 # Max wall-clock (min)
 MAX_WALLCLOCK_MIN=25
 
-# Spec-driven governance. Both override org-config `spec.*`; empty = use
+# Spec-driven governance. These override org-config `spec.*`; empty = use
 # org-config. Warn before strict — enabling strict first only teaches people to
 # route around the gate.
+# The structured-plan layer itself: 0 = prose plans, 1 = structured, signable
+# plans (scenario-level review, drift watching, gate enforcement all key on it).
+AIQE_SPEC_MODE=
 # Requirements gate (1 = planning refuses until requirements are approved)
 AIQE_REQUIREMENTS_GATE=
 # Spec satisfaction at the gate: off | warn | strict
