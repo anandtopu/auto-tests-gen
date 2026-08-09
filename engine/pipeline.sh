@@ -1147,12 +1147,24 @@ if [ -s out/clone_failures.tsv ]; then
   done < out/clone_failures.tsv
 fi
 GATE_NAMES=()
+# The gate EXECUTES each test repo's own lint/test commands (docs/architecture.md
+# S7 onboarding trust boundary), so an unbounded wait here is a hang nothing can
+# end: budget.py checks MAX_WALLCLOCK_MIN BEFORE each phase, and the gate runs
+# after the last phase. A hung gate holds out/.pipeline.lock until the 90-min
+# stale break -- which frees the LOCK, not the process.
+GATE_TO=()
+if command -v timeout >/dev/null 2>&1; then
+  GATE_TO=(timeout "${AIQE_GATE_TIMEOUT_SEC:-1200}")
+else
+  # C13: an unenforceable limit is never reported as an enforced one.
+  echo "[pipeline] WARNING: no timeout(1) on PATH - gate runs are UNBOUNDED this run" >&2
+fi
 for name in $(cat out/cloned-tests.txt); do
   t="workspace/tests/$name/"
   GATE_NAMES+=("$name")
   (
     rc=0
-    (cd "$t" && bash "$AIQE_ROOT/engine/gate/gate.sh" "$KEY" "$name") \
+    (cd "$t" && ${GATE_TO[@]+"${GATE_TO[@]}"} bash "$AIQE_ROOT/engine/gate/gate.sh" "$KEY" "$name") \
       > "out/gates/$name.out" 2>&1 || rc=$?
     echo "$rc" > "out/gates/$name.rc"
   ) &
@@ -1172,7 +1184,12 @@ for name in "${GATE_NAMES[@]}"; do
     SUMMARY+=$'\n'"- ${name}: no changes ➖"; ST=no_changes
     EV gate.no_changes "$name" ok "key=$KEY"
   else
-    SUMMARY+=$'\n'"- ${name}: quarantined ❌ (exit $GRC, see reports)"; ST=quarantined
+    if [ "$GRC" -eq 124 ]; then
+      SUMMARY+=$'\n'"- ${name}: gate TIMED OUT after ${AIQE_GATE_TIMEOUT_SEC:-1200}s (exit 124) - nothing was established about these tests, and nothing was committed"
+    else
+      SUMMARY+=$'\n'"- ${name}: quarantined ❌ (exit $GRC, see reports)"
+    fi
+    ST=quarantined
     EV gate.refused "$name" refused "key=$KEY exit=$GRC"
   fi
   printf '%s\t%s\t%s\t%s\n' "$name" "$ST" "$GRC" "$SHA" >> out/gate_results.tsv

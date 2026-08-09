@@ -144,6 +144,11 @@ EXIT_MEANINGS = {
          "so no verdict about the spec was reached. This is NOT a finding that a "
          "scenario is uncovered; fix the checker, not the spec."),
     64: ("INVALID_INPUT", "The mode or key was not accepted. Nothing ran."),
+    124: ("GATE_TIMED_OUT", "The gate exceeded AIQE_GATE_TIMEOUT_SEC (default 1200s) "
+          "and was killed, almost always because the test repo's own lint or test "
+          "command did not return. NOTHING is known about whether these tests pass, "
+          "and nothing was committed. This is NOT a test failure (exit 5) -- the "
+          "tests never finished running."),
     65: ("NEEDS_CLARIFICATION", "The ticket does not say what should happen. A question "
          "was posted; answer it and re-run."),
     75: ("PIPELINE_BUSY", "Another run holds this checkout's lock, or the directory is "

@@ -284,3 +284,58 @@ The API layer is not unexamined — pass C probed auth-fails-closed, POST gating
 the separate `/hooks/*` token contract, and repo-name traversal by reading and
 exercising the code, and the earlier UAT campaign covers its negative cases.
 What is missing is the permanent regression suite.
+
+## G1 — The pipeline waited on the gate forever
+
+`engine/pipeline.sh` invoked `engine/gate/gate.sh` with no timeout. The two
+other callers of the same script both bound it — `.openhands/hooks/gate-check.sh`
+uses `timeout 300` — so this was the odd one out rather than a considered choice.
+
+It matters because of what the gate does: it runs each test repo's own
+`commands.{lint,test}`. Those commands are chosen by that repo's committers
+(see the onboarding trust boundary in `docs/onboarding-new-team.md`), so "a
+command that never returns" is an ordinary failure mode, not an exotic one — an
+`npm test` that waits on a port, a lint watcher started by mistake.
+
+Nothing else bounded it either, which is the part worth remembering:
+
+- `budget.py` enforces `MAX_WALLCLOCK_MIN`, but it is checked **before each
+  phase**, and the gate runs after the last phase. The run budget cannot end a
+  run that is already inside the gate.
+- `out/.pipeline.lock` breaks after 90 minutes. That frees the **lock** so the
+  next run may start — the hung process keeps running, and the next run's gate
+  can hang the same way behind it.
+
+Fixed by resolving a `timeout` prefix once before the fan-out and applying it at
+the call site. Two details that were not incidental:
+
+- **A host without `timeout(1)` says so** (`WARNING: ... gate runs are
+  UNBOUNDED this run`) instead of silently reverting to the old behaviour. C13:
+  an unenforceable limit is never reported as an enforced one.
+- **The empty prefix is expanded as `${GATE_TO[@]+"${GATE_TO[@]}"}`.** Under
+  `set -u` a plain `"${GATE_TO[@]}"` on an empty array is an unbound-variable
+  error, which would turn "this host has no timeout binary" into "every gate
+  aborts" — a graceful degradation converted into a total outage.
+
+And the reporting half, which is half the fix: `timeout(1)` exits **124**, and
+124 was absent from `run_progress.EXIT_MEANINGS`. Bounding the call without
+documenting the code would have rendered a killed gate as an unexplained number,
+or invited the reading that the tests failed. They did not fail — they never
+finished. The summary line and the exit table both say so now, and `ST` stays
+`quarantined` because nothing was committed, which is true.
+
+Verified end to end rather than by inspection: `make demo-pr` commits normally,
+and the same run under `AIQE_GATE_TIMEOUT_SEC=1` reports
+`gate TIMED OUT after 1s (exit 124) - nothing was established about these tests,
+and nothing was committed` for both repos. The run record that produced was
+deleted afterwards — a deliberately-killed run left in `reports/runs/` would be
+counted by `eval/scorecard.py` as product failure, the same scorecard pollution
+recorded in CLAUDE.md.
+
+Pins: `registry/tests/test_gate_is_bounded.py` (6), plus a repair to
+`test_run_progress.py::test_every_documented_exit_code_is_one_the_source_actually_emits`.
+That pin searched the raw source for `exit <code>`, so my own summary string
+`"(exit 124)"` satisfied it — deleting the branch that handles a timeout left it
+green. It now strips comments and double-quoted strings before looking, and
+accepts `-eq <code>` as evidence for codes we do not raise ourselves. Mutation:
+8 mutations, 8 killed, including that one.

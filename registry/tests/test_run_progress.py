@@ -13,6 +13,7 @@ process that died twenty minutes ago is the C13 failure with a spinner on it.
 """
 import json
 import pathlib
+import re
 import sys
 import time
 
@@ -194,7 +195,19 @@ def test_every_documented_exit_code_is_one_the_source_actually_emits():
     meaning, because it sends the reader somewhere that is not the problem."""
     src = ((ROOT / "engine/gate/gate.sh").read_text(encoding="utf-8")
            + (ROOT / "engine/pipeline.sh").read_text(encoding="utf-8"))
-    missing = [c for c in rp.EXIT_MEANINGS if f"exit {c}" not in src]
+    # Evidence must be CODE, not prose. Comments and double-quoted strings are
+    # stripped first: an operator-facing message reading "(exit 124)" is not
+    # proof that anything raises or handles 124, and counting it as proof was a
+    # real hole -- deleting the branch that handles a timeout left this test
+    # green, verified by mutation.
+    code = re.sub(r'"[^"\n]*"', '""', src)
+    code = re.sub(r'(?m)^\s*#.*$', '', code)
+    # Two kinds of evidence, because not every code is one WE raise: 124 comes
+    # from timeout(1) killing a gate whose lint/test command never returned, so
+    # there is no `exit 124` to find. The proof it can occur is the branch that
+    # handles it.
+    missing = [c for c in rp.EXIT_MEANINGS
+               if f"exit {c}" not in code and f"-eq {c}" not in code]
     assert not missing, f"documented but never emitted: {missing}"
 
 
