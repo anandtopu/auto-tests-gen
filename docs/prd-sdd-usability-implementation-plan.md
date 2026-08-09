@@ -11,7 +11,7 @@ Source: [prd-sdd-usability.md](prd-sdd-usability.md) (Draft v2)
 | 2 | SDD-S2 Journey actions and refusal contract | B1.1–B1.2, B3.1, M2–M3 | SDD-S1 | Implemented | One action from `spec_workflow`, shared Python refusal builder, CLI/UI message parity |
 | 3 | SDD-S3 Adoption levels | C1.0–C1.3, M5 | SDD-S1 | Implemented | One level mapping over existing resolved knobs, visible warn/strict sub-state, Custom truth |
 | 4 | SDD-S4 Wizard and approval benefit | B2.1–B2.2, B4, M4 | SDD-S1, SDD-S2 | Implemented | Resolved-gate criteria step with authoritative action; signed/prose-aware approval confirmation on every UI approval surface |
-| 5 | SDD-FINAL Broad verification | M1–M6, risks, non-goals | SDD-S1–S4 | Pending | Full compatibility, mock journey, docs currency, final review and status reconciliation |
+| 5 | SDD-FINAL Broad verification | M1–M6, risks, non-goals | SDD-S1–S4 | Implemented | Full compatibility, isolated mock journey, docs currency, final review and status reconciliation |
 
 The sequence follows the PRD. Vocabulary ships first because every later
 surface consumes it; refusal and journey contracts precede wizard composition;
@@ -111,6 +111,37 @@ compatibility evidence are recorded in the SDD-S3 review summary.
   both gate-on cases and passed after restore. Python compilation passed. The
   repository-wide Ruff invocation found 91 pre-existing style findings and is
   not claimed as clean; no syntax finding was reported in changed code.
+
+## SDD-FINAL acceptance reconciliation
+
+| Metric / boundary | Final evidence | Status |
+| --- | --- | --- |
+| M1 glossary coverage | Bidirectional term/reference and safe-render tests in `test_sdd_usability.py` | Pinned |
+| M2 refusal contract | All five B3 refusal kinds retain one shared what/why/action/command contract across CLI/UI integration tests | Pinned |
+| M3 six labels + actions | Six machine states retain stable plain labels and one authoritative action/command/view | Pinned |
+| M4 conditional criteria step | Gate-on draft/approved/unsigned and gate-off cases, plus PR-plan exemption and mutation failure | Pinned |
+| M5 level mapping | One module maps exactly the three existing controls; warn/strict and Custom remain distinct | Pinned |
+| M6 human outcome | No onboarding/support baseline exists in this repository; no number or target is fabricated | Deferred to Product + QE pilot evidence |
+| Risks / non-goals | Machine states, `specflow`, paths, targets, public mutations, SDD mechanics, and existing resolved controls remain intact | Preserved |
+
+Final verification found and fixed one P1 test-integrity defect: the queue-to-plan
+UI test redirected the worker's lifecycle state but asserted against the real
+estate state, allowing a false pass while it changed tracked signed-spec
+fixtures. All mutable journey outputs now use temporary paths; created run
+records are removed by exact before/after name comparison. The real journey
+test passed after the fix and left the checkout clean. The isolation mutation
+failed as expected when spec output was deliberately pointed back at the
+checkout, then passed after restore.
+
+Post-fix release evidence: the deterministic SDD/UI/API/docs/deployment
+partition passed 467 tests and its immediate tracked-fixture diff gate passed;
+the isolated full mock journey passed 5 tests. Adapter conformance, five
+adversarial shell suites, bootstrap/entrypoint smoke, replay, context,
+discovery, retrieval, simulated reviewer, scorecard, compilation, critical
+Ruff checks, and dashboard generation passed. Real reviewer quality remains
+authentication-blocked and unmeasured, consistent with the existing eval
+contract. The monolithic Windows registry run produced no result in a bounded
+nine-minute window and is not claimed as passed.
 
 ## Product decisions and assumptions
 

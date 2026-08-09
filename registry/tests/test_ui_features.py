@@ -126,21 +126,41 @@ def test_plan_mode_drains_to_a_draft_plan_end_to_end(tmp_path, monkeypatch):
     # depends on which tests ran before this one, and the approved-plan guard
     # (test_data_integrity) would otherwise make the enqueue order-dependent.
     item, _ = work_queue.add("plan", "PROJ-301", requested_by="e2e-test", force=True)
-    r = subprocess.run([sys.executable,
-                        str(ROOT / "engine/lib/work_queue.py"), "run"],
-                       cwd=ROOT, capture_output=True, text=True,
-                       encoding="utf-8", errors="replace",
-                       stdin=subprocess.DEVNULL, timeout=600,
-                       env={**os.environ, "AIQE_MOCK": "1",
-                            "AIQE_QUEUE_FILE": str(qfile)})
+    run_dir = ROOT / "reports/runs"
+    before_runs = {p.name for p in run_dir.glob("*")}
+    isolated = {
+        "AIQE_QUEUE_FILE": str(qfile),
+        "AIQE_PLAN_DIR": str(tmp_path / "plans"),
+        "AIQE_TESTPLAN_DIR": str(tmp_path / "testplans"),
+        "AIQE_SPEC_DIR": str(tmp_path / "specs"),
+        "AIQE_TESTDATA_DIR": str(tmp_path / "testdata"),
+        "AIQE_COSTS_DIR": str(tmp_path / "costs"),
+        "AIQE_ARTIFACTS_DIR": str(tmp_path / "artifacts"),
+        "AIQE_EXPORTS_DIR": str(tmp_path / "exports"),
+    }
+    try:
+        r = subprocess.run([sys.executable,
+                            str(ROOT / "engine/lib/work_queue.py"), "run"],
+                           cwd=ROOT, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace",
+                           stdin=subprocess.DEVNULL, timeout=600,
+                           env={**os.environ, "AIQE_MOCK": "1", **isolated})
+    finally:
+        # pipeline.sh does not yet relocate run records. Remove only records
+        # this isolated journey created; never rewrite pre-existing evidence.
+        for path in run_dir.glob("*"):
+            if path.name not in before_runs:
+                path.unlink(missing_ok=True)
     assert r.returncode == 0, r.stdout + r.stderr
-    # Read the state FILE, not the plan_state module: an earlier suite test may
-    # have imported plan_state under a tmp-path env and module caching would
-    # leave the in-process view pointing at that test's store.
-    state = json.loads((ROOT / "reports/plans/state.json")
-                       .read_text(encoding="utf-8"))
+    # Read the isolated state FILE, not plan_state's module global: an earlier
+    # test may have imported it with another env. Reading the estate's real
+    # reports/plans/state.json was a false oracle and let this test pass while
+    # its subprocess changed tracked specs/ and testplans/ in the checkout.
+    state = json.loads((tmp_path / "plans/state.json").read_text(encoding="utf-8"))
     st = state.get("PROJ-301", {})
     assert st.get("status") == "draft", f"plan must stop at draft: {st}"
+    assert (tmp_path / "testplans/PROJ-301.md").exists()
+    assert (tmp_path / "specs/PROJ-301/testplan.yaml").exists()
     assert "GATE_STATUS" not in r.stdout, "plan mode must never reach a gate"
 
 
