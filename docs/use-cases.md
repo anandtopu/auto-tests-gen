@@ -439,6 +439,15 @@ enforced in your estate. Out of the box the answer is no: every step is advisory
 and the platform will not stop a run that skips one. That is deliberate — the
 process is visible before it is mandatory.
 
+The same header and Overview's **Start here** card name the effective adoption
+level. New estates resolve to **Reviewed plans**: structured plans can be signed,
+while criteria and coverage gates remain advisory. In **Settings → Test-plan
+adoption**, move to **Validated criteria** when planning must wait for approved
+criteria, then to **Enforced coverage / warn** for a reporting-only dry run and
+finally **strict** to refuse uncovered, unwaived scenarios. **Off** keeps plans
+prose. A hand-set combination that matches none of these is shown as **Custom**
+with the resolved controls, not mislabeled as the last preset selected.
+
 The journey distinguishes an **approved test plan (signed)** from an **approved
 test plan (prose — not signed)**. Only the structured, signed form receives
 scenario-level drift and coverage-enforcement guarantees. The first step is

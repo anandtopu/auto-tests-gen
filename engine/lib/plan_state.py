@@ -438,7 +438,7 @@ def record_comment_attempt(key, item):
 
 
 # ------------------------------------------------------------------ SDD 2.2
-def _requirements_gate_on():
+def _requirements_gate_on(warn=None):
     """env AIQE_REQUIREMENTS_GATE > org-config `spec.requirements_gate`.
 
     The env override exists for parity with the gate's own `AIQE_SPEC_ENFORCE`
@@ -457,10 +457,11 @@ def _requirements_gate_on():
         # Same rule as the enforcement mode: an unrecognized value must not
         # quietly mean "off". `AIQE_REQUIREMENTS_GATE=enabled` reads as an
         # instruction to turn the gate ON and used to turn it off in silence.
-        print(f"[requirements-gate] AIQE_REQUIREMENTS_GATE={env!r} is not a "
-              f"recognized value (1/on/yes/true, 0/off/no/false) — IGNORING it "
-              f"and falling back to org-config. If you meant to gate planning, "
-              f"it is NOT gated.", file=sys.stderr)
+        say = warn if warn is not None else (lambda m: print(m, file=sys.stderr))
+        say(f"[requirements-gate] AIQE_REQUIREMENTS_GATE={env!r} is not a "
+            f"recognized value (1/on/yes/true, 0/off/no/false) — IGNORING it "
+            f"and falling back to org-config. If you meant to gate planning, "
+            f"it is NOT gated.")
     try:
         import yaml
         cfg = yaml.safe_load(open(ROOT / "registry/org-config.yaml",

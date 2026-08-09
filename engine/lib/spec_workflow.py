@@ -27,10 +27,11 @@ import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import adoption_levels
 import app_paths                      # R12: mutable paths resolve here
+import env_flag                     # one place decides what a toggle means
 import plan_state
 import spec_store
-import env_flag                     # one place decides what a toggle means
 
 ROOT = app_paths.ROOT
 
@@ -61,13 +62,13 @@ def governance():
     # workflow view that contradicts the enforcement it describes is worse than
     # no view. Both knobs are env-overridable now (plan_state and spec_check).
     import plan_state as _ps
-    gate = _ps._requirements_gate_on()
+    complaints = []
+    gate = _ps._requirements_gate_on(warn=complaints.append)
     # Ask the GATE's own resolver rather than re-deriving the mode. A second
     # implementation is how this view once reported "off" while the gate was
     # refusing commits, and it is also the only way to learn that a configured
     # value was UNUSABLE — `stict` resolves to `off`, and reporting a plain
     # "off" would tell someone their typo is a deliberate setting.
-    complaints = []
     try:
         sys.path.insert(0, str(ROOT / "engine" / "gate"))
         import spec_check
@@ -76,7 +77,19 @@ def governance():
         enforce = "off"
         complaints.append("could not read the enforcement setting — reporting "
                           "'off', which is what the gate falls back to")
-    return {
+    # env_flag intentionally warns once per process. A presentation resolver
+    # cannot inherit that suppression: the second dashboard refresh must still
+    # report an unusable value. Resolve through env_flag, then inspect only its
+    # accepted vocabulary to keep the problem visible on every read.
+    spec_mode = env_flag.flag("AIQE_SPEC_MODE", True, warn=lambda _m: None)
+    raw_spec_mode = os.environ.get("AIQE_SPEC_MODE")
+    if (raw_spec_mode is not None
+            and raw_spec_mode.strip().lower()
+            not in env_flag.TRUEISH + env_flag.FALSEISH):
+        complaints.append(
+            f"AIQE_SPEC_MODE={raw_spec_mode!r} is not a recognized boolean — "
+            "using ON, so the effective adoption level is Custom")
+    resolved = {
         "requirements_gate": bool(gate),
         "requirements_gate_effect": (
             "planning REFUSES until requirements are approved" if gate
@@ -87,11 +100,13 @@ def governance():
             "warn": "uncovered scenarios are reported; the gate still commits",
             "strict": "the gate REFUSES (exit 8) on an uncovered, unwaived scenario",
         }.get(enforce, f"unknown mode {enforce!r}"),
-        "spec_mode": env_flag.flag("AIQE_SPEC_MODE", True),
+        "spec_mode": spec_mode,
         # Non-empty when the configured value could not be used. Surfaced so a
         # typo never reads as a decision.
         "problems": complaints,
     }
+    resolved["adoption"] = adoption_levels.derive(resolved)
+    return resolved
 
 
 def _keys():

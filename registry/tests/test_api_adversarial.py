@@ -163,6 +163,7 @@ def test_an_authenticated_request_actually_succeeds(live_server):
     ("POST", "/api/plans/status", '{"key":"PROJ-301","status":"approved"}'),
     ("POST", "/api/review", '{"key":"PROJ-301","status":"approved"}'),
     ("POST", "/api/settings", '{"ANTHROPIC_API_KEY":"attacker-supplied"}'),
+    ("POST", "/api/adoption", '{"level":"off"}'),
     ("POST", "/api/repos/remove", '{"name":"e2e-api-tests-1"}'),
     ("POST", "/api/repos/scope", '{"name":"e2e-api-tests-1","scope":["x"]}'),
     ("POST", "/api/integrations/check", "{}"),
@@ -467,6 +468,47 @@ def test_settings_save_requires_an_updates_object(live_server, payload):
     status, text = _request(base + "/api/settings", method="POST", body=payload,
                             headers=_auth())
     assert status == 400, text
+
+
+@pytest.mark.parametrize("payload", [
+    "[]", "null", "{}", '{"level":"unknown"}',
+    '{"level":"enforced"}',
+    '{"level":"enforced","substate":42}',
+    '{"level":"reviewed","substate":"strict"}',
+])
+def test_adoption_apply_rejects_malformed_or_ambiguous_requests(live_server, payload):
+    base, _ = live_server
+    status, text = _request(base + "/api/adoption", method="POST", body=payload,
+                            headers=_auth())
+    assert status == 400, text
+    status, text = _request(base + "/api/adoption", headers=_auth())
+    assert status == 200, text
+
+
+def test_adoption_apply_round_trips_only_the_three_existing_controls(live_server):
+    base, state = live_server
+    status, text = _request(
+        base + "/api/adoption", method="POST",
+        body='{"level":"enforced","substate":"warn"}', headers=_auth())
+    assert status == 200, text
+    result = json.loads(text)
+    assert result["current"]["id"] == "enforced"
+    assert result["current"]["substate"] == "warn"
+    assert result["current"]["badge"] == "Dry run — reporting, not refusing"
+    assert result["updated"] == [
+        "AIQE_REQUIREMENTS_GATE", "AIQE_SPEC_ENFORCE", "AIQE_SPEC_MODE"]
+    values = dict(line.split("=", 1) for line in
+                  (state / ".env").read_text(encoding="utf-8").splitlines())
+    assert values == {
+        "AIQE_SPEC_MODE": "1", "AIQE_REQUIREMENTS_GATE": "1",
+        "AIQE_SPEC_ENFORCE": "warn"}
+
+    # Restore the fixture's original effective level for tests that share this
+    # module-scoped server, and prove the same route can move back safely.
+    status, text = _request(base + "/api/adoption", method="POST",
+                            body='{"level":"reviewed"}', headers=_auth())
+    assert status == 200, text
+    assert json.loads(text)["current"]["id"] == "reviewed"
 
 
 @pytest.mark.parametrize("which", ["smtp", 1, {"name": "smtp"}, [1]])

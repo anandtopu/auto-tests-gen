@@ -76,7 +76,7 @@ def page():
         "clause_count": len(cls),
         "unpinned": [c["id"] for c in cls if c["unpinned"] or c["pin_missing"]],
         "states": list(spec_workflow.STATES),
-        "source": "specs/platform/constitution.yaml + registry/org-config.yaml",
+        "source": "specs/platform/constitution.yaml + resolved engine controls",
     }
 
 
@@ -95,6 +95,17 @@ def markdown():
     for prob in g.get("problems") or []:
         L.append(f"> **Configuration ignored.** {prob}")
         L.append("")
+    adoption = g["adoption"]
+    L.append(f"**Adoption level: {adoption['name']}.** {adoption['consequence']}")
+    if adoption.get("badge"):
+        L.append(f"**{adoption['badge']}.**")
+    if adoption.get("custom"):
+        k = adoption["knobs"]
+        L.append("Resolved controls: "
+                 f"`spec_mode={k['spec_mode']}`, "
+                 f"`requirements_gate={k['requirements_gate']}`, "
+                 f"`spec_enforce={k['spec_enforce']}`.")
+    L.append("")
     if d["enforced"]:
         L.append(f"**Yes.** Requirements gate: `{g['requirements_gate']}` — "
                  f"{g['requirements_gate_effect']}.")

@@ -1323,6 +1323,19 @@ org-config — an earlier version read only the file, so with `AIQE_SPEC_ENFORCE
 set the view reported "off" while the gate was refusing commits. A workflow view
 that contradicts the enforcement it describes is worse than no view.
 
+**Adoption levels are a mapping, not a fourth policy engine**
+(`engine/lib/adoption_levels.py`). One closed definition maps Off, Reviewed
+plans, Validated criteria, and Enforced coverage (warn or strict) to exactly
+`AIQE_SPEC_MODE`, `AIQE_REQUIREMENTS_GATE`, and `AIQE_SPEC_ENFORCE`.
+`spec_workflow.governance()` first asks the existing engine resolvers, then
+derives the presentation level from that resolved tuple. Unmatched tuples and
+ignored invalid values remain Custom with raw truth. The authenticated apply
+route writes all three values atomically through `settings_store`; an explicitly
+exported environment value still wins and may therefore leave the effective
+result Custom. Governance, Settings, and Start here consume the same name and
+one-sentence consequence. Constitution clauses remain deliberately internal;
+the adoption name is their operator-facing presentation layer.
+
 **One governance page, generated** (`engine/lib/governance_page.py`). Every fact
 comes from the thing that enforces it — the constitution's clauses and their
 pins, plus live configuration — so the page is wrong only if the code is. Each

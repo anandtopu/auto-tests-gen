@@ -10,11 +10,110 @@ import pytest
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 
+import adoption_levels  # noqa: E402
 import glossary  # noqa: E402
+import governance_page  # noqa: E402
 import plan_state  # noqa: E402
 import sdd_messages  # noqa: E402
 import spec_workflow  # noqa: E402
 import work_queue  # noqa: E402
+
+
+# ------------------------------------------ SDD adoption S3: named levels
+def test_four_levels_are_single_sourced_and_each_states_one_consequence():
+    rows = adoption_levels.definitions()
+    assert [row["name"] for row in rows] == [
+        "Off", "Reviewed plans", "Validated criteria", "Enforced coverage"]
+    assert len(rows) == 4
+    for row in rows:
+        assert row["consequence"].endswith(".")
+        assert "\n" not in row["consequence"]
+
+
+@pytest.mark.parametrize(("level", "substate", "expected"), [
+    ("off", "", (False, False, "off")),
+    ("reviewed", "", (True, False, "off")),
+    ("validated", "", (True, True, "off")),
+    ("enforced", "warn", (True, True, "warn")),
+    ("enforced", "strict", (True, True, "strict")),
+])
+def test_level_mapping_round_trips_through_resolved_truth(level, substate, expected):
+    updates = adoption_levels.updates_for(level, substate)
+    assert tuple(updates) == adoption_levels.MAPPED_ENV_KEYS
+    assert set(updates) == {
+        "AIQE_SPEC_MODE", "AIQE_REQUIREMENTS_GATE", "AIQE_SPEC_ENFORCE"}
+    gov = {
+        "spec_mode": expected[0], "requirements_gate": expected[1],
+        "spec_enforce": expected[2], "problems": [],
+    }
+    current = adoption_levels.derive(gov)
+    assert current["id"] == level
+    assert current["substate"] == substate
+    if substate == "warn":
+        assert current["badge"] == "Dry run — reporting, not refusing"
+    if substate == "strict":
+        assert current["badge"].startswith("Enforcing")
+
+
+def test_unmatched_or_ignored_configuration_remains_custom():
+    unmatched = adoption_levels.derive({
+        "spec_mode": False, "requirements_gate": True,
+        "spec_enforce": "strict", "problems": [],
+    })
+    ignored = adoption_levels.derive({
+        "spec_mode": True, "requirements_gate": False,
+        "spec_enforce": "off", "problems": ["invalid value ignored"],
+    })
+    assert unmatched["name"] == ignored["name"] == "Custom"
+    assert unmatched["knobs"] == {
+        "spec_mode": False, "requirements_gate": True, "spec_enforce": "strict"}
+
+
+@pytest.mark.parametrize("key", [
+    "AIQE_SPEC_MODE", "AIQE_REQUIREMENTS_GATE", "AIQE_SPEC_ENFORCE"])
+def test_unusable_raw_control_makes_effective_level_custom(monkeypatch, key):
+    monkeypatch.setenv("AIQE_SPEC_MODE", "1")
+    monkeypatch.setenv("AIQE_REQUIREMENTS_GATE", "0")
+    monkeypatch.setenv("AIQE_SPEC_ENFORCE", "off")
+    monkeypatch.setenv(key, "definitely-not-valid")
+    current = spec_workflow.governance()
+    assert current["problems"], key
+    assert current["adoption"]["id"] == "custom", key
+    again = spec_workflow.governance()
+    assert again["problems"] and again["adoption"]["id"] == "custom", key
+
+
+@pytest.mark.parametrize(("level", "substate"), [
+    ("missing", ""), ("enforced", ""), ("enforced", "off"),
+    ("reviewed", "warn"), (None, ""),
+])
+def test_level_apply_rejects_ambiguous_or_unknown_requests(level, substate):
+    with pytest.raises((TypeError, ValueError)):
+        adoption_levels.updates_for(level, substate)
+
+
+def test_level_apply_pin_cannot_quietly_gain_a_fourth_control():
+    assert adoption_levels.MAPPED_ENV_KEYS == (
+        "AIQE_SPEC_MODE", "AIQE_REQUIREMENTS_GATE", "AIQE_SPEC_ENFORCE")
+    for row in adoption_levels.definitions():
+        assert set(row["knobs"]) == {
+            "spec_mode", "requirements_gate", "spec_enforce"}
+    server = (ROOT / "bin/dashboard_server.py").read_text(encoding="utf-8")
+    route = server.split('self.path == "/api/adoption"', 1)[1].split(
+        'if self.path ==', 1)[0]
+    assert "adoption_levels.updates_for" in route
+    assert "settings_store.save(updates)" in route
+
+
+def test_governance_and_start_here_share_the_resolved_name_and_consequence():
+    gov_source = (ROOT / "engine/lib/governance_page.py").read_text(encoding="utf-8")
+    ui_source = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert 'adoption = g["adoption"]' in gov_source
+    assert '_adoption = spec_workflow.governance()["adoption"]' in ui_source
+    current = governance_page.page()["governance"]["adoption"]
+    markdown = governance_page.markdown()
+    assert f"Adoption level: {current['name']}" in markdown
+    assert current["consequence"] in markdown
 
 
 def test_every_marked_term_resolves_and_every_definition_is_used():

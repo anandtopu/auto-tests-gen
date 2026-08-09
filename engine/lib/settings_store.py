@@ -275,11 +275,16 @@ SPEC = [
     # whether to enable this needs to know what starts FAILING, not which YAML
     # key moves. Empty means "use org-config".
     {"section": "Spec-driven governance",
-     "hint": "Off by default. Turning these on changes what the platform "
-             "REFUSES. Roll out in two steps — warn until the signal is clean, "
+     "hint": "Use the named adoption level above for the normal path. These raw "
+             "controls remain visible for diagnosis and custom estates. Roll out "
+             "enforcement in two steps — warn until the signal is clean, "
              "then strict; enabling strict first only teaches people to route "
              "around the gate. Current state is shown in the Plan → tests journey view.",
      "fields": [
+        {"env": "AIQE_SPEC_MODE", "label": "Structured and signed plans",
+         "options": [["0", "off — plans remain prose and unsigned"],
+                     ["1", "on — structured plans can be signed and checked"]],
+         "help": "This is the first control in every named level except Off."},
         {"env": "AIQE_REQUIREMENTS_GATE", "label": "Requirements gate",
          "options": [["", "use org-config (default: off)"],
                      ["0", "off — planning proceeds without approved requirements"],

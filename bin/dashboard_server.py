@@ -67,7 +67,7 @@ UI_SCHEMA = 3
 # with the authenticated user, e.g. X-Forwarded-User. Empty = SSO off.
 SSO_HEADER = os.environ.get("AIQE_SSO_HEADER", "").strip()
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import alert_rules, demo_data, email_notify, event_log, export_plan, \
+import adoption_levels, alert_rules, demo_data, email_notify, event_log, export_plan, \
     guidance_sync, inline_ticket, integration_check, openhands_client, \
     openhands_events, openhands_mode, plan_state, pr_url, repo_admin, \
     repo_guidance_gen, review_state, settings_store, spec_workflow, \
@@ -476,6 +476,11 @@ class Handler(BaseHTTPRequestHandler):
             # view must never advance a workflow. Every transition stays behind
             # the approve/edit commands, which sign and record an actor.
             self._send(200, spec_workflow.board())
+        elif url.path == "/api/adoption":
+            # SDD-S3: names are presentation over resolved engine truth.  This
+            # endpoint does not infer from .env or from the last clicked preset.
+            self._send(200, {"levels": adoption_levels.definitions(),
+                             "current": spec_workflow.governance()["adoption"]})
         elif url.path == "/api/alerts":
             # Rules plus their CURRENT evaluation (observability 3.1-3.4).
             # notify=False: rendering a page must never send a notification —
@@ -997,6 +1002,28 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "waiver": rec,
                                     "warning": warn} if warn
                               else {"ok": True, "waiver": rec})
+        if self.path == "/api/adoption":
+            try:
+                p = json.loads(body or b"{}")
+                if not isinstance(p, dict):
+                    raise ValueError("request body must be an object")
+                updates = adoption_levels.updates_for(
+                    p.get("level"), p.get("substate", ""))
+                saved = settings_store.save(updates)
+                # Values originally loaded from .env are refreshed; an
+                # explicitly exported environment value correctly keeps
+                # precedence and may therefore leave the effective level Custom.
+                settings_store.load_env_into(refresh=True)
+                current = spec_workflow.governance()["adoption"]
+            except (TypeError, ValueError, json.JSONDecodeError) as e:
+                return self._send(400, {"error": _err(e)})
+            except SystemExit as e:
+                return self._send(400, {"error": _err(e)})
+            event_log.emit("settings.changed", actor=self.user or None, source="ui",
+                           target="sdd-adoption", outcome="ok",
+                           detail={"updated": saved["updated"],
+                                   "effective_level": current["id"]})
+            return self._send(200, {"ok": True, **saved, "current": current})
         if self.path == "/api/waivers/remove":
             try:
                 p = json.loads(body or b"{}")
@@ -1314,7 +1341,12 @@ class Handler(BaseHTTPRequestHandler):
                 p = json.loads(body or b"{}")
                 if not isinstance(p, dict):
                     raise ValueError("JSON body must be an object")
-                self._send(200, {"ok": True, **settings_store.save(p["updates"])})
+                saved = settings_store.save(p["updates"])
+                if set(saved["updated"]) & set(adoption_levels.MAPPED_ENV_KEYS):
+                    # Advanced/custom edits to the raw controls must update the
+                    # same effective-state display as a named-level apply.
+                    settings_store.load_env_into(refresh=True)
+                self._send(200, {"ok": True, **saved})
             except (KeyError, ValueError, json.JSONDecodeError) as e:
                 self._send(400, {"error": _err(e)})
             except SystemExit as e:                     # unknown key / bad value

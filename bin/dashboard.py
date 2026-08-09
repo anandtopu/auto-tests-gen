@@ -15,7 +15,7 @@ import yaml
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import app_paths, env_flag, glossary
+import app_paths, env_flag, glossary, spec_workflow
 import run_progress                      # R12: mutable paths resolve here
 from registry import load_registry
 import review_state, test_health, work_queue
@@ -331,14 +331,26 @@ _start_steps.append((
      "human. Approve or request changes on the review board."),
     "Runs & reviews", "runs"))
 
-_start_html = ""
-if not all(done for done, *_ in _start_steps):
-    _start_html = (
-        '<section class="card" id="start-here">'
-        '<div class="card-h"><div><h2>Start here</h2>'
-        '<div class="sub">Three steps to your first AI-generated E2E test. '
-        'This panel goes away once they are done.</div></div></div>'
-        + "".join(
+_adoption = spec_workflow.governance()["adoption"]
+_adoption_knobs = _adoption["knobs"]
+_adoption_detail = (
+    '<span class="chip chip-warning">' + esc(_adoption["badge"]) + '</span>'
+    if _adoption.get("badge") else "")
+if _adoption.get("custom"):
+    _adoption_detail += (
+        '<div class="sm muted">resolved controls: '
+        f'<code>spec_mode={esc(str(_adoption_knobs["spec_mode"]).lower())}</code> · '
+        f'<code>requirements_gate={esc(str(_adoption_knobs["requirements_gate"]).lower())}</code> · '
+        f'<code>spec_enforce={esc(_adoption_knobs["spec_enforce"])}</code></div>')
+_start_html = (
+    '<section class="card" id="start-here">'
+    '<div class="card-h"><div><h2>Start here</h2>'
+    '<div class="sub">Your current adoption level and the next useful setup step.</div>'
+    '</div><button class="btn btn-sm" data-go="settings">Change in Settings</button></div>'
+    '<div class="card-b" id="start-adoption"><b>Adoption level: '
+    + esc(_adoption["name"]) + '.</b> ' + esc(_adoption["consequence"])
+    + _adoption_detail + '</div>'
+    + ("".join(
             f'<button class="attn start-step{" done" if done else ""}" data-go="{view}">'
             f'<span class="chip chip-{"success" if done else "info"}">'
             f'{"done" if done else str(i + 1)}</span>'
@@ -346,7 +358,8 @@ if not all(done for done, *_ in _start_steps):
             f'<span class="sub">{esc(why)}</span></span>'
             f'<span class="attn-act">{esc(action)} \u2192</span></button>'
             for i, (done, title, why, action, view) in enumerate(_start_steps))
-        + '</section>')
+       if not all(done for done, *_ in _start_steps) else "")
+    + '</section>')
 
 attention_html = "".join(
     f'<button class="attn" data-go="{view}">'
@@ -2135,10 +2148,14 @@ async function loadGovernance() {
     const d = await api('/api/governance');
     // The honest headline first: a reader who takes these rules as enforced,
     // when they are not, has been misled by this page.
-    const head = d.enforced
+    const a = d.governance.adoption;
+    const level = '<div><b>Adoption level: ' + escHtml(a.name) + '.</b> ' +
+      escHtml(a.consequence) + (a.badge ? ' <span class="chip chip-warning">' +
+      escHtml(a.badge) + '</span>' : '') + '</div>';
+    const head = level + (d.enforced
       ? '<div class="chip">ENFORCED — ' + escHtml(d.governance.spec_enforce_effect) + '</div>'
       : '<div class="chip chip-warning">NOT ENFORCED — every rule below is ' +
-        'advisory in this estate; the platform will not stop a run that skips it</div>';
+        'advisory in this estate; the platform will not stop a run that skips it</div>');
     const warn = d.unpinned.length
       ? '<div class="chip chip-danger">clause(s) with no live pin: ' +
         escHtml(d.unpinned.join(', ')) + ' — rules nothing currently defends</div>'
@@ -3164,7 +3181,62 @@ async function loadSettings() {
     $$('#settings-body [data-env]').forEach(el => { el.dataset.init = el.value; });
   } catch (err) { $('#settings-body').innerHTML = '<div class="empty">' + escAttr(err.message) + '</div>'; }
 }
+
+function adoptionCurrentHtml(a) {
+  const badge = a.badge
+    ? '<span class="chip chip-warning">' + escHtml(a.badge) + '</span>' : '';
+  const raw = a.custom
+    ? '<div class="sm muted">resolved controls: <code>spec_mode=' +
+      escHtml(String(a.knobs.spec_mode)) + '</code> · <code>requirements_gate=' +
+      escHtml(String(a.knobs.requirements_gate)) + '</code> · <code>spec_enforce=' +
+      escHtml(a.knobs.spec_enforce) + '</code></div>' : '';
+  return '<b>Adoption level: ' + escHtml(a.name) + '.</b> ' +
+    escHtml(a.consequence) + ' ' + badge + raw;
+}
+async function loadAdoption() {
+  if (!served) return;
+  const el = $('#adoption-settings');
+  try {
+    const d = await api('/api/adoption'), a = d.current;
+    if ($('#start-adoption')) $('#start-adoption').innerHTML = adoptionCurrentHtml(a);
+    const choices = d.levels.map(level =>
+      '<option value="' + escHtml(level.id) + '">' + escHtml(level.name) + '</option>'
+    ).join('');
+    const descriptions = d.levels.map(level =>
+      '<div class="sm"><b>' + escHtml(level.name) + '.</b> ' +
+      escHtml(level.consequence) + '</div>').join('');
+    el.innerHTML = '<div id="adoption-current">' + adoptionCurrentHtml(a) + '</div>' +
+      '<div class="stack" style="padding-top:12px">' + descriptions + '</div>' +
+      '<div class="toolbar" style="padding:12px 0 0">' +
+      '<label class="f">Apply level <select id="adoption-level" class="h32">' +
+      '<option value="">Choose a level…</option>' + choices + '</select></label>' +
+      '<label class="f hidden" id="adoption-sub-wrap">Enforcement sub-state ' +
+      '<select id="adoption-substate" class="h32"><option value="warn">warn — dry run</option>' +
+      '<option value="strict">strict — enforcing</option></select></label>' +
+      '<button class="btn btn-primary" id="apply-adoption" disabled>Apply level</button></div>';
+    const level = $('#adoption-level'), sub = $('#adoption-sub-wrap'), apply = $('#apply-adoption');
+    level.addEventListener('change', () => {
+      sub.classList.toggle('hidden', level.value !== 'enforced');
+      apply.disabled = !level.value;
+    });
+  } catch (err) {
+    if (el) el.innerHTML = '<div class="empty">' + escHtml(err.message) + '</div>';
+  }
+}
 document.addEventListener('click', async e => {
+  if (e.target.id === 'apply-adoption') {
+    const level = $('#adoption-level').value;
+    const substate = level === 'enforced' ? $('#adoption-substate').value : '';
+    e.target.disabled = true;
+    try {
+      const r = await api('/api/adoption', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ level, substate }) });
+      toast('Applied ' + r.current.name + ' to ' + r.updated.length + ' controls');
+      await Promise.all([loadAdoption(), loadSettings(), refreshSpecFlow(), loadGovernance()]);
+    } catch (err) { e.target.disabled = false; toast(err.message); }
+    return;
+  }
   if (e.target.id !== 'save-settings') return;
   const updates = {};
   $$('#settings-body [data-env]').forEach(el => {
@@ -3178,7 +3250,7 @@ document.addEventListener('click', async e => {
     const r = await api('/api/settings', { method: 'POST',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates }) });
     toast('Saved ' + r.updated.length + ' setting(s) to .env');
-    loadSettings();
+    await Promise.all([loadSettings(), loadAdoption(), refreshSpecFlow(), loadGovernance()]);
   } catch (err) { e.target.disabled = false; toast(err.message); }
 });
 // ---- validate integrations (read-only connectivity check)
@@ -3278,6 +3350,7 @@ $('#clear-demo').addEventListener('click', async () => {
   b.disabled = false;
 });
 loadSettings();
+loadAdoption();
 
 // ---------------------------------------------------------------- run progress
 // The step ladder for ONE run. The Guided run view answers the JOURNEY question
@@ -4185,6 +4258,17 @@ page = f"""<!doctype html>
   </div>
 
   <div data-view="settings">
+    <section class="card">
+      <div class="card-h"><div><h2>Test-plan adoption</h2>
+        <div class="sub">Choose one product-level outcome. The platform maps it
+        only to the existing structured-plan, criteria, and coverage controls;
+        use the raw controls below only for diagnosis or a deliberate custom estate.</div>
+      </div></div>
+      <div class="card-b" id="adoption-settings">
+        <div class="empty">Start the server (<code>make serve</code>) to view and
+        apply the effective adoption level.</div>
+      </div>
+    </section>
     <section class="card">
       <div class="card-h"><div><h2>Agent review delivery policy</h2>
         <div class="sub">Current estate policy:

@@ -766,6 +766,18 @@ or SCM changes apply to the next pipeline run (restart `make serve` to switch th
 server's own fetch source). The editable keys are exactly those documented in
 `.env.example` (conformance-tested).
 
+For test-plan governance, use **Settings → Test-plan adoption** instead of
+coordinating three controls by hand. The four levels are Off, Reviewed plans,
+Validated criteria, and Enforced coverage. They map only to the existing
+`AIQE_SPEC_MODE`, `AIQE_REQUIREMENTS_GATE`, and `AIQE_SPEC_ENFORCE` controls.
+Enforced coverage requires an explicit `warn` dry-run or `strict` enforcing
+sub-state. The displayed level is re-derived through the engine resolvers after
+every apply; exported deployment values retain precedence, and a combination
+that matches no level is shown as **Custom** with its raw resolved values.
+Reviewed plans remains the new-estate default because it is the existing
+resolved default (`on`, `off`, `off`); this feature does not change engine
+defaults or enforcement behavior.
+
 #### Validating the connections
 
 Configuring credentials and *proving they work* are different things. **Validate

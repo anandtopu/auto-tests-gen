@@ -9,7 +9,7 @@ Source: [prd-sdd-usability.md](prd-sdd-usability.md) (Draft v2)
 | ---: | --- | --- | --- | --- | --- |
 | 1 | SDD-S1 Vocabulary and state labels | A1.0–A1.2, A2.1–A2.2, A3.1–A3.2, M1 | none | Implemented | Presentation-only glossary/markup, exact state labels, machine-name disclosure, pinned user-facing docs |
 | 2 | SDD-S2 Journey actions and refusal contract | B1.1–B1.2, B3.1, M2–M3 | SDD-S1 | Implemented | One action from `spec_workflow`, shared Python refusal builder, CLI/UI message parity |
-| 3 | SDD-S3 Adoption levels | C1.0–C1.3, M5 | SDD-S1 | Pending | One level mapping over existing resolved knobs, visible warn/strict sub-state, Custom truth |
+| 3 | SDD-S3 Adoption levels | C1.0–C1.3, M5 | SDD-S1 | Implemented | One level mapping over existing resolved knobs, visible warn/strict sub-state, Custom truth |
 | 4 | SDD-S4 Wizard and approval benefit | B2.1–B2.2, B4, M4 | SDD-S1, SDD-S2 | Pending | Conditional acceptance-criteria step and signed/prose-aware approval confirmation |
 | 5 | SDD-FINAL Broad verification | M1–M6, risks, non-goals | SDD-S1–S4 | Pending | Full compatibility, mock journey, docs currency, final review and status reconciliation |
 
@@ -75,14 +75,21 @@ does not change; coverage `warn` output remains advisory instead of falsely
 saying delivery was refused. Computed dashboard refusal fields now win over
 durable-entry keys and malformed legacy `stale_surfaces` degrades safely.
 
-### SDD-S3
+## SDD-S3 acceptance mapping
 
-- Add one module mapping Off, Reviewed plans, Validated criteria, and Enforced
-  coverage to existing knobs only.
-- Derive effective state through `spec_workflow.governance()`, show Custom for
-  unmatched resolved combinations, and distinguish warn dry-run from strict.
-- Apply through existing settings stores and surface the same consequence in
-  Settings, governance, and Start here.
+| Criterion | Implementation | Verification |
+| --- | --- | --- |
+| C1 | `adoption_levels.py` owns four names, one consequence each, and complete mappings over the three existing controls | Exact four-name/consequence and five resolved-tuple round-trip tests |
+| C1.0 | Enforced coverage retains `warn` or `strict` as a visible sub-state; warn says “Dry run — reporting, not refusing” | Exact badge assertions plus real authenticated apply/GET round trip |
+| C1.1 | `spec_workflow.governance()` asks the existing resolvers, attaches the derived level, and reports unmatched or unusable settings as Custom with raw resolved knobs | Mismatch tests and repeated invalid-value tests for all three controls |
+| C1.2 / M5 | `updates_for()` returns exactly `AIQE_SPEC_MODE`, `AIQE_REQUIREMENTS_GATE`, and `AIQE_SPEC_ENFORCE`; the authenticated route passes that closed update atomically to `settings_store.save()` | Exact key mutation pin, route wiring pin, temporary `.env` integration assertion, malformed/adversarial API suite |
+| C1.3 | Settings consumes the definitions API; Governance and Start here consume `governance().adoption`, including the same consequence | Shared-source pins, generated dashboard, governance JSON/markdown checks |
+
+Implementation evidence: focused SDD and settings tests passed 73/73; the
+authenticated adversarial server suite passed 115/115; the combined resolver,
+workflow, settings, event-log, and API set passed 258/258. Python compilation,
+isolated dashboard generation, and live governance JSON passed. Review and broad
+compatibility evidence are recorded in the SDD-S3 review summary.
 
 ### SDD-S4
 
@@ -95,10 +102,10 @@ durable-entry keys and malformed legacy `stale_surfaces` degrades safely.
 
 | Question | Current implementation assumption | Completion rule |
 | --- | --- | --- |
-| Q1 new-estate default | Do not change defaults in S1/S2; resolve before S3 | Product/QE choice, then pin the chosen existing-knob mapping |
+| Q1 new-estate default | **Reviewed plans**: retain the already-resolved `on/off/off` default, so S3 adds clarity without changing behavior | Product/QE may reverse to Off explicitly; no silent default migration |
 | Q2 journey name | Use the PRD working title **Plan → tests journey** provisionally | Pilot comprehension probe may rename visible copy; machine id stays `specflow` |
 | Q3 EARS visibility | Show the plain term and EARS expansion to current authenticated dashboard users | Role-specific hiding requires an explicit product/auth decision |
-| Q4 governance terminology | Keep constitution internals but add the presentation layer in S3 | Product decides whether the downloadable constitution remains deliberately internal |
+| Q4 governance terminology | Keep constitution clauses internal; add the shared adoption name/consequence as their operator-facing layer | Revisit only with an explicit product terminology decision |
 
 ## Iteration gate
 

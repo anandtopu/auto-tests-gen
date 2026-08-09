@@ -150,6 +150,13 @@ with the gates off, every step here is advisory and the platform will not stop a
 run that skips one. A workflow view that quietly reflects configuration teaches
 a rule nobody applies.
 
+It also states the effective adoption level from the engine's resolved
+controls: **Off**, **Reviewed plans**, **Validated criteria**, or **Enforced
+coverage**. Enforced coverage always shows its sub-state: **warn** is a dry run
+(reporting, not refusing), while **strict** refuses uncovered, unwaived
+scenarios. An unmatched or unusable hand configuration is **Custom** and shows
+the raw resolved values instead of being forced into a friendly label.
+
 Three more cards live here:
 
 - **Acceptance criteria (EARS)** — the testable statements formalized from the ticket, and the
@@ -271,8 +278,19 @@ Edits `.env` (secrets are write-only — they are never read back to the page).
 "Validate connections" probes every configured external system read-only: it
 never posts, pushes or sends.
 
-Governance lives here too. Both knobs state their consequence in plain words
-rather than naming a mode:
+Test-plan adoption lives here too. The normal path is one of four named levels:
+
+- **Off** — Plans remain prose; nothing is signed or enforced.
+- **Reviewed plans** — Plans are structured and signed by a human before generation.
+- **Validated criteria** — Acceptance criteria are formalized and approved before planning.
+- **Enforced coverage** — The gate checks signed plans' approved scenarios;
+  prose plans remain exempt. Choose **warn** for a visible dry run, then
+  **strict** when the signal is ready to refuse delivery.
+
+The effective level is derived from what the engine actually resolves, not the
+last button clicked. Applying one writes only `AIQE_SPEC_MODE`,
+`AIQE_REQUIREMENTS_GATE`, and `AIQE_SPEC_ENFORCE`. The same raw controls remain
+below for diagnosis and deliberate Custom estates:
 
 - **Requirements gate** — off: planning proceeds without approved requirements.
   On: planning refuses until they are approved.
