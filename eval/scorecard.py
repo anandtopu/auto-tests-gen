@@ -133,7 +133,13 @@ if runs:
     print(f"Commit rate: {pct(committed / len(runs))} of {len(runs)} runs "
           f"({quarantined} quarantined, {review_refused} review-refused)")
     loops, validated, created, updated = [], 0, 0, 0
+    sim_actions = 0            # generated tests from runs that were SIMULATED
     for r in runs:
+        # The same "metered" test the cost line uses: a real LLM call reports a
+        # cost, a mock one does not. Only a real generate phase CHOSE between
+        # extending and creating; the mock stub's action is scripted, so
+        # counting it measures the fixture, not the platform.
+        metered = isinstance(r.get("cost_usd"), (int, float))
         for p in r.get("phases", []):
             c = p["contract"]
             if p["name"] == "validate" and "repair_loops" in c:
@@ -141,14 +147,32 @@ if runs:
                 validated += 1
             if p["name"] == "generate":
                 for t in c.get("tests", []):
+                    if not metered:
+                        sim_actions += 1
+                        continue
                     created += t.get("action") == "created"
                     updated += t.get("action") == "updated"
     if loops:
         print(f"Repair loops: {sum(loops) / len(loops):.2f} avg over {validated} validated runs")
+    # Update-vs-create is a claim about JUDGEMENT — did the agent extend an
+    # existing suite instead of duplicating it? It was computed over every run,
+    # and on a mock estate the generate stub always reports "created", so the
+    # figure read a flat 0% "of 341 generated tests" and invited the conclusion
+    # that duplicate prevention does not work. It was measuring the fixture.
+    # (The scout itself is fine: run on this estate it correctly emits
+    # `EXTEND suites/orders/discount.spec.js`.) Same rule as every cost figure —
+    # a simulated number is never reported as a measurement.
     if created + updated:
         print(f"Update-vs-create: {pct(updated / (created + updated))} of "
               f"{created + updated} generated tests extended existing suites "
               f"(higher = better duplicate prevention)")
+        if sim_actions:
+            print(f"  ({sim_actions} test(s) from simulated runs excluded — a mock "
+                  f"stub's create/extend choice is scripted, not judgement)")
+    elif sim_actions:
+        print(f"Update-vs-create: n/a — {sim_actions} generated test(s), all from "
+              f"SIMULATED runs whose create/extend choice is scripted. Nothing has "
+              f"been measured; unblock `make parity-pr` to measure it.")
     # Escaped noise (§8): the advisory critic is the only automated source for this —
     # the gate proves specs pass, not that they assert anything worth asserting.
     noise = sum(r["critic"].get("noise_count", 0) for r in runs if r.get("critic"))
