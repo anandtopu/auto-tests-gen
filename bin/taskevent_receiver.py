@@ -284,4 +284,11 @@ if __name__ == "__main__":
     print(f"TaskEvent receiver: http://{host}:{port}/hooks/taskevent  "
           f"(auth: {'X-AIQE-Token required' if TOKEN else 'OFF - set AIQE_HOOK_TOKEN'}; "
           f"autorun: {'on' if AUTORUN else 'off'})")
+    # Auth OFF on loopback is a fine dev default; auth OFF on a routable
+    # interface is the one combination that matters, and the line above said
+    # exactly the same thing about both. State the difference where it applies:
+    # anything that reaches this port can enqueue work with no credential.
+    if not TOKEN and host not in ("127.0.0.1", "localhost", "::1"):
+        print(f"  WARNING: listening on {host} with NO token — every reachable "
+              f"client can enqueue work. Set AIQE_HOOK_TOKEN before exposing it.")
     ThreadingHTTPServer((host, port), Handler).serve_forever()

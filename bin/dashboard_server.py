@@ -896,6 +896,16 @@ class Handler(BaseHTTPRequestHandler):
             name = pathlib.PurePosixPath(url.path).name
             if not re.fullmatch(r"[\w.-]+", name) or ".." in name:
                 return self._send(404, {"error": "not found"})
+            # This route serves RUN RECORDS and diffs. Three NAMED state files
+            # share reports/runs/ — the review board, the work queue, the webhook
+            # dedupe log — and every glob in this codebase skips them by name.
+            # Seventeen sites do; this route was the one that did not, so
+            # GET /runs/reviews.json returned the entire team-review board where
+            # a run diff was meant. Consult the SHARED list, never a fresh copy:
+            # an eighteenth hand-rolled tuple is how this drifted to begin with.
+            import run_progress
+            if name in run_progress.STATE_FILES:
+                return self._send(404, {"error": "not found"})
             f = ROOT / "reports/runs" / name
             self._send(200, f.read_bytes(), "text/plain; charset=utf-8") \
                 if f.exists() else self._send(404, {"error": "not found"})
