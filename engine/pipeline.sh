@@ -1154,7 +1154,12 @@ GATE_NAMES=()
 # stale break -- which frees the LOCK, not the process.
 GATE_TO=()
 if command -v timeout >/dev/null 2>&1; then
-  GATE_TO=(timeout "${AIQE_GATE_TIMEOUT_SEC:-1200}")
+  # -k escalates to SIGKILL: SIGTERM alone is a REQUEST, and a lint/test
+  # command that traps or ignores it keeps the gate (and this run) alive
+  # exactly as if there were no timeout. SIGTERM first, so with-env.sh gets
+  # to run its compose teardown -- timeout signals the whole process group,
+  # so the trap does fire; only then the unconditional kill.
+  GATE_TO=(timeout -k "${AIQE_GATE_KILL_AFTER_SEC:-30}" "${AIQE_GATE_TIMEOUT_SEC:-1200}")
 else
   # C13: an unenforceable limit is never reported as an enforced one.
   echo "[pipeline] WARNING: no timeout(1) on PATH - gate runs are UNBOUNDED this run" >&2
@@ -1184,8 +1189,10 @@ for name in "${GATE_NAMES[@]}"; do
     SUMMARY+=$'\n'"- ${name}: no changes ➖"; ST=no_changes
     EV gate.no_changes "$name" ok "key=$KEY"
   else
-    if [ "$GRC" -eq 124 ]; then
-      SUMMARY+=$'\n'"- ${name}: gate TIMED OUT after ${AIQE_GATE_TIMEOUT_SEC:-1200}s (exit 124) - nothing was established about these tests, and nothing was committed"
+    if [ "$GRC" -eq 124 ] || [ "$GRC" -eq 137 ]; then
+      _how="timed out (exit 124)"
+      [ "$GRC" -eq 137 ] && _how="ignored the request to stop and was KILLED (exit 137)"
+      SUMMARY+=$'\n'"- ${name}: gate ${_how} after ${AIQE_GATE_TIMEOUT_SEC:-1200}s - nothing was established about these tests, and nothing was committed"
     else
       SUMMARY+=$'\n'"- ${name}: quarantined ❌ (exit $GRC, see reports)"
     fi

@@ -418,3 +418,48 @@ Pins: `registry/tests/test_gate_validates_its_args.py` (6). Mutation: 6
 mutations, 6 killed — including "guard rejects everything", which every other
 assertion in the file would have passed while the product was broken.
 `make test-gate` stays green (16 checks).
+
+### G1a — the bound only half existed: SIGTERM is a request
+
+G1 wrapped the gate in `timeout`, which was the right shape and an incomplete
+fix. `timeout` sends **SIGTERM**, and a lint or test command that traps or
+ignores it survives exactly as if there were no timeout at all — which is the
+same hang G1 exists to prevent, now with a bound that looks enforced.
+
+Two things were checked before changing anything, because the fix could easily
+have made cleanup worse:
+
+- **GNU `timeout` signals the whole process group** (it does not use
+  `--foreground`), so `with-env.sh` — a *grandchild* of the gate — does receive
+  the signal and its `trap cleanup EXIT` fires. Measured: a nested script's
+  cleanup ran when its parent was timed out. Compose teardown is therefore not
+  skipped, and SIGTERM must stay **first**.
+- **`-k` then escalates**: `timeout -k 1 2` against a command running
+  `trap '' TERM` exits **137** after the grace period. Measured, not assumed.
+
+So the gate is now `timeout -k "${AIQE_GATE_KILL_AFTER_SEC:-30}"
+"${AIQE_GATE_TIMEOUT_SEC:-1200}"` — ask politely, let the teardown run, then
+kill unconditionally. The OpenHands stop hook, the other bounded caller, had the
+identical gap and got the identical fix (`-k 15 300`).
+
+And the reporting half again, because escalating without documenting the new
+code just moves the unexplained number one along: **137** is now in
+`EXIT_MEANINGS` and shares the timeout branch in `pipeline.sh`'s summary. Its
+meaning carries one thing 124's does not — a SIGKILLed command had no chance to
+clean up, so the reader is told to look for a test process or app container left
+running.
+
+**A Windows detail worth recording**, because it will bite the next person
+writing a test here: MSYS reports a signal-killed process to a Win32 caller as
+`signal << 8`, so a Python `subprocess` sees **2304** where the shell sees 137.
+`pipeline.sh` reads `$?` inside bash and sees 137, which is the only consumer
+that matters — so the control test reads the status *inside* the shell rather
+than asserting on the subprocess's own return code.
+
+Pins: `test_gate_is_bounded.py` grew to 10. Mutation: 7 mutations, 7 killed —
+**after** two survivors exposed weak assertions of mine. One checked that the
+string `"$GRC" -eq 137` appeared *anywhere* in the file, which the `_how` line
+satisfied, so deleting 137 from the branch condition left it green; it now pins
+the condition itself. The other used `or` across two phrases, and the surviving
+phrase kept it passing while the advice it was supposed to guard was deleted;
+it now uses `and`.

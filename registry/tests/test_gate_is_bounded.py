@@ -51,8 +51,21 @@ def test_the_pipeline_bounds_its_gate_call():
     assert "GATE_TO" in line, (
         "the gate is invoked with no timeout prefix again -- a test repo whose "
         f"lint/test command never returns hangs the run forever: {line.strip()}")
-    assert re.search(r'GATE_TO=\(timeout "\$\{AIQE_GATE_TIMEOUT_SEC:-\d+\}"\)', PIPELINE), \
+    assert re.search(r'GATE_TO=\(timeout -k "\$\{AIQE_GATE_KILL_AFTER_SEC:-\d+\}" '
+                     r'"\$\{AIQE_GATE_TIMEOUT_SEC:-\d+\}"\)', PIPELINE), \
         "the timeout is no longer configurable, or no longer has a default"
+
+
+def test_the_timeout_escalates_to_sigkill():
+    """SIGTERM is a REQUEST. A lint/test command that traps or ignores it keeps
+    the gate alive exactly as if there were no timeout at all -- so the bound
+    only really exists if it escalates. SIGTERM still goes first, so
+    with-env.sh gets to run its compose teardown before the unconditional kill
+    (GNU timeout signals the whole process group, so that trap does fire)."""
+    line = _gate_call_line()
+    assert "-k" in PIPELINE[PIPELINE.index("GATE_TO=(timeout"):][:120], \
+        "no --kill-after: a command that ignores SIGTERM survives the timeout"
+    assert "GATE_TO" in line
 
 
 def test_a_missing_timeout_binary_is_announced_not_silent():
@@ -78,11 +91,28 @@ def test_124_is_documented_and_is_not_a_test_failure():
 
 def test_the_summary_line_for_a_timeout_says_nothing_was_established():
     """The operator reads the summary, not the exit table."""
-    assert "TIMED OUT" in PIPELINE, "no distinct summary for a killed gate"
-    i = PIPELINE.index("TIMED OUT")
-    line = PIPELINE[i - 200:i + 260]
-    assert "nothing was established" in line and "nothing was committed" in line, \
+    assert "timed out (exit 124)" in PIPELINE, "no distinct summary for a timed-out gate"
+    i = PIPELINE.index("timed out (exit 124)")
+    block = PIPELINE[i - 200:i + 500]
+    assert "nothing was established" in block and "nothing was committed" in block, \
         "the timeout summary does not state what is and is not known"
+
+
+def test_both_timeout_codes_get_the_honest_summary_not_just_124():
+    """137 is the SAME event -- the gate was stopped without finishing -- and
+    reaching the plain `quarantined` branch would report it as a refusal, i.e.
+    as a judgement the gate never made."""
+    # Assert the BRANCH CONDITION, not merely that "137" appears somewhere: the
+    # first version of this test looked for the substring anywhere in the file,
+    # and the `_how` line below mentions 137 too -- so removing 137 from the
+    # condition (the actual bug) left the test green. Verified by mutation.
+    assert '[ "$GRC" -eq 124 ] || [ "$GRC" -eq 137 ]' in PIPELINE, \
+        "137 no longer shares the timeout branch -- it falls through to " \
+        "`quarantined`, reporting a refusal the gate never made"
+    i = PIPELINE.index('[ "$GRC" -eq 124 ] || [ "$GRC" -eq 137 ]')
+    branch = PIPELINE[i:i + 700]
+    assert "KILLED" in branch, "nothing distinguishes an ignored stop request"
+    assert "nothing was established" in branch
 
 
 def test_the_empty_prefix_survives_set_u():
@@ -113,3 +143,42 @@ def test_timeout_actually_yields_124():
     r = subprocess.run([BASH, "-c", 'timeout 1 bash -c "sleep 20"'],
                        capture_output=True, text=True, stdin=subprocess.DEVNULL)
     assert r.returncode == 124, f"timeout(1) here exits {r.returncode}, not 124"
+
+
+def test_137_is_documented_and_is_not_a_test_failure():
+    """The 124 lesson, one code along: bounding harder without documenting the
+    new code just moves the unexplained number."""
+    name, why = rp.explain_exit(137)
+    assert name == "GATE_KILLED", f"137 renders as {name!r}"
+    low = why.lower()
+    assert "nothing is known" in low, "the meaning does not say the outcome is UNKNOWN"
+    assert "not a test failure" in low, "nothing distinguishes 137 from exit 5"
+    # `and`, not `or`. With `or`, dropping the "left behind" advice still passed
+    # because the sentence happens to mention a container -- an alternative that
+    # can satisfy the assertion on its own makes the other half unpinned.
+    assert "left behind" in low and "container" in low, (
+        "a SIGKILLed command had no chance to clean up; the meaning must tell "
+        "the reader to look for the test process or app container it left")
+
+
+def test_kill_after_actually_kills_a_command_that_ignores_sigterm():
+    """The control for the escalation. Executed, not reasoned about: if -k did
+    not work on this host, the pin above would assert a flag that does nothing.
+
+    The status is read INSIDE the shell, the way pipeline.sh reads it. On
+    Windows/MSYS a signal-killed process surfaces to a Python caller as
+    `signal << 8` (137 arrives as 2304), so asserting on the subprocess's own
+    returncode would fail here while the shell -- the only consumer that
+    matters -- sees a perfectly ordinary 137.
+    """
+    path = pathlib.Path(__file__).with_name("_ignores_term.sh")
+    path.write_text("trap '' TERM\nsleep 20\n", encoding="utf-8")
+    try:
+        r = subprocess.run(
+            [BASH, "-c", f'timeout -k 1 2 bash "{path.as_posix()}"; echo "rc=$?"'],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    finally:
+        path.unlink(missing_ok=True)
+    assert "rc=137" in r.stdout, (
+        f"escalation did not happen: {r.stdout.strip()!r} (rc=124 = SIGTERM only "
+        "and the command survived it; rc=0 = it exited on its own)")

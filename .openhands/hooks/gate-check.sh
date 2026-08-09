@@ -33,8 +33,10 @@ KEY="${KEY:-${AIQE_KEY:-stop-hook}}"
 FAILS=()
 for t in "${REPOS[@]}"; do
   name=$(basename "$t")
+  # -k escalates: SIGTERM is a request, and a lint/test command that traps or
+  # ignores it would survive the 300s bound as if there were none.
   out=$( cd "$t" && AIQE_ROOT="$ROOT" AIQE_GATE_CHECK_ONLY=1 \
-         timeout 300 bash "$ROOT/engine/gate/gate.sh" "$KEY" "$name" 2>&1 )
+         timeout -k 15 300 bash "$ROOT/engine/gate/gate.sh" "$KEY" "$name" 2>&1 )
   rc=$?
   case $rc in
     0) : ;;                                # WOULD_COMMIT or NO_CHANGES
@@ -50,7 +52,8 @@ for t in "${REPOS[@]}"; do
     9) FAILS+=("$name: the repo's own linter failed — read the lint output, this is not a scope/secret finding (exit 9)") ;;
     10) FAILS+=("$name: the app under test never started, so the tests were never executed — nothing is known about them (exit 10)") ;;
     11) FAILS+=("$name: the spec CHECK malfunctioned; no verdict about the spec was reached (exit 11)") ;;
-    124) FAILS+=("$name: gate checks timed out after 300s") ;;
+    124) FAILS+=("$name: gate checks timed out after 300s — nothing is known about these tests, they did not fail") ;;
+    137) FAILS+=("$name: gate checks timed out AND ignored the request to stop, so they were killed (exit 137). Nothing is known about these tests. Check for a test process or app container left running") ;;
     *) FAILS+=("$name: gate exit $rc") ;;
   esac
   # last few lines carry the actionable detail (which spec, which assertion)

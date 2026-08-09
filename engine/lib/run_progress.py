@@ -144,6 +144,12 @@ EXIT_MEANINGS = {
          "so no verdict about the spec was reached. This is NOT a finding that a "
          "scenario is uncovered; fix the checker, not the spec."),
     64: ("INVALID_INPUT", "The mode or key was not accepted. Nothing ran."),
+    137: ("GATE_KILLED", "The gate exceeded its time limit AND ignored the request "
+          "to stop, so it was killed outright (SIGKILL, AIQE_GATE_KILL_AFTER_SEC "
+          "later). Same knowledge as 124 -- NOTHING is known about whether these "
+          "tests pass and nothing was committed -- but the command did not shut "
+          "down cleanly, so check for a test process or app container it left "
+          "behind. This is NOT a test failure (exit 5)."),
     124: ("GATE_TIMED_OUT", "The gate exceeded AIQE_GATE_TIMEOUT_SEC (default 1200s) "
           "and was killed, almost always because the test repo's own lint or test "
           "command did not return. NOTHING is known about whether these tests pass, "
