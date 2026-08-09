@@ -102,6 +102,44 @@ def load():
     return fs_lock.read_json_guarded(FILE, {})
 
 
+# A catalog title must be at least this distinctive before it may be matched as
+# a SUBSTRING of a CI case name. CI runners commonly report
+# "suite > PROJ-88: applies % discount", so substring matching is genuinely
+# useful — but it has to earn the attribution.
+MIN_SUBSTRING_TITLE = 8
+
+
+def match_case(name, titles):
+    """The catalog test a CI case belongs to, or None.
+
+    The old rule was `t in name or name in t` — a two-way substring test with
+    no length floor. Measured: a JUnit case literally named "t" was attributed
+    to "PROJ-88: applies % discount", because the letter t occurs in "discount".
+    Any short CI name matches something, and the platform then writes a
+    pass-rate, a flaky verdict and a quarantine candidacy against a test that
+    never ran. Corrupt health data is worse than none: `qa.py flaky` and the
+    catalog index both consume it, and nothing downstream can tell.
+
+    Three rules now:
+      * an EXACT title match always wins;
+      * otherwise the catalog TITLE may appear inside the CI case name (the
+        real-world shape), never the reverse — a CI name being a fragment of a
+        title is not evidence of identity, only of being less specific;
+      * the title must be at least MIN_SUBSTRING_TITLE characters, and the
+        match must be UNIQUE. Two candidates is an ambiguity, and guessing
+        between them is how the wrong test gets quarantined, so it is reported
+        unmatched instead (C13: unresolved is not a resolution).
+    """
+    exact = titles.get(name)
+    if exact:
+        return exact
+    if not name:
+        return None
+    cands = {tid for t, tid in titles.items()
+             if t and len(t) >= MIN_SUBSTRING_TITLE and t in name}
+    return cands.pop() if len(cands) == 1 else None
+
+
 def ingest(path):
     """Returns (matched, unmatched) counts; updates catalog/health.json."""
     p = pathlib.Path(path)
@@ -111,8 +149,7 @@ def ingest(path):
     with fs_lock.lock(FILE):
         health = load()
         for name, passed in cases:
-            test_id = titles.get(name) or next(
-                (tid for t, tid in titles.items() if t and (t in name or name in t)), None)
+            test_id = match_case(name, titles)
             if not test_id:
                 unmatched += 1
                 continue
