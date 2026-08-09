@@ -12,6 +12,7 @@ import json, os, pathlib, sqlite3, sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import app_paths                      # R12: mutable paths resolve here
+import fs_lock                        # atomic swap with the Windows retry
 # Derived data, rebuilt from the JSONL source of truth. The knob exists so a
 # test can rebuild an index without overwriting the working estate's — an index
 # must describe the catalog it was built from, and a smoke test pointed at a
@@ -64,15 +65,18 @@ def rebuild():
         raise
     con.commit()
     con.close()
-    # One atomic swap. replace_atomic retries Windows' transient sharing
-    # violation — a reader holding the old index for a moment must not turn a
-    # successful rebuild into a lost one.
-    try:
-        sys.path.insert(0, str(ROOT / "engine/lib"))
-        import fs_lock
-        fs_lock.replace_atomic(tmp, DB)
-    except ImportError:                                  # pragma: no cover
-        os.replace(tmp, DB)
+    # One atomic swap, through fs_lock. replace_atomic retries Windows'
+    # transient sharing violation — a reader holding the old index for a moment
+    # must not turn a successful rebuild into a lost one — and RAISES if it
+    # never lands, so a swap that did not happen is never reported as one.
+    #
+    # No os.replace fallback: bare os.replace is exactly what
+    # test_no_durable_state_writer_calls_os_replace_directly forbids, and the
+    # first draft of this function carried one "just in case". fs_lock sits in
+    # engine/lib, which this module already puts on sys.path for app_paths, so
+    # the fallback could never fire — it was unreachable code that broke an
+    # invariant. The pin caught it; that is the pin working.
+    fs_lock.replace_atomic(tmp, DB)
     return n
 
 
