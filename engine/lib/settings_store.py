@@ -18,7 +18,12 @@ import fs_lock
 
 
 def env_file():
-    return pathlib.Path(os.environ.get("AIQE_ENV_FILE") or ROOT / ".env")
+    # Through app_paths so `.env` follows AIQE_STATE_DIR like every other
+    # mutable path. Resolving it here meant it did NOT, and a read-only
+    # rootfs made every save fail. Precedence is unchanged for callers:
+    # AIQE_ENV_FILE > AIQE_STATE_DIR > ROOT.
+    import app_paths
+    return app_paths.env_file(ROOT)
 
 
 # Sections mirror the supported integrations (docs/integrations/). Field keys:

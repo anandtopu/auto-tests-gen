@@ -132,6 +132,21 @@ def specs_dir(root=None):
     return _p("AIQE_SPEC_DIR", "specs", root)
 
 
+def env_file(root=None):
+    """The `.env` the Settings page writes and every run reads back.
+
+    It resolves here for the reason the catalog does: ONE definition of where a
+    mutable path lives. settings_store used to resolve it itself
+    (AIQE_ENV_FILE or ROOT/.env), which meant it did not follow AIQE_STATE_DIR
+    -- so under readOnlyRootFilesystem it landed on /app/.env, unwritable, and
+    every Settings save failed in-cluster while the UI reported success.
+
+    NOT seeded and never bundled: it holds credentials, and state_bundle
+    excludes it precisely because a bundle gets emailed around.
+    """
+    return _p("AIQE_ENV_FILE", ".env", root)
+
+
 def agents_file(root=None):
     """Generated estate knowledge. Purely derived — a missing one self-heals on
     the next regeneration, so it needs no seeding."""

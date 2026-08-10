@@ -182,23 +182,46 @@ def test_a_path_the_app_writes_is_never_left_on_the_read_only_rootfs():
     caught it because each half is correct on its own: the hardening is right,
     the resolver is right, and only their combination is wrong.
     """
-    cm = _configmap()
-    env_file = cm.get("AIQE_ENV_FILE", "")
-    assert env_file, (
-        "AIQE_ENV_FILE is unset, so settings_store writes /app/.env -- "
-        "unwritable under readOnlyRootFilesystem")
+    import sys
+    sys.path.insert(0, str(ROOT / "engine/lib"))
 
-    mounts = set()
+    mounts, env_of = set(), {}
     for dep in _deployment():
         for c in dep["spec"]["template"]["spec"].get("containers", []):
-            ro = (c.get("securityContext") or {}).get("readOnlyRootFilesystem")
-            if not ro:
+            if not (c.get("securityContext") or {}).get("readOnlyRootFilesystem"):
                 continue
             for m in c.get("volumeMounts", []):
                 mounts.add(m["mountPath"].rstrip("/"))
-    assert mounts, "no read-only container declares mounts; this pin is not looking at anything"
-    assert any(env_file.startswith(m + "/") for m in mounts), (
-        f"AIQE_ENV_FILE={env_file!r} is not under any writable mount {sorted(mounts)}")
+            for e in c.get("env", []):
+                if "value" in e:
+                    env_of[e["name"]] = str(e["value"])
+    assert mounts, "no read-only container declares mounts; this pin sees nothing"
+
+    # Resolve it the way the app does, under the manifest's own environment --
+    # so it holds whether the path is relocated by AIQE_STATE_DIR (today) or
+    # pinned explicitly with AIQE_ENV_FILE. Asserting a config KEY would have
+    # broken the moment the mechanism changed, while the risk stayed identical.
+    import os
+    import importlib
+    import app_paths
+    saved = {k: os.environ.get(k) for k in ("AIQE_STATE_DIR", "AIQE_ENV_FILE")}
+    try:
+        for k in saved:
+            os.environ.pop(k, None)
+            if k in {**env_of, **_configmap()}:
+                os.environ[k] = {**env_of, **_configmap()}[k]
+        importlib.reload(app_paths)
+        resolved = app_paths.env_file().as_posix()
+    finally:
+        for k, v in saved.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+        importlib.reload(app_paths)
+
+    assert any(resolved.startswith(m + "/") for m in mounts), (
+        f".env resolves to {resolved!r}, which is not under any writable mount "
+        f"{sorted(mounts)} -- every Settings save fails in-cluster")
 
 
 def test_the_writer_and_the_reader_resolve_the_same_env_file():
@@ -206,8 +229,14 @@ def test_the_writer_and_the_reader_resolve_the_same_env_file():
     different path: the UI would report success and runs would ignore it."""
     settings = (ROOT / "engine/lib/settings_store.py").read_text(encoding="utf-8")
     props = (ROOT / "engine/lib/props_file.py").read_text(encoding="utf-8")
-    assert 'os.environ.get("AIQE_ENV_FILE")' in settings, \
-        "settings_store no longer honours the redirect"
+    paths = (ROOT / "engine/lib/app_paths.py").read_text(encoding="utf-8")
+    # ONE definition of where .env lives, for the reason the catalog has one:
+    # settings_store resolving it itself is exactly how it stopped following
+    # AIQE_STATE_DIR and landed on a read-only rootfs.
+    assert "app_paths.env_file(" in settings, \
+        "settings_store resolves .env itself again -- it will not follow AIQE_STATE_DIR"
+    assert 'def env_file(' in paths and '"AIQE_ENV_FILE"' in paths, \
+        "app_paths no longer owns the .env location"
     assert "settings_store.load()" in props, (
         "props_file stopped reading through settings_store -- the pipeline may "
         "now read a different .env than the Settings page writes")
