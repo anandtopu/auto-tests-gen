@@ -141,7 +141,14 @@ def test_no_writable_state_store_still_points_at_the_estate():
     that it takes a deliberate source edit next to the evidence, not that it is
     impossible — a mutation that both drops a redirect AND allow-lists the store
     passes, by construction. What the pin does buy is that a NEW writable store,
-    or a redirect quietly removed, fails the build."""
+    or a redirect quietly removed, fails the build.
+
+    Second known limit, learned the hard way: the detector below enumerates
+    WRITE IDIOMS, and it missed one. spec_store writes through
+    fs_lock.replace_atomic and neither of the other two, so the tracked spec of
+    record sat outside this pin's view while every suite run rewrote it. The
+    enumeration now covers all three helpers in fs_lock, but a module that
+    writes an estate path with a bare .write_text() is still invisible here."""
     import importlib
     import re
     lib = ROOT / "engine/lib"
@@ -159,7 +166,12 @@ def test_no_writable_state_store_still_points_at_the_estate():
     offenders = []
     for f in sorted(lib.glob("*.py")):
         src = f.read_text(encoding="utf-8", errors="replace")
-        if not re.search(r"write_json_atomic|fs_lock\.lock\(", src):
+        # replace_atomic was missing, and the gap was exactly one module wide:
+        # spec_store is the only writer in engine/lib that uses it and neither
+        # of the other two, so the SPEC OF RECORD was the one estate path this
+        # pin could not see — and it was being rewritten by every suite run.
+        # A detector that enumerates idioms is only as good as the enumeration.
+        if not re.search(r"write_json_atomic|fs_lock\.(lock|replace_atomic)\(", src):
             continue
         try:
             mod = importlib.import_module(f.stem)
@@ -177,7 +189,13 @@ def test_no_writable_state_store_still_points_at_the_estate():
                 continue                      # outside the checkout = isolated
             if rel.startswith("out/"):
                 continue                      # scratch, wiped between runs
-            if any(rel.startswith(e) for e in estate_roots):
+            # `rel == root` as well as `rel` INSIDE it. The roots carry trailing
+            # slashes, so a store resolving to exactly "specs" (spec_store.
+            # SPEC_DIR) failed `startswith("specs/")` and was invisible however
+            # good the detector above got. plan_state only ever matched because
+            # "reports/plans" happens to sit one level down.
+            if any(rel == e.rstrip("/") or rel.startswith(e)
+                   for e in estate_roots):
                 if f"{f.stem}.{attr}" in NO_KNOB_NOT_WRITTEN:
                     continue
                 offenders.append(f"{f.stem}.{attr} -> {rel}")

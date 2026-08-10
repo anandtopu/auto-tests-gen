@@ -83,6 +83,64 @@ TEST_PLAN_DIR = ROOT / "out/test-plans"
 if not (os.environ.get("AIQE_PLAN_DIR") or "").strip():
     os.environ["AIQE_PLAN_DIR"] = str(TEST_PLAN_DIR)
 
+# The SPEC OF RECORD — sixth store in this shape, and the one plan_state signs.
+# Six test files run the REAL pipeline against the REAL fixture key PROJ-301
+# (plan, jira and requirements modes), and every one of them rewrites the
+# estate's `specs/PROJ-301/testplan.yaml` and `testplans/PROJ-301.md` — both
+# TRACKED. The last to run disables the plan adversary on purpose, so the estate
+# was left holding the 1-scenario authored plan in place of the 3-scenario
+# arbitrated one, after every suite run.
+#
+# MEASURED before fixing, by restoring both files, running the suite alone and
+# hashing: 2088 passed, exactly these two files changed, nothing created or
+# deleted. testdata/ did NOT change — it is redirected below as defence, not as
+# a fix, and the distinction is kept because an unmeasured claim reads like a
+# measured one once it is in a comment.
+#
+# Nothing caught this, including the pin written to catch the sixth leak.
+# test_review_isolation enumerates modules writing via write_json_atomic or
+# fs_lock.lock(, and spec_store is the ONE engine/lib module that writes solely
+# through fs_lock.replace_atomic. That detector now knows the third idiom.
+#
+# Today's damage is git noise: PROJ-301 is `draft` with spec_sha None, so no
+# signature is broken. The reason to fix it is the case one approval away — an
+# approved key carries a sha over these exact bytes, and a suite that rewrites
+# them silently invalidates somebody's sign-off.
+#
+# SEEDED, not merely redirected: a dozen test files READ PROJ-301's spec as a
+# fixture, so an empty redirect would change what they see, and a test passing
+# because it asserted on absence is worse than the leak. Copying the estate's
+# current contents keeps every read byte-identical and confines only the writes.
+# pipeline.sh exports AIQE_P_SPECS/AIQE_P_TESTPLANS/AIQE_P_TESTDATA from
+# app_paths.sh_exports(), so subprocess runs and the mock phase follow too.
+def _redirect_seeded(var, dest, source):
+    """Point `var` at `dest`, seeded from `source`. Never silently empty.
+
+    Raises rather than degrading: a seed that quietly did nothing leaves every
+    fixture read looking at an empty directory, and the suite would either fail
+    somewhere unrelated or pass while asserting on absence. Same reasoning as
+    the container entrypoint refusing to boot with no state — coming up bare is
+    worse than not coming up.
+    """
+    if (os.environ.get(var) or "").strip():
+        return                          # an explicit value from the caller wins
+    if source.is_dir():
+        shutil.rmtree(dest, ignore_errors=True)
+        shutil.copytree(source, dest)
+        if not any(dest.rglob("*")) and any(source.rglob("*")):
+            raise RuntimeError(
+                f"conftest could not seed {dest} from {source}; refusing to run "
+                f"with an empty {var} because tests read it as a fixture")
+    else:
+        dest.mkdir(parents=True, exist_ok=True)
+    os.environ[var] = str(dest)
+
+
+for _var, _dest, _src in (("AIQE_SPEC_DIR", "out/test-specs", "specs"),
+                          ("AIQE_TESTPLAN_DIR", "out/test-testplans", "testplans"),
+                          ("AIQE_TESTDATA_DIR", "out/test-testdata", "testdata")):
+    _redirect_seeded(_var, ROOT / _dest, ROOT / _src)
+
 # The remaining writable stores that already ship an env knob. The suite was not
 # measured writing these (the estate snapshot/diff showed no change to
 # queue.json, openhands/state.json or coverage-drift.json), so this is defence

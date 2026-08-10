@@ -47,6 +47,25 @@ RUNS = ROOT / "reports/runs"
 TOUCHED = ("specs/PROJ-301", "testplans/PROJ-301.md", "testdata/PROJ-301")
 
 
+def touched_path(rel):
+    """Where `rel` ACTUALLY lives for this run.
+
+    These three trees are redirected by conftest (AIQE_SPEC_DIR /
+    AIQE_TESTPLAN_DIR / AIQE_TESTDATA_DIR), so resolving them against ROOT would
+    snapshot and restore directories the pipeline no longer writes — the
+    fixture would look like it was protecting something while protecting
+    nothing. Resolving them the way the engine does keeps this journey isolated
+    from other tests in the same session, which is what the fixture is for now
+    that keeping them out of the ESTATE is conftest's job.
+    """
+    import app_paths
+    tree, _, tail = rel.partition("/")
+    base = {"specs": app_paths.specs_dir,
+            "testplans": app_paths.testplans_dir,
+            "testdata": app_paths.testdata_dir}[tree]()
+    return base / tail
+
+
 def _run(mode, key=KEY, timeout=600):
     env = dict(os.environ, AIQE_MOCK="1")
     return subprocess.run([work_queue.bash_exe(), "engine/pipeline.sh", mode, key],
@@ -75,13 +94,26 @@ def journey(tmp_path_factory):
         stage recreated an untracked specs/PROJ-301/discount-cases.json."""
         return keep / rel.replace("/", "__")
 
-    for rel in TOUCHED:                      # snapshot what is not redirected
-        src, dst = ROOT / rel, slot(rel)
+    for rel in TOUCHED:
+        src, dst = touched_path(rel), slot(rel)
         if src.is_dir():
             shutil.copytree(src, dst, dirs_exist_ok=True)
         elif src.is_file():
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dst)
+
+    # Start the journey from NOTHING for this key. conftest seeds the redirected
+    # spec/testplan trees from the estate, so `requirements.yaml exists` after
+    # the run was true before it too — the assertion proved the SEED, not the
+    # stage. (It was equally vacuous before the redirect, for the same reason:
+    # the estate's copy is tracked.) Clearing also removes the approved-file
+    # branch, where requirements mode deliberately refuses to re-author.
+    for rel in TOUCHED:
+        p = touched_path(rel)
+        if p.is_dir():
+            shutil.rmtree(p, ignore_errors=True)
+        elif p.is_file():
+            p.unlink()
 
     stages = {}
     stages["requirements"] = _run("requirements")
@@ -99,7 +131,7 @@ def journey(tmp_path_factory):
         if p.name not in before:
             p.unlink(missing_ok=True)
     for rel in TOUCHED:
-        dst, saved = ROOT / rel, slot(rel)
+        dst, saved = touched_path(rel), slot(rel)
         if saved.is_dir():
             shutil.rmtree(dst, ignore_errors=True)
             shutil.copytree(saved, dst)
@@ -113,7 +145,7 @@ def test_requirements_mode_runs_and_stops_for_validation(journey):
     approved would skip the validation step it exists to force."""
     r = journey["requirements"]
     assert r.returncode == 0, r.stdout[-1500:]
-    assert (ROOT / f"specs/{KEY}/requirements.yaml").exists()
+    assert touched_path(f"specs/{KEY}/requirements.yaml").exists()
     assert "REQUIREMENTS_STATUS=DRAFT" in r.stdout, \
         "requirements mode did not report the spec as awaiting validation"
 
