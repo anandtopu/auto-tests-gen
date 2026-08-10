@@ -367,3 +367,73 @@ def test_user_facing_docs_use_the_same_journey_vocabulary():
         assert "approved test plan (signed)" in text, rel
         assert "approved test plan (prose — not signed)" in text, rel
         assert "acceptance criteria (ears)" in text, rel
+
+
+# --- what actually defends each rule (found by driving the page) ------------
+
+def test_each_pin_names_its_test_not_just_its_file():
+    """C2 declares three pins, all in test_critic.py, and the renderer printed
+    only the file — so the shareable governance document showed three identical
+    lines. The names it dropped (never_reads_the_critic / has_no_write_tools /
+    never_moves_a_review_status) are precisely the three clauses of C2's own
+    statement, so a reader asking "what defends this rule?" got noise where the
+    answer was already in the model."""
+    md = governance_page.markdown()
+    c2 = md[md.index("**C2 "):]
+    c2 = c2[:c2.index("**C3 ")]
+    lines = [l for l in c2.splitlines() if "pinned by" in l]
+    assert len(lines) >= 2, "C2 should declare more than one pin"
+    assert len(set(lines)) == len(lines), \
+        f"the pin lines are not distinguishable from each other:\n{c2}"
+    assert all("::" in l for l in lines), \
+        "a pin line names only a file; the test name is in the model and dropped"
+
+
+def test_a_pin_whose_test_function_is_gone_reports_as_missing(tmp_path):
+    """The page's promise is that a deleted pin shows up as an undefended rule.
+    A file-level existence check under-delivers on exactly that: deleting the
+    FUNCTION leaves the file in place and the page goes on claiming the rule is
+    defended. registry/tests/test_constitution.py resolves pins this way and
+    breaks the build on an orphan; this keeps the document agreeing with it."""
+    real = "registry/tests/test_critic.py"
+    assert governance_page._pin_exists(real, "test_critic_phase_has_no_write_tools")
+    assert not governance_page._pin_exists(real, "test_this_function_does_not_exist")
+    assert not governance_page._pin_exists("registry/tests/no_such_file.py", None)
+    # A pin with no named test still counts on the file alone — some pins are
+    # whole shell suites (tests/gate-adversarial.sh) with no function to find.
+    assert governance_page._pin_exists("tests/gate-adversarial.sh", None)
+
+
+def test_no_clause_currently_reports_a_missing_pin():
+    """The build is green, so the document must agree. If this fails while
+    test_constitution passes, the two disagree about what an orphan is."""
+    md = governance_page.markdown()
+    assert "MISSING" not in md, \
+        "the governance page reports an orphaned pin the build did not catch"
+
+
+def test_the_page_itself_marks_an_orphaned_function_missing(tmp_path, monkeypatch):
+    """The mutation this file first failed to kill.
+
+    The tests above exercise _pin_exists directly, and the estate has no
+    orphaned pins — so reverting the page to a file-only check rendered
+    identically and survived. What must hold is that the PAGE uses it, which
+    only a constitution containing an orphan can show.
+    """
+    fake = tmp_path / "constitution.yaml"
+    fake.write_text(
+        "clauses:\n"
+        "  - id: CX\n"
+        "    statement: a rule whose defender was deleted\n"
+        "    category: safety\n"
+        "    pins:\n"
+        "      - file: registry/tests/test_critic.py\n"
+        "        test: test_this_function_was_deleted\n", encoding="utf-8")
+    monkeypatch.setattr(governance_page, "CONSTITUTION", fake)
+
+    cx = next(c for c in governance_page.clauses() if c["id"] == "CX")
+    assert cx["pins"][0]["exists"] is False, \
+        "the page's own model says a deleted test function still defends the rule"
+    assert cx["pin_missing"], "the clause is not reported as having a missing pin"
+    assert "MISSING" in governance_page.markdown(), \
+        "the rendered document does not warn that the rule is undefended"

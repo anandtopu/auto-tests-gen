@@ -31,6 +31,28 @@ ROOT = app_paths.ROOT
 CONSTITUTION = ROOT / "specs/platform/constitution.yaml"
 
 
+def _pin_exists(rel, test=None):
+    """Does this pin still defend anything?
+
+    A pin names a file and (usually) a test function. Checking only the file
+    means deleting the FUNCTION leaves this page reporting the rule as
+    defended — the exact thing the page exists to notice. Resolved the same way
+    registry/tests/test_constitution.py resolves it, so the document and the
+    build cannot disagree about whether a clause is orphaned.
+    """
+    import re
+    p = ROOT / rel
+    if not p.is_file():
+        return False
+    if not test:
+        return True
+    try:
+        src = p.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return bool(re.search(rf"^def {re.escape(str(test))}\b", src, re.M))
+
+
 def clauses():
     """Constitution clauses, each annotated with whether its pins still exist.
 
@@ -49,8 +71,15 @@ def clauses():
             f = (p or {}).get("file") if isinstance(p, dict) else str(p)
             if not f:
                 continue
-            pins.append({"file": f, "exists": (ROOT / f).exists(),
-                         "test": (p or {}).get("test") if isinstance(p, dict) else None})
+            t = (p or {}).get("test") if isinstance(p, dict) else None
+            # Check the TEST, not just the file. This page's promise is that a
+            # deleted pin shows up as an undefended rule; a file-level check
+            # under-delivers on exactly that, because deleting the FUNCTION
+            # leaves the file in place and the page goes on claiming the rule
+            # is defended. registry/tests/test_constitution.py already resolves
+            # pins this way and breaks the build on an orphan -- so this is the
+            # document agreeing with the build rather than a second opinion.
+            pins.append({"file": f, "exists": _pin_exists(f, t), "test": t})
         out.append({
             "id": c.get("id", "?"),
             "statement": c.get("statement", ""),
@@ -125,7 +154,15 @@ def markdown():
             L.append("  - ⚠ no pin declared — this rule is not defended by a test")
         for p in c["pins"]:
             mark = "" if p["exists"] else "  ⚠ MISSING"
-            L.append(f"  - pinned by `{p['file']}`{mark}")
+            # Name the TEST, not just the file. The model has carried it all
+            # along and only this line dropped it, so C2's three distinct pins
+            # rendered as three identical `test_critic.py` lines — and their
+            # names (never_reads_the_critic / has_no_write_tools /
+            # never_moves_a_review_status) are precisely the three clauses of
+            # C2's statement. A reader asking "what actually defends this rule"
+            # got noise where the answer already existed.
+            where = f"{p['file']}::{p['test']}" if p.get("test") else p["file"]
+            L.append(f"  - pinned by `{where}`{mark}")
         L.append("")
     if d["unpinned"]:
         L += ["## Clauses whose pins are missing", "",
