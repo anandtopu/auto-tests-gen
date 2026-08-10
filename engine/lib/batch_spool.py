@@ -216,10 +216,25 @@ def submit(now=None):
            # result whose key we cannot recover is a plan nobody can find.
            "requests": [{k: r[k] for k in ("custom_id", "key", "phase", "model")}
                         for r in reqs]}
-    with fs_lock.lock(str(BATCHES)):
-        d = _read(BATCHES, {"batches": []})
-        d["batches"].append(rec)
-        _write(BATCHES, d)
+    # THE DANGEROUS WINDOW. The API has accepted the batch: it is running and it
+    # WILL be billed. If recording it fails (lock timeout, disk, permissions)
+    # the id exists only in this stack frame — and because the spool is
+    # deliberately left intact, the natural reaction is to retry, which submits
+    # a SECOND batch and pays twice for an orphan nobody can cancel. The id
+    # cannot be recorded before submission (it does not exist yet), so the
+    # window is inherent; what is fixable is failing LOUDLY with the id.
+    try:
+        with fs_lock.lock(str(BATCHES)):
+            d = _read(BATCHES, {"batches": []})
+            d["batches"].append(rec)
+            _write(BATCHES, d)
+    except Exception as e:
+        raise RuntimeError(
+            f"BATCH_SUBMITTED_BUT_UNRECORDED: batch {bid} IS RUNNING and will "
+            f"be billed, but it could not be written to {BATCHES} ({e}).\n"
+            f"  Do NOT simply re-run submit — that sends a second batch and "
+            f"pays twice. Record or cancel {bid} first; the spool has been "
+            f"left intact on purpose so nothing was lost.") from e
     # Only now: the batch is durably recorded, so clearing cannot lose work.
     clear()
     return rec

@@ -422,4 +422,14 @@ rather than a spool one. The spool is usable today by anything that can produce
 a prompt; wiring `pipeline.sh plan` to spool instead of calling the provider is
 the next slice.
 
-Pins: `registry/tests/test_batch_spool.py` (13). Mutation: 8 mutations, 8 killed.
+**The dangerous window in `submit()`**, found by reviewing slice 2 rather than
+by it failing. Once the API accepts the batch it is running and WILL be billed.
+If recording it then fails (lock timeout, disk, permissions) the id exists only
+in that stack frame — and because the spool is deliberately left intact, the
+natural reaction is to retry, which submits a **second** batch and pays twice
+for an orphan nobody can cancel. The id cannot be recorded before submission
+(it does not exist yet), so the window is inherent; what is fixable is failing
+loudly *with* the id, which is what `BATCH_SUBMITTED_BUT_UNRECORDED` does —
+including telling the operator not to just re-run.
+
+Pins: `registry/tests/test_batch_spool.py` (21). Mutation: 17 mutations, 17 killed.

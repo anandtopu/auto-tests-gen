@@ -321,3 +321,33 @@ def test_one_unpriceable_model_makes_the_whole_total_unknown(spool, monkeypatch)
     est, basis, detail = spool.estimate()
     assert est is None and basis == "unknown"
     assert "not-priced" in detail
+
+
+def test_a_batch_that_was_submitted_but_could_not_be_recorded_names_its_id(
+        spool, monkeypatch):
+    """The dangerous window, found by reviewing slice 2 rather than by it
+    failing. Once the API accepts the batch it is running and WILL bill. If the
+    record write then fails, the id exists only in that stack frame -- and
+    because the spool is left intact, the natural reaction is to retry, which
+    submits a SECOND batch and pays twice for an orphan nobody can cancel.
+
+    The id cannot be recorded before submission (it does not exist yet), so the
+    window is inherent. What is fixable is failing loudly WITH the id.
+    """
+    _spool_three(spool)
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(spool.fs_lock, "write_json_atomic", boom)
+
+    with pytest.raises(RuntimeError) as e:
+        spool.submit()
+    msg = str(e.value)
+    assert "msgbatch_spool" in msg, (
+        "the batch id is not in the error -- it exists nowhere else, so the "
+        "operator cannot record or cancel a batch they are being billed for")
+    assert "BATCH_SUBMITTED_BUT_UNRECORDED" in msg
+    assert "second batch" in msg or "twice" in msg, (
+        "nothing warns against the retry that would double the bill")
+    assert STATE["submitted"] is not None, "the batch really was sent"
+    assert len(spool.pending()) == 3, "the spool was cleared despite the failure"
