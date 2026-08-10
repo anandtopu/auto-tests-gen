@@ -2143,7 +2143,7 @@ async function loadSavings() {
       : '<span class="chip">~$' + escHtml(String(s.usd)) + ' (' + escHtml(s.basis) + ')</span>';
     el.innerHTML =
       '<div class="sub" style="padding-bottom:6px"><b>' + d.already_covered +
-      '</b> of <b>' + d.scenarios + '</b> approved scenario(s) already covered — ' +
+      '</b> of <b>' + d.scenarios + '</b> scenario(s) already covered — ' + '<span class="muted">(plan: ' + escHtml(d.plan_status || 'unknown') + ')</span> — ' +
       '<b>' + d.to_author + '</b> would still need authoring.</div>' + money +
       '<div class="scroll" style="padding-top:8px"><table>' +
       '<thead><tr><th>ticket</th><th>covered</th><th>to author</th>' +

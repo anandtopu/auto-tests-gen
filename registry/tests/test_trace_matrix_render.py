@@ -124,3 +124,31 @@ def test_an_unknown_plan_status_is_not_promoted_to_approved():
 def test_plan_status_is_exported_for_machine_consumers():
     assert "plan_status" in trace_matrix.FIELDS, \
         "an auditor exporting CSV cannot tell approved rows from draft ones"
+
+
+# --- the same claim on the savings surface ----------------------------------
+
+def test_spec_savings_exposes_the_plan_status_it_is_reporting_on():
+    """Follow-up to the trace-matrix fix: spec_savings counts scenarios from
+    the spec file with NO approval check, while the dashboard described them
+    as "approved scenario(s) already covered". The counts are legitimately
+    useful for a DRAFT plan, so filtering to approved-only would break the
+    common case -- what has to go is the unearned word, which means the
+    surface needs the real status."""
+    import spec_savings
+    plan = spec_savings.authoring_plan("PROJ-301")
+    assert "plan_status" in plan, \
+        "callers cannot tell whether these scenarios were ever signed off"
+
+
+def test_an_unreadable_plan_status_is_empty_not_approved():
+    """Absence must not become the flattering answer."""
+    import spec_savings
+    assert spec_savings._plan_status("NO-SUCH-KEY-ZZ") == ""
+
+
+def test_the_dashboard_no_longer_calls_them_approved():
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert "approved scenario(s) already covered" not in src, \
+        "the savings card still asserts a sign-off it has not checked"
+    assert "plan_status" in src, "the card does not show the real status"

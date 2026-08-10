@@ -104,8 +104,28 @@ def authoring_plan(key, rows=None):
         "to_author_ids": to_author,
         # Reported, never counted as coverage.
         "unlinked_tests": unlinked,
+        # Whether a HUMAN has signed this plan off. These counts are useful for
+        # a draft plan -- arguably most useful then -- so they are NOT filtered
+        # to approved scenarios. But the surfaces described them as "approved
+        # scenario(s)", which asserts a sign-off that may not exist (the same
+        # defect just fixed in trace_matrix, which read the same draft-time
+        # snapshot). Callers get the status and say what is true.
+        "plan_status": _plan_status(key),
         "advisory": True,
     }
+
+
+def _plan_status(key):
+    """The plan's lifecycle state, or "" when it cannot be read.
+
+    Absence must never be read as approval, so the caller is given "" and says
+    "unknown" rather than defaulting to the flattering answer.
+    """
+    try:
+        import plan_state
+        return plan_state.get(key).get("status", "") or ""
+    except Exception:                          # noqa: BLE001
+        return ""
 
 
 def estate():
