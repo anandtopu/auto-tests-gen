@@ -1666,8 +1666,24 @@ if __name__ == "__main__":
     # from the Service. Expose only behind the token auth (AIQE_UI_TOKEN) + a Route/
     # Ingress you control — never 0.0.0.0 without a token on an untrusted network.
     host = os.environ.get("AIQE_UI_HOST", "127.0.0.1")
+    # flush=True for the same reason as the receiver: Python block-buffers
+    # stdout to a pipe or file, so `make serve > log` produced a ZERO-BYTE log
+    # (measured across a run that served 13 requests). The container sets
+    # PYTHONUNBUFFERED=1, which is why this was never noticed there.
+    _auth = ("token" if UI_TOKEN else
+             f"SSO header {SSO_HEADER}" if SSO_HEADER else "OFF")
     print(f"AI QE dashboard: http://{host}:{port}  "
-          f"(mode: {'mock' if MOCK else 'real'} adapters; Ctrl-C to stop)")
+          f"(mode: {'mock' if MOCK else 'real'} adapters; auth: {_auth}; "
+          f"Ctrl-C to stop)", flush=True)
+    # The receiver warns when it is reachable without a credential; this server
+    # did not, and it is the more sensitive of the two -- its POST routes
+    # approve plans, queue runs and factory-reset the estate. The rule lived
+    # only in the comment above, which operators do not read.
+    if not UI_TOKEN and not SSO_HEADER and host not in ("127.0.0.1", "localhost", "::1"):
+        print(f"  WARNING: listening on {host} with NO auth -- anyone who can "
+              f"reach this port can approve plans, queue runs and reset the "
+              f"estate. Set AIQE_UI_TOKEN (or AIQE_SSO_HEADER behind a proxy) "
+              f"before exposing it.", file=sys.stderr, flush=True)
     try:
         srv = _Server((host, port), Handler)
     except OSError as e:

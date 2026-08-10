@@ -94,3 +94,77 @@ def test_the_startup_messages_are_console_safe():
     block = block[:block.index("serve_forever")]
     assert "—" not in block, \
         "an em-dash is back in the startup output, which goes to a console"
+
+
+# --- the same two gaps on the dashboard server ------------------------------
+#
+# Found by sweeping after the receiver fix. The dashboard's log was ZERO BYTES
+# across a run that served 13 requests (same block-buffering), and it never
+# warned about running without auth at all -- the rule "never 0.0.0.0 without a
+# token" lived only in a code comment, which operators do not read.
+#
+# It is the more sensitive of the two servers: its POST routes approve plans,
+# queue runs and factory-reset the estate.
+
+DASHBOARD = ROOT / "bin/dashboard_server.py"
+
+
+def _start_dash(tmp_path, port, host="0.0.0.0", token=None, sso=None, wait=4.0):
+    import os
+    log = tmp_path / "dash.log"
+    env = dict(os.environ)
+    env.update({"AIQE_UI_HOST": host, "AIQE_UI_PORT": str(port)})
+    env.pop("PYTHONUNBUFFERED", None)
+    for var, val in (("AIQE_UI_TOKEN", token), ("AIQE_SSO_HEADER", sso)):
+        if val:
+            env[var] = val
+        else:
+            env.pop(var, None)
+    with open(log, "wb") as fh:
+        p = subprocess.Popen([sys.executable, str(DASHBOARD)], cwd=str(ROOT),
+                             stdout=fh, stderr=subprocess.STDOUT,
+                             stdin=subprocess.DEVNULL, env=env)
+        try:
+            time.sleep(wait)
+        finally:
+            p.terminate()
+            try:
+                p.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                p.kill()
+    return log.read_text(encoding="utf-8", errors="replace")
+
+
+def test_the_dashboard_banner_reaches_a_piped_log(tmp_path):
+    out = _start_dash(tmp_path, 4987)
+    assert "AI QE dashboard:" in out, \
+        f"nothing reached the log at startup ({len(out)} bytes)"
+
+
+def test_an_unauthenticated_dashboard_on_a_public_interface_warns(tmp_path):
+    out = _start_dash(tmp_path, 4986)
+    assert "WARNING" in out and "NO auth" in out, \
+        "a dashboard reachable without auth says nothing about it"
+    # The warning must say what is at stake, not just that auth is off.
+    assert "approve plans" in out and "reset" in out
+    assert "AIQE_UI_TOKEN" in out, "the warning does not name the fix"
+
+
+def test_a_token_silences_the_dashboard_warning(tmp_path):
+    out = _start_dash(tmp_path, 4985, token="s3cret")
+    assert "WARNING" not in out
+    assert "auth: token" in out
+
+
+def test_an_sso_header_also_silences_it(tmp_path):
+    """SSO behind a proxy is the other supported way to authenticate; warning
+    through it would be crying wolf at a correctly-secured deployment."""
+    out = _start_dash(tmp_path, 4984, sso="X-Forwarded-User")
+    assert "WARNING" not in out
+    assert "SSO header" in out
+
+
+def test_loopback_does_not_warn(tmp_path):
+    out = _start_dash(tmp_path, 4983, host="127.0.0.1")
+    assert "AI QE dashboard:" in out
+    assert "WARNING" not in out, "warns on a localhost dev server"
