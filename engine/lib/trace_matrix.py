@@ -114,9 +114,15 @@ def build(key=None):
         # the plan behind it was adapted from another key's approved plan.
         try:
             import plan_state
-            reused = plan_state.get(k).get("reused_from", "") or ""
+            _st = plan_state.get(k)
+            reused = _st.get("reused_from", "") or ""
+            # The row label depends on this. The contract snapshot is written
+            # when the plan is DRAFTED, not when it is approved, so a row from
+            # it says nothing about approval on its own.
+            plan_status = _st.get("status", "") or ""
         except Exception:
             reused = ""
+            plan_status = ""
         # SDD 3.3: close the requirement end of the chain and render waivers —
         # an audit distinguishes "waived, with a signed reason" from "missing".
         req_by_sid, waivers = {}, {}
@@ -166,6 +172,7 @@ def build(key=None):
                 "ci_failures": health.get("failures", ""),
                 "ci_last": health.get("last_status", ""),
                 "reused_from": reused,
+                "plan_status": plan_status,
                 "requirements": req_by_sid.get((scenario or {}).get("id"), ""),
                 "waiver": _waiver_cell(waivers.get((scenario or {}).get("id"))),
             }
@@ -191,7 +198,7 @@ def build(key=None):
 FIELDS = ["key", "scenario_id", "scenario_title", "behavior_ref", "file",
           "test_repo", "action", "gate_status", "commit", "run_id",
           "ci_runs", "ci_failures", "ci_last", "reused_from",
-          "requirements", "waiver"]
+          "requirements", "waiver", "plan_status"]
 
 
 def _waiver_cell(w):
@@ -208,6 +215,27 @@ def to_csv(rows):
     for r in rows:
         w.writerow(r)
     return buf.getvalue()
+
+
+def _approved(row):
+    """Only a signed-off plan makes its scenarios approved requirements."""
+    return (row.get("plan_status") or "") == "approved"
+
+
+def _uncovered_label(row):
+    """What to call a scenario with no test.
+
+    The contract snapshot this matrix reads is written when a plan is DRAFTED
+    (pipeline.sh plan stops after testplan and marks it draft), so labelling
+    every uncovered row "APPROVED SCENARIO" asserted a sign-off that may never
+    have happened -- on the one artifact regulated teams read. Measured on this
+    estate: PROJ-301 is status=draft with no approval in history, and the table
+    called all three of its scenarios approved.
+    """
+    if _approved(row):
+        return "APPROVED SCENARIO WITH NO TEST"
+    status = (row.get("plan_status") or "unknown").upper()
+    return f"{status} SCENARIO WITH NO TEST (plan not approved)"
 
 
 def render_text(rows):
@@ -228,7 +256,7 @@ def render_text(rows):
     out.append(f"{'key':<20} {'scenario':<16} {'test file':<52} "
                f"{'gate':<10} {'ci':<7}")
     for r in rows:
-        gap = "" if r["file"] else "   <- APPROVED SCENARIO WITH NO TEST"
+        gap = "" if r["file"] else f"   <- {_uncovered_label(r)}"
         out.append(f"{r['key']:<20} {r['scenario_id']:<16} "
                    f"{(r['file'] or '-'):<52} {r['gate_status'] or '-':<10} "
                    f"{str(r['ci_last'] or '-'):<7}{gap}")
@@ -238,9 +266,21 @@ def render_text(rows):
     uncovered = [r for r in rows if not r["file"]]
     out.append("")
     if uncovered:
-        out.append(f"{len(uncovered)} of {len(rows)} row(s): APPROVED SCENARIO "
-                   f"WITH NO TEST -- " +
-                   ", ".join(sorted(r["scenario_id"] or r["key"] for r in uncovered)))
+        approved = [r for r in uncovered if _approved(r)]
+        other = [r for r in uncovered if not _approved(r)]
+        if approved:
+            out.append(f"{len(approved)} of {len(rows)} row(s): APPROVED SCENARIO "
+                       f"WITH NO TEST -- " +
+                       ", ".join(sorted(r["scenario_id"] or r["key"] for r in approved)))
+        if other:
+            # Said separately and NOT called approved: these scenarios exist in
+            # a plan nobody has signed off, so an audit must not read them as
+            # approved requirements going unexercised.
+            out.append(f"{len(other)} of {len(rows)} row(s): scenario with no test "
+                       f"in a plan that is NOT approved -- " +
+                       ", ".join(sorted(f"{r['scenario_id'] or r['key']}"
+                                        f"({r.get('plan_status') or 'unknown'})"
+                                        for r in other)))
     else:
         out.append(f"{len(rows)} row(s), every approved scenario has a test")
     return out

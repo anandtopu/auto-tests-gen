@@ -60,7 +60,9 @@ def test_every_uncovered_row_still_carries_its_marker():
     """The summary is an addition, not a replacement -- the row-level marker is
     what makes the offending line findable in a long table."""
     out = "\n".join(trace_matrix.render_text([_row(sid="S9")]))
-    assert "<- APPROVED SCENARIO WITH NO TEST" in out
+    # The MARKER, not a particular wording: the label now depends on whether
+    # the plan was approved, and this fixture carries no plan status.
+    assert "<-" in out and "WITH NO TEST" in out
 
 
 def test_the_csv_form_is_untouched_by_the_text_rendering():
@@ -71,3 +73,54 @@ def test_the_csv_form_is_untouched_by_the_text_rendering():
     assert csv_out.splitlines()[0].startswith("key,scenario_id,")
     assert "APPROVED SCENARIO" not in csv_out
     assert "row(s)" not in csv_out
+
+
+# --- approval is a fact, not a label ----------------------------------------
+#
+# The contract snapshot this matrix reads is written when a plan is DRAFTED
+# (pipeline.sh plan stops after testplan and marks it draft). Labelling every
+# uncovered row "APPROVED SCENARIO" therefore asserted a sign-off that may never
+# have happened -- on the one artifact regulated teams read.
+#
+# Measured on this estate when it was found: PROJ-301 was status=draft with no
+# approval in history, and `make trace-matrix` called all three of its scenarios
+# approved. The summary line added minutes earlier repeated the claim louder.
+
+def _u(sid, status):
+    return {"key": "PROJ-1", "scenario_id": sid, "file": "", "gate_status": "",
+            "ci_last": "", "plan_status": status}
+
+
+def test_a_draft_plans_scenarios_are_not_called_approved():
+    out = "\n".join(trace_matrix.render_text([_u("S1", "draft")]))
+    assert "APPROVED SCENARIO" not in out, \
+        "a draft plan's scenario is still labelled approved"
+    assert "DRAFT" in out and "not approved" in out
+
+
+def test_an_approved_plans_scenarios_are_called_approved():
+    """The control. Refusing to ever say APPROVED would pass the test above
+    while removing the line an audit is actually looking for."""
+    out = "\n".join(trace_matrix.render_text([_u("S1", "approved")]))
+    assert "APPROVED SCENARIO WITH NO TEST" in out
+    assert "not approved" not in out
+
+
+def test_the_two_kinds_are_counted_separately():
+    """Summing them would restore the original lie in aggregate form."""
+    rows = [_u("S1", "approved"), _u("S2", "draft"), _u("S3", "draft")]
+    out = "\n".join(trace_matrix.render_text(rows))
+    assert "1 of 3 row(s): APPROVED SCENARIO WITH NO TEST" in out
+    assert "2 of 3 row(s): scenario with no test in a plan that is NOT approved" in out
+
+
+def test_an_unknown_plan_status_is_not_promoted_to_approved():
+    """plan_state can be unreadable; absence must not become a sign-off."""
+    out = "\n".join(trace_matrix.render_text([_u("S1", "")]))
+    assert "APPROVED SCENARIO" not in out
+    assert "UNKNOWN" in out
+
+
+def test_plan_status_is_exported_for_machine_consumers():
+    assert "plan_status" in trace_matrix.FIELDS, \
+        "an auditor exporting CSV cannot tell approved rows from draft ones"
