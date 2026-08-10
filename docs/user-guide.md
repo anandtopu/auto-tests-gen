@@ -77,22 +77,38 @@ commit in another.
 
 | Exit | Marker | Meaning |
 |---|---|---|
-| 0 | `GATE_STATUS=COMMITTED <sha>` / `GATE_STATUS=NO_CHANGES` | Success |
-| 2 | `SCOPE_VIOLATION` | Agent wrote outside `tests/ suites/ fixtures/ data/ pages/ catalog/ .ai-qe/` |
+| 0 | `GATE_STATUS=COMMITTED <sha>` / `NO_CHANGES` / `WOULD_COMMIT` | Success. `WOULD_COMMIT` is `AIQE_GATE_CHECK_ONLY=1`: every check ran, nothing was committed or pushed |
+| 2 | `SCOPE_VIOLATION` | Agent wrote outside `tests/ suites/ fixtures/ data/ pages/ catalog/`, or a generated filename used unsafe characters |
 | 3 | `SECRET_PATTERN` | Credential-looking string in new content |
-| 4 | `UNMAPPED_TEST` | New spec without a catalog sidecar entry (born-mapped rule) |
-| 5 | `TESTS_FAILED` | Generated specs failed against the provisioned environment |
+| 4 | `UNMAPPED_TEST` | New spec without a catalog sidecar entry in the same commit (born-mapped rule) |
+| 5 | `TESTS_FAILED` | The generated specs ran against the provisioned environment and failed |
 | 6 | `GATE_REFUSED` | Working directory is not a standalone test repo (safety backstop) |
 | 7 | `PUSH_FAILED` | Commit succeeded but the push to the configured remote failed |
+| 8 | `SPEC_UNSATISFIED` | An approved spec scenario is uncovered and unwaived (`spec.enforce: strict`) |
+| 9 | `LINT_FAILED` | The test repo's own `commands.lint` exited non-zero. This is the LINTER's verdict on the generated code — not a scope, secret or mapping finding |
+| 10 | `ENV_PROVISION_FAILED` | The app under test never came up, so the tests were never executed. **Nothing is known about whether they pass** |
+| 11 | `SPEC_CHECK_FAILED` | The spec check itself could not run, so it reached no verdict. This is NOT a finding that a scenario is uncovered — fix the checker, not the spec |
+| 64 | `INVALID_ARG` | The key or test-repo name was rejected before anything ran |
+| 124 | *(imposed by the pipeline)* | The gate exceeded `AIQE_GATE_TIMEOUT_SEC` (default 1200) and was stopped — nearly always the repo's own lint or test command not returning. Nothing was committed and **this is not a test failure** |
+| 137 | *(imposed by the pipeline)* | The gate also ignored the request to stop and was killed `AIQE_GATE_KILL_AFTER_SEC` (default 30) later. Same knowledge as 124, but check for a test process or app container it left behind |
 
-Environment-provisioning failures (`with-env.sh`'s own exits 7/8) surface through the
-gate as **exit 5** with `APP_START_FAILED` / `APP_REPO_NOT_FOUND` in the run log.
+`.ai-qe/` is deliberately **not** writable by a run: it holds the lint and test
+commands the gate executes, so a run that could rewrite it would be giving orders
+to the one component that holds the push credential. The gate also reads those
+commands from the *committed* config rather than the working tree.
+
+Environment-provisioning failures (`with-env.sh`'s own exits 7/8, marked
+`APP_REPO_NOT_FOUND` / `APP_START_FAILED` in the run log) surface as **exit 10**,
+not as a test failure. The distinction is the point: exit 5 means the tests ran and
+were wrong, exit 10 means they never ran, so nothing is known about them.
 Separately, **pipeline exit 77 = `BUDGET_EXCEEDED`** (cost or wall-clock ceiling hit
 before a phase) — the run aborts and notifies before any gate runs, so no gate exit
-code is emitted at all.
+code is emitted at all. If `timeout(1)` is not on `PATH` the pipeline says so and the
+gate runs unbounded.
 
 Non-zero exits quarantine the run for human inspection; they are never auto-retried.
-The adversarial suite (`make test-gate`) permanently regression-tests codes 2–5.
+The adversarial suite (`make test-gate`) permanently regression-tests the check
+ordering along with the scope, secret, mapping and config-trust rules.
 
 ### 2a. The dashboard, view by view
 

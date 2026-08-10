@@ -280,3 +280,73 @@ def test_every_llm_provider_appears_in_the_runner_port_diagram():
     assert not missing, (
         f"providers missing from the LLM Runner port diagram: {missing} -- "
         "add them, or the diagram is telling readers a provider does not exist")
+
+
+def test_the_gate_exit_code_table_matches_the_gate():
+    """The operator's first reference for a failed run, and nothing pinned it.
+
+    Measured when this was written: the table documented 7 of the 14 codes the
+    gate can produce, and two of its statements were not merely incomplete but
+    wrong -- both in the direction that sends someone to debug the wrong thing.
+
+      * Environment-provisioning failure was documented as exit 5. gate.sh
+        matches APP_REPO_NOT_FOUND / APP_START_FAILED and exits 10, a
+        distinction added precisely so "the app never started" stops being read
+        as "your tests failed" (C13: tests that never ran are not tests that
+        failed).
+      * `.ai-qe/` was listed inside the writable scope. It is excluded, because
+        it holds the commands the gate EXECUTES -- five other documents state
+        this correctly and the operator-facing one contradicted them, inviting
+        someone to "fix" the gate to match the doc.
+
+    So this enumerates the real set and requires the doc to name it, in BOTH
+    directions: a code the gate emits must be documented, and a documented code
+    must be one the gate emits (or 0, or the 124/137 the pipeline imposes with
+    its timeout wrapper). A table that grows a fictional code misdirects exactly
+    as badly as one missing a real one.
+    """
+    import re
+    gate = _read("engine/gate/gate.sh")
+    emitted = {int(c) for c in re.findall(r"^\s*(?:.*;\s*)?exit\s+(\d+)",
+                                          gate, re.M)}
+    emitted.discard(0)
+    assert len(emitted) >= 10, \
+        f"only found {sorted(emitted)} in gate.sh; the scrape broke"
+
+    guide = _read("docs/user-guide.md")
+    table = guide[guide.index("### Gate exit-code protocol"):]
+    table = table[:table.index("### 2a.")]
+    documented = {int(m) for m in re.findall(r"^\|\s*(\d+)\s*\|", table, re.M)}
+
+    assert not (emitted - documented), (
+        f"the gate emits {sorted(emitted - documented)} and the user guide's "
+        f"exit-code table does not mention them -- an operator hitting one finds "
+        f"nothing")
+    assert not (documented - emitted - {0, 124, 137}), (
+        f"the table documents {sorted(documented - emitted - {0, 124, 137})}, "
+        f"which gate.sh never emits")
+
+
+def test_the_writable_scope_in_the_docs_is_the_gates_own():
+    """The security-relevant half of the table above, pinned separately because
+    it is the one an operator could act on. If the doc says a directory is
+    writable and the gate refuses it, the doc is an argument for weakening the
+    gate."""
+    import re
+    gate = _read("engine/gate/gate.sh")
+    m = re.search(r"grep -vE '\^\(([^)]*)\)'", gate)
+    assert m, "the scope allow-list is no longer a single grep -vE in gate.sh"
+    allowed = {d.strip("/") for d in m.group(1).split("|") if d.strip()}
+    assert ".ai-qe" not in allowed, \
+        "the gate now allows writes to .ai-qe/ -- that is a constitution change"
+
+    guide = _read("docs/user-guide.md")
+    scope_row = [l for l in guide.splitlines()
+                 if l.startswith("| 2 |") and "SCOPE_VIOLATION" in l]
+    assert scope_row, "the SCOPE_VIOLATION row vanished from the user guide"
+    assert ".ai-qe" not in scope_row[0], (
+        "the user guide lists .ai-qe/ as writable scope; the gate excludes it "
+        "because it holds the commands the gate executes")
+    for d in sorted(allowed):
+        assert d in scope_row[0], \
+            f"the gate allows {d}/ and the user guide's scope row omits it"
