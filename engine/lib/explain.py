@@ -422,10 +422,40 @@ def explain(key=None, run_id=None, root=ROOT):
     except Exception:
         plan = {}
     if plan.get("adversary"):
-        because = [plan["adversary"]]
+        # The `because` list must not repeat the answer: `plan["adversary"]` is
+        # already passed as the answer below, so listing it here printed the
+        # same sentence twice and told the reader nothing the second time.
+        because = []
         detail = plan.get("adversary_detail")
-        if detail:
-            because.append(str(detail)[:400])
+        if isinstance(detail, dict):
+            # Render the gaps. This used to be `str(detail)[:400]`, which put a
+            # raw Python dict repr in front of an operator and cut it off mid
+            # structure -- while the thing they came to read (what did the
+            # opponent actually find?) sat inside it, already structured.
+            #
+            # dict_rows() because adversary_detail is LLM output that reached
+            # disk: CLAUDE.md records one malformed entry taking `bin/
+            # dashboard.py` down for every run, not just the bad one. Each gap
+            # is bounded individually, so a long rationale cannot truncate the
+            # NEXT gap away -- the failure mode of a single blob cap.
+            for g in run_progress.dict_rows(detail.get("gaps")):
+                title = str(g.get("title") or "untitled gap")[:160]
+                cat = str(g.get("category") or "uncategorised")[:40]
+                sev = str(g.get("severity") or "unrated")[:20]
+                why = str(g.get("rationale") or "")[:200]
+                because.append(f"gap [{cat}, {sev}]: {title}"
+                               + (f" — {why}" if why else ""))
+            acc, rej = detail.get("accepted"), detail.get("rejected")
+            if acc is not None or rej is not None:
+                because.append(f"arbiter: {acc if acc is not None else '?'} "
+                               f"accepted, {rej if rej is not None else '?'} "
+                               f"rejected")
+        elif detail:
+            # Not a mapping. Say what it is rather than str()-ing it at the
+            # reader; an unexpected shape is a fact about the record.
+            because.append(f"the recorded adversary detail is a "
+                           f"{type(detail).__name__}, not the expected mapping, "
+                           f"so its findings cannot be listed")
         decisions.append(_decision(
             "adversary",
             "What did the adversarial reviewer find, and what was accepted?",

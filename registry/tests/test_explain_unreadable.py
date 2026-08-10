@@ -268,3 +268,76 @@ def test_the_dashboard_panel_shows_the_detail_instead_of_hiding_itself():
         f"to show; it starts with: {body.splitlines()[0]!r}")
     assert "body.innerHTML" in empty and "x.detail" in empty, \
         "the empty-answer branch never renders the detail it was given"
+
+
+# --- rendering the adversary's findings -------------------------------------
+
+def _plan(monkeypatch, entry):
+    import plan_state
+    monkeypatch.setattr(plan_state, "get", lambda k: entry)
+
+
+def test_adversary_findings_are_rendered_not_dumped(tmp_path, monkeypatch):
+    """Found by driving `make explain KEY=PROJ-301`. The block printed the
+    answer sentence twice and then `str(detail)[:400]` — a raw Python dict cut
+    off mid-structure — while the thing the reader came for (what did the
+    opponent find?) sat inside it, already structured."""
+    _plan(monkeypatch, {
+        "adversary": "adversarial review: 2 gap(s) raised",
+        "adversary_detail": {"accepted": 2, "rejected": 1, "gaps": [
+            {"title": "stacking on a discounted order", "category": "boundary",
+             "severity": "high", "rationale": "AC-3 leaves stacking undefined"},
+            {"title": "POST without orders:write", "category": "authz",
+             "severity": "high", "rationale": "no scenario exercises authz"}]}})
+    out = explain.explain(key="ZZ-1", root=_estate(tmp_path))
+    adv = next(d for d in out["decisions"] if d["id"] == "adversary")
+
+    assert adv["answer"] not in adv["because"], \
+        "the because list repeats the answer verbatim"
+    joined = " | ".join(adv["because"])
+    assert "{'" not in joined and '{"' not in joined, \
+        f"a raw dict repr is still being shown to the reader: {joined[:120]}"
+    assert "stacking on a discounted order" in joined
+    assert "boundary" in joined and "high" in joined
+    assert "2 accepted, 1 rejected" in joined
+
+
+def test_one_malformed_gap_does_not_lose_the_others(tmp_path, monkeypatch):
+    """adversary_detail is LLM output that reached disk. CLAUDE.md records a
+    single malformed entry taking bin/dashboard.py down for EVERY run, so the
+    established filter is run_progress.dict_rows()."""
+    _plan(monkeypatch, {
+        "adversary": "adversarial review: 2 gap(s) raised",
+        "adversary_detail": {"gaps": [
+            "not a mapping at all",
+            {"title": "the good one", "category": "state", "severity": "low"}]}})
+    out = explain.explain(key="ZZ-1", root=_estate(tmp_path))
+    adv = next(d for d in out["decisions"] if d["id"] == "adversary")
+    assert any("the good one" in b for b in adv["because"]), \
+        "a malformed sibling entry cost us the well-formed gap"
+
+
+def test_a_long_rationale_cannot_truncate_the_next_gap_away(tmp_path, monkeypatch):
+    """The failure mode of capping the whole blob: gap 1 eats the budget and
+    gap 2 vanishes silently. Each gap is bounded on its own instead."""
+    _plan(monkeypatch, {
+        "adversary": "adversarial review: 2 gap(s) raised",
+        "adversary_detail": {"gaps": [
+            {"title": "verbose", "rationale": "x" * 5000},
+            {"title": "the second gap", "category": "authz"}]}})
+    out = explain.explain(key="ZZ-1", root=_estate(tmp_path))
+    adv = next(d for d in out["decisions"] if d["id"] == "adversary")
+    assert any("the second gap" in b for b in adv["because"]), \
+        "a long first rationale truncated the second gap out of existence"
+    assert all(len(b) < 600 for b in adv["because"]), "a gap line is unbounded"
+
+
+def test_an_unexpected_detail_shape_says_so(tmp_path, monkeypatch):
+    """C13: 'we could not list the findings' is not 'there were none'."""
+    _plan(monkeypatch, {"adversary": "adversarial review: ran",
+                        "adversary_detail": ["a", "list", "not", "a", "dict"]})
+    out = explain.explain(key="ZZ-1", root=_estate(tmp_path))
+    adv = next(d for d in out["decisions"] if d["id"] == "adversary")
+    joined = " ".join(adv["because"])
+    assert "not the expected mapping" in joined and "list" in joined, \
+        "an unexpected recorded shape was silently rendered as no findings"
