@@ -40,7 +40,9 @@ TMPD=$(mktemp -d); trap 'rm -rf "$TMPD"' EXIT
 export AIQE_PLAN_DIR="$TMPD/plans" AIQE_REVIEWS_FILE="$TMPD/reviews.json" \
        AIQE_QUEUE_FILE="$TMPD/queue.json" AIQE_OPENHANDS_DIR="$TMPD/openhands"
 mkdir -p "$AIQE_PLAN_DIR" "$AIQE_OPENHANDS_DIR"
-check() { if [ "$1" = "$2" ]; then echo "PASS $3"; else echo "FAIL $3 ($2, want $1)"; fail=1; fi; }
+passes=0
+pass() { passes=$((passes+1)); echo "PASS $1"; }
+check() { if [ "$1" = "$2" ]; then pass "$3"; else echo "FAIL $3 ($2, want $1)"; fail=1; fi; }
 
 # Relative import path on purpose: $ROOT under Git Bash is an MSYS path
 # (/c/Users/...) that the Windows python cannot resolve, and the failure is
@@ -262,7 +264,7 @@ if [ -n "${BUNDLE:-}" ] && [ -f "$BUNDLE" ]; then
     n=$(printf '%s\n' "$members" | grep -cE '(^|/)\.env$|aiqe\.properties|\.py$|\.sh$' || true)
     check 0 "$n" "an exported bundle carries no secrets and no code"
     m=$(printf '%s\n' "$members" | grep -c . )
-    [ "$m" -gt 5 ] && echo "PASS bundle actually contained $m members (the check saw real data)" \
+    [ "$m" -gt 5 ] && pass "bundle actually contained $m members (the check saw real data)" \
       || { echo "FAIL bundle looked empty ($m members)"; fail=1; }
   fi
   rm -f "$BUNDLE"
@@ -271,4 +273,5 @@ else
 fi
 
 [ $fail -eq 0 ] && echo "state adversarial UAT OK"
+echo "state-adversarial: $passes check(s) passed, $fail failure(s)"
 exit $fail

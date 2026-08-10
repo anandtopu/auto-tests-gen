@@ -29,7 +29,9 @@ mkdir -p "$ROOT/out/test-events"
 export AIQE_EVENTS_DIR="$(cd "$ROOT/out/test-events" && pwd -W 2>/dev/null || pwd)"
 fail=0
 TMPD=$(mktemp -d); trap 'rm -rf "$TMPD"' EXIT
-check() { if [ "$1" = "$2" ]; then echo "PASS $3"; else echo "FAIL $3 ($2, want $1)"; fail=1; fi; }
+passes=0
+pass() { passes=$((passes+1)); echo "PASS $1"; }
+check() { if [ "$1" = "$2" ]; then pass "$3"; else echo "FAIL $3 ($2, want $1)"; fail=1; fi; }
 
 # --- 1. provider outage mid-run -------------------------------------------
 OUT="$TMPD/out1.json"
@@ -134,4 +136,5 @@ PY
 check ok "$r" "unpriced provider is reported as UNENFORCEABLE, not silently fine"
 
 [ $fail -eq 0 ] && echo "provider adversarial UAT OK"
+echo "provider-adversarial: $passes check(s) passed, $fail failure(s)"
 exit $fail

@@ -50,7 +50,9 @@ TMPD_POSIX=$(mktemp -d); trap 'rm -rf "$TMPD_POSIX"' EXIT
 #              `claude` below was never found: the "nothing was billed" check
 #              resolved the REAL CLI and passed while proving nothing.
 TMPD=$(cd "$TMPD_POSIX" && pwd -W 2>/dev/null || printf '%s' "$TMPD_POSIX")
-check() { if [ "$1" = "$2" ]; then echo "PASS $3"; else echo "FAIL $3 ($2, want $1)"; fail=1; fi; }
+passes=0
+pass() { passes=$((passes+1)); echo "PASS $1"; }
+check() { if [ "$1" = "$2" ]; then pass "$3"; else echo "FAIL $3 ($2, want $1)"; fail=1; fi; }
 
 TREPO=e2e-api-tests-1
 [ -d "demo/$TREPO" ] || { echo "FAIL demo estate missing demo/$TREPO"; exit 1; }
@@ -239,4 +241,5 @@ check ok "$r" "both copies tier to a temp file and move (no truncate-before-tier
 echo
 [ "$fail" -eq 0 ] && echo "bootstrap smoke: all checks passed" \
                   || echo "bootstrap smoke: FAILURES above"
+echo "bootstrap-smoke: $passes check(s) passed, $fail failure(s)"
 exit "$fail"

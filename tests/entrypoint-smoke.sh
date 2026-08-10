@@ -36,7 +36,9 @@ TMPD_POSIX=$(mktemp -d); trap 'rm -rf "$TMPD_POSIX"' EXIT
 # Native form for AIQE_STATE_DIR (python resolves it); POSIX form for PATH
 # shadowing. See tests/bootstrap-smoke.sh for why both are needed.
 TMPD=$(cd "$TMPD_POSIX" && pwd -W 2>/dev/null || printf '%s' "$TMPD_POSIX")
-check() { if [ "$1" = "$2" ]; then echo "PASS $3"; else echo "FAIL $3 ($2, want $1)"; fail=1; fi; }
+passes=0
+pass() { passes=$((passes+1)); echo "PASS $1"; }
+check() { if [ "$1" = "$2" ]; then pass "$3"; else echo "FAIL $3 ($2, want $1)"; fail=1; fi; }
 
 EP="bin/container-entrypoint.sh"
 
@@ -137,4 +139,5 @@ check 43 "$?" "the wrapped exit status survives (after seeding)"
 echo
 [ "$fail" -eq 0 ] && echo "entrypoint smoke: all checks passed" \
                   || echo "entrypoint smoke: FAILURES above"
+echo "entrypoint-smoke: $passes check(s) passed, $fail failure(s)"
 exit "$fail"
