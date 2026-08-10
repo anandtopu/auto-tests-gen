@@ -628,3 +628,16 @@ if __name__ == "__main__":
         for u in out["unexplained"]:
             print(f"  {u['question']}")
             print(f"    -> NOT RECORDED: {u['not_recorded']}\n")
+        # `detail` is the WHOLE answer when no readable record matched, and it
+        # was never printed: `make explain KEY=x` for an unrecorded key emitted
+        # the header above and then nothing at all. The C13 work that made this
+        # message honest ("N run record(s) exist that could not be parsed",
+        # rather than "no run was recorded") was invisible for the same reason.
+        # A tool holding the answer and not saying it is the defect class this
+        # repo keeps finding — see `make batch-drain` and `make maintain`.
+        if out.get("detail"):
+            print(f"  {out['detail']}\n")
+        if not out["decisions"] and not out["unexplained"] \
+                and not out.get("detail"):
+            print("  Nothing was recorded for this target, and no reason for "
+                  "that was recorded either.\n")

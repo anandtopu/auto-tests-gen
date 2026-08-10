@@ -222,3 +222,49 @@ def test_a_healthy_run_record_is_never_reported_as_unreadable(tmp_path):
     bad = run_progress.unreadable_records(tmp_path)
     assert len(bad) == 1 and bad[0].endswith("2-2.json"), \
         f"expected only the damaged record, got {bad}"
+
+
+# --- the entry points, which is where this became visible -------------------
+
+def test_the_cli_prints_the_detail_it_was_given(tmp_path):
+    """Found by DRIVING `make explain`, not by reading the library.
+
+    The CLI rendered `decisions` and `unexplained` and dropped `detail` — the
+    field that IS the whole answer when no readable record matched. So an
+    operator asking about an unrecorded key got the header and a blank line.
+    The C13 work above made that message honest and it was invisible for this
+    reason: a fix nobody can see at the entry point is not a fix.
+    """
+    import subprocess
+    r = subprocess.run([sys.executable, str(ROOT / "engine/lib/explain.py"),
+                        "ZZ-NO-SUCH-KEY-1"], cwd=str(ROOT), capture_output=True,
+                       text=True, stdin=subprocess.DEVNULL, timeout=120)
+    assert r.returncode == 0, r.stderr
+    body = r.stdout.split("\n", 1)[1].strip()
+    assert body, "the CLI printed a header and nothing else"
+    assert "no run has been recorded" in body.lower()
+
+
+def test_the_dashboard_panel_shows_the_detail_instead_of_hiding_itself():
+    """The sibling, and the worse one: the panel set display:none, so the user
+    saw no trace of having asked — which reads as 'this feature does not apply
+    here' rather than 'no record was found'. Its own error path already gets
+    this right ('a display failure, not an absence of reasons')."""
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    fn = src[src.index("function rpWhyRender("):]
+    fn = fn[:fn.index("async function rpWhy(")]
+
+    # Assert the ORDER inside the empty-answer branch, not the presence of a
+    # substring. The first version of this test checked `"x.detail" in fn` and
+    # counted `display = 'none'` occurrences, and a mutation that hid the panel
+    # unconditionally SURVIVED both: it left x.detail sitting on a line that
+    # could no longer be reached, and kept the count identical. A survivor
+    # usually means the test is weak, not that the code is right.
+    empty = fn[fn.index("if (!(x.decisions || []).length"):]
+    empty = empty[:empty.index("\n  const dec =")]
+    body = empty.split("{", 1)[1].strip()
+    assert body.startswith("if (!x.detail)"), (
+        "the empty-answer branch does something before checking for a detail "
+        f"to show; it starts with: {body.splitlines()[0]!r}")
+    assert "body.innerHTML" in empty and "x.detail" in empty, \
+        "the empty-answer branch never renders the detail it was given"

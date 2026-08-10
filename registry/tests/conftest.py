@@ -153,6 +153,22 @@ def _redirect_seeded(var, dest, source):
     os.environ[var] = str(dest)
 
 
+# THE TRAP THESE REDIRECTS SET, stated here because it has now cost three
+# rounds of debugging and the symptom never points at this file.
+#
+# app_paths resolves `per-path knob > AIQE_STATE_DIR > root argument`. Setting a
+# knob suite-wide therefore OUTRANKS any test that relocates by monkeypatching a
+# module's ROOT, or by passing root=<tmp estate> to a function. Those tests do
+# not fail loudly at the seam — the code simply reads the redirect, so the
+# symptom is a missing scenario, an empty corpus, or a None where a dict was
+# expected, somewhere far from the cause. Three instances so far:
+# plan_similarity/derived_writes (monkeypatched ROOT), knowledge_chunks in
+# test_spec_store (which had been PASSING on another test's leftovers in the
+# shared redirect), and task_bundle (passes root= and builds its own AGENTS.md).
+#
+# The fix is always the same and takes one line: relocate the way production
+# does, `monkeypatch.setenv("AIQE_<X>_DIR", str(tmp_path / "<x>"))`, alongside
+# whatever module attribute the test already patches.
 def _redirect_file_seeded(var, dest, source):
     """Same contract as `_redirect_seeded`, for a single TRACKED FILE rather
     than a directory tree — AGENTS.md, not a `<key>/` layout underneath it.

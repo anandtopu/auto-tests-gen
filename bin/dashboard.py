@@ -3522,8 +3522,18 @@ onEnter('progress', function () {
 function rpWhyRender(x) {
   const wrap = document.querySelector('#rp-why-wrap');
   const body = document.querySelector('#rp-why');
-  if (!x || (!(x.decisions || []).length && !(x.unexplained || []).length)) {
-    wrap.style.display = 'none';
+  // Hiding the whole panel on an empty answer was the WORSE half of a defect
+  // the CLI also had: it reads as "this feature does not apply here" rather
+  // than "no record was found", and it swallowed `detail` — the field that
+  // says WHY there is nothing, including "N run record(s) exist that could
+  // not be parsed". The error path below already gets this right by saying a
+  // display failure is not an absence of reasons; this is the same idea for
+  // an empty one.
+  if (!x) { wrap.style.display = 'none'; return; }
+  if (!(x.decisions || []).length && !(x.unexplained || []).length) {
+    if (!x.detail) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    body.innerHTML = '<div class="sub">' + escHtml(String(x.detail)) + '</div>';
     return;
   }
   wrap.style.display = '';

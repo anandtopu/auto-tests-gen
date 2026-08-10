@@ -23,6 +23,13 @@ def estate(tmp_path, monkeypatch):
     (root / "prompts/pr-triage.md").write_text("Review the supplied change safely.\n")
     (root / "AGENTS.md").write_text("# Estate\n\nRepository facts.\n")
     store = tmp_path / "artifact-store"
+    # This fixture builds a whole estate under `root` and passes root= to
+    # task_bundle, but app_paths resolves the per-path knob FIRST (knob >
+    # AIQE_STATE_DIR > root), and conftest now sets AIQE_AGENTS_FILE
+    # suite-wide. Without this, task_bundle looked for the estate AGENTS.md at
+    # the redirect and never matched the one written on line above — the
+    # generate phase's context came back None rather than "fallback".
+    monkeypatch.setenv("AIQE_AGENTS_FILE", str(root / "AGENTS.md"))
     monkeypatch.setenv("AIQE_ARTIFACT_STORE", "1")
     monkeypatch.setenv("AIQE_ARTIFACTS_DIR", str(store))
     monkeypatch.setenv("AIQE_ARTIFACT_MAX_BYTES", "1048576")
