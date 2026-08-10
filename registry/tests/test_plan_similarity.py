@@ -20,6 +20,11 @@ import plan_similarity as ps
 def plans(tmp_path, monkeypatch):
     import plan_state
     monkeypatch.setattr(ps, "ROOT", tmp_path)
+    # The per-path knob OUTRANKS a monkeypatched module ROOT
+    # (app_paths: knob > AIQE_STATE_DIR > root), and conftest now sets it
+    # suite-wide to keep the estate's spec of record out of test writes.
+    # Relocating the way production does is what actually moves it.
+    monkeypatch.setenv("AIQE_TESTPLAN_DIR", str(tmp_path / "testplans"))
     monkeypatch.setattr(plan_state, "DIR", tmp_path / "reports/plans")
     monkeypatch.setattr(plan_state, "FILE", tmp_path / "reports/plans/state.json")
     (tmp_path / "testplans").mkdir()
@@ -68,6 +73,9 @@ def test_suggestions_carry_status_and_bounded_text(plans):
 
 def test_total_on_empty_or_missing_corpus(tmp_path, monkeypatch):
     monkeypatch.setattr(ps, "ROOT", tmp_path)          # no testplans/ at all
+    # ...and point the knob there too, or this reads conftest's seeded copy and
+    # the "missing corpus" it claims to test is a corpus with PROJ-301 in it.
+    monkeypatch.setenv("AIQE_TESTPLAN_DIR", str(tmp_path / "testplans"))
     assert ps.corpus() == []
     assert ps.similar("anything") == []
     assert ps.suggest_for("NOPE-1") == []

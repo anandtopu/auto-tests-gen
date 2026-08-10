@@ -24,6 +24,12 @@ def estate(tmp_path, monkeypatch):
     monkeypatch.setattr(ps, "FILE", tmp_path / "plans/state.json")
     monkeypatch.setattr(ps, "PLAN_DIR", tmp_path / "testplans")
     monkeypatch.setattr(pr, "ROOT", tmp_path)
+    # The per-path knob OUTRANKS a monkeypatched module ROOT
+    # (app_paths: knob > AIQE_STATE_DIR > root), and conftest now sets it
+    # suite-wide to keep the estate's spec of record out of test writes.
+    # Relocating the way production does is what actually moves it.
+    monkeypatch.setenv("AIQE_TESTPLAN_DIR", str(tmp_path / "testplans"))
+    monkeypatch.setenv("AIQE_SPEC_DIR", str(tmp_path / "specs"))
     monkeypatch.setattr(pr, "MARKER", tmp_path / "out/plan-reuse.json")
     (tmp_path / "plans").mkdir()
     (tmp_path / "testplans").mkdir()

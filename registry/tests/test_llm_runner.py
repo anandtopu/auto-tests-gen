@@ -184,6 +184,9 @@ def test_derived_writes_materializes_testdata_from_inlined_content(tmp_path,
                                                                   monkeypatch):
     import derived_writes as dw
     monkeypatch.setattr(dw, "ROOT", tmp_path)
+    monkeypatch.setenv("AIQE_TESTPLAN_DIR", str(tmp_path / "testplans"))
+    monkeypatch.setenv("AIQE_TESTDATA_DIR", str(tmp_path / "testdata"))
+    monkeypatch.setenv("AIQE_SPEC_DIR", str(tmp_path / "specs"))
     contract = {"fixtures": [
         {"canonical": "testdata/K-1/cases.json", "content": '{"a":1}'},
         {"canonical": "testdata/K-1/missing.json"},
@@ -211,6 +214,9 @@ def test_derived_writes_renders_the_plan_through_the_spec_renderer(tmp_path,
     import plan_state as ps
     import spec_store as ss
     monkeypatch.setattr(dw, "ROOT", tmp_path)
+    monkeypatch.setenv("AIQE_TESTPLAN_DIR", str(tmp_path / "testplans"))
+    monkeypatch.setenv("AIQE_TESTDATA_DIR", str(tmp_path / "testdata"))
+    monkeypatch.setenv("AIQE_SPEC_DIR", str(tmp_path / "specs"))
     monkeypatch.setattr(ss, "SPEC_DIR", tmp_path / "specs")
     monkeypatch.setattr(ps, "PLAN_DIR", tmp_path / "testplans")
     monkeypatch.setattr(ps, "DIR", tmp_path / "plans")
@@ -229,6 +235,9 @@ def test_derived_writes_renders_the_plan_through_the_spec_renderer(tmp_path,
 def test_derived_writes_free_form_fallback(tmp_path, monkeypatch):
     import derived_writes as dw
     monkeypatch.setattr(dw, "ROOT", tmp_path)
+    monkeypatch.setenv("AIQE_TESTPLAN_DIR", str(tmp_path / "testplans"))
+    monkeypatch.setenv("AIQE_TESTDATA_DIR", str(tmp_path / "testdata"))
+    monkeypatch.setenv("AIQE_SPEC_DIR", str(tmp_path / "specs"))
     contract = {"scenarios": [{"id": "K-1-S1", "title": "t", "layer": "api",
                                "target_repo": "r", "behavior_ref": "B1"}],
                 "open_questions": ["q"]}

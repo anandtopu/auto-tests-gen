@@ -65,8 +65,13 @@ def test_a_hit_restores_artifacts_not_just_the_contract(tmp_path):
     out.mkdir(exist_ok=True)
     (out / "testplan.contract.json").write_text('{"scenarios":[],"open_questions":[]}',
                                                 encoding="utf-8")
-    plan = ROOT / "testplans/ZZCACHE-1.md"
-    plan.parent.mkdir(exist_ok=True)
+    # Where the CACHE looks, not where the estate keeps plans. This read
+    # ROOT/"testplans" while phase_cache resolves through app_paths, so it both
+    # deposited a fixture file in the estate and, once conftest redirected the
+    # tree, asserted against a directory the code no longer writes.
+    import app_paths
+    plan = app_paths.testplans_dir() / "ZZCACHE-1.md"
+    plan.parent.mkdir(parents=True, exist_ok=True)
     plan.write_text("# plan body", encoding="utf-8")
     try:
         assert pc.store("testplan", "testplan", "m", prompt, ctx, "ZZCACHE-1")

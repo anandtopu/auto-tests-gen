@@ -113,6 +113,15 @@ if not (os.environ.get("AIQE_PLAN_DIR") or "").strip():
 # current contents keeps every read byte-identical and confines only the writes.
 # pipeline.sh exports AIQE_P_SPECS/AIQE_P_TESTPLANS/AIQE_P_TESTDATA from
 # app_paths.sh_exports(), so subprocess runs and the mock phase follow too.
+# What the seed actually did, recorded AT SEED TIME. Tests cannot re-derive it
+# later: the redirect exists so tests can WRITE these trees, and several do
+# (test_multi_agent runs the real pipeline on PROJ-301), so "the redirect still
+# matches the estate" stops being true the moment the redirect does its job.
+# The first version of the pin asserted exactly that and failed only in a full
+# run — the assertion was measuring test traffic, not seeding.
+SEED_REPORT = {}
+
+
 def _redirect_seeded(var, dest, source):
     """Point `var` at `dest`, seeded from `source`. Never silently empty.
 
@@ -123,16 +132,24 @@ def _redirect_seeded(var, dest, source):
     worse than not coming up.
     """
     if (os.environ.get(var) or "").strip():
+        SEED_REPORT[var] = {"seeded": None, "source": None,
+                            "note": "explicit value from the caller"}
         return                          # an explicit value from the caller wins
     if source.is_dir():
         shutil.rmtree(dest, ignore_errors=True)
         shutil.copytree(source, dest)
-        if not any(dest.rglob("*")) and any(source.rglob("*")):
+        want = sum(1 for p in source.rglob("*") if p.is_file())
+        got = sum(1 for p in dest.rglob("*") if p.is_file())
+        if got != want:
             raise RuntimeError(
-                f"conftest could not seed {dest} from {source}; refusing to run "
-                f"with an empty {var} because tests read it as a fixture")
+                f"conftest seeded {got} of {want} file(s) from {source} into "
+                f"{dest}; refusing to run on a partial copy because tests read "
+                f"it as a fixture")
+        SEED_REPORT[var] = {"seeded": got, "source": str(source), "note": ""}
     else:
         dest.mkdir(parents=True, exist_ok=True)
+        SEED_REPORT[var] = {"seeded": 0, "source": None,
+                            "note": "source tree does not exist"}
     os.environ[var] = str(dest)
 
 

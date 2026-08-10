@@ -51,15 +51,25 @@ def test_the_testplan_and_testdata_trees_are_redirected_too():
 def test_the_redirect_is_seeded_so_fixture_reads_still_work():
     """A dozen test files read PROJ-301's spec as a FIXTURE. An empty redirect
     would leave them asserting on absence and passing for the wrong reason,
-    which is worse than the leak: the leak is at least visible in git status."""
-    import spec_store
-    assert (spec_store.SPEC_DIR / "PROJ-301" / "testplan.yaml").is_file(), \
-        "the spec redirect was not seeded — fixture reads now see nothing"
-    estate = (ROOT / "specs/PROJ-301/testplan.yaml").read_bytes()
-    seeded = (spec_store.SPEC_DIR / "PROJ-301" / "testplan.yaml").read_bytes()
-    assert seeded == estate, \
-        "the seeded spec differs from the estate's — tests no longer read what " \
-        "the operator has, so a passing suite says nothing about the real file"
+    which is worse than the leak: the leak is at least visible in git status.
+
+    Asserted from conftest's SEED_REPORT, recorded AT SEED TIME, not by
+    comparing the two trees now. The first version of this test did compare
+    them, passed alone, and failed only in a full run — because the redirect
+    exists precisely so tests may WRITE these trees, and test_multi_agent runs
+    the real pipeline on PROJ-301. It was measuring test traffic and calling it
+    a seeding failure.
+    """
+    import conftest
+    for var in ("AIQE_SPEC_DIR", "AIQE_TESTPLAN_DIR"):
+        rep = conftest.SEED_REPORT.get(var)
+        assert rep, f"{var} was never processed by the conftest redirect"
+        if rep["note"] == "explicit value from the caller":
+            continue                    # a caller's own directory; not ours
+        assert rep["seeded"], (
+            f"{var} was redirected but seeded {rep['seeded']} files — every "
+            f"fixture read of it now sees an empty tree")
+        assert rep["source"], f"{var} was seeded from nowhere"
 
 
 def test_writing_a_spec_here_cannot_reach_the_estate():
