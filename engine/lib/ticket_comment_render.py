@@ -34,7 +34,20 @@ def max_chars(config_path=None):
             raise TypeError("boolean is not a character bound")
         value = int(value)
         return min(HARD_MAX_CHARS, value) if value >= 256 else DEFAULT_MAX_CHARS
-    except (OSError, TypeError, ValueError):
+    except Exception:  # noqa: BLE001 - this function's contract IS totality
+        # The tuple used to be (OSError, TypeError, ValueError): thoughtfully
+        # narrow, and it missed the two failures this code actually produces.
+        # A hand-edited org-config.yaml raises yaml.YAMLError (a ParserError or
+        # ScannerError), and `import yaml` inside the try raises ImportError --
+        # neither was caught, so a function documented as reading the bound
+        # DEFENSIVELY raised out of itself.
+        #
+        # No caller is broken today: all three body builders below wrap this in
+        # `except Exception`, and ticket_comment.py wraps it explicitly and
+        # falls back to the hard ceiling. That is exactly why it survived. It is
+        # fixed here because the next caller will read the docstring, not the
+        # except clause -- the same reasoning as validating the gate's own
+        # arguments rather than trusting whoever called.
         return DEFAULT_MAX_CHARS
 
 
