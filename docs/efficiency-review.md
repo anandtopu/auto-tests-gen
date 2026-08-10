@@ -219,3 +219,43 @@ than the 27 minutes currently justifies.
 So the remaining 26 minutes are the price of end-to-end tests that drive the
 actual pipeline, which is the reason they catch what they catch. Recorded as a
 measurement rather than a target.
+
+## What the coverage number does and does not mean (measured 2026-08-10)
+
+`make python-coverage` reports **71.0%** across `engine/lib` and `bin`
+(2061 tests, 27:50). That figure is enforced by `make python-coverage-check`
+via `--cov-fail-under`, so it is worth knowing what it actually measures.
+
+**It substantially understates real coverage**, because coverage.py only
+instruments the process it starts, and much of this platform is deliberately
+driven as SUBPROCESSES — `pipeline.sh` calls `run_record.py`, tests invoke
+`bin/repos.py` and `bin/qa.py` as commands, the servers are started as child
+processes. Three files therefore report **0.0%**:
+
+| File | Coverage | Reality |
+|---|---|---|
+| `run_record.py` | 0.0% (156 stmts) | referenced by 30 test files, invoked as a subprocess by 17; **never imported in-process** |
+| `gen_agents_md.py` | 0.0% (159) | 7 test files, all via subprocess |
+| `repos.py` | 0.0% (164) | 56 test files reference it, 6 invoke it directly |
+| `dashboard_server.py` | 9.5% (998) | tested by starting the real server |
+
+None of those are untested. `run_record.py` in particular is covered by the
+run-record write ordering pins and by every mock pipeline run in the suite.
+
+**Why this matters more than a cosmetic inaccuracy.** A threshold on a number
+that structurally cannot see subprocess execution rewards the wrong work:
+writing thin in-process tests to move the figure, or lowering the bar when a
+legitimately subprocess-driven module drags it down. Neither improves the
+product.
+
+**The fix, when it is worth doing:** coverage.py supports child processes via
+`COVERAGE_PROCESS_START` plus a `sitecustomize` hook, which would fold
+subprocess execution into the same report. Deferred rather than done here
+because it changes how every test runs, the suite is already ~28 minutes, and
+the change needs its own validation — measuring wrongly in a new direction is
+not an improvement. **Trigger:** do it before anyone raises `--cov-fail-under`,
+or the first time someone proposes deleting a subprocess-driven test because
+"it shows 0% anyway".
+
+Until then, read 71.0% as a FLOOR, and use the per-file numbers only for
+modules the tests import directly.
