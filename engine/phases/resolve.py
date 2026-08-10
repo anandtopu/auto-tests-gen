@@ -54,11 +54,29 @@ def resolve_jira(reg, key, components, labels, linked_repos):
     sources = set(linked_repos)                    # dev-panel evidence wins
     for c in components:
         sources.update(hints.get("jira_component_map", {}).get(c, []))
+    # INTERSECT the restrictions; last-one-wins silently discarded the others.
+    # The shipped registry maps api-only -> [api] and ui-only -> [ui], so a
+    # ticket carrying both routed to whichever label happened to come LAST --
+    # measured: ['api-only','ui-only'] resolved to e2e-ui-tests-1 and the
+    # reversed order to e2e-api-tests-1, both at confidence 0.85, i.e. the
+    # platform was confident about a coin flip whose outcome depends on the
+    # order JIRA happens to return labels in. The layer it dropped never got
+    # tests generated, which is the unrouting this platform cannot see from
+    # the inside.
+    #
+    # `restrict_layers` means "only these layers", so intersection is what the
+    # word already promises. Contradictory labels intersect to EMPTY, which
+    # yields no test repos, which caps confidence at 0.4 -- below the 0.8
+    # threshold -- so the run asks a human instead of guessing. That is the
+    # documented behaviour for "we cannot tell", reached without a special case.
     layers = None
     for l in labels:
         r = hints.get("jira_label_map", {}).get(l, {})
         if "restrict_layers" in r:
-            layers = r["restrict_layers"]
+            rl = set(r["restrict_layers"])
+            layers = rl if layers is None else (layers & rl)
+    if layers is not None:
+        layers = sorted(layers)
     tests = set()
     for s in sources:
         tests.update(test_repos_for(reg, s, layers=layers))
