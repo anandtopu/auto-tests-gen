@@ -186,3 +186,36 @@ finding: **every efficiency mechanism here is paired with the measurement that
 would justify it, and where the measurement is blocked, the mechanism is held
 back or its absence is reported loudly.** That is rarer than the mechanisms
 themselves, and it is the thing to preserve as more of them land.
+
+## Suite wall-clock, measured (2026-08-09)
+
+`python3 -m pytest registry/tests -q --durations=30`, run solo:
+**2018 passed in 27:07**. Verdict on where that time goes:
+
+| Cost | Where | Verdict |
+|---|---|---|
+| ~112s | `test_ticket_comment_idempotency` full mock retry run | INHERENT -- it drives the real pipeline twice |
+| ~93s | `test_plan_first_journey` fixture **setup** | INHERENT -- it snapshots and restores the estate, which is what keeps it from feeding the scorecard its own traffic |
+| 61s | `test_batch_provider::…never_ends…` | **ACCIDENTAL, fixed here** |
+| ~45-59s each | ~12 tests that run `demo-pr` / `demo-jira` end to end | INHERENT |
+
+The one accidental cost was mine, and it pointed at a real defect rather than
+just a slow test. The deadline knob was parsed with `int()`, so the shortest
+wait anyone could express was **60 seconds** -- and anything an operator might
+reasonably write (`0.5`, `90s`, a stray quote) raised an **uncaught ValueError**
+that surfaced as a Python traceback from inside an adapter, naming nothing.
+`_num()` now parses a float, refuses non-numbers and non-positives with
+`CONFIG_INVALID` naming the setting and exit 64, and the test asks for 0.05 min:
+**61.4s -> 4.2s**, about 57 seconds off every full run.
+
+**Parallelism is NOT the answer here, and the reason is recorded so it is not
+re-proposed.** pytest-xdist is not installed, and installing it would not be
+safe: these tests share one estate -- the registry, run records, the catalog --
+which is exactly what made a concurrent `make review` + `make test-routing`
+fail `test_architecture_current_estate_marker_matches_the_registry` today. Real
+parallelism needs per-worker estate isolation first; that is a bigger change
+than the 27 minutes currently justifies.
+
+So the remaining 26 minutes are the price of end-to-end tests that drive the
+actual pipeline, which is the reason they catch what they catch. Recorded as a
+measurement rather than a target.

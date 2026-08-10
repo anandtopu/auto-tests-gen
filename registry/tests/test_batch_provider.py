@@ -207,7 +207,9 @@ def test_an_errored_request_is_distinct_from_an_expired_one(tmp_path, stub):
 def test_a_batch_that_never_ends_is_not_reported_as_a_failed_phase(tmp_path, stub):
     STATE["ended"] = False
     try:
-        r = _run(stub, tmp_path / "r.json", AIQE_BATCH_MAX_WAIT_MIN="1",
+        # 0.05 min = 3s. This waited a full MINUTE before the knob accepted
+        # a float -- 61s of the suite's 27, spent proving a deadline fires.
+        r = _run(stub, tmp_path / "r.json", AIQE_BATCH_MAX_WAIT_MIN="0.05",
                  AIQE_BATCH_POLL_SECONDS="1")
     finally:
         STATE["ended"] = True
@@ -311,3 +313,62 @@ def test_the_50_percent_discount_is_not_applied_twice(monkeypatch):
     assert cost == pytest.approx(2.0), (
         "priced() no longer returns tokens x the configured rate -- a second "
         f"discount is being applied somewhere (got {cost}, expected 2.0)")
+
+
+# --- configured numbers refuse rather than crash -----------------------------
+
+def _cfg_run(tmp_path, **env):
+    import os as _os
+    e = {"ANTHROPIC_API_KEY": "sk-test",
+         "PATH": _os.environ.get("PATH", ""),
+         "SYSTEMROOT": _os.environ.get("SYSTEMROOT", "")}
+    e.update(env)
+    return subprocess.run(
+        [BASH, str(ADAPTER), "run_phase", "m", "1", "", str(tmp_path / "r.json")],
+        input="x", capture_output=True, text=True, env=e)
+
+
+def test_a_non_numeric_limit_is_a_named_refusal_not_a_traceback(tmp_path):
+    """These were int(), so `0.5`, `90s` or a stray quote raised an uncaught
+    ValueError and surfaced as a Python traceback from inside an adapter --
+    which does not say which setting is wrong."""
+    r = _cfg_run(tmp_path, AIQE_BATCH_MAX_WAIT_MIN="ninety")
+    assert r.returncode == 64, f"exited {r.returncode}, not the invalid-input code"
+    assert "CONFIG_INVALID" in r.stderr
+    assert "AIQE_BATCH_MAX_WAIT_MIN" in r.stderr, "the failing setting is not named"
+    assert "Traceback" not in r.stderr, "still crashing instead of refusing"
+
+
+def test_a_zero_or_negative_limit_is_refused(tmp_path):
+    """Zero would mean 'give up before asking', which is not a limit anyone
+    means; silently clamping it would hide the typo."""
+    for bad in ("0", "-5"):
+        r = _cfg_run(tmp_path, AIQE_BATCH_MAX_WAIT_MIN=bad)
+        assert r.returncode == 64, f"{bad!r} accepted"
+        assert "CONFIG_INVALID" in r.stderr
+
+
+def test_a_sub_minute_wait_is_expressible(tmp_path, stub):
+    """The knob was minutes-only via int(), so the shortest wait anyone could
+    ask for was 60s -- which is also why one test spent a full minute of the
+    suite proving a deadline fires."""
+    import time as _t
+    STATE["ended"] = False
+    started = _t.monotonic()
+    try:
+        r = _run(stub, tmp_path / "r.json", AIQE_BATCH_MAX_WAIT_MIN="0.05",
+                 AIQE_BATCH_POLL_SECONDS="1")
+    finally:
+        STATE["ended"] = True
+    elapsed = _t.monotonic() - started
+    assert r.returncode != 0
+    assert "BATCH_STILL_PROCESSING" in r.stderr, (
+        "a fractional wait did not reach the deadline branch -- it was "
+        "rejected outright")
+    # The ELAPSED time is the assertion that matters. Truncating the value to
+    # a whole number would turn 0.05 into 0 -- and 0.9 into "do not wait at
+    # all" -- while still reaching this same branch, so a branch-only check
+    # cannot tell a short wait from no wait. Verified by mutation.
+    assert elapsed >= 1.5, (
+        f"gave up after {elapsed:.2f}s on a 3s deadline -- the fractional "
+        "value was truncated, so any sub-minute setting means no wait")

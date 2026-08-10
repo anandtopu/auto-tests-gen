@@ -68,9 +68,35 @@ HEADERS = {"x-api-key": key,
 # fan-out cannot introduce an ordering bug this adapter never had.
 CUSTOM_ID = os.environ.get("AIQE_BATCH_CUSTOM_ID") or f"aiqe-{os.getpid()}"
 
-MAX_TOKENS = int(os.environ.get("AIQE_BATCH_MAX_TOKENS") or 8192)
-POLL = max(1, int(os.environ.get("AIQE_BATCH_POLL_SECONDS") or 20))
-MAX_WAIT = max(1, int(os.environ.get("AIQE_BATCH_MAX_WAIT_MIN") or 90)) * 60
+def _num(var, default, minimum=0.0):
+    """A configured number, or a NAMED refusal.
+
+    These were int(), so anything an operator might reasonably write --
+    `0.5`, `90s`, a stray quote -- raised an uncaught ValueError and surfaced
+    as a Python traceback from inside an adapter, which says nothing about
+    which setting is wrong. float() also lets the wait be expressed below a
+    minute, which the minutes-only knob could not do at all.
+    """
+    raw = (os.environ.get(var) or "").strip()
+    if not raw:
+        return default
+    try:
+        v = float(raw)
+    except ValueError:
+        print(f"CONFIG_INVALID: {var}={raw!r} is not a number. Fix it in .env "
+              f"or Settings; refusing rather than guessing a limit.",
+              file=sys.stderr)
+        sys.exit(64)
+    if v <= minimum:
+        print(f"CONFIG_INVALID: {var}={raw!r} must be greater than {minimum}.",
+              file=sys.stderr)
+        sys.exit(64)
+    return v
+
+
+MAX_TOKENS = int(_num("AIQE_BATCH_MAX_TOKENS", 8192))
+POLL = _num("AIQE_BATCH_POLL_SECONDS", 20)
+MAX_WAIT = _num("AIQE_BATCH_MAX_WAIT_MIN", 90) * 60
 
 
 def call(method, url, body=None):
