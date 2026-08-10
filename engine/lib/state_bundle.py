@@ -360,8 +360,37 @@ def _integrity_failures(info):
     return failures
 
 
+def resolve_bundle(bundle):
+    """A bundle path from what an operator actually typed.
+
+    `export` prints "Import elsewhere with: ... import <name>.tar.gz" -- a BARE
+    NAME -- and neither inspect nor import resolved one, so following the tool's
+    own instruction from the repo root raised FileNotFoundError as an unhandled
+    traceback. On the restore path, at the moment someone needs it most.
+
+    A path that exists is used as given; otherwise a bare name is looked up in
+    reports/exports/, which is where export writes. If neither exists the caller
+    gets a NAMED error listing both places, never a traceback.
+    """
+    p = pathlib.Path(bundle)
+    if p.exists():
+        return p
+    if p.name == bundle:                      # a bare name, not a path
+        candidate = ROOT / "reports/exports" / bundle
+        if candidate.exists():
+            return candidate
+    looked = [str(p)]
+    if p.name == bundle:
+        looked.append(str(ROOT / "reports/exports" / bundle))
+    raise FileNotFoundError(
+        f"BUNDLE_NOT_FOUND: {bundle!r} is not readable. Looked in: "
+        + ", ".join(looked)
+        + ". List what exists with: ls reports/exports/*.tar.gz")
+
+
 def inspect(bundle):
     """Manifest, membership and checksum verification. Never writes state."""
+    bundle = resolve_bundle(bundle)
     with tarfile.open(bundle, "r:gz") as tar:
         return _inspect_tar(tar, bundle)
 
@@ -378,6 +407,9 @@ def import_bundle(bundle, replace=False, dry_run=False, force=False):
     keeps everything it already has. replace: every bundled path overwrites its local
     copy. Refuses while a run holds the pipeline lock either way.
     """
+    # Resolve BEFORE the busy check, so "you typed a name I cannot find" is not
+    # reported as "a run is in progress".
+    bundle = resolve_bundle(bundle)
     if _pipeline_busy() and not force:
         raise SystemExit("a pipeline run holds out/.pipeline.lock — rewriting state "
                          "under a live run risks a half-imported estate. Wait for it "
@@ -483,4 +515,11 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    try:
+        sys.exit(main(sys.argv))
+    except FileNotFoundError as e:
+        # A named message delivered as a traceback is still a traceback: the
+        # reader has to find the one useful line among the stack. This is the
+        # RESTORE path, so it gets a clean error and an exit code instead.
+        print(e, file=sys.stderr)
+        sys.exit(66)
