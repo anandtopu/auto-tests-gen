@@ -2520,7 +2520,15 @@ async function refreshTraceMatrix() {
     if (!d.rows.length) { $('#tmx-card').classList.add('hidden'); return; }
     $('#tmx-card').classList.remove('hidden');
     tb.innerHTML = d.rows.map(r => {
-      const noTest = !r.file;
+      // A scenario with no test but a VALID waiver is not a gap: the gate
+      // accepts it (engine/gate/spec_check.py takes covered OR non-expired
+      // waiver), so outlining it as a warning makes this table disagree with
+      // the component that decides whether code ships. An EXPIRED waiver stays
+      // a warning -- it is a decision that has run out, which is the case most
+      // worth seeing, not least.
+      const waived = typeof r.waiver === 'string'
+        && r.waiver.indexOf('waived') === 0 && r.waiver.indexOf('EXPIRED') < 0;
+      const noTest = !r.file && !waived;
       const ci = (r.ci_runs !== '' && r.ci_runs !== undefined && r.ci_runs !== null)
         ? escHtml(String(r.ci_last || '?')) + ' (' + r.ci_failures + '/' + r.ci_runs + ' failed)'
         : '—';
@@ -2528,8 +2536,10 @@ async function refreshTraceMatrix() {
         '<td class="mono sm">' + escHtml(r.key) + '</td>' +
         '<td class="sm">' + escHtml(r.scenario_id || '—') +
           (r.scenario_title ? '<div class="muted sm">' + escHtml(r.scenario_title) + '</div>' : '') + '</td>' +
-        '<td class="mono sm">' + (noTest
-          ? '<span class="chip chip-warning">no test yet</span>' : escHtml(r.file)) + '</td>' +
+        '<td class="mono sm">' + (r.file ? escHtml(r.file)
+          : waived ? '<span class="chip chip-muted" title="' + escHtml(r.waiver)
+                     + '">waived</span>'
+          : '<span class="chip chip-warning">no test yet</span>') + '</td>' +
         '<td class="sm">' + escHtml(r.test_repo || '—') + '</td>' +
         '<td class="sm">' + escHtml(r.gate_status || '—') + '</td>' +
         '<td class="mono sm">' + escHtml(r.commit || '—') + '</td>' +

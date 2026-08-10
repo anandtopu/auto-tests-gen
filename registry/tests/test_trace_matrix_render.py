@@ -152,3 +152,86 @@ def test_the_dashboard_no_longer_calls_them_approved():
     assert "approved scenario(s) already covered" not in src, \
         "the savings card still asserts a sign-off it has not checked"
     assert "plan_status" in src, "the card does not show the real status"
+
+
+# --- waivers: a deliberate absence is not an unexplained gap ----------------
+
+def _wrow(**kw):
+    r = {"key": "K-1", "scenario_id": "K-1-S1", "file": "", "gate_status": "",
+         "ci_last": "", "plan_status": "approved", "waiver": ""}
+    r.update(kw)
+    return r
+
+
+def test_a_validly_waived_scenario_is_not_counted_as_a_gap():
+    """The gate accepts an approved scenario that is covered OR carries a
+    non-expired waiver (engine/gate/spec_check.py). This report computed the
+    waiver per row and never mentioned it, so a scenario somebody had
+    explicitly waived was still counted in the loudest line an audit reads --
+    a report contradicting the component that decides whether code ships."""
+    lines = trace_matrix.render_text([_wrow(waiver="waived: accepted risk (qa-lead)")])
+    body = "\n".join(lines)
+    assert "APPROVED SCENARIO WITH NO TEST" not in body, \
+        "a validly waived scenario is still reported as an unexplained gap"
+    assert "WAIVED" in body, "the waiver is not surfaced at all"
+    assert "the gate accepts" in body, \
+        "the reader is not told why this one is different"
+
+
+def test_an_expired_waiver_is_still_a_gap():
+    """The case most worth surfacing, not least: somebody decided this was
+    temporary and the clock ran out. Treating it as waived would hide exactly
+    the decision that has lapsed."""
+    lines = trace_matrix.render_text([_wrow(waiver="waived (EXPIRED): old reason (qa-lead)")])
+    body = "\n".join(lines)
+    assert "APPROVED SCENARIO WITH NO TEST" in body, \
+        "an EXPIRED waiver was treated as still in force"
+
+
+def test_waived_and_unwaived_are_counted_separately():
+    """Both numbers matter: how many gaps, and how many waivers are in force."""
+    lines = trace_matrix.render_text([
+        _wrow(scenario_id="K-1-S1", waiver="waived: risk accepted (lead)"),
+        _wrow(scenario_id="K-1-S2"),
+    ])
+    body = "\n".join(lines)
+    assert "1 of 2 row(s): approved scenario with no test, WAIVED" in body
+    assert "1 of 2 row(s): APPROVED SCENARIO WITH NO TEST" in body
+    assert "K-1-S1" in body and "K-1-S2" in body
+
+
+def test_a_draft_scenario_with_a_waiver_is_still_reported_as_draft():
+    """Waiver handling must not quietly promote an unapproved plan: a waiver on
+    a draft scenario says nothing about a sign-off that never happened."""
+    lines = trace_matrix.render_text([_wrow(plan_status="draft",
+                                 waiver="waived: risk accepted (lead)")])
+    body = "\n".join(lines)
+    assert "NOT approved" in body, \
+        "a waiver made a draft scenario stop being reported as draft"
+    # ...and it must not ALSO appear on the waived line. Dropping the
+    # _approved() guard puts the row in BOTH lists, and asserting only on the
+    # draft line let that mutation survive: the row was double-counted and the
+    # per-line totals stopped summing to the number of rows.
+    assert "WAIVED (not a gap" not in body, \
+        "a draft scenario was counted as a waived approved scenario as well"
+
+
+def test_the_dashboard_trace_table_agrees_with_the_gate_about_waivers():
+    """The sibling. The UI outlined EVERY row without a test as a warning and
+    showed a 'no test yet' chip, waiver or not — so the table disagreed with
+    the gate, which accepts an approved scenario carrying a non-expired waiver.
+    Milder than the CLI's 'APPROVED SCENARIO WITH NO TEST', same family."""
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    fn = src[src.index("async function refreshTraceMatrix("):]
+    fn = fn[:fn.index("refreshTraceMatrix();")]
+    assert "r.waiver" in fn, \
+        "the trace table ignores the waiver column its own API returns"
+    # Assert the EXPRESSION, not the word. The first version checked for
+    # "EXPIRED" anywhere in the function, and a mutation deleting the check
+    # survived it -- because the word still appeared in the comment I had
+    # written directly above the code. The pin was matching my own prose.
+    assert "r.waiver.indexOf('EXPIRED') < 0" in fn, \
+        "the UI no longer excludes expired waivers from the valid-waiver test"
+    # The warning outline must be gated on the waiver, not on file alone.
+    assert "const noTest = !r.file && !waived" in fn, \
+        "a validly waived row is still outlined as a warning"

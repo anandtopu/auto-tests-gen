@@ -222,6 +222,24 @@ def _approved(row):
     return (row.get("plan_status") or "") == "approved"
 
 
+def _waived(row):
+    """Is this scenario's absence deliberate and still valid?
+
+    The gate treats an approved scenario as satisfied if it is covered OR
+    carries a non-expired waiver (engine/gate/spec_check.py). The text report
+    computed the waiver per row and never mentioned it, so a scenario somebody
+    had explicitly and validly waived was still counted in the loudest line an
+    audit reads -- APPROVED SCENARIO WITH NO TEST. That is a report
+    contradicting the gate, and a false alarm in an audit trains people to skim
+    the real ones.
+
+    EXPIRED waivers deliberately do NOT count. An expired waiver is a decision
+    that has run out, which is the case most worth surfacing, not least.
+    """
+    cell = row.get("waiver") or ""
+    return cell.startswith("waived") and "EXPIRED" not in cell
+
+
 def _uncovered_label(row):
     """What to call a scenario with no test.
 
@@ -233,6 +251,13 @@ def _uncovered_label(row):
     called all three of its scenarios approved.
     """
     if _approved(row):
+        # Same correction one level down: the gate accepts a validly waived
+        # scenario, so shouting APPROVED SCENARIO WITH NO TEST at it makes the
+        # row disagree with the component that decides whether code ships. An
+        # EXPIRED waiver is still a gap -- more urgent than most, since someone
+        # decided this was temporary and the clock ran out.
+        if _waived(row):
+            return "approved, no test, WAIVED (the gate accepts this)"
         return "APPROVED SCENARIO WITH NO TEST"
     status = (row.get("plan_status") or "unknown").upper()
     return f"{status} SCENARIO WITH NO TEST (plan not approved)"
@@ -266,8 +291,20 @@ def render_text(rows):
     uncovered = [r for r in rows if not r["file"]]
     out.append("")
     if uncovered:
-        approved = [r for r in uncovered if _approved(r)]
+        # A validly waived scenario is not an unexplained gap: the gate accepts
+        # it, so counting it here would make this report disagree with the
+        # component that decides whether code ships. Counted and named on its
+        # own line instead of being dropped -- a waiver is a decision somebody
+        # signed, and an audit should see how many are in force.
+        waived = [r for r in uncovered if _approved(r) and _waived(r)]
+        approved = [r for r in uncovered if _approved(r) and not _waived(r)]
         other = [r for r in uncovered if not _approved(r)]
+        if waived:
+            out.append(f"{len(waived)} of {len(rows)} row(s): approved scenario "
+                       f"with no test, WAIVED (not a gap; the gate accepts "
+                       f"these) -- " +
+                       ", ".join(sorted(r["scenario_id"] or r["key"]
+                                        for r in waived)))
         if approved:
             out.append(f"{len(approved)} of {len(rows)} row(s): APPROVED SCENARIO "
                        f"WITH NO TEST -- " +
