@@ -29,7 +29,9 @@ setup() {
     echo "FAIL setup: still in $ROOT — refusing to attack the scaffold"; exit 1; }
 }
 run_gate() { AIQE_ROOT="$ROOT" timeout 60 bash "$ROOT/engine/gate/gate.sh" "$1" e2e-api-tests-1 >/tmp/gate-adv.log 2>&1; }
-check() { local want=$1 got=$2 name=$3; [ "$got" = "$want" ] && echo "PASS $name" || { echo "FAIL $name (exit $got, want $want)"; fail=1; }; cd "$ROOT"; }
+passes=0
+pass() { passes=$((passes+1)); echo "PASS $1"; }
+check() { local want=$1 got=$2 name=$3; [ "$got" = "$want" ] && pass "$name" || { echo "FAIL $name (exit $got, want $want)"; fail=1; }; cd "$ROOT"; }
 
 setup; echo 'const api_key = "sk-live-PLANTED";' > suites/orders/evil.spec.js
 echo '{"file":"suites/orders/evil.spec.js","mapping":{"status":"confirmed"}}' >> catalog/generated.jsonl
@@ -53,7 +55,7 @@ run_gate ADV-CONFIG; check 2 $? "repo-config rewrite blocked"
 if [ -f /tmp/aiqe-gate-pwned.txt ]; then
   echo "FAIL planted lint command EXECUTED"; fail=1; rm -f /tmp/aiqe-gate-pwned.txt
 else
-  echo "PASS planted lint command never executed"
+  pass "planted lint command never executed"
 fi
 
 setup
@@ -76,9 +78,9 @@ AIQE_GATE_CHECK_ONLY=true run_gate ADV-DRYRUN; rc=$?
 check 0 $rc "check-only honours 'true'"
 cd "$ROOT/workspace/tests/e2e-api-tests-1" 2>/dev/null || cd "$ROOT"
 after=$(git rev-parse HEAD 2>/dev/null || echo "$before")
-if [ "$before" = "$after" ]; then echo "PASS 'true' dry run committed nothing"
+if [ "$before" = "$after" ]; then pass "'true' dry run committed nothing"
 else echo "FAIL 'true' dry run CREATED A COMMIT"; fail=1; fi
-grep -q "WOULD_COMMIT" /tmp/gate-adv.log && echo "PASS reported WOULD_COMMIT"   || { echo "FAIL did not report WOULD_COMMIT"; fail=1; }
+grep -q "WOULD_COMMIT" /tmp/gate-adv.log && pass "reported WOULD_COMMIT"   || { echo "FAIL did not report WOULD_COMMIT"; fail=1; }
 cd "$ROOT"
 
 # An unusable value must also refuse to write, and say why.
@@ -92,7 +94,7 @@ AIQE_GATE_CHECK_ONLY=bogus run_gate ADV-DRYRUN2; rc=$?
 check 0 $rc "unusable check-only value refuses to commit"
 cd "$ROOT/workspace/tests/e2e-api-tests-1" 2>/dev/null || cd "$ROOT"
 after=$(git rev-parse HEAD 2>/dev/null || echo "$before")
-if [ "$before" = "$after" ]; then echo "PASS unusable value committed nothing"
+if [ "$before" = "$after" ]; then pass "unusable value committed nothing"
 else echo "FAIL unusable value CREATED A COMMIT"; fail=1; fi
 cd "$ROOT"
 
@@ -130,7 +132,7 @@ run_gate ADV-TOCTOU; rc=$?
 check 2 $rc "config written during execution is refused"
 cd "$ROOT/workspace/tests/e2e-api-tests-1" 2>/dev/null || cd "$ROOT"
 after=$(git rev-parse HEAD 2>/dev/null || echo "$before")
-if [ "$before" = "$after" ]; then echo "PASS runtime-written config committed nothing"
+if [ "$before" = "$after" ]; then pass "runtime-written config committed nothing"
 else echo "FAIL runtime-written config CREATED A COMMIT"; fail=1; fi
 cd "$ROOT"
 
@@ -186,4 +188,10 @@ run_gate ADV-LINTRC; rc=$?
 check 9 $rc "a linter exiting 2 is LINT_FAILED, not SCOPE_VIOLATION"
 cd "$ROOT"
 
-rm -rf workspace/tests; exit $fail
+rm -rf workspace/tests
+# The count an operator reads, and the only reliable one: static
+# counting gave 6 or 14 depending on the pattern, because check() is
+# invoked both at line start and inside && chains. Printing it makes
+# drift visible in every `make review` instead of rotting in a doc.
+echo "gate-adversarial: $passes check(s) passed, $fail failure(s)"
+exit $fail
