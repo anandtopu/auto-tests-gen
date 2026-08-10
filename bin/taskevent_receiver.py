@@ -281,14 +281,24 @@ if __name__ == "__main__":
     # Localhost by default; containers set AIQE_HOOK_HOST=0.0.0.0. Only expose behind
     # the token (AIQE_HOOK_TOKEN) and a Route/Ingress you control.
     host = os.environ.get("AIQE_HOOK_HOST", "127.0.0.1")
+    # flush=True, and the warning below goes to stderr. Python block-buffers
+    # stdout when it is a pipe or a file, so `make hook-server > log` and any
+    # supervisor that captures output showed NOTHING at startup -- including
+    # the no-token warning, which is the one line worth seeing immediately.
+    # Measured: the same command under `python3 -u` printed both lines; without
+    # it the log was 0 bytes. The container is unaffected (the Dockerfile sets
+    # PYTHONUNBUFFERED=1), which is exactly why this stayed invisible.
     print(f"TaskEvent receiver: http://{host}:{port}/hooks/taskevent  "
           f"(auth: {'X-AIQE-Token required' if TOKEN else 'OFF - set AIQE_HOOK_TOKEN'}; "
-          f"autorun: {'on' if AUTORUN else 'off'})")
+          f"autorun: {'on' if AUTORUN else 'off'})", flush=True)
     # Auth OFF on loopback is a fine dev default; auth OFF on a routable
     # interface is the one combination that matters, and the line above said
     # exactly the same thing about both. State the difference where it applies:
     # anything that reaches this port can enqueue work with no credential.
     if not TOKEN and host not in ("127.0.0.1", "localhost", "::1"):
-        print(f"  WARNING: listening on {host} with NO token — every reachable "
-              f"client can enqueue work. Set AIQE_HOOK_TOKEN before exposing it.")
+        # stderr: a warning belongs there, and it is not block-buffered, so it
+        # survives being piped even if someone removes the flush above.
+        print(f"  WARNING: listening on {host} with NO token -- every reachable "
+              f"client can enqueue work. Set AIQE_HOOK_TOKEN before exposing it.",
+              file=sys.stderr, flush=True)
     ThreadingHTTPServer((host, port), Handler).serve_forever()
