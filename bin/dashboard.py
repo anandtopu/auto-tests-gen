@@ -2594,7 +2594,14 @@ async function refreshCost() {
         ' call(s), excluded from user tasks'
       : '';
     const sum = document.getElementById('cost-summary');
-    if (sum) sum.innerHTML = '<b>Total $' + (d.total_cost_usd || 0).toFixed(4) +
+    // The `~` when any spend row is simulated, matching the Overview tile and
+    // the markdown report. This line printed a bare `$` on the same figure --
+    // and the number is what gets read out of a dashboard, not the badge
+    // beside it. cost_report's own docstring: a simulated number must never
+    // masquerade as a measured dollar.
+    const simTilde = (d.simulated_share || 0) > 0 ? '~' : '';
+    if (sum) sum.innerHTML = '<b>Total ' + simTilde + '$' +
+      (d.total_cost_usd || 0).toFixed(4) +
       '</b> across ' + d.runs + ' run(s)' + (modes ? ' — ' + modes : '') +
       (d.unpriced_calls ? ' · <b>incomplete:</b> excludes ' + d.unpriced_calls +
         ' call(s) without pricing' : '') +

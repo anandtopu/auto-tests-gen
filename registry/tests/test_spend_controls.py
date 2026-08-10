@@ -314,3 +314,70 @@ def test_the_countability_check_runs_before_the_pricing_check(tmp_path, monkeypa
     body = body[:body.index("\ndef ", 1)]
     assert body.index("ledger_problem()") < body.index("if metered:"), \
         "the pricing verdict is reached before asking whether spend is countable"
+
+
+# --- the iron rule, applied to the number people actually quote -------------
+
+def _rep_with(share, total):
+    """A real report shape with the basis overridden.
+
+    Hand-building the dict was brittle -- to_markdown reads keys I had not
+    listed (by_mode was the first, and enumerating the rest would just move the
+    guess) -- and a test that fails on a missing key is not testing labelling.
+    Deriving from the real shape also means a new key cannot silently make
+    these pass for the wrong reason.
+    """
+    import cost_report
+    rep = dict(cost_report.report(None))
+    rep["simulated_share"] = share
+    rep["total_cost_usd"] = total
+    return rep
+
+
+def _total_line(rep):
+    import cost_report
+    return next(l for l in cost_report.to_markdown(rep).splitlines()
+                if "User-task LLM total" in l)
+
+
+def test_a_simulated_total_never_prints_as_a_measured_dollar():
+    """cost_report's own docstring: a SIMULATED number may inform a trend but
+    "must never masquerade as a measured dollar".
+
+    The headline printed `User-task LLM total: $11.7500` on an estate whose
+    spend rows are 99% simulated. The title carried "99% simulated", but the
+    NUMBER was formatted exactly like a measured one -- and the number is what
+    gets quoted out of a report, not the badge above it.
+    """
+    total = _total_line(_rep_with(1.0, 11.75))
+    assert "~$" in total, f"a fully simulated total prints as measured: {total}"
+    assert "SIMULATED" in total, "the total does not say what it is"
+    assert "$11.7500" in total, "the figure itself was lost"
+
+
+def test_a_partly_simulated_total_says_it_cannot_be_separated():
+    """The mixed case is the dangerous one: some of it IS real, so a reader may
+    take the whole figure as measured. It must not imply the measured part can
+    be told apart when this rollup cannot tell it apart."""
+    total = _total_line(_rep_with(0.6, 4.5))
+    assert "~$" in total and "60%" in total
+    assert "cannot be separated" in total
+
+
+def test_a_fully_measured_total_is_not_hedged():
+    """The other direction. Marking a real dollar `~` would be its own lie, and
+    it is the one that makes people stop trusting the tilde."""
+    total = _total_line(_rep_with(0.0, 9.0))
+    assert "~" not in total and "$9.0000" in total
+
+
+def test_the_cost_view_and_the_overview_tile_agree_about_the_tilde():
+    """The Overview tile applied `~` and the Cost view did not, on the same
+    figure from the same payload. The tile was the reference implementation;
+    the view is where an operator reads the total."""
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    assert '_sim = "~" if _rep["simulated_share"] > 0 else ""' in src,         "the Overview tile stopped marking simulated spend"
+    fn = src[src.index("const sum = document.getElementById('cost-summary')"):]
+    fn = fn[:fn.index("const pt =")]
+    assert "simulated_share" in fn,         "the Cost view total ignores the basis its own payload carries"
+    assert "'<b>Total $'" not in fn,         "the Cost view still hardcodes a bare $ on a possibly-simulated total"

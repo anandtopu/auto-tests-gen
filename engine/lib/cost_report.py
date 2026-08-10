@@ -340,10 +340,24 @@ def to_markdown(rep):
     sim = rep["simulated_share"]
     label = ("all simulated" if sim == 1.0 else "measured" if sim == 0.0
              else f"{int((sim or 0) * 100)}% simulated" if sim is not None else "no spend data")
+    # THE IRON RULE, applied to the one line everybody reads. This printed a
+    # bare `$11.7500` on an estate whose spend rows are 99% simulated: the
+    # title carried "99% simulated", but the NUMBER was formatted exactly like
+    # a measured dollar, and a number is what gets quoted out of a report. The
+    # module docstring says a simulated figure must never masquerade as a
+    # measured one; the `~` prefix is how every other basis says so.
+    if sim:                       # any simulated share at all, including 1.0
+        total = (f"~${rep['total_cost_usd']:.4f}  (SIMULATED — not a measured "
+                 f"dollar)" if sim == 1.0 else
+                 f"~${rep['total_cost_usd']:.4f}  ({int(sim * 100)}% of spend "
+                 f"rows are simulated; the measured part cannot be separated "
+                 f"from this figure)")
+    else:
+        total = f"${rep['total_cost_usd']:.4f}"
     lines = [f"# LLM cost report ({rep['runs']} run(s)"
              + (f", last {rep['window_days']}d" if rep['window_days'] else "")
              + f") — {label}",
-             "", f"User-task LLM total: ${rep['total_cost_usd']:.4f}", ""]
+             "", f"User-task LLM total: {total}", ""]
     if rep.get("unpriced_calls"):
         lines += [(f"> **This total is incomplete.** {rep['unpriced_calls']} "
                    f"call(s) on {', '.join(rep['unpriced_providers'])} have no "
