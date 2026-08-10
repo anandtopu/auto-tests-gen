@@ -40,6 +40,7 @@ twelve ran?" is the question an operator opens the log to answer and counting
 `==` headers is not an answer.
 """
 import pathlib
+import json
 import subprocess
 import sys
 
@@ -82,18 +83,64 @@ def run_steps(steps=None, retain_days=None, runner=None):
         if argv[0].endswith("event_log.py") and retain_days:
             argv.append(str(retain_days))
         print(f"== {label} ==", flush=True)
+        tail = []
         if runner is not None:
             code = runner(argv)
         else:
-            code = subprocess.run([sys.executable] + argv, cwd=ROOT,
-                                  stdin=subprocess.DEVNULL).returncode
+            # Stream AND capture. Streaming matters for the long steps (an
+            # operator watching a nightly job should see progress), and
+            # capturing matters because the step's own words are the only
+            # place the REASON exists -- `cost_reconcile` prints
+            # "ANTHROPIC_ADMIN_KEY is not configured" and the summary used to
+            # discard it, leaving a CronJob log saying only "exit 75".
+            proc = subprocess.Popen([sys.executable] + argv, cwd=ROOT,
+                                    stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True,
+                                    errors="replace")
+            for line in proc.stdout:
+                print(line, end="", flush=True)
+                line = line.rstrip()
+                if line:
+                    tail.append(line)
+                    del tail[:-40]          # bounded: a chatty step cannot
+                                            # grow this without limit
+            code = proc.wait()
         external = (tolerated is True or
                     isinstance(tolerated, (set, frozenset, tuple, list))
                     and code in tolerated)
         state = "ok" if code == 0 else ("degraded" if external else "failed")
         results.append({"step": label, "exit": code, "state": state,
-                        "command": " ".join(argv)})
+                        "command": " ".join(argv),
+                        "reason": step_reason(tail) if state != "ok" else ""})
     return results
+
+
+def step_reason(tail):
+    """The step's own words for why it did not succeed.
+
+    Precedence follows work_queue.failure_reason, which solved this once
+    already: a structured reason the step EMITTED beats prose, and prose beats
+    nothing. An exit code alone sends the reader to the source to learn that
+    75 meant "no billing credential".
+    """
+    for line in reversed(tail):
+        s = line.strip()
+        if s.startswith("{") and s.endswith("}"):
+            try:
+                d = json.loads(s)
+            except ValueError:
+                continue
+            if isinstance(d, dict):
+                r = d.get("reason") or d.get("message")
+                if r:
+                    code = d.get("reason_code")
+                    return f"{r} [{code}]" if code else str(r)
+    for line in reversed(tail):
+        s = line.strip()
+        if s and not s.startswith("=="):
+            return s[:200]
+    return ""
 
 
 def summarize(results):
@@ -106,6 +153,8 @@ def summarize(results):
         lines.append(f"  {mark}  {r['step']}")
         if r["state"] != "ok":
             lines.append(f"            exit {r['exit']}: {r['command']}")
+            if r.get("reason"):
+                lines.append(f"            why: {r['reason']}")
     failed = [r for r in results if r["state"] == "failed"]
     degraded = [r for r in results if r["state"] == "degraded"]
     if failed:

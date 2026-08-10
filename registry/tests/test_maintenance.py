@@ -198,3 +198,62 @@ def test_the_operator_guide_states_the_exit_contract():
         assert token in section, f"the guide never mentions {token!r} for maintenance"
     assert "every" in section.lower(), \
         "the guide should say the summary lists every step, not only failures"
+
+
+# --- a degraded step says WHY, not just which exit code ----------------------
+#
+# Found by running `make maintain`. The summary is what a CronJob log shows and
+# what an operator reads, and it said only "exit 75:
+# engine/lib/cost_reconcile.py" -- sending the reader to the source to learn
+# that 75 means "no billing credential". The step had ALREADY printed the
+# reason; the summary discarded it. Same shape as the batch-drain defect: the
+# information existed and was thrown away at the last step.
+
+def test_a_structured_reason_the_step_emitted_wins():
+    """Precedence copied from work_queue.failure_reason, which solved this
+    once already: an emitted signal beats prose."""
+    tail = ['some chatter',
+            '{"state": "unavailable", "reason": "ANTHROPIC_ADMIN_KEY is not '
+            'configured", "reason_code": "credential-missing"}']
+    got = maintenance.step_reason(tail)
+    # Assert the EXTRACTED form, not substrings -- those appear in the raw JSON
+    # line too, so a fallback that just echoed the line passed this test.
+    # Verified by mutation.
+    assert got == "ANTHROPIC_ADMIN_KEY is not configured [credential-missing]", got
+    assert not got.startswith("{"), "the raw JSON line was echoed, not parsed"
+
+
+def test_prose_is_used_when_there_is_no_structured_reason():
+    assert maintenance.step_reason(["working", "could not reach the endpoint"]) \
+        == "could not reach the endpoint"
+
+
+def test_no_output_yields_no_invented_reason():
+    """An absent reason must stay absent -- inventing one would be worse than
+    the exit code alone."""
+    assert maintenance.step_reason([]) == ""
+    assert maintenance.step_reason(["== cost reconciliation =="]) == ""
+
+
+def test_the_summary_renders_the_reason_for_a_degraded_step():
+    out = maintenance.summarize([
+        {"step": "cost reconciliation", "exit": 75, "state": "degraded",
+         "command": "engine/lib/cost_reconcile.py",
+         "reason": "ANTHROPIC_ADMIN_KEY is not configured"}])
+    assert "why: ANTHROPIC_ADMIN_KEY is not configured" in out, (
+        "the operator still has to open the source to learn what exit 75 meant")
+
+
+def test_the_summary_omits_the_why_line_when_there_is_nothing_to_say():
+    """An empty `why:` would imply the reason is known and blank."""
+    out = maintenance.summarize([
+        {"step": "x", "exit": 3, "state": "failed", "command": "c", "reason": ""}])
+    assert "why:" not in out
+    assert "exit 3" in out
+
+
+def test_a_successful_step_carries_no_reason(tmp_path):
+    """Control: reasons are for steps that did not succeed."""
+    res = maintenance.run_steps(steps=[("ok step", ["-c", "pass"], False)],
+                                runner=lambda argv: 0)
+    assert res[0]["state"] == "ok" and res[0]["reason"] == ""
