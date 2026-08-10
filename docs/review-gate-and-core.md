@@ -463,3 +463,45 @@ satisfied, so deleting 137 from the branch condition left it green; it now pins
 the condition itself. The other used `or` across two phrases, and the surviving
 phrase kept it passing while the advice it was supposed to guard was deleted;
 it now uses `and`.
+
+## G3 — A missing guard is only a defect when the function promised totality
+
+`ticket_comment_render.max_chars()` caught `(OSError, TypeError, ValueError)`
+and missed the two failures its own code produces: a hand-edited
+`org-config.yaml` raises `yaml.YAMLError`, and the `import yaml` inside its
+`try` raises `ImportError`. Its docstring said it read the bound
+*defensively*. Fixed (G3a below).
+
+The sweep that followed is the part worth keeping. Every other
+`yaml.safe_load` in `engine/lib`, `engine/phases` and `bin` is **unguarded, and
+correctly so**:
+
+| Site | Why raising is right |
+|---|---|
+| `registry.py` `load_registry` / `load_org_config` | there is no sensible default for "the estate". Routing on a half-read registry is the unrouting this platform cannot see from the inside — failing loudly is the safer half of that trade |
+| `guidance_sync._adapter()` | it resolves WHICH adapter to run. A default here would silently pick the wrong SCM |
+| `cost_reconcile._threshold()` | already raises `TypeError` deliberately on a bad shape, and `make maintain` renders it as a named `DEGRADED` step with the reason — the failure is reported, not swallowed |
+
+So the rule is not "wrap every parse". It is: **a guard is required exactly
+when the function advertises a total contract** — a documented default, a
+"best effort" promise, or a caller that cannot handle an exception. `max_chars`
+advertised one and did not honour it; the other three advertise nothing and
+would become *more* dangerous with a blanket `except`, because a silent default
+for "which repos exist" or "which adapter to run" is a wrong answer delivered
+confidently.
+
+Recorded because the obvious follow-up to G3a — "add `except Exception` to the
+other three" — is a regression, and it looks like consistency.
+
+### G3a — what was changed
+
+`max_chars` now catches `Exception` and returns `DEFAULT_MAX_CHARS`, which is
+what its docstring always claimed. It was **latent, not live**: all three body
+builders wrap it in `except Exception`, and `ticket_comment.py` wraps it
+explicitly with the hard ceiling as the fallback. That is why it survived
+undetected. It is fixed because the next caller will read the docstring rather
+than the except clause.
+
+Pins: `registry/tests/test_ticket_comment_fallbacks.py` (7), including the
+controls that the rich body IS used when it renders and that the refusal body
+still respects the feature flag.
