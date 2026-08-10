@@ -4,7 +4,7 @@ import json, pathlib, sqlite3, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import coverage_gaps, test_health
+import app_paths, coverage_gaps, test_health
 
 
 # --- coverage gaps ---------------------------------------------------------------
@@ -32,7 +32,10 @@ def test_gaps_markdown_marks_gaps():
 
 
 def test_agents_md_annotates_gaps():
-    text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    # conftest redirects+seeds AIQE_AGENTS_FILE; this reads the seeded copy of
+    # the estate's file, not a fresh regeneration -- reading ROOT/"AGENTS.md"
+    # directly would see a copy the suite no longer writes.
+    text = app_paths.agents_file().read_text(encoding="utf-8")
     assert "[NO TEST]" in text
 
 

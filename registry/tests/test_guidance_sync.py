@@ -6,7 +6,7 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-import guidance_sync, repo_admin, work_queue
+import app_paths, guidance_sync, repo_admin, work_queue
 
 BASH = work_queue.bash_exe()
 
@@ -172,7 +172,7 @@ def test_synced_guidance_is_merged_into_agents_md():
     """The estate AGENTS.md is what every LLM phase receives."""
     subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")], cwd=ROOT,
                    check=True, capture_output=True, stdin=subprocess.DEVNULL)
-    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    agents = app_paths.agents_file().read_text(encoding="utf-8")
     assert "## Repository guidance" in agents
     for repo in ("orders-api", "web-storefront-ui", "e2e-api-tests-1"):
         assert f"### {repo}" in agents, f"{repo} guidance missing from AGENTS.md"

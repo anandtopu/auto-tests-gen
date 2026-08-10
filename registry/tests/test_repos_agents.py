@@ -3,6 +3,9 @@ generation (bin/gen_agents_md.py)."""
 import pathlib, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "engine/lib"))
+import app_paths  # noqa: E402
+
 REG = ROOT / "registry/repo-registry.yaml"
 
 
@@ -14,7 +17,7 @@ def run(args, **kw):
 def test_agents_md_generation_covers_estate():
     r = run([str(ROOT / "bin/gen_agents_md.py")])
     assert r.returncode == 0, r.stderr
-    text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    text = app_paths.agents_file().read_text(encoding="utf-8")
     assert "AUTO-GENERATED" in text
     # every registered repo appears
     for name in ("orders-api", "web-storefront-ui", "e2e-api-tests-1"):
@@ -49,7 +52,7 @@ def test_repos_set_roundtrip_preserves_registry():
                  "checkout,orders,zz-test"])
         assert r.returncode == 0, r.stdout + r.stderr
         assert "zz-test" in REG.read_text(encoding="utf-8")
-        assert "zz-test" in (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        assert "zz-test" in app_paths.agents_file().read_text(encoding="utf-8")
     finally:
         REG.write_text(before, encoding="utf-8")
         run([str(ROOT / "bin/gen_agents_md.py")])

@@ -7,11 +7,14 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
+import app_paths
 import repo_admin
 from registry import load_registry
 
 REG = ROOT / "registry/repo-registry.yaml"
-AGENTS = ROOT / "AGENTS.md"
+# conftest redirects+seeds AIQE_AGENTS_FILE before this module is collected,
+# so this already resolves to the redirected copy, not the estate's own file.
+AGENTS = app_paths.agents_file()
 NOTES = ROOT / "knowledge/repos"
 
 

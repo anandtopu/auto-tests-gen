@@ -12,6 +12,7 @@ import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
+import app_paths
 import curated_guidance
 import openhands_agents
 import pr_comment
@@ -174,7 +175,7 @@ def test_curated_content_reaches_the_estate_agents_md():
                            cwd=ROOT, capture_output=True, text=True,
                            encoding="utf-8", stdin=subprocess.DEVNULL, timeout=120)
         assert r.returncode == 0, r.stderr
-        assert marker in (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        assert marker in app_paths.agents_file().read_text(encoding="utf-8")
     finally:
         curated_guidance.drop("e2e-api-tests-2")
         subprocess.run([sys.executable, str(ROOT / "bin/gen_agents_md.py")],

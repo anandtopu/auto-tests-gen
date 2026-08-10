@@ -153,6 +153,42 @@ def _redirect_seeded(var, dest, source):
     os.environ[var] = str(dest)
 
 
+def _redirect_file_seeded(var, dest, source):
+    """Same contract as `_redirect_seeded`, for a single TRACKED FILE rather
+    than a directory tree — AGENTS.md, not a `<key>/` layout underneath it.
+
+    AGENTS.md is auto-generated (`app_paths.agents_file`'s own docstring calls
+    it "purely derived... needs no seeding", because a missing one self-heals
+    on the next `make agents`). That is true for the five tests here that
+    regenerate it themselves via a subprocess — subprocess.run inherits
+    os.environ by default, so AIQE_AGENTS_FILE follows automatically. It is
+    NOT true for the one test that only READS it
+    (test_agents_md_annotates_gaps checks the estate's existing gap markers
+    without regenerating), so this seeds anyway rather than special-case that
+    one caller — the same reasoning as the spec/testplan redirect above.
+    """
+    if (os.environ.get(var) or "").strip():
+        SEED_REPORT[var] = {"seeded": None, "source": None,
+                            "note": "explicit value from the caller"}
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if source.is_file():
+        shutil.copy2(source, dest)
+        if dest.stat().st_size != source.stat().st_size:
+            raise RuntimeError(
+                f"conftest could not seed {dest} from {source}; refusing to "
+                f"run with a partial copy because tests read it as a fixture")
+        SEED_REPORT[var] = {"seeded": 1, "source": str(source), "note": ""}
+    else:
+        SEED_REPORT[var] = {"seeded": 0, "source": None,
+                            "note": "source file does not exist"}
+    os.environ[var] = str(dest)
+
+
+_redirect_file_seeded("AIQE_AGENTS_FILE", ROOT / "out/test-agents.md",
+                      ROOT / "AGENTS.md")
+
+
 for _var, _dest, _src in (("AIQE_SPEC_DIR", "out/test-specs", "specs"),
                           ("AIQE_TESTPLAN_DIR", "out/test-testplans", "testplans"),
                           ("AIQE_TESTDATA_DIR", "out/test-testdata", "testdata")):
