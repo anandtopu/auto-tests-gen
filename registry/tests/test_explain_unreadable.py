@@ -341,3 +341,26 @@ def test_an_unexpected_detail_shape_says_so(tmp_path, monkeypatch):
     joined = " ".join(adv["because"])
     assert "not the expected mapping" in joined and "list" in joined, \
         "an unexpected recorded shape was silently rendered as no findings"
+
+
+def test_the_explainability_doc_describes_the_behaviour_that_exists():
+    """docs/ai-explainability.md states the C13 rule as this surface's whole
+    premise, so a claim there that the code does not implement is worse than a
+    missing one. This morning's gate exit-code table drifted exactly that way:
+    it documented behaviour the gate had stopped having, and nothing pinned it.
+
+    Pins the two facts the doc now asserts, against the strings the code
+    actually emits — not against prose that merely sounds similar.
+    """
+    doc = (ROOT / "docs/ai-explainability.md").read_text(encoding="utf-8")
+    src = (ROOT / "engine/lib/explain.py").read_text(encoding="utf-8")
+
+    assert "A damaged input is not a missing one" in doc, \
+        "the doc no longer states the absent-vs-unreadable distinction"
+    # The doc promises damaged inputs are named under `inputs`.
+    assert '"inputs", "Were all the recorded inputs' in src, \
+        "the doc promises an `inputs` row that the code does not produce"
+    # ...and that a damaged RUN RECORD is not reported as no run.
+    assert "unreadable_records" in src and "unreadable_records" in \
+        (ROOT / "engine/lib/run_progress.py").read_text(encoding="utf-8"), \
+        "the doc promises damaged run records are surfaced; nothing does it"

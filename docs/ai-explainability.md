@@ -21,6 +21,17 @@ rationale is confidently wrong about precisely the thing the reader came to
 check, and it is indistinguishable from a real one. An explanation you cannot
 trust is worse than no explanation, because it stops you looking further.
 
+**A damaged input is not a missing one.** The rule has a second edge that is
+easy to miss: "we never recorded this" and "we recorded it and cannot read it
+back" are different facts, and only one of them means a phase failed to write
+something. Where a file exists but will not parse, the explanation says so and
+names the file, under `inputs` — so you go and look at the file instead of
+hunting for a write that never happened. The same applies one level up: if a
+run record itself cannot be parsed, you are told that N records are unreadable
+and one of them may be yours, rather than that the run never happened. Which
+key a damaged record belongs to is genuinely unknowable, because parsing it is
+exactly what failed, and the message says that rather than guessing.
+
 ## What is decided by a RULE, not a model
 
 Most of the consequential decisions are deterministic. This is a design choice,
