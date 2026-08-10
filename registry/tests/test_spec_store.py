@@ -40,6 +40,15 @@ def store(tmp_path, monkeypatch):
     monkeypatch.setattr(ps, "DIR", tmp_path / "plans")
     monkeypatch.setattr(ps, "FILE", tmp_path / "plans/state.json")
     monkeypatch.setattr(ps, "PLAN_DIR", tmp_path / "testplans")
+    # spec_store and plan_state read their module constants, so the setattrs
+    # above are enough for them -- but knowledge_chunks resolves through
+    # app_paths, where the per-path knob outranks a module ROOT. Without these
+    # the chunk test read conftest's seeded redirect instead of this tmp dir.
+    # It was PASSING on another test's leftovers: derived_writes wrote K-1 into
+    # that shared redirect (the same precedence bug), and this test found the
+    # stray K-1 and believed it was its own. Fixing that one unmasked this.
+    monkeypatch.setenv("AIQE_TESTPLAN_DIR", str(tmp_path / "testplans"))
+    monkeypatch.setenv("AIQE_SPEC_DIR", str(tmp_path / "specs"))
     (tmp_path / "plans").mkdir()
     (tmp_path / "testplans").mkdir()
     return ss, ps, tmp_path
