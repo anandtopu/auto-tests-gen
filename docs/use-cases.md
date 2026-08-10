@@ -605,6 +605,76 @@ scenarios only, plus a manifest of who approved what. The authored spec under
 `specs/<KEY>` is never rewritten: it stays the record of what was *proposed*, so
 "what did the reviewer turn down?" remains answerable.
 
+## 19. Halve the LLM bill for work nobody is waiting on
+
+**You want** the same test plans for less money, and you can wait.
+
+Anthropic's Message Batches API charges **50% of the synchronous price**. This
+platform can route eligible phases through it:
+
+```bash
+# one phase, one batch -- the full discount, no new workflow
+AIQE_LLM_PROVIDER=batch make run-jira KEY=PROJ-123
+```
+
+(`make demo-jira` will NOT show you this: `AIQE_MOCK=1` short-circuits to the
+mock phases *before* a provider is ever selected, so a demo run stays a demo run
+whatever you set here.)
+
+or per phase, which is the usual shape -- authoring goes cheap and overnight
+while the agentic phases stay where they must:
+
+```yaml
+# registry/org-config.yaml
+llm:
+  phase_providers:
+    testplan: batch          # 50% off
+    generate: claude         # agentic: must stay on the CLI
+```
+
+For a whole release, spool many requests into ONE batch and drain them later:
+
+```bash
+make batch-spool KEY=PROJ-A PHASE=testplan MODEL=claude-sonnet-4-6 FILE=out/prompt.txt
+make batch-submit
+make batch-status
+make batch-drain
+```
+
+```
+{"succeeded": 1, "expired": 1}
+  PROJ-A -> reports/batch/results/PROJ-A-testplan.txt
+  PROJ-B: expired -- expired before the model saw it -- NOT billed, and
+  nothing is known about this phase. Re-spool it.
+```
+
+Read that output carefully, because it is the point. `expired` is **not** "the
+model produced nothing" -- the request never reached the model and was never
+billed, so the honest action is to re-spool it. A batch still running says
+`still_processing`, never "produced nothing". And if the API cannot be reached,
+`make batch-status` says `unknown` rather than guessing.
+
+### What it will not do
+
+- **It will not make `generate` or `validate` cheaper.** Those drive a tool loop
+  in your test repo; a batch request is a single call, so every turn would be
+  another submission at up to an hour. They are refused at config time, naming
+  the fix -- you are told when you configure it, not when a run fails.
+- **It will not keep PR feedback fast.** Most batches finish within an hour; the
+  hard expiry is 24 hours. Batching PR triage is off by default because turning
+  a 90-second loop into a 60-minute one is a regression, not a saving. Whether
+  your team accepts it is your call, not ours.
+- **It will not work with a Claude Code subscription login.** The Batch API needs
+  `ANTHROPIC_API_KEY`; there is no batch flag in the CLI. Without the key it
+  refuses and says so, rather than quietly running on the paid synchronous path.
+- **It will not tell you how much you saved.** Not yet, and deliberately. About
+  half this platform's LLM *calls* are batch-eligible, but the eligible phases
+  are the cheap ones and `generate` is not, so that is an upper bound on the
+  money. Every run on this estate is simulated, so a figure here would be
+  invented. `make parity-jira` then `make cost-baseline` produce a real
+  baseline; until then the honest answer is that the discount is documented and
+  the share is not measured.
+
 ## What this platform will not do
 
 Worth knowing up front, because each is a deliberate design decision:
