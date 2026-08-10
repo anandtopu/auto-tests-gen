@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Batch spool — many requests in ONE Message Batch (batch slice 2).
+"""Batch spool -- many requests in ONE Message Batch (batch slice 2).
 
 WHAT THIS IS FOR, stated precisely, because the first draft of the PRD got it
 wrong: this does NOT save more money than slice 1. All Batches API usage is
-charged at 50% of standard prices — the discount comes from using the API, and
+charged at 50% of standard prices -- the discount comes from using the API, and
 a batch of one already gets it. What a spool buys is WALL CLOCK. Forty tickets
 submitted as forty one-request batches are forty sequential waits of up to an
 hour; submitted as one batch they finish together.
@@ -19,7 +19,7 @@ Three things this module refuses to get wrong:
     another ticket's key.
   * Partial outcomes. A batch can end with some requests succeeded, some
     errored and some expired. Draining keeps every good result AND names every
-    bad one — dropping the failures would silently under-deliver, and failing
+    bad one -- dropping the failures would silently under-deliver, and failing
     the whole drain would throw away work that was paid for.
   * `expired`/`canceled` are NOT verdicts (C13). Those requests never reached
     the model and were never billed; reporting them as "no plan was produced"
@@ -59,7 +59,7 @@ def _headers():
     key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     if not key:
         raise RuntimeError(
-            "the Message Batches API needs ANTHROPIC_API_KEY — the Claude Code "
+            "the Message Batches API needs ANTHROPIC_API_KEY -- the Claude Code "
             "CLI subscription login does not work here. No silent fallback.")
     return {"x-api-key": key, "anthropic-version": "2023-06-01",
             "content-type": "application/json"}
@@ -115,7 +115,7 @@ def estimate(reqs=None):
 
     An ESTIMATE, and labelled as one everywhere it surfaces. Input tokens are
     approximated from prompt length (~4 chars/token) and output is charged at
-    the full `max_tokens` per request, so this is a WORST CASE — deliberately,
+    the full `max_tokens` per request, so this is a WORST CASE -- deliberately,
     because a ceiling that is only respected on average is not a ceiling.
     """
     reqs = pending() if reqs is None else reqs
@@ -144,7 +144,7 @@ def _ceiling():
         except ValueError:
             # A typo must not silently mean "unlimited".
             raise RuntimeError(
-                f"AIQE_BATCH_SPOOL_MAX_USD={raw!r} is not a number — refusing "
+                f"AIQE_BATCH_SPOOL_MAX_USD={raw!r} is not a number -- refusing "
                 f"to submit rather than treat an unreadable ceiling as none")
     try:
         import yaml
@@ -163,7 +163,7 @@ def submit(now=None):
     reqs = pending()
     if not reqs:
         return {"state": "empty",
-                "message": "nothing spooled — `add` some requests first"}
+                "message": "nothing spooled -- `add` some requests first"}
 
     # A spool is the largest single spend this platform can commit, and the
     # exit-77 ceiling cannot see it: that one is checked BEFORE each phase of a
@@ -174,17 +174,17 @@ def submit(now=None):
     if cap > 0:
         if basis == "unknown":
             # C13: asked for a ceiling, cannot compute spend. Refusing is the
-            # only honest answer — proceeding would enforce nothing silently.
+            # only honest answer -- proceeding would enforce nothing silently.
             raise RuntimeError(
                 f"BATCH_CEILING_UNENFORCEABLE: a ${cap:.2f} ceiling is set "
-                f"({source}) but this spool cannot be priced — {detail}. "
+                f"({source}) but this spool cannot be priced -- {detail}. "
                 f"Add the entry to `pricing:` in registry/org-config.yaml, or "
                 f"unset the ceiling to submit unpriced.")
         if est > cap:
             raise RuntimeError(
                 f"BATCH_CEILING_EXCEEDED: submitting would cost about "
                 f"~${est:.2f} ({detail}) against a ${cap:.2f} ceiling "
-                f"({source}). Nothing was sent and the spool is untouched — "
+                f"({source}). Nothing was sent and the spool is untouched -- "
                 f"split it, or raise the ceiling.")
     if len(reqs) > MAX_REQUESTS:
         raise RuntimeError(
@@ -201,7 +201,7 @@ def submit(now=None):
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         raise RuntimeError(
             f"PROVIDER_UNREACHABLE: batch submit failed ({e}). Nothing was "
-            f"sent and the spool is untouched — no silent fallback.") from e
+            f"sent and the spool is untouched -- no silent fallback.") from e
 
     bid = resp.get("id")
     if not bid:
@@ -218,7 +218,7 @@ def submit(now=None):
                         for r in reqs]}
     # THE DANGEROUS WINDOW. The API has accepted the batch: it is running and it
     # WILL be billed. If recording it fails (lock timeout, disk, permissions)
-    # the id exists only in this stack frame — and because the spool is
+    # the id exists only in this stack frame -- and because the spool is
     # deliberately left intact, the natural reaction is to retry, which submits
     # a SECOND batch and pays twice for an orphan nobody can cancel. The id
     # cannot be recorded before submission (it does not exist yet), so the
@@ -232,7 +232,7 @@ def submit(now=None):
         raise RuntimeError(
             f"BATCH_SUBMITTED_BUT_UNRECORDED: batch {bid} IS RUNNING and will "
             f"be billed, but it could not be written to {BATCHES} ({e}).\n"
-            f"  Do NOT simply re-run submit — that sends a second batch and "
+            f"  Do NOT simply re-run submit -- that sends a second batch and "
             f"pays twice. Record or cancel {bid} first; the spool has been "
             f"left intact on purpose so nothing was lost.") from e
     # Only now: the batch is durably recorded, so clearing cannot lose work.
@@ -279,7 +279,7 @@ def drain(batch_id=None):
     """Retrieve ended batches. Returns per-request outcomes.
 
     Every request gets an entry. A batch that has not ended yet is reported as
-    such and left alone — never as a batch that produced nothing.
+    such and left alone -- never as a batch that produced nothing.
     """
     results, touched = [], []
     for b in batches():
@@ -319,6 +319,11 @@ def drain(batch_id=None):
             if isinstance(row, dict) and row.get("custom_id"):
                 by_id[row["custom_id"]] = row.get("result") or {}
 
+        # Where successful text lands. Draining marks the batch done, so a
+        # result that is not persisted HERE is gone: paid for, retrieved once,
+        # and unrecoverable. Found by driving `make batch-drain` -- the library
+        # returned results correctly and the only caller threw them away.
+        outdir = DIR / "results"
         for r in b["requests"]:
             # Matched by custom_id, never by position: with N requests a
             # positional read would attach one ticket's plan to another's key.
@@ -329,7 +334,16 @@ def drain(batch_id=None):
                 entry.update(state="missing",
                              detail="no result row carried this custom_id")
             else:
-                entry.update(_outcome(res))
+                out = _outcome(res)
+                if out.get("state") == "succeeded":
+                    # Persist BEFORE the batch is marked drained, for the same
+                    # reason submit records before clearing: the step after
+                    # this one destroys the ability to try again.
+                    outdir.mkdir(parents=True, exist_ok=True)
+                    dest = outdir / f"{r['key']}-{r['phase']}.txt"
+                    dest.write_bytes((out.get("text") or "").encode("utf-8"))
+                    out["saved_to"] = str(dest)
+                entry.update(out)
             results.append(entry)
         touched.append(b["id"])
 
@@ -357,14 +371,14 @@ def _outcome(res):
     if kind in ("expired", "canceled"):
         # NOT a verdict about the request. It never reached the model.
         return {"state": kind, "billed": False,
-                "detail": f"{kind} before the model saw it — NOT billed, and "
+                "detail": f"{kind} before the model saw it -- NOT billed, and "
                           f"nothing is known about this phase. Re-spool it."}
     return {"state": "errored", "billed": True,
             "detail": json.dumps(res.get("error") or res)[:300]}
 
 
 def summarize(results):
-    """Counts per state — so a partial drain reads as partial, not as success."""
+    """Counts per state -- so a partial drain reads as partial, not as success."""
     counts = {}
     for r in results:
         counts[r.get("state", "?")] = counts.get(r.get("state", "?"), 0) + 1
@@ -391,16 +405,23 @@ def main(argv):
         print(f"submitted {rec['id']} with {len(rec['requests'])} request(s)")
     elif cmd == "status":
         for s in status():
-            extra = f" — {s['detail']}" if s.get("detail") else ""
+            extra = f" -- {s['detail']}" if s.get("detail") else ""
             print(f"{s['id']}  {s['state']}  ({s['requests']} request(s)){extra}")
     elif cmd == "drain":
         res = drain()
         counts = summarize(res)
         print(json.dumps(counts))
+        saved = [r for r in res if r.get("saved_to")]
+        for r in saved:
+            print(f"  {r['key']} -> {r['saved_to']}")
+        if counts.get("succeeded") and not saved:
+            # Would mean text was retrieved and dropped on the floor.
+            print("  WARNING: succeeded results were not written to disk",
+                  file=sys.stderr)
         for r in res:
             if r.get("state") != "succeeded":
                 print(f"  {r.get('key', r.get('batch'))}: {r.get('state')}"
-                      f" — {r.get('detail', '')}")
+                      f" -- {r.get('detail', '')}")
     else:
         print(f"unknown command {cmd}", file=sys.stderr)
         return 64

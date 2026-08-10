@@ -432,4 +432,15 @@ for an orphan nobody can cancel. The id cannot be recorded before submission
 loudly *with* the id, which is what `BATCH_SUBMITTED_BUT_UNRECORDED` does —
 including telling the operator not to just re-run.
 
-Pins: `registry/tests/test_batch_spool.py` (21). Mutation: 17 mutations, 17 killed.
+**`drain` writes results to `<AIQE_BATCH_DIR>/results/<key>-<phase>.txt`** and
+prints the path. That is not cosmetic: draining marks the batch done, so a
+result not persisted there is paid for, retrieved once, and unrecoverable. The
+write happens BEFORE the batch is marked drained -- same ordering lesson as
+submit-then-record -- so a failed write leaves the batch re-drainable.
+
+This was found by DRIVING `make batch-drain`, not by the library tests. The
+library returned results correctly and the only caller that exists printed
+counts and threw the text away. It is the defect class this repo keeps
+recording: an entry point nothing ever executed.
+
+Pins: `registry/tests/test_batch_spool.py` (24). Mutation: 21 mutations, 21 killed.

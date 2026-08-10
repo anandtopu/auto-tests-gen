@@ -351,3 +351,57 @@ def test_a_batch_that_was_submitted_but_could_not_be_recorded_names_its_id(
         "nothing warns against the retry that would double the bill")
     assert STATE["submitted"] is not None, "the batch really was sent"
     assert len(spool.pending()) == 3, "the spool was cleared despite the failure"
+
+
+def test_a_succeeded_result_is_written_to_disk(spool):
+    """Found by DRIVING `make batch-drain`, not by the library tests: drain()
+    returned results correctly and the only caller printed counts and threw the
+    text away. Since drain also marks the batch done, the plan was paid for,
+    retrieved once, and unrecoverable."""
+    ids = _spool_three(spool)
+    spool.submit()
+    STATE["outcomes"] = {c: "succeeded" for c in ids}
+    res = spool.drain()
+    for r in res:
+        assert r.get("saved_to"), f"{r['key']} was retrieved but never persisted"
+        p = pathlib.Path(r["saved_to"])
+        assert p.exists(), f"{p} was reported as saved but does not exist"
+        assert p.read_text(encoding="utf-8") == r["text"]
+
+
+def test_a_failed_write_leaves_the_batch_re_drainable(spool, monkeypatch):
+    """Ordering, same lesson as submit-then-record: the step that marks the
+    batch drained destroys the ability to try again, so persistence must
+    happen first. If it fails, the batch must NOT be marked done."""
+    ids = _spool_three(spool)
+    spool.submit()
+    STATE["outcomes"] = {c: "succeeded" for c in ids}
+
+    real = pathlib.Path.write_bytes
+    failing = {"on": True}          # a flag, NOT monkeypatch.undo(): undo()
+                                    # reverts the FIXTURE's setenv too, so the
+                                    # retry below lost its API key and failed
+                                    # for a reason that had nothing to do with
+                                    # the guarantee under test.
+    def boom(self, *a, **k):
+        if failing["on"] and self.suffix == ".txt":
+            raise OSError("disk full")
+        return real(self, *a, **k)
+    monkeypatch.setattr(pathlib.Path, "write_bytes", boom)
+    with pytest.raises(OSError):
+        spool.drain()
+    failing["on"] = False
+
+    assert spool.batches()[0]["drained"] is False, (
+        "the batch was marked drained even though nothing was written -- the "
+        "results are now unrecoverable")
+    res = spool.drain()          # the retry that must still work
+    assert len(res) == 3 and all(r.get("saved_to") for r in res)
+
+
+def test_runtime_messages_are_console_safe(spool):
+    """This repo runs under Git Bash on Windows, where a non-cp1252 dash in a
+    printed message renders as a replacement character. Driving the CLI showed
+    exactly that before the em-dashes were replaced."""
+    src = pathlib.Path(spool.__file__).read_text(encoding="utf-8")
+    assert "—" not in src, "an em-dash is back in a module that prints"
