@@ -151,3 +151,63 @@ def test_compose_keeps_using_command_because_it_means_something_else_there():
             break
     else:
         raise AssertionError("neither compose service runs a known entrypoint command")
+
+
+def _deployment():
+    import yaml
+    docs = list(yaml.safe_load_all(
+        (ROOT / "deploy/openshift/deployment.yaml").read_text(encoding="utf-8")))
+    return [d for d in docs if d and d.get("kind") == "Deployment"]
+
+
+def _configmap():
+    import yaml
+    for d in yaml.safe_load_all(
+            (ROOT / "deploy/openshift/configmap.yaml").read_text(encoding="utf-8")):
+        if d and d.get("kind") == "ConfigMap":
+            return d.get("data") or {}
+    return {}
+
+
+def test_a_path_the_app_writes_is_never_left_on_the_read_only_rootfs():
+    """readOnlyRootFilesystem is ON, so every path the app WRITES has to be a
+    mount or redirected onto one.
+
+    `.env` was neither. The Settings page writes it and the pipeline reads it
+    back through the same resolver (props_file dotenv-defaults ->
+    settings_store.load), but it defaults to /app/.env -- on the read-only
+    rootfs, under none of the mounts (/app/reports, /app/workspace, /app/out,
+    /tmp, /state). Every Settings save would have failed in-cluster, and no
+    provider or credential set through the UI would ever reach a run. Nothing
+    caught it because each half is correct on its own: the hardening is right,
+    the resolver is right, and only their combination is wrong.
+    """
+    cm = _configmap()
+    env_file = cm.get("AIQE_ENV_FILE", "")
+    assert env_file, (
+        "AIQE_ENV_FILE is unset, so settings_store writes /app/.env -- "
+        "unwritable under readOnlyRootFilesystem")
+
+    mounts = set()
+    for dep in _deployment():
+        for c in dep["spec"]["template"]["spec"].get("containers", []):
+            ro = (c.get("securityContext") or {}).get("readOnlyRootFilesystem")
+            if not ro:
+                continue
+            for m in c.get("volumeMounts", []):
+                mounts.add(m["mountPath"].rstrip("/"))
+    assert mounts, "no read-only container declares mounts; this pin is not looking at anything"
+    assert any(env_file.startswith(m + "/") for m in mounts), (
+        f"AIQE_ENV_FILE={env_file!r} is not under any writable mount {sorted(mounts)}")
+
+
+def test_the_writer_and_the_reader_resolve_the_same_env_file():
+    """Redirecting it would be worse than useless if the pipeline read a
+    different path: the UI would report success and runs would ignore it."""
+    settings = (ROOT / "engine/lib/settings_store.py").read_text(encoding="utf-8")
+    props = (ROOT / "engine/lib/props_file.py").read_text(encoding="utf-8")
+    assert 'os.environ.get("AIQE_ENV_FILE")' in settings, \
+        "settings_store no longer honours the redirect"
+    assert "settings_store.load()" in props, (
+        "props_file stopped reading through settings_store -- the pipeline may "
+        "now read a different .env than the Settings page writes")

@@ -16,5 +16,12 @@ data:
   AIQE_HOOK_PORT: "4998"
   # 1 = the receiver drains the queue in-process when it accepts an event.
   AIQE_HOOK_AUTORUN: "0"
+  # The Settings page WRITES this file, and the pipeline reads it back through
+  # the same resolver (props_file dotenv-defaults -> settings_store.load).
+  # It must therefore live on a writable mount: readOnlyRootFilesystem is
+  # true on both containers, and /app/.env -- the default -- is on the
+  # read-only rootfs, so without this every Settings save fails in-cluster
+  # and no provider or credential set through the UI ever reaches a run.
+  AIQE_ENV_FILE: "/state/.env"
   # Real-mode SCM selection (ignored in mock mode).
   SCM_KIND: "github"
