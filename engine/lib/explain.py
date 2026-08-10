@@ -64,11 +64,43 @@ def _unknown(did, question, why_not):
             "because": [], "evidence": None, "not_recorded": why_not}
 
 
-def _read_json(p):
+def _read_state(p, sink=None):
+    """(data, state) where state is ``ok`` | ``absent`` | ``unreadable``.
+
+    Absent and unreadable are DIFFERENT answers and this module exists to keep
+    answers honest. Collapsing them made every reader of a damaged file hear
+    "it was never recorded" — so an operator went looking for a phase that had
+    failed to persist something, when the file was sitting right there with a
+    truncated last line. That is the C13 shape in the surface whose whole job
+    is explaining what happened.
+
+    Unreadable paths are appended to `sink` so a caller can NAME them even
+    where no message claims absence: six call sites fold a damaged file into
+    `{}`, which silently costs a decision row rather than producing a wrong
+    one. The sink is passed in rather than kept on the module because
+    /api/explain is served from a threaded server — a module-level list would
+    let one request report another request's damaged files.
+    """
+    path = pathlib.Path(p)
     try:
-        return json.loads(pathlib.Path(p).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None, "absent"
+    except OSError:
+        # Exists (or we cannot even tell), but unreadable. NOT the same as absent.
+        if sink is not None:
+            sink.append(str(path))
+        return None, "unreadable"
+    try:
+        return json.loads(raw), "ok"
+    except ValueError:
+        if sink is not None:
+            sink.append(str(path))
+        return None, "unreadable"
+
+
+def _read_json(p, sink=None):
+    return _read_state(p, sink)[0]
 
 
 def context_manifests(root=ROOT):
@@ -147,7 +179,8 @@ def explain(key=None, run_id=None, root=ROOT):
     """The decision list for one request, plus what could not be explained."""
     root = pathlib.Path(root)
     rec = run_progress._record_for(key=key, run_id=run_id, root=root)
-    ctx = _read_json(root / "out/run-context.json") or {}
+    damaged = []          # inputs that exist but could not be parsed
+    ctx = _read_json(root / "out/run-context.json", damaged) or {}
     live = bool(ctx) and (not key or ctx.get("key") == key)
     if rec:
         # A current scratch directory for another run of the SAME key is still
@@ -155,10 +188,23 @@ def explain(key=None, run_id=None, root=ROOT):
         live = live and ctx.get("run_id") == rec.get("run_id")
 
     if not rec and not live:
+        # "We found no record" and "we could not read the records" are different
+        # answers, and this is the outermost one — the sibling of the same bug
+        # fixed in _read_state below. The record search skips a damaged file
+        # silently (it cannot match a key it cannot parse), so without this a
+        # run that DID happen is reported as one that never did.
+        broken = run_progress.unreadable_records(root)
+        detail = ("No run has been recorded for this target, so there is "
+                  "nothing to explain yet.")
+        if broken:
+            detail = (f"No READABLE run record matched this target, but "
+                      f"{len(broken)} run record(s) exist that could not be "
+                      f"parsed: {', '.join(broken)}. One of them may be the run "
+                      f"you are asking about — this is not the same as the run "
+                      f"never having happened.")
         return {"key": key, "run_id": run_id, "source": "none", "decisions": [],
-                "unexplained": [],
-                "detail": "No run has been recorded for this target, so there is "
-                          "nothing to explain yet."}
+                "unexplained": [], "unreadable_records": broken,
+                "detail": detail}
 
     contracts = {}
     if rec:
@@ -168,7 +214,12 @@ def explain(key=None, run_id=None, root=ROOT):
     decisions, unexplained = [], []
 
     # --- 1. routing ---------------------------------------------------------
-    resolve = contracts.get("resolve") or _read_json(root / "out/resolve.contract.json") or {}
+    resolve = contracts.get("resolve")
+    resolve_state = "ok" if resolve else None
+    if not resolve:
+        resolve, resolve_state = _read_state(
+            root / "out/resolve.contract.json", damaged)
+        resolve = resolve or {}
     trepos = resolve.get("test_repos") or []
     conf, why = resolve.get("confidence"), resolve.get("rationale")
     if trepos or resolve:
@@ -195,11 +246,17 @@ def explain(key=None, run_id=None, root=ROOT):
     else:
         unexplained.append(_unknown(
             "routing", "Which E2E test repositories were chosen, and why?",
-            "No resolve contract was kept for this run."))
+            "No resolve contract was kept for this run."
+            if resolve_state != "unreadable" else
+            "The resolve contract for this run EXISTS but could not be read "
+            "(out/resolve.contract.json is damaged), so routing cannot be "
+            "explained from it. This is not the same as it never having been "
+            "recorded — do not go looking for a phase that failed to persist "
+            "it."))
 
     # --- PR ticket discovery -----------------------------------------------
     discovery = (rec or {}).get("ticket_discovery") or (
-        _read_json(root / "out/ticket-discovery.json") if live else {}) or {}
+        _read_json(root / "out/ticket-discovery.json", damaged) if live else {}) or {}
     if discovery.get("artifact") == "pr-ticket-discovery":
         outcome = discovery.get("outcome") or "unexplained"
         selected = discovery.get("selected_key")
@@ -238,7 +295,7 @@ def explain(key=None, run_id=None, root=ROOT):
         phases = {}
         expected_ticket = discovery.get("selected_key")
         for phase in ("triage", "generate"):
-            manifest = _read_json(root / f"out/pr-ticket-fused-{phase}.json") or {}
+            manifest = _read_json(root / f"out/pr-ticket-fused-{phase}.json", damaged) or {}
             if (manifest.get("artifact") == "pr-ticket-context"
                     and manifest.get("phase") == phase
                     and manifest.get("selected_key") == expected_ticket):
@@ -378,7 +435,7 @@ def explain(key=None, run_id=None, root=ROOT):
                    "never whether you are asked."))
 
     # --- 6. was the plan written fresh? --------------------------------------
-    reuse = _read_json(root / "out/plan-reuse.json") or {}
+    reuse = _read_json(root / "out/plan-reuse.json", damaged) or {}
     if reuse.get("reused_from"):
         decisions.append(_decision(
             "reuse", "Was this plan authored from scratch?",
@@ -400,7 +457,7 @@ def explain(key=None, run_id=None, root=ROOT):
     # --- 7. change-to-test impact proposal ----------------------------------
     impact = (rec or {}).get("impact_candidates") or {}
     if not impact and live:
-        impact = _read_json(root / "out/impact-candidates.json") or {}
+        impact = _read_json(root / "out/impact-candidates.json", damaged) or {}
     if impact.get("artifact") == "impact-candidates":
         threshold = impact.get("active_threshold")
         accepted = [c for c in impact.get("candidates") or []
@@ -531,6 +588,20 @@ def explain(key=None, run_id=None, root=ROOT):
             because, "run record gates[] + the gate's documented exit codes",
             caveat="The gate is deterministic and is the ONLY step that commits "
                    "or pushes. No LLM phase can influence its verdict."))
+
+    # Damaged inputs are named even where nothing above claimed absence. Most
+    # of these reads fold a bad file into `{}`, which costs a decision row
+    # silently — the reader simply never learns the question was askable. One
+    # row saying WHICH file is unreadable beats several rows quietly missing.
+    if damaged:
+        seen = sorted(set(damaged))
+        unexplained.append(_unknown(
+            "inputs", "Were all the recorded inputs for this run readable?",
+            f"{len(seen)} recorded input(s) exist but could not be parsed: "
+            + ", ".join(seen)
+            + ". Anything they would have explained is missing from this "
+              "answer — these were NOT absent, so the phases that write them "
+              "did run."))
 
     return {"key": key, "run_id": (rec or {}).get("run_id") or ctx.get("run_id"),
             "source": "record" if rec else "live",

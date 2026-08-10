@@ -205,6 +205,31 @@ def _read_json(p):
         return None
 
 
+def unreadable_records(root=ROOT):
+    """Run-record files that EXIST but cannot be parsed.
+
+    The record search skips these (it must — it cannot match a key it cannot
+    read), and the skip is silent, so a damaged record makes every caller say
+    "no run has been recorded for this target". That is the wrong answer twice
+    over: the run happened, and the file is sitting right there.
+
+    Which key a damaged record belongs to is unknowable — parsing it is exactly
+    what failed — so callers can only report that N records are unreadable and
+    that one of them MAY be the run being asked about. Saying that is still far
+    better than reporting a run that exists as one that never ran.
+    """
+    out = []
+    d = pathlib.Path(root) / "reports/runs"
+    if not d.is_dir():
+        return out
+    for f in sorted(d.glob("*.json")):
+        if f.name in STATE_FILES:
+            continue
+        if not isinstance(_read_json(f), dict):
+            out.append(str(f))
+    return out
+
+
 def _lock_state(root=ROOT):
     """('held'|'stale'|'free', age_minutes|None).
 
