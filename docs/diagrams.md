@@ -514,7 +514,8 @@ flowchart TD
     AD --> O["ollama<br/>COMPLETION · OpenAI-compatible HTTP<br/>cost: $0 (local), tokens tracked"]
     AD --> H["openhands<br/>COMPLETION (its sandbox ≠ our workspace)<br/>opt-in · cost: unknown, never 0"]
 
-    C & X & O & H --> NR["normalized result JSON<br/>result · usage · num_turns · provider · model"]
+    AD --> B["batch<br/>COMPLETION (one Messages call ⇒ no tool loop)<br/>50% price · ASYNC (~1h, 24h expiry)<br/>cost: ESTIMATED ~$ from pricing:, never reported"]
+    C & X & O & H & B --> NR["normalized result JSON<br/>result · usage · num_turns · provider · model"]
     NR --> DW{"capabilities = completion?"}
     DW -- yes --> MAT["derived_writes: harness materializes<br/>testplan/planarbiter via the SDD renderer,<br/>testdata from fixtures[].content"]
     DW -- no --> OWN["the agent wrote its own files"]

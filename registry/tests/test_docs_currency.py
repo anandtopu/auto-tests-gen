@@ -257,3 +257,26 @@ def test_every_make_target_is_documented_somewhere():
     missing = [t for t in targets
                if not re.search(rf"(make {re.escape(t)}\b|`{re.escape(t)}`)", docs)]
     assert not missing, f"make targets no document mentions: {missing}"
+
+
+def test_every_llm_provider_appears_in_the_runner_port_diagram():
+    """A provider the diagram does not show is a provider nobody knows exists.
+
+    Diagram 17 is the LLM Runner port: it enumerates the adapters and what each
+    one costs and can do. `batch` was added to llm_runner.PROVIDERS and to the
+    adapter directory without the diagram changing, and nothing noticed --
+    test_docs_currency pinned the diagram COUNT, not their contents, so a
+    stale diagram was invisible. This is the same shape as the nav-vs-view pin
+    on the dashboard: enumerate the real set, then require the doc to name it.
+    """
+    import sys
+    sys.path.insert(0, str(ROOT / "engine/lib"))
+    import llm_runner
+    diagrams = _read("docs/diagrams.md")
+    block = diagrams[diagrams.index("## 17."):]
+    block = block[:block.index("## 18.")]
+    missing = [p for p in llm_runner.PROVIDERS
+               if p != "mock" and f'"{p}<br/>' not in block]
+    assert not missing, (
+        f"providers missing from the LLM Runner port diagram: {missing} -- "
+        "add them, or the diagram is telling readers a provider does not exist")
