@@ -210,6 +210,42 @@ def to_csv(rows):
     return buf.getvalue()
 
 
+def render_text(rows):
+    """The human table. Returns lines; the CLI prints them.
+
+    Extracted from __main__ so the empty case, the all-covered case and the
+    header can be tested -- the audit summary is the part most worth pinning
+    and it was unreachable from a test while it lived inside the entry block.
+    """
+    out = []
+    if not rows:
+        out.append("no traceable runs yet")
+        return out
+    # The CSV has carried a header all along; the text form did not, so an
+    # audit-facing report showed five unlabelled columns and the reader had to
+    # guess whether "committed" was the gate or the CI. Its siblings
+    # (`qa.py reviews`, `qa.py coverage`) both label their columns.
+    out.append(f"{'key':<20} {'scenario':<16} {'test file':<52} "
+               f"{'gate':<10} {'ci':<7}")
+    for r in rows:
+        gap = "" if r["file"] else "   <- APPROVED SCENARIO WITH NO TEST"
+        out.append(f"{r['key']:<20} {r['scenario_id']:<16} "
+                   f"{(r['file'] or '-'):<52} {r['gate_status'] or '-':<10} "
+                   f"{str(r['ci_last'] or '-'):<7}{gap}")
+    # The count an audit actually opens with. Per-row markers make it findable;
+    # they do not make it countable, and "how many approved scenarios have no
+    # test?" is the question being asked.
+    uncovered = [r for r in rows if not r["file"]]
+    out.append("")
+    if uncovered:
+        out.append(f"{len(uncovered)} of {len(rows)} row(s): APPROVED SCENARIO "
+                   f"WITH NO TEST -- " +
+                   ", ".join(sorted(r["scenario_id"] or r["key"] for r in uncovered)))
+    else:
+        out.append(f"{len(rows)} row(s), every approved scenario has a test")
+    return out
+
+
 if __name__ == "__main__":
     sys.stdout.reconfigure(encoding="utf-8")
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
@@ -217,10 +253,5 @@ if __name__ == "__main__":
     if "--csv" in sys.argv:
         print(to_csv(rows), end="")
     else:
-        if not rows:
-            print("no traceable runs yet")
-        for r in rows:
-            gap = "" if r["file"] else "   <- APPROVED SCENARIO WITH NO TEST"
-            print(f"{r['key']:<20} {r['scenario_id']:<16} "
-                  f"{(r['file'] or '-'):<52} {r['gate_status'] or '-':<10} "
-                  f"{str(r['ci_last'] or '-'):<7}{gap}")
+        for line in render_text(rows):
+            print(line)
