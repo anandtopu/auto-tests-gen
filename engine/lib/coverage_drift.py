@@ -31,14 +31,24 @@ FILE = pathlib.Path(os.environ.get("AIQE_DRIFT_FILE")
 
 
 def snapshot():
+    """(counts, unobserved) — counts ONLY for repos whose surface we could
+    actually look at.
+
+    A repo whose contract/route table could not be harvested is deliberately
+    absent from `counts` rather than present as 0: a 0 would make losing sight
+    of a repo look exactly like closing all of its gaps, which is the most
+    reassuring possible rendering of the worst news this module carries."""
     import coverage_gaps
     gaps = coverage_gaps.compute()
-    return {name: len(g.get("uncovered") or []) for name, g in gaps.items()}
+    return ({n: len(g.get("uncovered") or [])
+             for n, g in gaps.items() if coverage_gaps.observed(g)},
+            {n: g.get("detail") or "surface not checked"
+             for n, g in gaps.items() if not coverage_gaps.observed(g)})
 
 
 def check(notify=False):
     """Compare now vs the stored baseline; store now. Returns the drift report."""
-    now = snapshot()
+    now, blind = snapshot()
     prev_doc = fs_lock.read_json_guarded(FILE, {})
     prev = prev_doc.get("counts") or {}
     grew = {r: (prev.get(r, 0), n) for r, n in now.items()
@@ -64,10 +74,39 @@ def check(notify=False):
     if not delivered:
         for r in grew:
             counts[r] = prev[r]          # re-alarm next run until it lands
+    # A repo we could not observe KEEPS its previous baseline. Letting
+    # dict(now) drop it blinds the alarm twice over: once during the outage,
+    # and again afterwards, because the repo is then missing from `prev` too,
+    # so the first run that can see it again re-baselines in silence and the
+    # growth that happened in between is never reported at all. Measured on the
+    # demo estate: payments-api goes 2 -> unobservable -> 9 and no run alarms.
+    # Same reasoning as the undelivered-notification carry above — "could not
+    # tell you" is not "nothing happened".
+    for r in blind:
+        if r in prev:
+            counts[r] = prev[r]
     fs_lock.write_json_atomic(FILE, {"counts": counts, "checked": time.time()})
 
     report = {"baseline": not prev, "grew": grew, "shrank": shrank,
-              "counts": now, "delivered": delivered}
+              "counts": now, "delivered": delivered, "unobserved": blind}
+    if blind:
+        print("coverage drift: NOT CHECKED for " + ", ".join(sorted(blind))
+              + " — their surface could not be harvested, so this run says "
+                "nothing about their coverage; the stored baseline is kept so "
+                "growth is still caught when they return")
+    if not now:
+        # The deployed shape: workspace/ is ephemeral scratch, so a nightly
+        # `make maintain` on a container with no run in flight harvests NOTHING
+        # and every repo lands in `blind`. Before, `counts = dict(now)` then
+        # wrote {}, so `prev` was empty again next run and this printed
+        # "baseline established for 0 repo(s)" every night forever — an alarm
+        # that could never fire, reporting success. The baseline is preserved
+        # above; this says out loud that nothing was measured.
+        print("coverage drift: NOTHING was checked this run — no repo's "
+              "surface could be harvested, so no drift conclusion is "
+              "available (contracts/route tables appear under workspace/src/ "
+              "during a run)")
+        return report
     if not prev:
         print(f"coverage drift: baseline established for {len(now)} repo(s)")
         return report

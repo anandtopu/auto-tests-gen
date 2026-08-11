@@ -21,19 +21,61 @@ def norm(path):
     return re.sub(r"/\d+", "/{id}", path)
 
 
-def harvest_surface(repo):
-    """Endpoints (backend) or routes (frontend) from the freshest clone."""
-    art = repo.get("contract") if repo["type"] == "backend" else repo.get("route_table")
+OBSERVED = ("harvested", "empty")
+
+
+def harvest(repo):
+    """(surface, status, detail) — FOUR outcomes, and three of them are not
+    "this repo has no gaps":
+
+      harvested  - artifact declared, found, surface extracted.
+      empty      - artifact found and READ, nothing matched. Either it declares
+                   no surface or its shape is not one this regex proxy knows;
+                   both are stated, neither is silence.
+      unreadable - artifact DECLARED but absent here. We could not look.
+      undeclared - no contract/route_table registered. Nothing to look at.
+
+    The last two are C13 territory. compute() used to `continue` on all three
+    non-harvested outcomes, so a repo we could not observe left the report
+    entirely and read as a repo with nothing to fix — while the SAME estate's
+    AGENTS.md said "contract `openapi/payments.yaml` not available locally".
+    bin/gen_agents_md.py has always rendered this case honestly; the shared
+    library three other surfaces read did not.
+    """
+    backend = repo["type"] == "backend"
+    art = repo.get("contract") if backend else repo.get("route_table")
+    kind = "contract" if backend else "route table"
     if not art:
-        return []
+        return [], "undeclared", (
+            f"no {kind} is registered, so this repo's surface has never been "
+            f"looked at — register one with bin/repos.py")
     for base in (ROOT / "workspace/src" / repo["name"], ROOT / "demo" / repo["name"]):
         p = base / art
         if p.exists():
             text = p.read_text(encoding="utf-8", errors="ignore")
-            if repo["type"] == "backend":
-                return sorted(set(re.findall(r"^\s{2}(/[^:\s]+):", text, re.M)))
-            return sorted(set(re.findall(r"path:\s*['\"]([^'\"]+)", text)))
-    return []
+            surface = (sorted(set(re.findall(r"^\s{2}(/[^:\s]+):", text, re.M)))
+                       if backend else
+                       sorted(set(re.findall(r"path:\s*['\"]([^'\"]+)", text))))
+            if surface:
+                return surface, "harvested", ""
+            return [], "empty", (
+                f"{kind} `{art}` was read but declares no surface this "
+                f"extractor recognizes")
+    return [], "unreadable", (
+        f"{kind} `{art}` is not available locally (it appears under "
+        f"workspace/src/{repo['name']}/ during a run) — this repo's surface "
+        f"was NOT checked")
+
+
+def observed(entry):
+    """Did we actually look? False means every count derived from this entry is
+    UNKNOWN, not zero — callers must not sum it into a total as a 0."""
+    return entry.get("status", "harvested") in OBSERVED
+
+
+def harvest_surface(repo):
+    """Endpoints (backend) or routes (frontend) from the freshest clone."""
+    return harvest(repo)[0]
 
 
 def catalog_evidence():
@@ -85,9 +127,7 @@ def compute(only_repo=None):
     for r in reg["source_repositories"]:
         if only_repo and r["name"] != only_repo:
             continue
-        surface = harvest_surface(r)
-        if not surface:
-            continue
+        surface, status, detail = harvest(r)
         exercised = evidence.get(r["name"], set())
         covered = [s for s in surface if norm(s) in exercised]
         uncovered = [s for s in surface if norm(s) not in exercised]
@@ -98,17 +138,22 @@ def compute(only_repo=None):
              for s in uncovered), key=lambda g: -g["score"])
         out[r["name"]] = {"kind": "endpoints" if r["type"] == "backend" else "routes",
                           "surface": surface, "covered": covered,
-                          "uncovered": uncovered, "uncovered_ranked": ranked}
+                          "uncovered": uncovered, "uncovered_ranked": ranked,
+                          "status": status, "detail": detail}
     return out
 
 
 def to_markdown(only_repo=None):
     gaps = compute(only_repo)
+    seen = {n: g for n, g in gaps.items() if observed(g)}
+    blind = {n: g for n, g in gaps.items() if not observed(g)}
     lines = ["# Coverage gaps (harvested surface vs Test Catalog evidence)", ""]
-    if not gaps:
+    if not seen:
         lines.append("No harvestable surface found (contracts/route tables unavailable).")
-    for name, g in gaps.items():
+    for name, g in seen.items():
         lines.append(f"## {name} ({g['kind']})")
+        if g["status"] == "empty":
+            lines.append(f"- (none) {g['detail']}")
         for s in g["covered"]:
             lines.append(f"- [covered] {s}")
         # Highest risk first, with the reasons on the line — generation and the plan
@@ -118,6 +163,18 @@ def to_markdown(only_repo=None):
             why = f" ({', '.join(item['reasons'])})" if item["reasons"] else ""
             lines.append(f"- [NO TEST] (risk {item['score']}){why} {item['surface']}"
                          f"  <- coverage gap: prioritize a scenario here")
+        lines.append("")
+    if blind:
+        # NOT a gap list. An absent section used to be indistinguishable from a
+        # clean one, so a repo nobody could look at read as a repo with nothing
+        # to fix — in a file that is injected as context into every authoring
+        # phase, which then never hears the repo exists.
+        lines += ["## Repos whose surface was NOT checked", "",
+                  "These are **not** known to be gap-free — nothing below was "
+                  "examined, so no conclusion about their coverage is available "
+                  "from this report.", ""]
+        for name, g in blind.items():
+            lines.append(f"- **{name}**: {g['detail']}")
         lines.append("")
     return "\n".join(lines)
 

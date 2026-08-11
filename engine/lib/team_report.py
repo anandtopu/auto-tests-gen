@@ -118,7 +118,14 @@ def build(days=None, release=None):
         by_status[s] = by_status.get(s, 0) + 1
     health = test_health.load()
     flaky = sorted(t for t, h in health.items() if h.get("flaky"))
-    gaps = sum(len(v["uncovered"]) for v in coverage_gaps.compute().values())
+    # Observed repos only. An unharvestable repo contributes no `uncovered`
+    # entries, so summing it in would quietly fold "we could not look" into a
+    # total a lead reads as "this is how much is uncovered".
+    _surface = coverage_gaps.compute()
+    gaps = sum(len(v["uncovered"]) for v in _surface.values()
+               if coverage_gaps.observed(v))
+    gaps_unchecked = sorted(n for n, v in _surface.items()
+                            if not coverage_gaps.observed(v))
 
     return {"generated": now, "days": days, "release": release,
             "totals": {"runs": len(runs), "committed": len(completed),
@@ -136,7 +143,8 @@ def build(days=None, release=None):
             "queue": work_queue.load(), "by_release": by_release,
             "per_day": dict(sorted(per_day.items(), reverse=True)),
             "catalog": {"total": len(catalog), "by_status": by_status,
-                        "coverage_gaps": gaps, "flaky": flaky},
+                        "coverage_gaps": gaps,
+                        "coverage_unchecked": gaps_unchecked, "flaky": flaky},
             "cost": _cost_line(days)}
 
 
@@ -260,7 +268,10 @@ def to_markdown(days=None, release=None):
           f"{st.get('confirmed', 0)} confirmed, {st.get('needs_review', 0)} need review, "
           f"{st.get('orphan', 0)} orphan",
           f"- **{c['coverage_gaps']}** uncovered surface(s) (routes/endpoints with no "
-          f"mapped test — see `make gaps`)",
+          f"mapped test — see `make gaps`)"
+          + (f"; **{len(c['coverage_unchecked'])} repo(s) NOT checked** "
+             f"({', '.join(c['coverage_unchecked'])}) — that count excludes them"
+             if c.get("coverage_unchecked") else ""),
           f"- Flaky tests from CI ingest: "
           + (", ".join(f"`{f}`" for f in c["flaky"]) if c["flaky"] else "none"), ""]
     return "\n".join(L)

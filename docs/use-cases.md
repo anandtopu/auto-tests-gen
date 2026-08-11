@@ -186,11 +186,19 @@ WARNING - no E2E coverage mapped for: admin-portal-ui, catalog-api, payments-api
 NOTE - test repos with empty coverage (run bootstrap?): e2e-api-tests-2
 ```
 
-Two different problems, and the distinction matters:
+Three different problems, and the distinctions matter:
 
 * **no coverage mapped** — nothing tests that app repo. Real gap.
 * **empty coverage** — the test repo exists but its catalog is empty. Usually
   means bootstrap has not run, not that the tests are missing.
+* **surface NOT checked** — `make gaps` ends with a *Repos whose surface was NOT
+  checked* section when a repo's contract or route table could not be read. Those
+  repos are **not** reported as gap-free, because nothing was examined: the
+  artifact is declared but absent (it appears under `workspace/src/` during a
+  run), or no artifact is registered at all. The two say which fix applies.
+  Before this existed the repo simply left the report, so "we could not look"
+  and "nothing to fix" rendered identically — and the same file is injected into
+  every authoring phase, which then never heard the repo existed.
 
 Uncovered surface is marked `[NO TEST]` in the estate knowledge, so generation
 targets it first. The dashboard **Trace** view shows the same thing per scenario,

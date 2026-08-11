@@ -143,6 +143,12 @@ clauses:
         test: test_an_invalid_enforcement_value_is_never_silently_off
       - file: registry/tests/test_env_flag.py
         test: test_an_unusable_value_lands_on_the_safe_side_and_says_so
+      - file: registry/tests/test_coverage_gaps_observability.py
+        test: test_compute_keeps_the_repo_it_could_not_harvest
+      - file: registry/tests/test_coverage_gaps_observability.py
+        test: test_the_report_names_unchecked_repos_and_does_not_call_them_gaps
+      - file: registry/tests/test_coverage_drift.py
+        test: test_an_unobservable_repo_keeps_its_baseline_so_growth_is_still_caught
   - id: C14
     statement: >-
       The generated-test reviewer may stop a run only before the deterministic
