@@ -150,7 +150,7 @@ acceptance ≥70% and zero gate escapes.*
 | KPI | Target | Today (demo estate) |
 |---|---|---|
 | Team acceptance of generated tests | ≥ 70% | 100% (3 decisions — needs real volume) |
-| Escaped noise (critic) | ≤ 10% | 0% |
+| Escaped noise (critic) | ≤ 10% | **unmeasured** — the advisory critic is stubbed in mock mode and emits `noise_count: 0` by construction, so the 0% this column used to report was the fixture, not a result. `eval/scorecard.py` now excludes simulated critic phases and says so; unblock `make parity-pr` to measure it |
 | Routing accuracy | ≥ 95% | 100% |
 | Commit rate | informational | 100% of 215 runs |
 | Cost per run | ≤ $2 single / $4 cross-repo | enforced — pre-phase guard, exit-77 abort, metered to `out/cost.tsv`; ~$0.25 was a historical Pass-5 observation, not a current-head measured baseline |
