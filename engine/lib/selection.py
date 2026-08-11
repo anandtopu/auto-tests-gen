@@ -351,11 +351,55 @@ def finalize(key, actor="", root=ROOT):
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    # PARSE the flags this usage line advertises. They used to be stripped by
+    # `[a for a in sys.argv[1:] if not a.startswith("-")]` and never read, so
+    # `--exclude-scenario S2` recorded NOTHING and exited 0 -- the reviewer was
+    # told the exclusion landed when it had not, which is the precise failure
+    # this whole feature exists to prevent. Their VALUES also leaked into the
+    # positional list, one coincidence away from a scenario named `finalize`
+    # triggering a finalize.
+    USAGE = ("usage: selection.py <KEY> [finalize] "
+             "[--exclude-scenario ID] [--exclude-test FILE] [--include-... ] "
+             "[--by NAME] [--reason TEXT]")
+    argv, args, opts = sys.argv[1:], [], []
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a.startswith("--"):
+            name = a[2:]
+            if "=" in name:
+                name, _, val = name.partition("=")
+            else:
+                i += 1
+                if i >= len(argv):
+                    raise SystemExit(f"{a} needs a value\n{USAGE}")
+                val = argv[i]
+            opts.append((name, val))
+        elif a.startswith("-"):
+            raise SystemExit(f"unknown option {a}\n{USAGE}")
+        else:
+            args.append(a)
+        i += 1
     if not args:
-        raise SystemExit("usage: selection.py <KEY> [finalize] "
-                         "[--exclude-scenario ID] [--exclude-test FILE]")
+        raise SystemExit(USAGE)
     key = args[0]
+
+    _KINDS = {"exclude-scenario": ("scenarios", False),
+              "include-scenario": ("scenarios", True),
+              "exclude-test": ("tests", False),
+              "include-test": ("tests", True)}
+    actor = next((v for n, v in opts if n == "by"), "cli")
+    reason = next((v for n, v in opts if n == "reason"), "")
+    decisions = {}
+    for name, val in opts:
+        if name in ("by", "reason"):
+            continue
+        if name not in _KINDS:
+            raise SystemExit(f"unknown option --{name}\n{USAGE}")
+        kind, included = _KINDS[name]
+        decisions.setdefault(kind, {})[val] = included
+    for kind, dec in decisions.items():
+        set_items(key, kind, dec, actor=actor, reason=reason)
     sys.stdout.reconfigure(encoding="utf-8")
     if len(args) > 1 and args[1] == "finalize":
         m = finalize(key, actor="cli")
