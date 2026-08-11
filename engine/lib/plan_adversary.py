@@ -110,7 +110,24 @@ def summary(gaps_path=None, arbiter_path=None):
     """One line for the pipeline log, the ticket comment and the plan reviewer."""
     s = signal(gaps_path, arbiter_path)
     if not s["ran"]:
-        return ""
+        # "" collapsed THREE situations into silence: the feature is disabled,
+        # the phase failed (non-fatal by design), and a zero-scenario plan was
+        # skipped. The plan editor then hid the panel entirely on a falsy
+        # value, so a plan NOBODY challenged looked exactly like one the
+        # adversary had approved -- and this runs BEFORE the human approval
+        # gate precisely to change what the reviewer approves, so whether it
+        # ran is material to that decision.
+        #
+        # Distinguishing disabled from did-not-run matters because the actions
+        # differ: one is a configuration choice to revisit, the other is a
+        # phase to investigate in the run log.
+        if not enabled():
+            return ("adversarial review: DISABLED for this run — the plan was "
+                    "NOT challenged (plan_adversary.enabled in org-config, or "
+                    "AIQE_PLAN_ADVERSARY)")
+        return ("adversarial review: did not run — the plan was NOT challenged "
+                "(the phase was skipped or failed; both are non-fatal, see the "
+                "run log)")
     if not s["raised"]:
         return "adversarial review: no gaps found — the authored plan stands"
     bits = [f"adversarial review: {s['raised']} gap(s) raised"]

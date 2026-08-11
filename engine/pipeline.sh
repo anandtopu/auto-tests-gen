@@ -1004,11 +1004,15 @@ else
         rm -f out/planarbiter.contract.json
       fi
     fi
-    ADVERSARY_LINE=$(python3 engine/lib/plan_adversary.py summary || echo "")
-    # `|| true`: an empty line is the normal "disabled/no signal" case, and a bare
-    # `[ -n .. ] && echo` returning 1 as the last statement here would trip set -e.
-    if [ -n "$ADVERSARY_LINE" ]; then echo "[plan-adversary] $ADVERSARY_LINE"; fi
   fi
+  # OUTSIDE the enabled/skip branches on purpose. This used to sit inside the
+  # `elif ... enabled` arm, so a DISABLED adversary (or a zero-scenario skip)
+  # left ADVERSARY_LINE empty and the plan carried no trace of having gone
+  # unchallenged. summary() now names which of the three it was.
+  ADVERSARY_LINE=$(python3 engine/lib/plan_adversary.py summary || echo "")
+  # `|| true`: a bare `[ -n .. ] && echo` returning 1 as the last statement
+  # here would trip set -e.
+  if [ -n "$ADVERSARY_LINE" ]; then echo "[plan-adversary] $ADVERSARY_LINE"; fi
   # The JIRA query includes the ticket acceptance criteria plus the FINAL
   # authored/arbitrated scenario set, so it must run after plan arbitration.
   RUN_DUPLICATES "$MODE"

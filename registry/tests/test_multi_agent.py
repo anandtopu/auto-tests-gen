@@ -110,7 +110,13 @@ def test_adversary_signal_is_total_on_garbage(tmp_path):
     bad = tmp_path / "bad.json"
     bad.write_text("<html>not json</html>", encoding="utf-8")
     assert plan_adversary.signal(bad, bad)["raised"] == 0
-    assert plan_adversary.summary(bad, bad) == ""
+    # The requirement is TOTALITY -- no raise, whatever the input. It used to be
+    # spelled `== ""`, and that silence was itself a defect: an empty summary
+    # made the plan editor hide the panel, so a plan nobody challenged looked
+    # like one the adversary had cleared. Degrading now means SAYING the plan
+    # was not challenged (see test_absent_adversary_is_visible.py).
+    line = plan_adversary.summary(bad, bad)
+    assert isinstance(line, str) and "NOT challenged" in line
 
 
 def test_adversary_normalizes_unknown_category_and_severity(tmp_path):
@@ -246,12 +252,24 @@ def test_adversarial_review_adds_scenarios_and_reaches_the_reviewer():
 
 
 def test_disabling_the_adversary_leaves_the_authored_plan_untouched():
-    """The escape hatch has to be real: off means the pre-adversary behavior, exactly."""
+    """The escape hatch has to be real: off means the pre-adversary PLAN, exactly.
+
+    "Exactly" is about the plan, not about silence. This used to assert that
+    `[plan-adversary]` never appeared at all, and that silence was the defect:
+    a disabled adversary left no trace anywhere, so a reviewer approving the
+    plan could not tell it had gone unchallenged. The substantive guarantees --
+    no adversary contract, the authored scenarios untouched, exit 0 -- are what
+    the escape hatch actually promises, and they are asserted below.
+    """
     r = _run([str(BASH), "engine/pipeline.sh", "plan", "PROJ-301"],
              env={**os.environ, "AIQE_MOCK": "1", "AIQE_PLAN_ADVERSARY": "0",
                   "AIQE_PHASE_CACHE": "0"})
     assert r.returncode == 0, r.stdout[-2000:]
-    assert "[plan-adversary]" not in r.stdout
+    # It may say it was DISABLED; it must never claim to have reviewed anything.
+    assert "DISABLED" in r.stdout
+    for claim in ("gap(s) raised", "no gaps found", "accepted"):
+        assert claim not in r.stdout, \
+            f"a disabled adversary reported {claim!r}"
     assert not (ROOT / "out/planadversary.contract.json").exists()
     contract = json.loads((plan_state.DIR / "PROJ-301.contract.json")
                           .read_text(encoding="utf-8"))
