@@ -276,13 +276,28 @@ def report(days=None, keys=None):
     for name, ph in by_phase.items():
         turns = ph.pop("turns")
         measured = ph.pop("measured_costs")
-        ph["turns_p50"] = _pct(turns, 0.50)
-        ph["turns_p95"] = _pct(turns, 0.95)
+        # None means NOT OBSERVED, and it is a different fact from a measured
+        # zero (C13). `turns_used` is absent from every simulated spend row, so
+        # `0/0` claimed a phase runs no turns — which is what an operator reads
+        # before cutting its ceiling.
+        ph["turns_p50"] = _pct(turns, 0.50) if turns else None
+        ph["turns_p95"] = _pct(turns, 0.95) if turns else None
         ph["suggested_max_turns"] = (min(ph["max_turns"], ph["turns_p95"] + 2)
                                      if turns and ph["max_turns"] else ph["max_turns"])
         ph["median_measured_cost"] = _pct(measured, 0.5) if measured else None
+        # Same rule for the hit rate, and here it drives an ALARM. With no token
+        # counts at all `denom` is 0, and reporting 0.0 put a phase nobody
+        # measured beside a phase whose prefix genuinely stopped being cached —
+        # the one distinction this column exists to make. Worse, the 4.2 floor
+        # then flags every such phase BELOW FLOOR and names a fix (a
+        # prefix-breaking prompt edit, a model-tier change) for a phase where no
+        # token was ever counted. `make cache-probe` already refuses mock mode
+        # with exit 2, "Nothing was measured" — this is that answer in the
+        # report. A genuine 0% (input tokens seen, none of them cache reads) is
+        # still 0% and must still flag.
         denom = ph["input_tokens"] + ph["cache_read_tokens"]
-        ph["cache_hit_rate"] = round(ph["cache_read_tokens"] / denom, 3) if denom else 0.0
+        ph["cache_hit_rate"] = (round(ph["cache_read_tokens"] / denom, 3)
+                                if denom else None)
         ph["cost_usd"] = round(ph["cost_usd"], 4)
 
     # Phase-cache savings: hits x that phase's MEDIAN MEASURED cost. Without a
@@ -436,13 +451,29 @@ def to_markdown(rep):
         lines.append("phase | calls | cost | in-tok | cache-read | hit-rate | "
                      "turns p50/p95 | ceiling | suggested")
         lines.append("---|---|---|---|---|---|---|---|---")
+        unobserved = []
         for k, v in sorted(rep["by_phase"].items()):
-            flag = " (BELOW FLOOR)" if floor and v["cache_hit_rate"] < floor else ""
+            rate = v["cache_hit_rate"]
+            if rate is None:
+                unobserved.append(k)
+                rate_cell = "n/a"
+            else:
+                flag = " (BELOW FLOOR)" if floor and rate < floor else ""
+                rate_cell = f"{rate:.0%}{flag}"
+            turns_cell = ("n/a" if v["turns_p50"] is None
+                          else f"{v['turns_p50']}/{v['turns_p95']}")
             lines.append(f"{k} | {v['calls']} | ${v['cost_usd']:.4f} | "
                          f"{v['input_tokens']} | {v['cache_read_tokens']} | "
-                         f"{v['cache_hit_rate']:.0%}{flag} | "
-                         f"{v['turns_p50']}/{v['turns_p95']} | {v['max_turns']} | "
+                         f"{rate_cell} | {turns_cell} | {v['max_turns']} | "
                          f"{v['suggested_max_turns']}")
+        if unobserved:
+            lines.append("")
+            lines.append(f"> `n/a` is UNMEASURED, not 0%: {len(unobserved)} "
+                         f"phase(s) ({', '.join(unobserved)}) recorded no token "
+                         f"counts, so no hit rate can be computed and the "
+                         f"`budgets.min_cache_hit_rate` floor cannot be applied "
+                         f"to them. Measure it with `make cache-probe` (needs "
+                         f"real provider auth — it refuses mock mode).")
         lines.append("")
     if rep["by_model"]:
         lines.append("## By model tier")

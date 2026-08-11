@@ -313,6 +313,20 @@ public per-block cache-control flag on the CLI. So the story splits:
 (org-config `budgets.min_cache_hit_rate`, default 0 = off) flags in 1.4's
 notification. **Pin**: synthetic ledger rows produce the expected rate.
 
+**`None` means UNMEASURED, and it is not 0%** (C13). With no token counts at
+all the denominator is 0 — which is every simulated estate, since a mock spend
+row carries `input_tokens: 0` and no `turns_used`. Reporting 0.0 there put a
+phase nobody measured beside a phase whose prefix genuinely stopped being
+cached, the one distinction this column exists to make, and the floor then
+flagged all of them `(BELOW FLOOR)` while naming a fix (a prefix-breaking
+prompt edit, a model-tier change) for a phase where no token was ever counted.
+Both renderers print `n/a`, the floor is not applied, and the table carries a
+note naming `make cache-probe` — which already gives the same answer from the
+other side, refusing mock mode with exit 2, "Nothing was measured". A genuine
+0% (input tokens observed, none of them cache reads) is still 0% and still
+flags. `turns_p50/p95` follow the same rule. **Pins**:
+`test_unmeasured_cache_rate.py`.
+
 ---
 
 ## Epic 5 — Spend controls

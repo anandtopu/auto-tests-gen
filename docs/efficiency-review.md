@@ -77,6 +77,12 @@ honest statement is: the shape is cache-friendly by construction, the hit rate
 is unmeasured, and `budgets.min_cache_hit_rate` will flag it per phase the day
 real numbers flow.
 
+`make cost-report` now says the same thing rather than contradicting it. It
+used to print `0%` per phase — this paragraph and the table one command apart,
+one honest and one not — and the floor flagged every unmeasured phase `(BELOW
+FLOOR)`. Unmeasured renders `n/a`, the floor is not applied to it, and a
+genuine 0% still flags (`test_unmeasured_cache_rate.py`).
+
 ## 4. Result reuse (the cache that skips the model entirely) — HELD
 
 * **Phase cache** (`phase_cache.py`) — content-addressed on

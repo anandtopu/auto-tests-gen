@@ -2611,8 +2611,16 @@ async function refreshCost() {
     if (pt) pt.innerHTML = Object.entries(d.by_phase || {}).sort().map(([k, v]) =>
       '<tr><td class="mono sm">' + escHtml(k) + '</td><td>' + v.calls + '</td>' +
       '<td>$' + v.cost_usd.toFixed(4) + '</td><td>' + v.input_tokens + '</td>' +
-      '<td>' + v.cache_read_tokens + '</td><td>' + Math.round(v.cache_hit_rate * 100) + '%</td>' +
-      '<td>' + v.turns_p50 + '/' + v.turns_p95 + '</td><td>' + v.max_turns + '</td>' +
+      // null is UNMEASURED (no token/turn counts recorded), not a measured
+      // zero — rendering 0% here said the cache never hit on a phase nothing
+      // ever counted, and this view carries no BELOW FLOOR flag to qualify it.
+      '<td>' + v.cache_read_tokens + '</td><td>' +
+        (v.cache_hit_rate === null || v.cache_hit_rate === undefined
+          ? '<span class="muted" title="no token counts recorded — run make cache-probe">n/a</span>'
+          : Math.round(v.cache_hit_rate * 100) + '%') + '</td>' +
+      '<td>' + (v.turns_p50 === null || v.turns_p50 === undefined
+          ? '<span class="muted">n/a</span>'
+          : v.turns_p50 + '/' + v.turns_p95) + '</td><td>' + v.max_turns + '</td>' +
       '<td>' + v.suggested_max_turns + '</td></tr>').join('') ||
       '<tr><td colspan="9"><div class="empty">No spend recorded yet.</div></td></tr>';
     const pt2 = document.querySelector('#cost-provider-table tbody');
