@@ -137,3 +137,53 @@ def test_both_paths_still_exit_nonzero(capsys, monkeypatch):
         monkeypatch.setattr(trace_matrix, "build", lambda key, _r=rows: _r)
         assert spec_verify.main(["K-1"]) != 0
         capsys.readouterr()
+
+
+# ------------------------------------------- the approvals store is not scratch
+
+def test_verifying_an_unknown_key_creates_no_plan_entry(tmp_path, monkeypatch):
+    """`spec-verify` ANNOTATES a plan; it must never invent one.
+
+    The attach was `state.get(key, {"history": []})` followed by
+    `state[key] = e`, so any key handed to the command became a plan entry.
+    Measured while driving it: `spec-verify KEY=ZZ-NOTHING-1` wrote
+    `{"history": [], "verification_run": {...}}` into the estate's plan state
+    for a ticket that does not exist -- and `make plans` and the Test plans
+    view would list it as real.
+
+    PR-path keys legitimately have no plan, so "no entry" is a normal state,
+    not an error to paper over.
+    """
+    import plan_state
+    plans = tmp_path / "plans"
+    plans.mkdir()
+    monkeypatch.setattr(plan_state, "DIR", plans)
+    monkeypatch.setattr(plan_state, "FILE", plans / "state.json")
+    # `_tests_for` returns NOTHING, which is the shape the real defect had:
+    # ZZ-NOTHING-1 has no cataloged tests and still got an entry. An earlier
+    # version of this test returned a repo instead, so verify() went down the
+    # clone path, never reached the attach, and PASSED with the guard removed
+    # -- a pin that could not see the bug it was written for.
+    monkeypatch.setattr(spec_verify, "_tests_for", lambda key: {})
+    spec_verify.verify("ZZ-NOTHING-1")
+    assert not (plans / "state.json").exists() or \
+        "ZZ-NOTHING-1" not in json.loads(
+            (plans / "state.json").read_text(encoding="utf-8")), \
+        "a key with no plan was given one"
+
+
+def test_an_existing_plan_still_gets_its_verification_run(tmp_path, monkeypatch):
+    """The fix must not disable the feature: a real plan is still annotated."""
+    import plan_state
+    plans = tmp_path / "plans"
+    plans.mkdir()
+    (plans / "state.json").write_text(
+        json.dumps({"PROJ-9": {"status": "approved", "history": []}}),
+        encoding="utf-8")
+    monkeypatch.setattr(plan_state, "DIR", plans)
+    monkeypatch.setattr(plan_state, "FILE", plans / "state.json")
+    monkeypatch.setattr(spec_verify, "_tests_for", lambda key: {})
+    spec_verify.verify("PROJ-9")
+    entry = json.loads((plans / "state.json").read_text(encoding="utf-8"))["PROJ-9"]
+    assert "verification_run" in entry, "an existing plan lost its annotation"
+    assert entry["status"] == "approved", "the annotation overwrote plan state"

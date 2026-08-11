@@ -128,7 +128,22 @@ def verify(key):
         import plan_state
         with fs_lock.lock(plan_state.FILE):
             state = plan_state.load()
-            e = state.get(key, {"history": []})
+            if key not in state:
+                # ANNOTATE an existing plan; never invent one. This was
+                # `state.get(key, {"history": []})` followed by
+                # `state[key] = e`, so any key handed to spec-verify became a
+                # plan entry. Measured: `spec-verify KEY=ZZ-NOTHING-1` wrote
+                # `{"history": [], "verification_run": ...}` for a ticket that
+                # does not exist, and `make plans` and the Test plans view
+                # would then list it as a real plan.
+                #
+                # Skipping silently is right here: `verification_run` is
+                # information ABOUT a plan, so having none is nothing to
+                # report, whereas fabricating one is a claim. PR-path keys
+                # legitimately have no plan at all, and a phantom entry for
+                # every PR someone verified would be the worse outcome.
+                return results
+            e = state[key]
             # An overall "passed" only when something actually ran AND
             # everything that ran passed. If any repo was unverifiable the
             # answer is None: reporting True would claim coverage nobody
