@@ -37,6 +37,36 @@ def _has_measured_spend(run):
 def pct(x):
     return f"{x:.0%}"
 
+
+def commit_rate_line(runs):
+    """The commit-rate sentence, with check-only runs excluded and NAMED.
+
+    A `would_commit` run passed every gate check and was told not to push
+    (AIQE_GATE_CHECK_ONLY). It is not evidence about whether the gate would
+    commit, so counting it in the denominator reports an operator's dry-run
+    flag as a quality problem — the same error this scorecard already made once
+    by counting a fixture repo's quarantine.
+
+    Excluded and SAID, never dropped quietly: a denominator that shrinks with
+    no explanation is its own lie. Extracted from the main body so the rule is
+    mutation-testable against fabricated runs rather than only against whatever
+    the estate happens to contain today.
+    """
+    committed = sum(1 for r in runs if r.get("overall") == "committed")
+    quarantined = sum(1 for r in runs if r.get("overall") == "quarantined")
+    review_refused = sum(1 for r in runs if r.get("overall") == "review_refused")
+    withheld = sum(1 for r in runs if r.get("overall") == "would_commit")
+    scored = len(runs) - withheld
+    if not scored:
+        return (f"Commit rate: n/a — all {len(runs)} run(s) ran with the gate in "
+                f"check-only mode (AIQE_GATE_CHECK_ONLY), which commits nothing "
+                f"by design. Unset it to measure.")
+    return (f"Commit rate: {pct(committed / scored)} of {scored} runs "
+            f"({quarantined} quarantined, {review_refused} review-refused)"
+            + (f"; {withheld} excluded: the gate ran in check-only mode "
+               f"(AIQE_GATE_CHECK_ONLY), so they say nothing about commit rate"
+               if withheld else ""))
+
 # --- routing accuracy (benchmark replays) ---------------------------------------
 # Only a row carrying routing_ok is a replay result. Eval outputs share this
 # directory and A5 adds another one; name-based exclusions drift at every slice.
@@ -148,11 +178,7 @@ for f in glob.glob(str(ROOT / "reports/runs/*.json")):
     except (json.JSONDecodeError, OSError):
         pass
 if runs:
-    committed = sum(1 for r in runs if r.get("overall") == "committed")
-    quarantined = sum(1 for r in runs if r.get("overall") == "quarantined")
-    review_refused = sum(1 for r in runs if r.get("overall") == "review_refused")
-    print(f"Commit rate: {pct(committed / len(runs))} of {len(runs)} runs "
-          f"({quarantined} quarantined, {review_refused} review-refused)")
+    print(commit_rate_line(runs))
     loops, validated, created, updated = [], 0, 0, 0
     sim_actions = 0            # generated tests from runs that were SIMULATED
     for r in runs:

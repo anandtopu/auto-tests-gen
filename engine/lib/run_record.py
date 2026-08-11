@@ -117,6 +117,11 @@ overall = ("review_refused" if delivery and delivery["outcome"] == "refused"
            else "quarantined" if any(g["status"] in ("quarantined", "clone_failed")
                                 for g in gates)
            else "committed" if any(g["status"] == "committed" for g in gates)
+           # Ranked ABOVE no_changes and below committed: work that passed every
+           # check and was withheld is not work that did not exist. A run with
+           # one repo committed and another check-only is still `committed`, so
+           # this only speaks for runs where nothing was pushed at all.
+           else "would_commit" if any(g["status"] == "would_commit" for g in gates)
            else "no_changes")
 # Advisory critic score lifted to the top level so the scorecard and dashboard don't
 # have to dig through phases[]. `overall` is gate-derived except for B3's explicit

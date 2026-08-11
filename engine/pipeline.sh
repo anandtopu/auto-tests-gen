@@ -1185,6 +1185,18 @@ for name in "${GATE_NAMES[@]}"; do
     EV gate.committed "$name" ok "key=$KEY sha=$SHA"
     # Archive the generated-test commit as a reviewable diff (workspace is ephemeral)
     git -C "$t" show HEAD > "reports/runs/${RUN_ID}-${name}.diff" 2>/dev/null || true
+  elif [ $GRC -eq 0 ] && echo "$GOUT" | grep -q "GATE_STATUS=WOULD_COMMIT"; then
+    # CHECK-ONLY. Every check passed and the gate was TOLD not to push, which is
+    # the opposite of "there was nothing worth pushing" -- and this branch used
+    # to record it as `no_changes`, because the gate exits 0 either way.
+    # Reproduced before fixing: a full mock run with AIQE_GATE_CHECK_ONLY=1
+    # produced overall=no_changes with both gates no_changes, so the permanent
+    # record said the run produced nothing while the tests sat ready.
+    # pipeline.sh never SETS the flag, but it never clears it either, so an
+    # operator who left it in .env gets this on every run.
+    SUMMARY+=$'\n'"- ${name}: would commit (checks passed; AIQE_GATE_CHECK_ONLY is set, so nothing was pushed)"
+    ST=would_commit
+    EV gate.would_commit "$name" ok "key=$KEY"
   elif [ $GRC -eq 0 ]; then
     SUMMARY+=$'\n'"- ${name}: no changes ➖"; ST=no_changes
     EV gate.no_changes "$name" ok "key=$KEY"
