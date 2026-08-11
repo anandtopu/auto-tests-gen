@@ -602,6 +602,26 @@ def load(path=None):
         return None
 
 
+def _absence_reason(rows):
+    """Why nothing was reviewed, read off the per-repo rows the merge kept.
+
+    The rows already carry a reason for every non-reviewed state; nothing
+    surfaced them, so the information existed and never reached a reader. An
+    empty row list is its own answer -- the reviewer was asked about no
+    repository at all -- and must not be reported as "nothing needed review".
+    """
+    reasons = []
+    for row in rows or []:
+        text = (row or {}).get("reason") if isinstance(row, dict) else None
+        if text:
+            text = str(text).replace("\r", " ").replace("\n", " ").strip()
+        if text and text not in reasons:
+            reasons.append(text)
+    if not reasons:
+        return "no repository reported work to review"
+    return "; ".join(reasons[:3])[:MAX_TEXT]
+
+
 def surface(signal=None, cfg=None, policy=None, assume_enabled=None):
     """Return B4's durable, run-scoped reviewer snapshot."""
     cfg = cfg or config()
@@ -635,7 +655,7 @@ def surface(signal=None, cfg=None, policy=None, assume_enabled=None):
     verdict = signal["verdict"]
     if verdict == "approve" and unresolved:
         verdict = "needs_work"
-    return {
+    snapshot = {
         "state": signal["state"], "verdict": verdict,
         "findings": unresolved if unresolved else findings, "loops": loops,
         "unresolved": unresolved,
@@ -643,6 +663,14 @@ def surface(signal=None, cfg=None, policy=None, assume_enabled=None):
         "simulated": signal["simulated"],
         **({"iterations": repair["iterations"]} if repair else {}),
     }
+    # The signal-is-None branch above names WHY nothing was reviewed; this one
+    # did not, so a reviewer that ran and found no repository to look at was
+    # indistinguishable from one that is switched off. Both render "skipped"
+    # and a reader acts on the difference: one is a config choice to revisit,
+    # the other an established negative about this run (C13).
+    if verdict in ("skipped", "unavailable"):
+        snapshot["reason"] = _absence_reason(signal["repos"])
+    return snapshot
 
 
 def delivery(signal=None, cfg=None, assume_enabled=None):
@@ -769,7 +797,18 @@ def summary_line(value):
                .replace("\r", " ").replace("\n", " ")[:32])
     policy = (str(value.get("policy") or "not_recorded")
               .replace("\r", " ").replace("\n", " ")[:32])
-    return (f"agent review: {verdict} — "
+    # This line is posted on the PR a human decides to merge from. Unqualified,
+    # "skipped -- 0 finding(s) ... policy: warn" reads as a reviewer that looked
+    # and had nothing to say; the reviewer may never have run at all. The counts
+    # that follow are all zero either way, so the qualifier is the only thing
+    # that separates "nothing was wrong" from "nothing was checked" (C13).
+    qualifier = ""
+    if verdict in ("skipped", "unavailable"):
+        reason = value.get("reason")
+        reason = (str(reason).replace("\r", " ").replace("\n", " ").strip()[:120]
+                  if reason else "")
+        qualifier = f" ({reason})" if reason else " (reason not recorded)"
+    return (f"agent review: {verdict}{qualifier} — "
             f"{len(findings)} finding(s), {len(unresolved)} unresolved, "
             f"{loops} repair loop(s); policy: {policy}")
 

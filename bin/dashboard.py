@@ -1170,6 +1170,10 @@ label.stack { display:flex; flex-direction:column; gap:4px; font-size:12px; colo
 .wz-steps li.done::before { content:"✓"; background:#16a34a22; color:#16a34a; }
 .wz-steps li.running::before { content:"◐"; background:#2563eb22; color:#2563eb; }
 .wz-steps li.blocked::before { content:"!"; background:#d9770622; color:#d97706; }
+/* A step that will NOT happen for this run (a disabled reviewer). Deliberately
+   not the ✓ — it did not complete — and not the number, which reads as "still
+   to come". */
+.wz-steps li.skipped::before { content:"–"; background:#64748b22; color:#64748b; }
 .wz-steps li.failed::before { content:"✗"; background:#dc262622; color:#dc2626; }
 .wz-steps .wz-lb { font-weight:600; font-size:13px; }
 .wz-steps .wz-dt { font-size:12px; color:var(--sr-fg-muted); }

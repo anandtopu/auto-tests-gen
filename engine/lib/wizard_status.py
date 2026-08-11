@@ -61,7 +61,9 @@ def _step(state, label, detail="", action=None):
 def build(key, mode="pr"):
     """Stage list + a terminal flag for the given key.
 
-    state per step: pending | running | done | blocked | failed
+    state per step: pending | running | done | skipped | blocked | failed
+    (`skipped` = this step will not happen for this run — a disabled reviewer,
+    say. It is NOT `pending`, which promises it still might, and NOT `done`.)
     `busy` True means the wizard should keep polling.
     """
     import plan_state, review_state, spec_store, spec_workflow
@@ -214,10 +216,22 @@ def build(key, mode="pr"):
     if isinstance(agent_review, dict):
         findings = agent_review.get("findings") or []
         unresolved = agent_review.get("unresolved") or []
+        verdict = agent_review.get("verdict", "unavailable")
+        # A reviewer that never ran is not a step that completed. `done` puts a
+        # green tick on "Agent review" for a key whose reviewer is switched off,
+        # which is the one reading this ladder exists to prevent — the same
+        # shape as the plan-first coherence defect already recorded here. The
+        # reason travels with it, because "skipped" alone sends a reader looking
+        # for findings that were never sought (C13).
+        absent = verdict in ("skipped", "unavailable")
+        reason = agent_review.get("reason")
         steps.append(_step(
-            "failed" if review_refused else "done", "Agent review",
-            f"{agent_review.get('verdict', 'unavailable')} · {len(findings)} finding(s) · "
+            "failed" if review_refused else ("skipped" if absent else "done"),
+            "Agent review",
+            f"{verdict} · {len(findings)} finding(s) · "
             f"{len(unresolved)} unresolved · policy {agent_review.get('policy', 'not recorded')}"
+            + (f" · {reason}" if absent and reason else
+               " · reason not recorded" if absent else "")
         ))
     elif tests_pending:
         steps.append(_step("pending", "Agent review", "waiting for generated tests"))

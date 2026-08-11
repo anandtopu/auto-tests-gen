@@ -437,6 +437,7 @@ def cmd_reviews(args):
     order = {"pending_review": 0, "in_review": 1, "changes_requested": 2, "approved": 3}
     print(f"{'key':<22} {'status':<18} {'agent review':<18} {'release':<10} {'assigned':<12} "
           f"{'reviewer':<14} {'updated':<17} note")
+    absent = {}
     for key, e in sorted(data.items(), key=lambda kv: (order.get(kv[1].get("status"), 9), kv[0])):
         # An entry can exist without ever having been reviewed — `set_release`
         # records a target version before any status transition, so `updated` is
@@ -448,10 +449,21 @@ def cmd_reviews(args):
         agent_text = agent.get("verdict") or "-"
         if agent.get("unresolved"):
             agent_text += f" ({len(agent['unresolved'])})"
+        elif agent.get("verdict") in ("skipped", "unavailable"):
+            # The column is too narrow to carry the reason, and dropping it
+            # made a reviewer that is switched off look like one that ran and
+            # approved of everything it saw. Collected into a footnote instead,
+            # grouped by reason so the fix is named once (C13).
+            absent.setdefault(agent.get("reason") or "reason not recorded",
+                              []).append(key)
         print(f"{key:<22} {e.get('status') or '-':<18} {agent_text:<18} "
               f"{e.get('release') or '-':<10} "
               f"{e.get('assigned_to') or '-':<12} "
               f"{e.get('reviewer') or '-':<14} {ts:<17} {e.get('note', '')[:50]}")
+    for reason, keys in sorted(absent.items()):
+        shown = ", ".join(keys[:6]) + (f" (+{len(keys) - 6})" if len(keys) > 6 else "")
+        print(f"\nNOTE - no agent review for {len(keys)} key(s): {reason}")
+        print(f"       {shown}")
     pending = sum(1 for e in data.values() if e["status"] in ("pending_review", "in_review"))
     print(f"\n{pending} awaiting review. Transition: bin/qa.py mark <KEY> "
           f"{'|'.join(review_state.VALID)} [--by NAME] [--note TEXT]")
