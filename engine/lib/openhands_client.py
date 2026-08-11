@@ -163,6 +163,7 @@ def health():
     candidates = [override] if override else list(_HEALTH_CANDIDATES)
     h = _headers(api_key)
 
+    last_err = ""
     for path in candidates:
         code, _, err = _request("GET", base + path, h)
         if err is None or (code is not None and code < 500):
@@ -174,8 +175,36 @@ def health():
             return {"reachable": reachable, "http_code": code,
                     "error": "" if reachable else (err or f"HTTP {code}"),
                     "hint": hint, "endpoint": base + path}
+        last_err = err or f"HTTP {code}"
+        if code is None:
+            # NO HTTP RESPONSE AT ALL: refused, unroutable, DNS failure or
+            # timeout. Another PATH on the same host:port cannot answer when
+            # the connection itself did not happen, so trying the rest only
+            # multiplies the wait. Measured against a closed local port:
+            # 4 x 2.07s = 8.3s of identical WinError 10061, and against an
+            # unroutable host it is 4 x TIMEOUT = up to 60s -- paid by
+            # `check-integrations` (whose exit code is a CI contract), by the
+            # dashboard's health endpoint (which blocks a request thread), and
+            # by the LLM provider adapter.
+            #
+            # The candidate list exists for the case where the server ANSWERS
+            # but that route is not the right one, and that case already
+            # returns above on any code < 500. So the remaining reason to keep
+            # going is a 5xx, which means the server IS there.
+            #
+            # THE TRADE-OFF, stated rather than hidden: a server that accepts
+            # TCP but hangs on exactly the first candidate is now reported
+            # unreachable instead of being rescued by a later path. That is the
+            # deliberate choice for a probe whose whole job is answering "is
+            # this optional system present?" -- an absent one must be cheap to
+            # discover. OPENHANDS_HEALTH_PATH pins the path if a deployment
+            # needs a specific one.
+            break
     return {"reachable": False, "http_code": None,
-            "error": f"no response from {base} on any health path",
+            # Report what actually happened. "no response on any health path"
+            # was misleading even before this change (every attempt had failed
+            # identically) and would be simply untrue now that we stop at one.
+            "error": last_err or f"no response from {base}",
             "hint": "check OPENHANDS_URL, network connectivity and OPENHANDS_HEALTH_PATH"}
 
 
