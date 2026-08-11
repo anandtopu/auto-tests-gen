@@ -65,6 +65,18 @@ reports/events.db
 reports/runs/[0-9]*.json
 reports/runs/[0-9]*.diff
 
+# ...and here is that "next state file somebody adds there", exactly as the
+# comment above predicted. `testcase-provenance.jsonl` (engine/lib/
+# testcase_learning.py) is an append-only provenance log: runtime state, not
+# source. It was neither tracked nor ignored, so it sat invisible until a
+# `git add -A` swept it into a commit — which is how it was found. Ignored BY
+# NAME for the same reason the run records are: a blanket
+# `reports/runs/*.jsonl` would swallow the file after this one too.
+# The state bundle still carries it (reports/runs is a bundle include), so
+# ignoring it here loses nothing an operator needs — same treatment as the run
+# records themselves.
+reports/runs/testcase-provenance.jsonl
+
 # Durable spend ledger entries. Match generated run ids by name shape so a
 # future named policy/state file under reports/costs remains visible to git.
 reports/costs/[0-9]*.json
