@@ -95,8 +95,12 @@ def test_queue_warning_uses_and_explains_the_effective_envelope(monkeypatch):
     monkeypatch.setattr(
         cost_report, "report",
         lambda days=None: {
+            # measured_usd mirrors cost_usd here: this test is about the
+            # review-adjusted CAP, not about the basis. The warning now
+            # weighs measured spend, because a simulated history was
+            # predicting that real runs would degrade.
             "by_key_top10": [{"key": "PR-orders-api-9", "runs": 2,
-                              "cost_usd": 2.00}]
+                              "cost_usd": 2.00, "measured_usd": 2.00}]
         },
     )
     assert work_queue._envelope_warning("pr", "orders-api", "9") == "", (
@@ -107,7 +111,7 @@ def test_queue_warning_uses_and_explains_the_effective_envelope(monkeypatch):
         cost_report, "report",
         lambda days=None: {
             "by_key_top10": [{"key": "PR-orders-api-9", "runs": 2,
-                              "cost_usd": 2.50}]
+                              "cost_usd": 2.50, "measured_usd": 2.50}]
         },
     )
     warning = work_queue._envelope_warning("pr", "orders-api", "9")

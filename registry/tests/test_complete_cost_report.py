@@ -42,8 +42,13 @@ def test_report_separates_tasks_probes_embeddings_and_unmeterable(tmp_path, monk
     report = cost_report.report(days=7)
     assert report["runs"] == 2
     assert report["total_cost_usd"] == 0.12
+    # measured_usd rides alongside cost_usd: work_queue's envelope warning
+    # predicts what a REAL run will do, and comparing the total meant a
+    # simulated history warned about real spend. Here the fixture's spend IS
+    # measured, so the two agree -- which is the useful thing to assert.
     assert report["by_key_top10"] == [{"key": "PROJ-1", "runs": 2,
-                                        "cost_usd": 0.12}]
+                                        "cost_usd": 0.12,
+                                        "measured_usd": 0.12}]
     assert report["probe"]["calls"] == 1
     assert report["probe"]["costs_by_basis"] == {"reported": 0.03}
     assert report["unmeterable"] == {"phases": 1, "tasks": 1,
