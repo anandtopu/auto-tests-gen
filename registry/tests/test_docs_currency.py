@@ -327,6 +327,33 @@ def test_the_gate_exit_code_table_matches_the_gate():
         f"which gate.sh never emits")
 
 
+def test_every_gate_status_the_gate_emits_appears_in_the_flow_diagram():
+    """The diagram is how anyone learns the gate's shape, and it showed only
+    COMMITTED and NO_CHANGES.
+
+    WOULD_COMMIT (AIQE_GATE_CHECK_ONLY) was missing: a whole exit path -- every
+    check passes, nothing is pushed -- with no node. Nothing caught it, because
+    the exit-code scrape above pins CODES and this state exits 0 like the
+    others. Same scrape, applied to the status vocabulary.
+
+    SCOPE IS DELIBERATE: this pins the STATUS VOCABULARY, not the diagram's
+    shape. A mutation deleting an ordinary node (the post-test re-check)
+    survives, and that is correct -- pinning every box would make any honest
+    redraw a build failure. The vocabulary earns a pin because it is finite,
+    scraped from source, and it is the part that went stale.
+    """
+    import re
+    gate = _read("engine/gate/gate.sh")
+    emitted = set(re.findall(r"GATE_STATUS=([A-Z_]+)", gate))
+    assert len(emitted) >= 3,         f"only found {sorted(emitted)} in gate.sh; the scrape broke"
+
+    diagram = _read("docs/diagrams.md")
+    missing = sorted(s for s in emitted if s not in diagram)
+    assert not missing, (
+        f"gate.sh emits GATE_STATUS={missing} and no diagram shows that path; "
+        f"a reader learns the gate's shape from the picture")
+
+
 def test_the_writable_scope_in_the_docs_is_the_gates_own():
     """The security-relevant half of the table above, pinned separately because
     it is the one an operator could act on. If the doc says a directory is

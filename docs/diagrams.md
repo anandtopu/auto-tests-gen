@@ -169,7 +169,11 @@ flowchart TD
     RUN -- fail --> E5["exit 5 TESTS_FAILED<br/>(log → reports/, NOT committed)"]
     RUN -- pass --> T3{secret / PII patterns<br/>in new content?}
     T3 -- yes --> E3["exit 3 SECRET_PATTERN"]
-    T3 -- no --> CP["git commit"]
+    T3 -- no --> CO{"AIQE_GATE_CHECK_ONLY?"}
+    CO -- yes --> OKW(["exit 0 · GATE_STATUS=WOULD_COMMIT<br/>(every check above ran;<br/>nothing committed or pushed)"])
+    CO -- no --> RC{"re-check scope + born-mapped<br/>against the tree about to be committed"}
+    RC -- violation --> E2c["exit 2 / exit 4<br/>(a path appeared DURING<br/>test execution)"]
+    RC -- ok --> CP["git commit"]
     CP --> PUSH{remote configured?}
     PUSH -- yes, push ok --> OK(["exit 0 · GATE_STATUS=COMMITTED sha"])
     PUSH -- no remote (demo) --> OK
