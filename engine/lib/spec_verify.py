@@ -47,6 +47,32 @@ def _tests_for(key):
     return {k: sorted(set(v)) for k, v in out.items() if k}
 
 
+def _committed_elsewhere(key):
+    """[(test_repo, file)] this key's tests that ARE committed but uncataloged.
+
+    Total by construction: this only ever improves an error message, so a
+    trace-matrix failure must degrade to the plainer wording rather than take
+    down a command the operator ran to diagnose something else.
+    """
+    try:
+        import trace_matrix
+        rows = trace_matrix.build(key)
+        rows = rows.get("rows", []) if isinstance(rows, dict) else (rows or [])
+    except Exception:                                            # noqa: BLE001
+        return []
+    known = {(r, f) for r, files in _tests_for(key).items() for f in files}
+    out = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        repo = (row.get("test_repo") or "").strip()
+        f = (row.get("file") or "").strip()
+        if repo and f and row.get("gate_status") == "committed" \
+                and (repo, f) not in known:
+            out.append((repo, f))
+    return sorted(set(out))
+
+
 def verify(key):
     """{repo: {passed, log}} — read-only throughout.
 
@@ -130,7 +156,26 @@ def main(argv):
     key = argv[0]
     results = verify(key)
     if not results:
-        print(f"spec-verify {key}: no cataloged tests map to this key")
+        # "No cataloged tests" conflated two situations with opposite fixes:
+        # nothing was ever generated for this key, and tests exist AND ARE
+        # COMMITTED but the estate catalog has no entry for them. Measured on
+        # this estate: PROJ-301-S1 is committed at c1bbffc in e2e-api-tests-1 --
+        # generated and pushed by this platform -- while `catalog/*.jsonl` has
+        # no row for it, so this printed "no cataloged tests" about a key whose
+        # test it had just shipped. The run records already know; ask them.
+        committed = _committed_elsewhere(key)
+        if committed:
+            print(f"spec-verify {key}: NOT VERIFIED — {len(committed)} test(s) "
+                  f"for this key are committed but absent from the estate "
+                  f"catalog, and this command runs cataloged tests only:")
+            for repo, f in committed:
+                print(f"  {repo}: {f}")
+            print(f"  Refresh the catalog (`make bootstrap REPO=<repo>`), then "
+                  f"re-run. This is a stale catalog, NOT a missing test.")
+        else:
+            print(f"spec-verify {key}: no cataloged tests map to this key, and "
+                  f"no run record shows one committed either — nothing has been "
+                  f"generated for it yet")
         return 1
     failed = unverified = False
     for repo, v in results.items():
