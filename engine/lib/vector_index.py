@@ -45,7 +45,13 @@ SPEND = DB.parent / "embed-spend.json"
 
 DDL = """CREATE TABLE IF NOT EXISTS vectors (
   chunk_id TEXT PRIMARY KEY, sha256 TEXT, kind TEXT, repo TEXT,
-  dims INT, vec BLOB, updated REAL)"""
+  dims INT, vec BLOB, updated REAL, model TEXT)"""
+
+# Rows written before `model` existed carry NULL. That is NOT "a row from
+# another model" — it is a row whose model we cannot establish (C13), and the
+# only safe reading is that it is unusable. Both get re-embedded; they are
+# COUNTED separately so the refresh can say which happened.
+UNKNOWN_MODEL = None
 
 
 def _cfg():
@@ -66,6 +72,12 @@ def _unpack(blob, n):
 
 
 def _cos(a, b):
+    # zip() silently truncates to the shorter vector, so a 1536-dim query
+    # scored against a stale 64-dim row returned a perfectly plausible number
+    # over the first 64 components of an unrelated space. Belt to the model
+    # key's braces: incomparable vectors score nothing, they do not score badly.
+    if len(a) != len(b):
+        return 0.0
     dot = sum(x * y for x, y in zip(a, b))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(x * x for x in b))
@@ -77,6 +89,12 @@ def _connect():
     con = sqlite3.connect(DB)
     try:
         con.execute(DDL)
+        # Migrate an index created before the model column. ADD COLUMN leaves
+        # existing rows NULL, which is exactly right: their model is unknown,
+        # and refresh() re-embeds them once rather than trusting them.
+        cols = {r[1] for r in con.execute("PRAGMA table_info(vectors)")}
+        if "model" not in cols:
+            con.execute("ALTER TABLE vectors ADD COLUMN model TEXT")
     except sqlite3.Error:
         # Close BEFORE the caller quarantines: Windows refuses to rename a
         # file with an open handle, which would leave the corrupt db in place.
@@ -248,8 +266,8 @@ def refresh(force=False):
     con = None
     try:
         con = _connect()
-        have = {r[0]: r[1] for r in con.execute(
-            "SELECT chunk_id, sha256 FROM vectors")}
+        have = {r[0]: (r[1], r[2]) for r in con.execute(
+            "SELECT chunk_id, sha256, model FROM vectors")}
     except sqlite3.Error:
         if con is not None:
             try:
@@ -261,8 +279,25 @@ def refresh(force=False):
         have = {}
 
     wanted = {c["chunk_id"]: c for c in chunks}
-    stale = [c for c in chunks
-             if force or have.get(c["chunk_id"]) != c["sha256"]]
+    # A stored vector is usable only if its CONTENT is unchanged AND it came
+    # from the SAME model. Keying on content alone meant a model switch
+    # re-embedded nothing and reported a clean run — measured: rebuild at one
+    # width, change EMBED_DIMS, refresh returns embedded 0 / skipped 29 /
+    # stopped_reason "" while every row is still from the old space.
+    now_model = embeddings.identity()
+    changed_model = unknown_model = 0
+    stale = []
+    for c in chunks:
+        prior = have.get(c["chunk_id"])
+        if force or prior is None or prior[0] != c["sha256"]:
+            stale.append(c)
+            continue
+        if prior[1] != now_model:
+            stale.append(c)
+            if prior[1] is UNKNOWN_MODEL:
+                unknown_model += 1
+            else:
+                changed_model += 1
     gone = [cid for cid in have if cid not in wanted]
     embedded, stopped = 0, ""
 
@@ -285,16 +320,18 @@ def refresh(force=False):
         with con:
             for c, v in zip(batch, vecs):
                 con.execute(
-                    "REPLACE INTO vectors VALUES (?,?,?,?,?,?,?)",
+                    "REPLACE INTO vectors VALUES (?,?,?,?,?,?,?,?)",
                     (c["chunk_id"], c["sha256"], c["kind"], c["repo"],
-                     len(v), _pack(v), time.time()))
+                     len(v), _pack(v), time.time(), now_model))
         embedded += len(batch)
     with con:
         for cid in gone:
             con.execute("DELETE FROM vectors WHERE chunk_id=?", (cid,))
     con.close()
     return {"embedded": embedded, "skipped": len(chunks) - len(stale),
-            "deleted": len(gone), "stopped_reason": stopped}
+            "deleted": len(gone), "stopped_reason": stopped,
+            "model": now_model, "reembedded_model_changed": changed_model,
+            "reembedded_model_unknown": unknown_model}
 
 
 def _notify_once(msg):
@@ -345,8 +382,23 @@ def query(text, k=5, kind=None, repo=None):
     try:
         qv = embeddings.embed([text])[0]
         con = _connect()
-        sql, args = "SELECT chunk_id, kind, repo, dims, vec FROM vectors", []
-        conds = []
+        # Only rows from the CURRENT vector space are comparable with `qv`.
+        # A row from another model is not a weaker match, it is not a match at
+        # all -- and refresh() is already going to replace it. Filtering here
+        # means a partially-refreshed index (the daily embed cap stopped it)
+        # ranks the rows it can and leaves the rest to the TF-IDF fallback,
+        # which is what "queries fall back where vectors are missing" promises.
+        sql = "SELECT chunk_id, kind, repo, dims, vec FROM vectors"
+        # `=`, deliberately, NOT `IS`. A pre-migration row carries model NULL,
+        # which means we cannot establish which space its vector came from --
+        # and an unknown space is not this one (C13). Equality can never match
+        # NULL, so those rows drop out and the query falls back to TF-IDF.
+        # `IS` is the trap: it is NOT DISTINCT FROM, so the day identity() can
+        # return None (unconfigured, a future provider that cannot name itself)
+        # it would match exactly the NULL rows and rank vectors of unknown
+        # provenance -- the defect this whole model key exists to prevent. Two
+        # unknowns are not evidence of sameness. Pinned both ways.
+        conds, args = ["model = ?"], [embeddings.identity()]
         if kind:
             conds.append("kind=?")
             args.append(kind)
@@ -416,6 +468,21 @@ def main(argv):
         print(f"vector index: {r['embedded']} embedded, {r['skipped']} unchanged, "
               f"{r['deleted']} removed"
               + (f" — {r['stopped_reason']}" if r["stopped_reason"] else ""))
+        # Say WHY money was spent re-embedding chunks nobody edited. Silence
+        # here is how a one-off model switch reads as a runaway bill.
+        if r.get("reembedded_model_changed"):
+            print(f"  {r['reembedded_model_changed']} chunk(s) re-embedded "
+                  f"because the embedding model changed (now {r['model']}): "
+                  f"vectors from two models cannot be compared, so the old "
+                  f"ones were not reusable")
+        if r.get("reembedded_model_unknown"):
+            print(f"  {r['reembedded_model_unknown']} chunk(s) re-embedded "
+                  f"because the model that produced them was not recorded "
+                  f"(index predates model tracking) -- a one-off cost")
+        if r.get("model", "").startswith("mock-hash"):
+            print("  NOTE: these are deterministic HASH vectors (mock mode). "
+                  "They exercise the plumbing and carry no semantic meaning; "
+                  "set EMBED_URL and re-run for a real index.")
         return 0
     if cmd == "stats":
         s = stats()

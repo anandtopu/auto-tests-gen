@@ -49,6 +49,27 @@ retrieval quality.
 - Refresh embeds only changed chunks (sha-skip) and stops at
   `budgets.max_embed_usd_per_day` — the cost-saving layer cannot become its
   own runaway bill. Queries fall back to TF-IDF wherever vectors are missing.
+- **The skip key is content sha AND `embeddings.identity()`** (the model + width
+  that produced the vector, stored per row). Content alone was not enough:
+  chunk text does not change when an operator repoints `EMBED_MODEL`, so a model
+  switch re-embedded nothing and reported a clean run while every vector stayed
+  in the old space — and `query()` then scored the new model's vector against
+  them, which `_cos`'s `zip` silently truncated into a plausible, meaningless
+  number. Same reasoning as the phase cache keying on `PROVIDER:MODEL`. Queries
+  filter to the current identity, so a partial refresh ranks what it can and
+  leaves the rest to TF-IDF. A row predating model tracking has identity NULL —
+  unknown, not "another model" — and is re-embedded once, counted and reported
+  separately from a deliberate switch (`test_vector_model_identity.py`).
+- The identity deliberately excludes the endpoint: two gateways serving one
+  model produce one space, so keying on the host would re-embed the corpus for a
+  DNS change, and the value is written to a file and printed.
+- The query filter is `model = ?`, **never `model IS ?`**. SQLite's `IS` is
+  NOT DISTINCT FROM, so a NULL identity would match exactly the NULL-model rows
+  — ranking vectors of unknown provenance against a query of unknown provenance
+  and reading the agreement as a match. Two unknowns are not evidence of
+  sameness (C13); equality drops them and the query falls back to TF-IDF.
+  Equivalent today (the identity is never NULL on this path) and pinned anyway,
+  because the trap is one refactor away and silent when it springs.
 - A corrupt db is quarantined (`.corrupt-<ts>`) and rebuilt from chunks —
   derived data is regenerated, never repaired.
 - The index is excluded from state bundles; a new deployment rebuilds with

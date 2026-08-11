@@ -39,6 +39,34 @@ def configured():
     return _mock() or bool(os.environ.get("EMBED_URL", "").strip())
 
 
+def identity():
+    """A short name for the VECTOR SPACE these calls produce.
+
+    Two vectors are only comparable when they came from the same embedding
+    model at the same width. Cosine similarity across two models is not a
+    weaker signal, it is a meaningless one — and it looks exactly like a strong
+    one, because the arithmetic still returns a number in [-1, 1].
+
+    So this is the vector index's staleness key, the same role
+    `PROVIDER:MODEL` plays in the phase cache: content alone is not enough to
+    decide a stored vector is still usable.
+
+    Deliberately NOT the URL. Two gateways serving the same model produce the
+    same space, so keying on the host would re-embed the whole corpus for a
+    DNS change; and this string is written to a file and printed, so a private
+    hostname does not belong in it. Model + width is what determines the space.
+    """
+    if not configured():
+        return ""
+    if _mock():
+        # Hash vectors. Named so nobody mistakes an index built by a demo for a
+        # semantic one -- they carry no meaning at ANY width.
+        return f"mock-hash:{os.environ.get('EMBED_DIMS', '').strip() or '64'}"
+    model = os.environ.get("EMBED_MODEL", "").strip() or "default"
+    width = os.environ.get("EMBED_DIMS", "").strip() or "adapter"
+    return f"http:{model}:{width}"
+
+
 def dims():
     """Vector dimensionality, or 0 when unconfigured/unreachable."""
     if not configured():
