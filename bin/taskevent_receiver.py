@@ -42,6 +42,7 @@ sys.path.insert(0, str(ROOT / "engine/lib"))
 import fs_lock  # noqa: E402
 import http_body  # noqa: E402
 import openhands_events  # noqa: E402
+import placeholder_secrets  # noqa: E402
 import work_queue  # noqa: E402
 
 TOKEN = os.environ.get("AIQE_HOOK_TOKEN", "")
@@ -301,4 +302,14 @@ if __name__ == "__main__":
         print(f"  WARNING: listening on {host} with NO token -- every reachable "
               f"client can enqueue work. Set AIQE_HOOK_TOKEN before exposing it.",
               file=sys.stderr, flush=True)
+    # A token that IS set but is the shipped placeholder cannot trip the check
+    # above, so this port reads as authenticated while being protected by a
+    # value published in this repository. deploy.sh warns when it falls back to
+    # secret.example.yaml, but that is one line of deploy scrollback; this is
+    # the log an operator looks at when they wonder whether it is safe.
+    _ph = placeholder_secrets.warning(
+        "AIQE_HOOK_TOKEN", TOKEN,
+        "every reachable client can enqueue work.")
+    if _ph:
+        print(f"  {_ph}", file=sys.stderr, flush=True)
     ThreadingHTTPServer((host, port), Handler).serve_forever()

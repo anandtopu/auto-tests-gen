@@ -74,6 +74,7 @@ import adoption_levels, alert_rules, demo_data, email_notify, event_log, export_
     sdd_messages, team_report, ticket_search, waiver_store, work_queue
 import governance_page
 import http_body
+import placeholder_secrets
 import spec_savings
 import env_flag                     # AIQE_MOCK means what it says
 
@@ -1684,6 +1685,17 @@ if __name__ == "__main__":
               f"reach this port can approve plans, queue runs and reset the "
               f"estate. Set AIQE_UI_TOKEN (or AIQE_SSO_HEADER behind a proxy) "
               f"before exposing it.", file=sys.stderr, flush=True)
+    # The placeholder token cannot trip the check above -- it is non-empty, so
+    # the banner says `auth: token` and this reads as configured. deploy.sh
+    # warns when it falls back to secret.example.yaml, but that is deploy-time
+    # scrollback; this is the log someone reads when asking whether the port is
+    # safe. Both servers say it, because fixing one would leave the other.
+    _ph = placeholder_secrets.warning(
+        "AIQE_UI_TOKEN", UI_TOKEN,
+        "anyone who can reach this port can approve plans, queue runs and "
+        "reset the estate.")
+    if _ph:
+        print(f"  {_ph}", file=sys.stderr, flush=True)
     try:
         srv = _Server((host, port), Handler)
     except OSError as e:
