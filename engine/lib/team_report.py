@@ -151,7 +151,14 @@ def _cost_line(days):
         label = ("simulated" if rep["simulated_share"] == 1.0
                  else "measured" if rep["simulated_share"] == 0.0
                  else f"{int(rep['simulated_share'] * 100)}% simulated")
-        return f"${rep['total_cost_usd']:.4f} across {rep['runs']} run(s) ({label})"
+        # The `~` on the NUMBER, not only a parenthetical after it. This line
+        # printed `$12.0000 ... (99% simulated)` in a report that gets pasted
+        # into a status update, where the figure travels and the parenthetical
+        # does not. Matches cost_report's headline and the Overview tile; the
+        # docstring above has always promised it.
+        tilde = "~" if rep["simulated_share"] else ""
+        return (f"{tilde}${rep['total_cost_usd']:.4f} across {rep['runs']} "
+                f"run(s) ({label})")
     except Exception:
         return ""
 

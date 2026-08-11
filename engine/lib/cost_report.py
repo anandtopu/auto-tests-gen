@@ -166,6 +166,11 @@ def report(days=None):
             if tokens:
                 reuse_tokens_by_basis[basis] = reuse_tokens_by_basis.get(basis, 0) + tokens
         run_cost, user_run = 0.0, not r["phases"]
+        # Measured spend tracked SEPARATELY per run, so a per-key total can
+        # be compared against a real budget. work_queue warns "expect the run
+        # to degrade or abort" off this figure, and on a mock-heavy estate
+        # the simulated total drove that prediction.
+        run_measured = 0.0
         for p in r["phases"]:
             s = p["spend"]
             raw_cost = s.get("cost_usd")
@@ -188,6 +193,8 @@ def report(days=None):
             spend_rows += attempts
             if s.get("simulated"):
                 simulated_rows += attempts
+            else:
+                run_measured += cost
             run_cost += cost
             if basis == "unknown":
                 unmeterable_phases.add((r["run_id"], p["name"]))
@@ -227,9 +234,12 @@ def report(days=None):
             by_mode[r["mode"] or "?"]["runs"] += 1
             by_mode[r["mode"] or "?"]["cost_usd"] += run_cost
         if user_run and r["key"]:
-            k = by_key.setdefault(r["key"], {"runs": 0, "cost_usd": 0.0})
+            k = by_key.setdefault(r["key"], {"runs": 0, "cost_usd": 0.0,
+                                             "measured_usd": 0.0})
             k["runs"] += 1
             k["cost_usd"] += run_cost
+            k["measured_usd"] = round(k.get("measured_usd", 0.0)
+                                      + run_measured, 6)
 
     # B1.1: the embedding cap remains in vector_index.  This is a read-only
     # normalization of its daily ledger, kept separate from the task total.

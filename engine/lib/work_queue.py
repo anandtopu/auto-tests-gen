@@ -275,11 +275,20 @@ def _envelope_warning(mode, target, pr=None):
         import cost_report
         key = f"PR-{target}-{pr}" if pr and mode in ("pr", "plan") else str(target)
         for e in cost_report.report(None).get("by_key_top10", []):
-            if e.get("key") == key and e.get("cost_usd", 0) > cap:
+            # MEASURED spend only. The docstring above has always said measured
+            # and the code compared the total, so on a mock-heavy estate a
+            # simulated history drove a prediction about a real run: measured
+            # here, PR-orders-api-201 carried $12.00 of simulated spend against
+            # a $1.50 pr envelope, and every operator queueing that key was
+            # told to expect degradation or abort on evidence no money backed.
+            # A simulated figure may inform a trend; it must never drive a
+            # warning about what a real run will do.
+            if e.get("key") == key and e.get("measured_usd", 0) > cap:
                 review_note = (f" = ${base:.2f} base + "
                                f"${review_uplift:.2f} agent-review uplift"
                                if review_uplift else "")
-                return (f"this key's spend history (${e['cost_usd']:.2f}) already "
+                return (f"this key's MEASURED spend history "
+                        f"(${e['measured_usd']:.2f}) already "
                         f"exceeds the effective {mode} envelope (${cap:.2f}"
                         f"{review_note}) — expect the "
                         f"run to degrade or abort")

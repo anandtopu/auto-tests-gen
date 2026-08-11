@@ -142,15 +142,31 @@ def test_queue_warning_warns_but_never_refuses(tmp_path, monkeypatch):
 
 
 def test_envelope_warning_fires_on_history_over_cap(tmp_path, monkeypatch):
+    """Updated deliberately: this used to pass a key with `cost_usd` alone, and
+    that is exactly the defect. The warning predicts what a REAL run will do,
+    so it must weigh measured spend — measured on the estate, a key with $12.00
+    of purely simulated history was warning against a $1.50 envelope."""
     import work_queue as wq
     import cost_report
     monkeypatch.setattr(
         cost_report, "report",
         lambda days=None: {"by_key_top10": [
-            {"key": "PROJ-9", "runs": 3, "cost_usd": 6.0}]})
+            {"key": "PROJ-9", "runs": 3, "cost_usd": 6.0, "measured_usd": 6.0}]})
     w = wq._envelope_warning("jira", "PROJ-9")
     assert "exceeds" in w and "$6.00" in w
     assert wq._envelope_warning("jira", "PROJ-cheap") == ""
+
+
+def test_envelope_warning_stays_silent_on_simulated_history(monkeypatch):
+    """The same key, the same total, none of it real."""
+    import work_queue as wq
+    import cost_report
+    monkeypatch.setattr(
+        cost_report, "report",
+        lambda days=None: {"by_key_top10": [
+            {"key": "PROJ-9", "runs": 3, "cost_usd": 6.0, "measured_usd": 0.0}]})
+    assert wq._envelope_warning("jira", "PROJ-9") == "", \
+        "a purely simulated history still predicts a real run will degrade"
 
 
 # ---------------------------------------------------------------- 4.1 / 4.2
@@ -381,3 +397,110 @@ def test_the_cost_view_and_the_overview_tile_agree_about_the_tilde():
     fn = fn[:fn.index("const pt =")]
     assert "simulated_share" in fn,         "the Cost view total ignores the basis its own payload carries"
     assert "'<b>Total $'" not in fn,         "the Cost view still hardcodes a bare $ on a possibly-simulated total"
+
+
+def test_the_team_report_line_marks_simulated_spend_too():
+    """Third surface with the same defect. _cost_line's own docstring says a
+    simulated figure "is labelled so it can never be quoted as a measured
+    dollar" — it appended a parenthetical and formatted the NUMBER bare. A team
+    report gets pasted into a status update, where the figure travels and the
+    parenthetical does not."""
+    import team_report
+    line = team_report._cost_line(None)
+    if not line:
+        pytest.skip("no spend data on this estate")
+    if "simulated" in line:
+        assert line.startswith("~$"), \
+            f"a simulated team-report total prints as measured: {line}"
+    else:
+        assert not line.startswith("~"), "a measured total was hedged"
+
+
+def test_the_queue_envelope_warning_needs_MEASURED_spend():
+    """The sharpest instance: not a label but a DECISION.
+
+    _envelope_warning tells a human "expect the run to degrade or abort" from
+    this key's spend history, and its docstring says measured — while the code
+    compared the total. Measured on this estate: PR-orders-api-201 carried
+    $12.00 of entirely simulated spend against a $1.50 pr envelope, so every
+    operator queueing that key was warned about a real run on evidence no money
+    backed. A simulated figure may inform a trend; it must never drive a
+    prediction about what a real run will do.
+    """
+    import work_queue
+    src = (ROOT / "engine/lib/work_queue.py").read_text(encoding="utf-8")
+    assert 'e.get("measured_usd", 0) > cap' in src, \
+        "the envelope warning is back to comparing simulated spend"
+    assert 'e.get("cost_usd", 0) > cap' not in src
+
+    # And the report must actually carry the field, or the guard silently
+    # becomes "never warn" — a fix that works by breaking the feature.
+    import cost_report
+    rows = cost_report.report(None).get("by_key_top10", [])
+    if rows:
+        assert "measured_usd" in rows[0], \
+            "by_key_top10 lost measured_usd; the warning can never fire again"
+
+
+def test_measured_and_total_are_tracked_separately_per_key(tmp_path, monkeypatch):
+    """The guard above is only meaningful if a MEASURED overspend still warns.
+    Proven with a synthetic key rather than the estate, which is all mock."""
+    import cost_report
+    rows = cost_report.report(None).get("by_key_top10", [])
+    if not rows:
+        pytest.skip("no keys recorded")
+    for e in rows:
+        assert e.get("measured_usd", 0) <= e.get("cost_usd", 0) + 1e-9, \
+            f"{e['key']}: measured exceeds total, so the split is wrong"
+
+    import work_queue
+    monkeypatch.setattr(cost_report, "report", lambda *_a, **_k: {
+        "by_key_top10": [{"key": "PR-x-1", "cost_usd": 99.0,
+                          "measured_usd": 99.0, "runs": 3}]})
+    warn = work_queue._envelope_warning("pr", "x", 1)
+    assert "exceeds the effective pr envelope" in warn, \
+        "a genuinely MEASURED overspend no longer warns — the guard disabled " \
+        "the feature instead of correcting it"
+
+
+def test_measured_spend_is_actually_accumulated_not_just_present(tmp_path,
+                                                                 monkeypatch):
+    """The mutation my first pin could not kill.
+
+    Stopping the accumulation leaves `measured_usd` PRESENT and always 0, and
+    this estate is entirely simulated — so 'correctly 0' and 'broken to 0' look
+    identical here. That is the shape of a fix that disables the feature it was
+    meant to correct: the envelope warning would simply never fire again.
+
+    Needs a record with genuinely measured spend, which no estate run has.
+    """
+    import json
+    import cost_report
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    import time
+    # Shape copied from a REAL record: the key lives under trigger, not at the
+    # top level. My first version invented the shape, found no rows, and failed
+    # with StopIteration -- which "killed" every mutation for the wrong reason.
+    # A test that always fails is not evidence about any of them.
+    (runs / "1-1.json").write_text(json.dumps({
+        "run_id": "1-1", "ts": time.time(),
+        "trigger": {"type": "jira", "key": "PROJ-MEASURED"},
+        "phases": [
+            {"name": "generate", "spend": {"cost_usd": 3.25, "simulated": False,
+                                           "basis": "reported", "attempts": 1,
+                                           "provider": "claude",
+                                           "model": "claude-sonnet-4-6"}},
+            {"name": "critic", "spend": {"cost_usd": 1.00, "simulated": True,
+                                         "basis": "simulated", "attempts": 1,
+                                         "provider": "mock", "model": "mock"}},
+        ]}), encoding="utf-8")
+    monkeypatch.setattr(cost_report, "RUNS", runs)
+
+    entry = next(e for e in cost_report.report(None)["by_key_top10"]
+                 if e["key"] == "PROJ-MEASURED")
+    assert abs(entry["cost_usd"] - 4.25) < 1e-6, \
+        f"the total should count both bases: {entry}"
+    assert abs(entry["measured_usd"] - 3.25) < 1e-6, (
+        f"measured_usd is not accumulating the non-simulated cost — the "
+        f"envelope warning can never fire again: {entry}")
