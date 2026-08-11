@@ -92,7 +92,13 @@ def load(key, root=ROOT):
     """Recorded decisions for one key. Absent = nothing decided yet, which is
     NOT the same as everything excluded — `status` treats an unrecorded item as
     included, because a reviewer who has not looked has not rejected."""
-    entry = _load_all(root).get(key) or {}
+    entry = _load_all(root).get(key)
+    # A wrong-SHAPED entry is not a decision. Valid JSON of the wrong shape
+    # gets past read_json_guarded, and this used to call .get() on it. Reading
+    # it as "nothing recorded" is right here for the same reason the docstring
+    # gives: an item nobody ruled on is INCLUDED, so the failure direction is
+    # "the reviewer has not decided yet" rather than a silent exclusion.
+    entry = entry if isinstance(entry, dict) else {}
     return {"scenarios": entry.get("scenarios") or {},
             "tests": entry.get("tests") or {},
             "finalized": entry.get("finalized")}

@@ -204,3 +204,141 @@ def test_a_healthy_store_round_trips_byte_identically(tmp_path, monkeypatch):
     monkeypatch.setattr(review_state, "FILE", g)
     review_state.save(review_state.load())
     assert json.loads(g.read_text(encoding="utf-8")) == board
+
+
+# ------------------------------- the second sweep: alert rules, selection, spool
+
+def test_a_malformed_rule_does_not_stop_the_nightly_alert_evaluation(
+        tmp_path, monkeypatch):
+    """`normalize()` is the best implementation of this pattern in the repo --
+    it does not merely survive a non-object rule, it RETURNS "rule was not an
+    object; using safe defaults" so the UI can show what is wrong instead of
+    500-ing. Then evaluate() wrote the normalized rule back into the ORIGINAL
+    (`raw.update(rule)`), so the guard produced a safe value and the next line
+    dereferenced the unsafe one.
+
+    evaluate()'s own docstring promises "Never raises: this runs from `make
+    maintain`, and a broken rule must not..." -- the function documented the
+    exact guarantee it broke. commit=True is the default and maintenance runs
+    it, so the nightly alerting job died on a hand-edited rules file.
+    """
+    import alert_rules
+    f = tmp_path / "alert-rules.json"
+    f.write_text(json.dumps({"rules": ["i-am-not-a-rule",
+                                       {"id": "good", "name": "g",
+                                        "kind": "event_count"}]}),
+                 encoding="utf-8")
+    monkeypatch.setattr(alert_rules, "rules_file", lambda: f)
+
+    out = alert_rules.evaluate(notify=False, commit=True)
+    assert any(r["id"] == "good" for r in out), \
+        "the readable rule stopped being evaluated"
+    # The malformed one is REPORTED, not silently skipped -- normalize()'s
+    # whole design.
+    assert any("not an object" in p for r in out for p in r.get("problems") or []), \
+        "a rule that is not an object was dropped without saying so"
+
+
+def test_test_fire_survives_a_malformed_rule_above_the_one_being_tested(
+        tmp_path, monkeypatch):
+    """Ordering hid this: the first probe put the GOOD rule first, so the loop
+    matched and returned before ever touching the bad one. Reproduced only when
+    the malformed rule sits above the target -- which is why the fixture here
+    puts it there deliberately."""
+    import alert_rules
+    f = tmp_path / "alert-rules.json"
+    f.write_text(json.dumps({"rules": ["i-am-not-a-rule",
+                                       {"id": "good", "name": "g",
+                                        "kind": "event_count",
+                                        "channel": "slack"}]}),
+                 encoding="utf-8")
+    monkeypatch.setattr(alert_rules, "rules_file", lambda: f)
+    monkeypatch.setattr(alert_rules, "deliver", lambda *a, **k: True)
+    alert_rules.test_fire("good")            # must not raise
+
+
+def test_a_malformed_selection_entry_reads_as_nothing_decided(tmp_path, monkeypatch):
+    """Direction matters here. selection's rule is that an item nobody ruled on
+    is INCLUDED, so reading an unreadable entry as "not decided yet" fails
+    towards asking the reviewer again -- never towards a silent exclusion the
+    reviewer never made."""
+    import selection
+    f = tmp_path / "selections.json"
+    f.write_text(json.dumps({"PROJ-1": "approved"}), encoding="utf-8")
+    monkeypatch.setattr(selection, "FILE", f)
+    got = selection.load("PROJ-1")
+    assert got == {"scenarios": {}, "tests": {}, "finalized": None}
+
+
+def test_a_malformed_batch_record_does_not_hide_the_others(tmp_path, monkeypatch):
+    """The spool is the largest single spend the platform can commit. A crash
+    here does not merely break a report -- it hides an in-flight batch that was
+    already submitted and paid for."""
+    import batch_spool
+    f = tmp_path / "batches.json"
+    f.write_text(json.dumps({"batches": [{"id": "b1", "requests": [],
+                                          "drained": True}, "nope"]}),
+                 encoding="utf-8")
+    monkeypatch.setattr(batch_spool, "BATCHES", f)
+    assert [b["id"] for b in batch_spool.batches()] == ["b1"]
+    assert [r["id"] for r in batch_spool.status()] == ["b1"]
+
+    # A whole document of the wrong shape is empty, not an exception.
+    f.write_text(json.dumps(["wrong", "document"]), encoding="utf-8")
+    assert batch_spool.batches() == []
+
+
+def test_a_malformed_batch_record_survives_on_disk(tmp_path, monkeypatch):
+    """Same rule as the keyed stores: an unreadable record may be the only
+    trace of a batch someone is being billed for, so reading past it must not
+    erase it."""
+    import batch_spool
+    f = tmp_path / "batches.json"
+    f.write_text(json.dumps({"batches": ["orphan-record",
+                                         {"id": "b1", "requests": []}]}),
+                 encoding="utf-8")
+    monkeypatch.setattr(batch_spool, "BATCHES", f)
+    d = batch_spool._read(f, {"batches": []})
+    d["batches"].append({"id": "b2", "requests": []})
+    batch_spool._write(f, d)
+    raw = json.loads(f.read_text(encoding="utf-8"))
+    assert "orphan-record" in raw["batches"], \
+        "a write erased the record of a batch that may have been billed"
+
+
+def test_drain_marks_batches_even_with_a_malformed_neighbour(tmp_path, monkeypatch):
+    """THE MONEY PATH, and it needed its own pin: a mutation restoring the
+    unguarded `b["id"]` in drain's mark-up loop survived every test above,
+    exactly as test_health's ingest() did -- read guards were pinned, the write
+    was not.
+
+    It matters because of WHEN it fails. drain has already retrieved the
+    results and written them to disk by this point; the loop only marks them
+    drained. A malformed neighbour raising here aborts AFTER the spend and
+    leaves every touched batch un-marked, so the next drain pays to retrieve
+    them again.
+    """
+    import batch_spool
+    f = tmp_path / "batches.json"
+    f.write_text(json.dumps({"batches": [
+        {"id": "b1", "requests": [{"custom_id": "PROJ-1|plan",
+                                   "key": "PROJ-1", "phase": "plan"}]},
+        "orphan-record"]}), encoding="utf-8")
+    monkeypatch.setattr(batch_spool, "BATCHES", f)
+    monkeypatch.setattr(batch_spool, "DIR", tmp_path)
+    monkeypatch.setattr(batch_spool, "_call", lambda *a, **k: {
+        "processing_status": "ended", "results_url": "https://x/results"})
+    # _fetch_results returns raw JSONL TEXT, not parsed rows -- my first stub
+    # invented a list and the test failed against unmutated code, which would
+    # have "killed" every mutation without being evidence about any of them.
+    monkeypatch.setattr(batch_spool, "_fetch_results", lambda url: json.dumps(
+        {"custom_id": "PROJ-1|plan",
+         "result": {"type": "succeeded",
+                    "message": {"content": [{"type": "text", "text": "hi"}]}}}))
+    batch_spool.drain()                       # must not raise
+
+    raw = json.loads(f.read_text(encoding="utf-8"))
+    marked = [b for b in raw["batches"] if isinstance(b, dict)]
+    assert marked[0].get("drained") is True, \
+        "the batch was retrieved but never marked drained; the next drain pays again"
+    assert "orphan-record" in raw["batches"], "the unreadable record was erased"

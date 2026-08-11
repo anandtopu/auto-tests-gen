@@ -324,7 +324,16 @@ def evaluate(now=None, notify=True, commit=True):
                             rule["recipients"], rule["name"])
                 st["last_notified"] = _iso(now)
 
-        if commit:
+        if commit and isinstance(raw, dict):
+            # `normalize()` deliberately returns safe defaults for a rule that
+            # is not an object, and reports the problem instead of raising —
+            # then this line wrote the normalized rule back into the ORIGINAL,
+            # so a `"rules": ["oops"]` entry raised AttributeError out of
+            # evaluate() at exactly the point the guard had handled it. The
+            # docstring above promises this never raises because `make
+            # maintain` runs it; measured, the nightly alerting job died.
+            # A non-object rule has no identity to persist state against, so
+            # there is nothing to write back — it is reported and skipped.
             raw.update(rule)
         out.append({"id": rule["id"], "name": rule["name"],
                     "status": "firing" if st["firing"] else "ok",
@@ -439,6 +448,14 @@ def test_fire(rule_id):
     """
     doc = load()
     for raw in doc.get("rules") or []:
+        # Dereference AFTER normalizing, as evaluate() does. This asked `raw`
+        # for its id first, so a malformed rule ANYWHERE ABOVE the one being
+        # tested crashed test-fire — and the first probe missed it because the
+        # fixture happened to put the good rule first and the loop returned
+        # before reaching the bad one. Ordering hid it; putting the bad rule
+        # first reproduced it at line 442.
+        if not isinstance(raw, dict):
+            continue
         if str(raw.get("id")) == str(rule_id):
             rule, problems = normalize(raw)
             # retries=0 deliberately: the point of a test is to learn whether

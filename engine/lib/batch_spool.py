@@ -226,6 +226,14 @@ def submit(now=None):
     try:
         with fs_lock.lock(str(BATCHES)):
             d = _read(BATCHES, {"batches": []})
+            # Raw on purpose: appending to the RAW document is what preserves
+            # records `batches()` filters out. But the document itself has to
+            # be one -- a non-object here raised TypeError inside the very
+            # try/except that exists to make a lost id loud, so the id landed
+            # in the RuntimeError instead of the spool, which is the recorded
+            # failure this comment block is about.
+            if not isinstance(d, dict) or not isinstance(d.get("batches"), list):
+                d = {"batches": []}
             d["batches"].append(rec)
             _write(BATCHES, d)
     except Exception as e:
@@ -241,7 +249,23 @@ def submit(now=None):
 
 
 def batches():
-    return _read(BATCHES, {"batches": []})["batches"]
+    """Every recorded batch, with each record guaranteed to BE a record.
+
+    Two shapes got through: a document that is not an object (`["a","b"]` made
+    `["batches"]` raise TypeError at this line) and a record that is not an
+    object (`b.get("drained")` raised AttributeError in status()). This spool
+    is the largest single spend the platform can commit, so a crash here does
+    not merely break a report -- it hides an in-flight batch that was already
+    submitted and paid for, which is the failure BATCH_SUBMITTED_BUT_UNRECORDED
+    exists to prevent.
+
+    Malformed records are dropped from the returned list rather than repaired;
+    `_write` preserves them on disk, because an unreadable record may be the
+    only trace of a batch someone is being billed for.
+    """
+    doc = _read(BATCHES, {"batches": []})
+    rows = doc.get("batches") if isinstance(doc, dict) else None
+    return [b for b in rows if isinstance(b, dict)] if isinstance(rows, list) else []
 
 
 def status():
@@ -350,8 +374,14 @@ def drain(batch_id=None):
     if touched:
         with fs_lock.lock(str(BATCHES)):
             d = _read(BATCHES, {"batches": []})
-            for b in d["batches"]:
-                if b["id"] in touched:
+            rows = d.get("batches") if isinstance(d, dict) else None
+            # THE MONEY PATH. drain has already retrieved the results and
+            # written them to disk; this loop only marks them drained. A
+            # malformed neighbour raising `b["id"]` here would abort AFTER the
+            # spend and leave every touched batch un-marked, so the next drain
+            # re-retrieves. Skip what is not a record and mark what is.
+            for b in rows if isinstance(rows, list) else []:
+                if isinstance(b, dict) and b.get("id") in touched:
                     b["drained"] = True
             _write(BATCHES, d)
     return results
