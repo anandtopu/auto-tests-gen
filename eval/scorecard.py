@@ -13,6 +13,27 @@ import app_paths  # noqa: E402  # R12: mutable paths resolve here
 import review_state  # noqa: E402
 
 
+def _has_measured_spend(run):
+    """Did a REAL model do the work in this run?
+
+    The previous test -- `isinstance(run["cost_usd"], (int, float))` -- was a
+    proxy for "metered", and it is wrong in the direction that matters:
+    AIQE_MOCK_PHASE_COST makes a mock run record a numeric cost, so a fully
+    simulated run reads as measured. Confirmed on this estate: a run with
+    `cost_usd: 0.25` whose critic phase carries `spend.simulated: true`.
+
+    So the exclusion the Update-vs-create metric already had was only dropping
+    runs with NO cost, not runs with a FABRICATED one -- and both metrics went
+    on measuring the fixture, just fewer of them. This asks the same question
+    cost_report asks: is there a phase whose spend is real?
+    """
+    for p in run.get("phases") or []:
+        s = p.get("spend") or {}
+        if s.get("cost_usd") is not None and not s.get("simulated"):
+            return True
+    return False
+
+
 def pct(x):
     return f"{x:.0%}"
 
@@ -139,7 +160,7 @@ if runs:
         # cost, a mock one does not. Only a real generate phase CHOSE between
         # extending and creating; the mock stub's action is scripted, so
         # counting it measures the fixture, not the platform.
-        metered = isinstance(r.get("cost_usd"), (int, float))
+        metered = _has_measured_spend(r)
         for p in r.get("phases", []):
             c = p["contract"]
             if p["name"] == "validate" and "repair_loops" in c:
@@ -175,22 +196,60 @@ if runs:
               f"been measured; unblock `make parity-pr` to measure it.")
     # Escaped noise (§8): the advisory critic is the only automated source for this —
     # the gate proves specs pass, not that they assert anything worth asserting.
-    noise = sum(r["critic"].get("noise_count", 0) for r in runs if r.get("critic"))
-    reviewed = sum(r["critic"].get("specs_reviewed", 0) for r in runs if r.get("critic"))
-    scored = [r["critic"]["score"] for r in runs
-              if r.get("critic") and r["critic"].get("score") is not None]
+    # SAME RULE AS UPDATE-VS-CREATE, three lines up, and it was not applied
+    # here. Both of these are claims about JUDGEMENT -- did the critic find
+    # weak assertions? -- and the mock critic emits a hardcoded
+    # `score: 0.86, noise_count: 0` (engine/phases/mock_phase.sh). So on this
+    # estate "Critic score: 0.86 avg over 394 scored runs" was reading the stub
+    # constant back and calling it a measurement, and "Escaped noise: 0%" was
+    # reporting that a stub which always emits 0 found nothing. CLAUDE.md
+    # quotes both figures, so the repo's own record of its quality was a mock's
+    # default value.
+    real = [r for r in runs if r.get("critic") and _has_measured_spend(r)]
+    sim_critic = sum(1 for r in runs
+                     if r.get("critic") and not _has_measured_spend(r))
+    noise = sum(r["critic"].get("noise_count", 0) for r in real)
+    reviewed = sum(r["critic"].get("specs_reviewed", 0) for r in real)
+    scored = [r["critic"]["score"] for r in real
+              if r["critic"].get("score") is not None]
     if reviewed:
         print(f"Escaped noise: {pct(noise / reviewed)} of {reviewed} generated specs "
               f"flagged trivial/duplicate/weak by the advisory critic (target ≤10%)")
     if scored:
         print(f"Critic score: {sum(scored) / len(scored):.2f} avg over {len(scored)} "
               f"scored runs (advisory — never gates a commit)")
+    if sim_critic and scored:
+        # Only alongside a real figure. With nothing measured the n/a branch
+        # below already carries the count, and printing both made an indented
+        # "excluded" note dangle under a metric that was never shown.
+        print(f"  ({sim_critic} run(s) from SIMULATED critic phases excluded — the "
+              f"mock emits a fixed score and zero noise, so averaging them "
+              f"reports the stub's default as a quality measurement)")
     if not scored:
-        print("Escaped noise: n/a — no critic signal yet (critic.enabled in org-config)")
-    costs = [r["cost_usd"] for r in runs if isinstance(r.get("cost_usd"), (int, float))]
+        print(f"Escaped noise / Critic score: n/a — no MEASURED critic signal yet"
+              + (f" ({sim_critic} simulated run(s) carry a scripted score, which "
+                 f"measures nothing). Unblock `make parity-pr` to measure it."
+                 if sim_critic else
+                 " (critic.enabled in org-config)"))
+    # Third metric on the same broken proxy, and the one that reads most like a
+    # bill. `cost_usd is a number` counted the 50 runs whose $0.25 came from
+    # AIQE_MOCK_PHASE_COST -- a figure invented so tests can exercise the
+    # budget ladder -- and called them "metered". Same iron rule the cost
+    # report follows: a simulated number never prints as a measured dollar.
+    costs = [r["cost_usd"] for r in runs
+             if isinstance(r.get("cost_usd"), (int, float))
+             and _has_measured_spend(r)]
+    sim_costs = [r["cost_usd"] for r in runs
+                 if isinstance(r.get("cost_usd"), (int, float))
+                 and not _has_measured_spend(r)]
     if costs:
         print(f"Cost per run: ${sum(costs) / len(costs):.2f} avg over {len(costs)} "
               f"metered run(s) (limit enforced at exit 77 — see engine/lib/budget.py)")
+    elif sim_costs:
+        print(f"Cost per run: n/a — {len(sim_costs)} run(s) carry a SIMULATED "
+              f"cost (~${sum(sim_costs) / len(sim_costs):.2f} avg, from "
+              f"AIQE_MOCK_PHASE_COST). No real spend has been measured; unblock "
+              f"`make parity-pr` to measure it.")
 else:
     print("Run outcomes: n/a — no run records yet")
 
