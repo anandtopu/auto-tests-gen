@@ -220,3 +220,33 @@ def test_the_review_board_names_the_reason_once(tmp_path, monkeypatch, capsys):
     # this whole problem.
     tail = out.split("no agent review")[1]
     assert "PR-x-1" in tail, "the footnote does not say WHICH keys"
+
+
+def test_a_record_predating_the_reason_says_so_rather_than_inventing_one():
+    """Compatibility, and it is the C13 direction. A run recorded BEFORE the
+    reason was surfaced carries no `reason` key, and there is no way to
+    recover why that reviewer was absent -- the run is over and the config
+    that governed it is gone. "reason not recorded" is the honest answer;
+    picking the likeliest cause would date-stamp a guess onto history."""
+    sys.path.insert(0, str(ROOT / "engine/lib"))
+    import pr_comment
+    historical = {
+        "run_id": "r0", "ts": 1, "trigger": {"type": "pr", "key": "PR-x-1"},
+        "review": {"state": "skipped", "verdict": "skipped", "findings": [],
+                   "loops": 0, "unresolved": [], "policy": "warn",
+                   "repos": [], "simulated": False},
+        "phases": [
+            {"name": "triage", "contract": {"impact": "create",
+                                            "areas": ["orders"]}},
+            {"name": "generate",
+             "contract": {"tests": [{"file": "suites/a.spec.js",
+                                     "action": "created"}],
+                          "open_questions": []}},
+        ],
+        "gates": [{"test_repo": "e2e-api-tests-1", "status": "committed",
+                   "commit": "abc1234def"}],
+    }
+    md = pr_comment.from_record(historical)
+    assert "skipped (reason not recorded)" in md
+    assert "AIQE_TEST_REVIEWER" not in md, \
+        "a cause was invented for a run that never recorded one"

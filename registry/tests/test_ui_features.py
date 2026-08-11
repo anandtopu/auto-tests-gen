@@ -217,9 +217,15 @@ def test_prune_done_trims_history_but_never_pending_work(monkeypatch, tmp_path):
 def _record(tests, gates, key="PR-x-9"):
     return {"run_id": "r1", "ts": 1, "trigger": {"type": "pr", "key": key},
             "cost_usd": 0.25,
+            # Shaped exactly as run_record.py persists it: `record["review"]`
+            # IS test_reviewer.surface()'s snapshot, and an absent review now
+            # carries the reason it was absent. Hand-writing a block surface()
+            # would never produce makes this fixture drift from the live
+            # composer for a reason the product does not have.
             "review": {"state": "skipped", "verdict": "skipped",
                        "findings": [], "loops": 0, "unresolved": [],
-                       "policy": "warn", "repos": [], "simulated": False},
+                       "policy": "warn", "repos": [], "simulated": False,
+                       "reason": "AIQE_TEST_REVIEWER is disabled"},
             "phases": [
                 {"name": "triage", "contract": {"impact": "create",
                                                 "areas": ["orders discounts"]}},
