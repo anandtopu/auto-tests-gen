@@ -125,13 +125,18 @@ def test_a_check_only_run_records_would_commit_end_to_end(tmp_path):
         assert "AIQE_GATE_CHECK_ONLY" in r.stdout, \
             "the summary does not name the flag that withheld it"
         assert created, "the run wrote no record"
-        rec = json.loads((runs / created.pop()).read_text(encoding="utf-8"))
+        # sorted(...)[0], NOT created.pop(): pop MUTATES the set, so the
+        # `finally` below iterated an empty collection and cleaned up NOTHING.
+        # Caught by the scorecard line this same commit added -- a full review
+        # reported "8 excluded: the gate ran in check-only mode", one record
+        # per mutation pass, in the test whose docstring promises it leaves
+        # none. The tidy-up has to be independent of what the assertions read.
+        rec = json.loads((runs / sorted(created)[0]).read_text(encoding="utf-8"))
         assert rec["overall"] == "would_commit", \
             f"a withheld run was recorded as {rec['overall']!r}"
         assert any(g["status"] == "would_commit" for g in rec["gates"])
     finally:
         for name in created:
             (runs / name).unlink(missing_ok=True)
-        for name in list(created):
-            for extra in runs.glob(name.replace(".json", "*.diff")):
+            for extra in runs.glob(name.replace(".json", "") + "*.diff"):
                 extra.unlink(missing_ok=True)
