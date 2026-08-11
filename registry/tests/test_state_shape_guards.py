@@ -342,3 +342,162 @@ def test_drain_marks_batches_even_with_a_malformed_neighbour(tmp_path, monkeypat
     assert marked[0].get("drained") is True, \
         "the batch was retrieved but never marked drained; the next drain pays again"
     assert "orphan-record" in raw["batches"], "the unreadable record was erased"
+
+
+def test_a_launch_does_not_delete_the_unreadable_conversation(tmp_path, monkeypatch):
+    """openhands_events has six load -> change -> _save round-trips, and a
+    conversation record is what makes work someone is PAYING for reachable
+    again, so an unreadable one is still the only trace of it."""
+    import openhands_events as oe
+    f = tmp_path / "state.json"
+    f.write_text(json.dumps({"c1": {"conversation_id": "c1", "updated": 1.0},
+                             "c2": "not-an-entry"}), encoding="utf-8")
+    monkeypatch.setattr(oe, "FILE", f)
+
+    state = oe.load()
+    state["c1"]["status"] = "finished"
+    oe._save(state)
+
+    raw = json.loads(f.read_text(encoding="utf-8"))
+    assert raw["c2"] == "not-an-entry",         "a launch deleted the unreadable record of a conversation being paid for"
+    assert raw["c1"]["status"] == "finished"
+
+
+def test_the_trim_does_not_crash_on_a_preserved_unreadable_entry(tmp_path, monkeypatch):
+    """_save trims to MAX_CONVERSATIONS by sorting on kv[1]["updated"], so a
+    malformed entry in the MERGED map would crash the very write meant to
+    preserve it. Trim before merging."""
+    import openhands_events as oe
+    f = tmp_path / "state.json"
+    monkeypatch.setattr(oe, "FILE", f)
+    monkeypatch.setattr(oe, "MAX_CONVERSATIONS", 2)
+    f.write_text(json.dumps({"bad": "not-an-entry"}), encoding="utf-8")
+    oe._save({f"c{i}": {"conversation_id": f"c{i}", "updated": float(i)}
+              for i in range(5)})
+    raw = json.loads(f.read_text(encoding="utf-8"))
+    assert raw["bad"] == "not-an-entry"
+    assert len([k for k, v in raw.items() if isinstance(v, dict)]) == 2
+
+
+def test_summary_falls_back_to_the_map_key_for_a_missing_id(tmp_path, monkeypatch):
+    """`e["conversation_id"]` took out `qa.py openhands` entirely -- the surface
+    whose whole job is getting a user back to a conversation they are paying
+    for. The map KEY is the conversation id by construction (_entry does
+    setdefault(cid, {"conversation_id": cid, ...})), so it is the right
+    fallback rather than an invented one."""
+    import openhands_events as oe
+    f = tmp_path / "state.json"
+    f.write_text(json.dumps({"c-99": {"status": "running"}}), encoding="utf-8")
+    monkeypatch.setattr(oe, "FILE", f)
+    rows = oe.summary()
+    assert [r["conversation_id"] for r in rows] == ["c-99"]
+
+
+# ---------------------------------------------- the sweep, self-maintaining
+
+# Modules that expose a state FILE and a zero-arg load(). DISCOVERED, not
+# listed: the hand-written probe that produced the table at the top of this
+# file wrote to `conversations.json` while openhands_events' real file is
+# `state.json`, so it planted nothing, read an empty store, and reported that
+# store CLEAN. It was not -- `qa.py openhands` crashed at openhands_events.py:274.
+# A hand-maintained list is exactly how a wrong filename looks like a pass, and
+# it would miss the next store too.
+# Discovered but load() needs an argument, so the generic probe cannot drive
+# it. Each MUST still be covered by a test of its own, and the set is asserted
+# below -- a new keyed store has to be named here, never silently skipped.
+_KEYED_STORES = {
+    "selection": "load(key, root=...); covered by "
+                 "test_a_malformed_selection_entry_reads_as_nothing_decided",
+}
+# Not discovered at all (no module-level FILE), so named explicitly rather than
+# left to fall outside the sweep unnoticed.
+_NO_FILE_ATTR = {
+    "alert_rules": "rules_file() is a function; covered by the evaluate and "
+                   "test_fire tests above",
+}
+
+
+def _discover_stores():
+    """(zero_arg, keyed) modules that read guarded JSON and expose FILE+load."""
+    import importlib
+    import inspect
+    zero_arg, keyed = [], []
+    for path in sorted((ROOT / "engine" / "lib").glob("*.py")):
+        src = path.read_text(encoding="utf-8", errors="ignore")
+        if "read_json_guarded" not in src:
+            continue
+        mod = importlib.import_module(path.stem)
+        fn = getattr(mod, "load", None)
+        if not (hasattr(mod, "FILE") and callable(fn)):
+            continue
+        required = [p for p in inspect.signature(fn).parameters.values()
+                    if p.default is inspect.Parameter.empty
+                    and p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+        (keyed if required else zero_arg).append(mod)
+    return zero_arg, keyed
+
+
+def test_the_store_discovery_still_finds_the_known_stores():
+    """A discovery that quietly finds NOTHING would make the sweep below pass
+    forever. Pin the floor, not the exact set, so adding a store is new
+    coverage rather than a test failure."""
+    zero_arg, keyed = _discover_stores()
+    names = {m.__name__ for m in zero_arg}
+    for expected in ("review_state", "plan_state", "test_health", "work_queue",
+                     "openhands_events"):
+        assert expected in names, f"discovery stopped finding {expected}"
+    assert {m.__name__ for m in keyed} == set(_KEYED_STORES), (
+        "a store whose load() takes an argument is outside the generic probe; "
+        "name it in _KEYED_STORES with the test that covers it instead of "
+        "letting it fall out of the sweep")
+
+
+def test_every_discovered_store_hides_wrong_shaped_entries(tmp_path, monkeypatch):
+    """BEHAVIOURAL, so it cannot be satisfied by a module that merely mentions
+    isinstance. Plant a bad entry beside a good one in each store's real FILE
+    and require load() to hand back only entries."""
+    zero_arg, _keyed = _discover_stores()
+    offenders = []
+    for mod in zero_arg:
+        f = tmp_path / f"{mod.__name__}.json"
+        with monkeypatch.context() as mp:
+            mp.setattr(mod, "FILE", f)
+            empty = mod.load()
+            payload = ([{"id": "1"}, "not-an-item"] if isinstance(empty, list)
+                       else {"OK": {"status": "x"}, "BAD": "not-an-entry"})
+            f.write_text(json.dumps(payload), encoding="utf-8")
+            got = mod.load()
+            values = got if isinstance(got, list) else list(got.values())
+            if not all(isinstance(v, dict) for v in values):
+                offenders.append(mod.__name__)
+    assert not offenders, (
+        "these stores hand callers something that is not an entry, so the next "
+        f".get() on it raises out of whatever was rendering: {offenders}")
+
+
+def test_every_discovered_store_answers_what_it_could_not_read():
+    """Filtering silently is only half honest: a smaller board reads as a
+    smaller backlog. Each store must be able to SAY what it dropped."""
+    zero_arg, _keyed = _discover_stores()
+    missing = [m.__name__ for m in zero_arg
+               if not callable(getattr(m, "load_with_issues", None))]
+    assert not missing, (
+        f"these stores drop unreadable entries without being able to name "
+        f"them: {missing}")
+
+
+def test_the_exclusions_name_modules_that_exist_and_are_covered():
+    """An exclusion list is a silencing mechanism. A renamed module would
+    silently exempt nothing while the real store went unchecked."""
+    import importlib
+    src = pathlib.Path(__file__).read_text(encoding="utf-8")
+    # Cut out only the declarations themselves -- the covering tests sit both
+    # ABOVE and BELOW them, so slicing from the dicts to the end of the file
+    # made this fire on a name that IS covered (selection's test is above).
+    decl_start = src.index("_KEYED_STORES = {")
+    decl_end = src.index("def _discover_stores")
+    body = src[:decl_start] + src[decl_end:]
+    for name, reason in {**_KEYED_STORES, **_NO_FILE_ATTR}.items():
+        importlib.import_module(name)          # must still exist
+        assert reason.strip(), f"{name} is excluded with no reason given"
+        assert name in body,             f"{name} is excluded but no test in this file covers it"

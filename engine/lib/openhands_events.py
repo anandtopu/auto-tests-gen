@@ -40,17 +40,46 @@ TERMINAL = ("finished", "error", "stopped", "cancelled", "complete", "completed"
 
 
 def load():
-    # Guarded: corrupt -> quarantined, not silently empty (see fs_lock).
-    return fs_lock.read_json_guarded(FILE, {})
+    """Conversations, with every entry guaranteed to BE an entry.
+
+    Guarded: corrupt -> quarantined, not silently empty (see fs_lock). That
+    covers invalid JSON, not a valid file of the wrong SHAPE.
+
+    THIS STORE WAS WRONGLY CLEARED BY THE SWEEP THAT FIXED THE OTHERS: the
+    probe wrote to `conversations.json` while the real file is `state.json`, so
+    it planted nothing, read an empty store and reported OK. Re-probed against
+    the real path, `qa.py openhands` crashes at line 274. A probe that passes
+    proves nothing until you know it exercised the thing.
+    """
+    return load_with_issues()[0]
+
+
+def load_with_issues():
+    """(conversations, malformed_ids) -- the same read, naming what it dropped."""
+    raw = fs_lock.read_json_guarded(FILE, {})
+    if not isinstance(raw, dict):
+        return {}, ["<the conversations file is not an object>"]
+    good = {k: v for k, v in raw.items() if isinstance(v, dict)}
+    return good, sorted(set(raw) - set(good))
 
 
 def _save(state):
-    # Keep only the most recently updated conversations.
+    # Carry forward entries load() hid: six mutators here are load -> change ->
+    # _save, so writing the filtered view would delete a malformed entry on the
+    # next launch. A conversation record is what makes work someone is PAYING
+    # for reachable again, so an unreadable one is still the only trace of it.
+    raw = fs_lock.read_json_guarded(FILE, {})
+    unreadable = ({k: v for k, v in raw.items()
+                   if k not in state and not isinstance(v, dict)}
+                  if isinstance(raw, dict) else {})
+    # Keep only the most recently updated conversations. Trim BEFORE merging:
+    # this sort reads kv[1]["updated"], so a malformed entry in the merged map
+    # would crash the very write that is meant to preserve it.
     if len(state) > MAX_CONVERSATIONS:
         keep = sorted(state.items(), key=lambda kv: kv[1].get("updated", 0),
                       reverse=True)[:MAX_CONVERSATIONS]
         state = dict(keep)
-    fs_lock.write_json_atomic(FILE, state, sort_keys=True)
+    fs_lock.write_json_atomic(FILE, {**unreadable, **state}, sort_keys=True)
     return state
 
 
@@ -271,10 +300,17 @@ def record_conversation(payload):
 def summary(limit=25):
     """Most-recently-updated conversations, newest first."""
     state = load()
-    rows = sorted(state.values(), key=lambda e: e.get("updated", 0), reverse=True)
+    # items(), not values(): the map KEY is the conversation id by construction
+    # (`_entry` does state.setdefault(cid, {"conversation_id": cid, ...})), so
+    # it is the right fallback for an entry that somehow lacks the field rather
+    # than an invented one. This read was a bare e["conversation_id"], which
+    # took out `qa.py openhands` entirely -- the surface whose whole job is
+    # getting a user back to a conversation they are paying for.
+    rows = sorted(state.items(), key=lambda kv: kv[1].get("updated", 0),
+                  reverse=True)
     out = []
-    for e in rows[:limit]:
-        out.append({"conversation_id": e["conversation_id"],
+    for cid, e in rows[:limit]:
+        out.append({"conversation_id": e.get("conversation_id") or cid,
                     "status": e.get("status", "") or "running",
                     "terminal": (e.get("status", "") in TERMINAL),
                     "repo": e.get("repo", ""), "key": e.get("key", ""),
