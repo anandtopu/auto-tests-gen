@@ -498,7 +498,15 @@ def run(names=None):
     summary = {s: sum(1 for r in results if r["status"] == s)
                for s in ("ok", "fail", "degraded", "skipped")}
     return {"results": results, "summary": summary,
-            "mock_mode": env_flag.mock()}
+            "mock_mode": env_flag.mock(),
+            # In the payload too, not just the printed summary: `--json` is the
+            # branch a CI job reads, and a machine consumer deciding "are my
+            # integrations healthy?" needs to know an `ok` was reached without
+            # checking any certificate. Same literal-"0" rule the adapters use,
+            # so the report can never disagree with what actually happened.
+            "tls_verification": ("disabled"
+                                 if _env("AIQE_SSL_VERIFY", "1") == "0"
+                                 else "enabled")}
 
 
 if __name__ == "__main__":
@@ -524,4 +532,17 @@ if __name__ == "__main__":
     if out["mock_mode"]:
         print("Note: AIQE_MOCK=1 — runs still use mock adapters. These checks probe the "
               "REAL systems, so you can verify credentials before switching to real mode.")
+    # This command's whole job is answering "is my setup right?", and it
+    # HONOURED AIQE_SSL_VERIFY=0 (it builds an unverified context) without ever
+    # SAYING so: every probe printed `ok` while no certificate was checked.
+    # Measured before the fix — output was byte-identical with verification on
+    # and off. It stays exit-0 on purpose: this is a supported opt-out for
+    # corporate CA estates, and refusing would break the deployments it exists
+    # for. Being unmissable is the fix; refusing is not.
+    if out.get("tls_verification") == "disabled":
+        print("Note: AIQE_SSL_VERIFY=0 — TLS certificate verification is OFF for "
+              "every check above and for the adapters that honour it (Jira, "
+              "Stash/Bitbucket, Splunk, the LLM and OpenHands clients). An `ok` "
+              "here means the endpoint answered, NOT that its certificate was "
+              "trusted. Unset it once your CA bundle is in place.")
     sys.exit(1 if s["fail"] else 0)
