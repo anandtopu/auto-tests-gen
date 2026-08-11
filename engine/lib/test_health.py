@@ -98,8 +98,25 @@ def catalog_titles():
 
 
 def load():
-    # Guarded: corrupt -> quarantined + empty health map, not a crash (see fs_lock).
-    return fs_lock.read_json_guarded(FILE, {})
+    """Per-test health, with every entry guaranteed to BE an entry.
+
+    Guarded: corrupt -> quarantined + empty health map, not a crash (see
+    fs_lock). That covers invalid JSON, not a valid file of the wrong SHAPE.
+    Measured by planting `{"t2": "passed"}` beside a good entry: `qa.py flaky`
+    exited 1 at qa.py:937 and `make report` at team_report.py:144, both
+    AttributeError on a string. This file is written by CI ingest over an HTTP
+    endpoint, so a malformed body is a likelier source here than a hand edit.
+    """
+    return load_with_issues()[0]
+
+
+def load_with_issues():
+    """(health, malformed_test_ids) — the same read, naming what it dropped."""
+    raw = fs_lock.read_json_guarded(FILE, {})
+    if not isinstance(raw, dict):
+        return {}, ["<the health file is not an object>"]
+    good = {k: v for k, v in raw.items() if isinstance(v, dict)}
+    return good, sorted(set(raw) - set(good))
 
 
 # A catalog title must be at least this distinctive before it may be matched as
@@ -147,7 +164,12 @@ def ingest(path):
     titles = catalog_titles()
     matched, unmatched = 0, 0
     with fs_lock.lock(FILE):
-        health = load()
+        # Carry forward what load() filtered: ingest is read-modify-write, so
+        # writing the filtered view would delete a malformed entry on the next
+        # CI upload. Unusable is not the same as ours to discard.
+        health, unreadable = load_with_issues()
+        raw = fs_lock.read_json_guarded(FILE, {})
+        keep = {k: raw[k] for k in unreadable if isinstance(raw, dict) and k in raw}
         for name, passed in cases:
             test_id = match_case(name, titles)
             if not test_id:
@@ -163,7 +185,7 @@ def ingest(path):
             h["updated"] = time.time()
             health[test_id] = h
             matched += 1
-        fs_lock.write_json_atomic(FILE, health, sort_keys=True)
+        fs_lock.write_json_atomic(FILE, {**keep, **health}, sort_keys=True)
     return matched, unmatched
 
 

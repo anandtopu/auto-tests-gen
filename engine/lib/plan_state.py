@@ -77,14 +77,54 @@ def _check_expected_revision(key, expected_revision, state):
 
 
 def load():
-    # Guarded: a corrupt file is quarantined, never silently treated as empty —
-    # the old swallow-and-return-{} path let the next _save overwrite human
-    # approvals with empty state after a torn write.
-    return fs_lock.read_json_guarded(FILE, {})
+    """Plan lifecycle state, with every entry guaranteed to BE an entry.
+
+    Guarded: a corrupt file is quarantined, never silently treated as empty —
+    the old swallow-and-return-{} path let the next _save overwrite human
+    approvals with empty state after a torn write.
+
+    That covers invalid JSON. It does NOT cover a valid file of the wrong
+    SHAPE: `{"PROJ-1": "approved"}` parses, and `summary()` then calls .get()
+    on a string. Measured by planting one such entry — `bin/dashboard.py`
+    exited 1 at plan_state.py:625 and produced NO dashboard at all, which is
+    the same failure class already recorded for malformed run records.
+
+    NOTE the asymmetry with `_save`: this filter only ever affects READS.
+    Dropping a malformed entry here cannot destroy an approval, because a
+    string was never a usable approval — but a save built from a filtered read
+    would drop it from disk, so callers that mutate go through fs_lock and
+    write back the whole state they were handed. `load_with_issues()` exists so
+    a surface can say what it skipped rather than show a quietly shorter list.
+    """
+    return load_with_issues()[0]
+
+
+def load_with_issues():
+    """(entries, malformed_keys) — the same read, naming what it dropped."""
+    raw = fs_lock.read_json_guarded(FILE, {})
+    if not isinstance(raw, dict):
+        return {}, ["<the plan state file is not an object>"]
+    good = {k: v for k, v in raw.items() if isinstance(v, dict)}
+    return good, sorted(set(raw) - set(good))
 
 
 def _save(state):
-    fs_lock.write_json_atomic(FILE, state, sort_keys=True)
+    """Write lifecycle state, carrying forward entries `load()` hid.
+
+    Eleven mutators here are `state = load()` -> change one key -> `_save(state)`.
+    With load() filtering malformed entries, saving that view would DELETE them
+    on the next unrelated approval — a read guard destroying state, which is
+    exactly what the load() docstring above warns about for torn writes. This
+    store holds APPROVALS; losing the record of what someone wrote is the worst
+    thing it can do.
+    """
+    merged = dict(state)
+    raw = fs_lock.read_json_guarded(FILE, {})
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            if k not in merged and not isinstance(v, dict):
+                merged[k] = v
+    fs_lock.write_json_atomic(FILE, merged, sort_keys=True)
 
 
 def get(key):

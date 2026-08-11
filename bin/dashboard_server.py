@@ -251,7 +251,7 @@ def pr_items(release):
     keys = [re.fullmatch(r"\.changed-(.+)-(\d+)\.txt", pathlib.Path(f).name)
             for f in fixtures]
     pairs = [(m.group(1), m.group(2)) for m in keys if m]
-    for e in review_state.load():
+    for e in reviews:                     # keys, already loaded above
         m = re.fullmatch(r"PR-(.+)-(\d+)", e)
         if m:
             pairs.append((m.group(1), m.group(2)))

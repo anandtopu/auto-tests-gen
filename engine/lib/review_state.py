@@ -66,7 +66,26 @@ def load_with_issues():
 
 
 def save(data):
-    fs_lock.write_json_atomic(FILE, data, sort_keys=True)
+    """Write the board, carrying forward entries `load()` hid from the caller.
+
+    Every mutator here is `data = load()` -> change one key -> `save(data)`.
+    Since load() now filters malformed entries out, saving that view would
+    DELETE them from disk on the next unrelated status change — a read-time
+    shape guard silently destroying state, which is the failure this module's
+    own torn-write comment exists to prevent. The entry is unusable, but
+    unusable is not the same as ours to throw away: it is the only remaining
+    evidence of what someone wrote.
+
+    No caller removes a top-level key (mutators only ever touch a validated
+    one), so re-attaching cannot resurrect an intentional deletion.
+    """
+    merged = dict(data)
+    raw = fs_lock.read_json_guarded(FILE, {})
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            if k not in merged and not isinstance(v, dict):
+                merged[k] = v
+    fs_lock.write_json_atomic(FILE, merged, sort_keys=True)
 
 
 def known_keys():

@@ -100,12 +100,41 @@ def git_bash_command(script, *args, prepend=(), env=None, **extra):
 
 
 def load():
-    # Guarded: corrupt -> quarantined + empty queue, not a crash (see fs_lock).
-    return fs_lock.read_json_guarded(FILE, [])
+    """The queue, with every item guaranteed to BE an item.
+
+    Guarded: corrupt -> quarantined + empty queue, not a crash (see fs_lock).
+    That covers invalid JSON, not a valid file of the wrong SHAPE. Measured by
+    planting one bare string in the list: `make report` died at
+    team_report.py:217 and `bin/dashboard.py` at line 879 — the latter
+    producing NO dashboard at all. The queue is written from an HTTP POST, so
+    a malformed body is the likely source rather than a hand edit.
+    """
+    return load_with_issues()[0]
+
+
+def load_with_issues():
+    """(items, malformed_count) — the same read, counting what it dropped.
+
+    A count rather than ids: an unusable item has no id to name."""
+    raw = fs_lock.read_json_guarded(FILE, [])
+    if not isinstance(raw, list):
+        return [], 1
+    good = [i for i in raw if isinstance(i, dict)]
+    return good, len(raw) - len(good)
 
 
 def save(items):
-    fs_lock.write_json_atomic(FILE, items)
+    """Write the queue, carrying forward items `load()` hid from the caller.
+
+    Every mutator is load -> change -> save, so writing the filtered view would
+    delete a malformed item on the next enqueue. Unusable is not the same as
+    ours to discard — and unlike the keyed stores there is no id to match on,
+    so they are simply appended back at the end.
+    """
+    raw = fs_lock.read_json_guarded(FILE, [])
+    dropped = ([i for i in raw if not isinstance(i, dict)]
+               if isinstance(raw, list) else [])
+    fs_lock.write_json_atomic(FILE, list(items) + dropped)
 
 
 def key_of(item):

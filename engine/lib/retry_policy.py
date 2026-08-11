@@ -118,7 +118,18 @@ def attempts(key, root=ROOT, now=None):
     """Timestamps of attempts on this key still inside the window."""
     now = now if now is not None else time.time()
     win = limits(root)["window_minutes"] * 60
-    return [t for t in (_load(root).get(key) or [])
+    # The ELEMENT guard below was already here; what was missing is that the
+    # entry has to be iterable at all. `{"PROJ-1": 3}` is valid JSON, and
+    # `for t in 3` raises TypeError out of this comprehension — measured, at
+    # retry_policy.py:121. An unreadable entry means we cannot establish how
+    # many attempts were made, and the safe reading of that is zero: this
+    # counter only ever REFUSES work, so treating it as "no attempts" fails
+    # towards letting an operator retry rather than locking them out on
+    # evidence nobody can read.
+    entry = _load(root).get(key)
+    if not isinstance(entry, list):
+        return []
+    return [t for t in entry
             if isinstance(t, (int, float)) and now - t < win]
 
 
