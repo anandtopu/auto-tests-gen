@@ -51,16 +51,22 @@ KINDS = frozenset({
     # pipeline lifecycle
     "run.queued", "run.started", "run.phase_completed", "run.aborted",
     "run.completed",
-    # the gate
-    "gate.committed", "gate.refused", "gate.no_changes",
+    # the gate. `would_commit` is AIQE_GATE_CHECK_ONLY: every check ran and
+    # nothing was pushed, which is NOT the same event as no_changes.
+    "gate.committed", "gate.refused", "gate.no_changes", "gate.would_commit",
     # human decisions
     "plan.authored", "plan.edited", "plan.approved", "plan.revoked",
     "spec.requirements_approved", "spec.drift_detected",
     # estate configuration
     "registry.repo_added", "registry.repo_removed", "registry.mapping_changed",
     "settings.changed",
-    # money
+    # money. `cost.ledger_failed` is emitted by pipeline.sh and had NEVER been
+    # declared here -- the closure pin scanned only Python `emit("...")` calls,
+    # so shell `EV` emissions were invisible to it. The cost was concrete:
+    # alert_rules reports a rule naming an undeclared kind as unknown, so an
+    # operator could not alert on their spend ledger failing to write.
     "spend.phase_metered", "spend.budget_warned", "spend.budget_aborted",
+    "cost.ledger_failed",
     # delivery
     "notify.sent", "notify.failed",
     "ticket.comment",

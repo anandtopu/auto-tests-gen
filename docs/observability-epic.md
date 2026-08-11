@@ -118,11 +118,12 @@ without regex guesswork. Initial set:
 |---|---|
 | `request` | `received`, `refused` (401/403), `failed` (5xx) |
 | `run` | `queued`, `started`, `phase_completed`, `aborted`, `completed` |
-| `gate` | `committed`, `refused`, `no_changes` |
+| `gate` | `committed`, `refused`, `no_changes`, `would_commit` (AIQE_GATE_CHECK_ONLY: every check ran, nothing pushed) |
 | `plan` | `authored`, `edited`, `approved`, `revoked` |
 | `spec` | `requirements_approved`, `drift_detected` |
 | `registry` | `repo_added`, `repo_removed`, `mapping_changed` |
 | `settings` | `changed` (key names only) |
+| `cost` | `ledger_failed` (the spend ledger could not be written; emitted by pipeline.sh) |
 | `spend` | `phase_metered`, `budget_warned`, `budget_aborted` |
 | `notify` | `sent`, `failed` |
 | `alert` | `fired`, `resolved` |

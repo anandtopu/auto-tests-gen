@@ -7,6 +7,7 @@ the whole history unreadable because of one bad line.
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -191,8 +192,25 @@ def test_every_kind_used_in_the_codebase_is_declared():
                     kind = line.split(f"emit({quote}", 1)[1].split(quote, 1)[0]
                     if "." in kind:
                         used.add(kind)
+    # SHELL emissions too. This scanned only Python `emit("...")`, and
+    # pipeline.sh -- where most run-lifecycle events come from -- emits through
+    # its own `EV` helper, so those kinds were invisible to the check whose
+    # entire job is keeping the vocabulary closed. It let TWO through:
+    # `gate.would_commit` (added the same day) and `cost.ledger_failed`, which
+    # had never been declared at all. The cost is not cosmetic: alert_rules
+    # reports a rule naming an undeclared kind as unknown, so nobody could
+    # alert on their spend ledger failing to write.
+    for p in ROOT.rglob("*.sh"):
+        if any(x in p.as_posix() for x in ("/out/", "/.uv-cache/", "/workspace/")):
+            continue
+        for m in re.finditer(r"\bEV\s+([a-z_]+\.[a-z_]+)",
+                             p.read_text(encoding="utf-8", errors="replace")):
+            used.add(m.group(1))
     undeclared = sorted(used - el.KINDS)
     assert not undeclared, f"kinds emitted but not in event_log.KINDS: {undeclared}"
+    assert "gate.would_commit" in used, \
+        "the shell scan found nothing; a regex that matches no EV call would " \
+        "make this assertion vacuous forever"
 
 
 def test_cli_lists_events():
