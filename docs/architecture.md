@@ -1667,7 +1667,7 @@ computed from the wrong population all reported themselves as normal operation.
 
 ### 6.2 Reliability
 - **Deterministic gate** (§5.5) — the LLM never self-certifies; execution proves correctness.
-- **Bounded loops:** `--max-turns` per phase; ≤3 validate-repair cycles; hard wall-clock timeout (25 min) per run.
+- **Bounded loops:** `--max-turns` per phase and a hard wall-clock timeout (25 min) per run are ENFORCED by the runner. The ≤3 validate-repair cycles are *instructed*, not enforced: `repair_loops` is passed to the model in the prompt's run parameters, and the count that appears in run records, PR comments and the team report is what the model self-reported. The enforced backstops for a model that ignores the instruction are `--max-turns` and the exit-77 budget ceiling. (Until this was fixed the prompt carried the literal token `{{REPAIR_LOOPS}}` — the configured number never reached the model at all.)
 - **Failure taxonomy & handling:**
 
 | Failure | Detection | Handling |

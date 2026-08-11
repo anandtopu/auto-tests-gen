@@ -34,8 +34,18 @@ if [ "$GRADE" = "degrade_tier" ] || [ "$GRADE" = "degrade_context" ]; then
 fi
 # (The context-halving rung is consulted by context_scope.py itself at $(CTX)
 # time — an export here could never reach the parent shell's evaluation.)
-TURNS=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['phases']['$PHASE']['max_turns'])")
-TOOLS=$(python3 -c "import yaml;print(yaml.safe_load(open('$CFG'))['phases']['$PHASE']['allowed_tools'])")
+# One interpreter for all three values, not one each (efficiency-review §7 is
+# specifically about this tax). REPAIR_LOOPS is optional — only `validate`
+# declares it — and prints empty when absent so the caller can tell.
+_PHASE_CFG=$(python3 -c "
+import yaml
+p = yaml.safe_load(open('$CFG'))['phases']['$PHASE']
+print(p['max_turns'])
+print(p['allowed_tools'])
+print(p.get('repair_loops', ''))")
+TURNS=$(printf '%s\n' "$_PHASE_CFG" | sed -n 1p)
+TOOLS=$(printf '%s\n' "$_PHASE_CFG" | sed -n 2p)
+REPAIR_LOOPS=$(printf '%s\n' "$_PHASE_CFG" | sed -n 3p)
 mkdir -p out
 # LLM Runner port (multi-LLM story 1.1/1.2): resolve which provider serves
 # this phase — AIQE_LLM_PROVIDER env > org-config llm.phase_providers >
@@ -97,7 +107,17 @@ CONTEXT+=$'\n\n--- RUN PARAMETERS ---\n'"KEY=${KEY:-}"
 if [ -n "${AIQE_TARGET_REPO:-}" ]; then
   CONTEXT+=$'\n'"TARGET_REPO=${AIQE_TARGET_REPO}"
 fi
-CONTEXT+=$'\nWherever this prompt says {{KEY}} use the KEY above; wherever it says {{TARGET_REPO}} use TARGET_REPO (empty = every resolved test repo).'
+if [ -n "${REPAIR_LOOPS:-}" ]; then
+  # `prompts/validate-repair.md` says "At most {{REPAIR_LOOPS}} repair
+  # iterations" and NOTHING substituted it, so every real run sent the model
+  # that literal token — the ceiling org-config declares was never actually
+  # stated to the model it was meant to govern. It is an INSTRUCTION, not an
+  # enforced bound: the hard stop is --max-turns (and the exit-77 budget
+  # ceiling). Everything downstream that prints `repair_loops` is reading the
+  # model's own self-report out of the contract.
+  CONTEXT+=$'\n'"REPAIR_LOOPS=${REPAIR_LOOPS}"
+fi
+CONTEXT+=$'\nWherever this prompt says {{KEY}} use the KEY above; wherever it says {{TARGET_REPO}} use TARGET_REPO (empty = every resolved test repo); wherever it says {{REPAIR_LOOPS}} use REPAIR_LOOPS.'
 # Completion providers get the derived-writes note HERE — inside the
 # run-parameters block, i.e. AFTER the cacheable prefix. Prompts stay
 # provider-agnostic; the wrapper adds the one instruction the provider's
