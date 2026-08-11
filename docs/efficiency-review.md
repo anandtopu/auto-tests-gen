@@ -220,6 +220,52 @@ So the remaining 26 minutes are the price of end-to-end tests that drive the
 actual pipeline, which is the reason they catch what they catch. Recorded as a
 measurement rather than a target.
 
+## Inside one mock run, measured (2026-08-11)
+
+The section above calls the ~45-59s end-to-end tests INHERENT. That was an
+assertion; this is the evidence. One `pipeline.sh pr orders-api 201` with
+`AIQE_MOCK=1`, stdout timestamped per line, twice: **48.1s and 48.2s**.
+
+| Stage | Cost | What it is |
+|---|---|---|
+| clone + workspace | ~5.2s | mock SCM copies the demo repos and `git init`s them |
+| context prep | ~6.2s | AGENTS.md, exemplars, catalog slice, coverage gaps |
+| four mock phases | ~11s | ~2-3s each; interpreter starts, not model time (see §7) |
+| **gate** | **~14.5s** | **the largest single block** |
+| remainder | ~11s | record assembly, notify, telemetry |
+
+**The biggest block is the gate doing real work, so there is nothing to
+reclaim there.** It provisions the app under test, lints, EXECUTES the changed
+specs, secret-scans and commits -- which is the entire reason a generated test
+is trustworthy enough to push. Two things were checked rather than assumed:
+
+* `bin/with-env.sh` polls readiness (`curl -s -m 1` every 0.2s until the health
+  path answers), it does not sleep a fixed interval. A fixed sleep would have
+  been the one genuinely avoidable cost in that window, and it is not there.
+* The gate is silent during those 14.5s because it logs to
+  `reports/<KEY>-<repo>.log`, not because it is stalled.
+
+So the ~28 minute suite is ~20 genuine pipeline runs, and the per-run cost is
+dominated by work the product must do. Recorded so the next person profiling
+this does not re-derive it, and does not go looking for a fixed sleep that was
+never there.
+
+Mode matters when comparing: this is the **pr** path. §7's "~27s run" figure is
+a different measurement on a different day, so the two are not a before/after
+pair and no regression is claimed from the difference.
+
+### One accidental cost found and CLOSED HERE
+
+Profiling `--durations` on the suite surfaced five tests in
+`test_standalone.py` at 53/17/17/8.6/8.3s, all "OpenHands unreachable" cases.
+`openhands_client.health()` walked four candidate paths, and against a closed
+local port each returned the identical WinError 10061: **4 x 2.07s = 8.3s** to
+learn that an OPTIONAL system is absent, and up to 4 x TIMEOUT (60s) against an
+unroutable host. It now stops when no HTTP response arrives at all, and keeps
+walking only on a 5xx, where the server has actually answered.
+**8.3s -> 2.05s; `test_standalone` 104s -> 71s.** Pins:
+`test_health_probe_fails_fast.py` (7), 5/5 mutations killed.
+
 ## What the coverage number does and does not mean (measured 2026-08-10)
 
 `make python-coverage` reports **71.0%** across `engine/lib` and `bin`
