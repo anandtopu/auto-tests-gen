@@ -50,10 +50,34 @@ def build(days=None, release=None):
     and review entries to keys tracked against that version."""
     now = time.time()
     cutoff = now - days * 86400 if days else 0
-    reviews = review_state.load()
+    # Three reads below (`rel_of`, `pending`, `approved`) called .get() straight
+    # on a review entry, so one wrong-shaped value in reviews.json raised
+    # AttributeError out of build() and took down `make report`, GET
+    # /api/report AND the emailed report together — found by a defensive test
+    # written for the release filter, not by the suite. The SHAPE guarantee now
+    # lives in review_state (nine call sites had the same hole; fixing this one
+    # would have left the others), and this report names what was skipped
+    # because a silently smaller board reads as a smaller backlog.
+    reviews, malformed_reviews = review_state.load_with_issues()
     rel_of = lambda key: reviews.get(key, {}).get("release", "")
     runs = [r for r in _runs() if r.get("ts", 0) >= cutoff
             and (not release or rel_of(r["trigger"]["key"]) == release)]
+
+    # Everything below this line has to respect `release` too. Cost and the
+    # work queue did not, so a release readout mixed scoped and estate-wide
+    # rows in one Summary table. A non-dict review entry is skipped rather than
+    # crashing the report — the same defensive read the reviewer rota needs.
+    release_keys = ({k for k, e in reviews.items()
+                     if e.get("release", "") == release} if release else None)
+    queue_all = work_queue.load()
+    queue = ([i for i in queue_all if i.get("release", "") == release]
+             if release else queue_all)
+    # Is this release known to the estate AT ALL? work_queue only writes a
+    # release into review_state once a run SUCCEEDS, so a release whose tickets
+    # are merely queued has no board entry — asking only the board would flag a
+    # perfectly real release as a typo.
+    release_known = bool(release_keys) or any(
+        i.get("release", "") == release for i in queue_all) if release else True
 
     completed, quarantined, review_refused = [], [], []
     n_tests, n_created, n_updated, repair_loops = 0, 0, 0, []
@@ -140,20 +164,31 @@ def build(days=None, release=None):
             "completed": completed, "quarantined": quarantined,
             "review_refused": review_refused,
             "pending_review": pending, "approved_in_period": sorted(approved),
-            "queue": work_queue.load(), "by_release": by_release,
+            "queue": queue, "release_known": release_known,
+            "malformed_reviews": malformed_reviews,
+            "by_release": by_release,
             "per_day": dict(sorted(per_day.items(), reverse=True)),
             "catalog": {"total": len(catalog), "by_status": by_status,
                         "coverage_gaps": gaps,
                         "coverage_unchecked": gaps_unchecked, "flaky": flaky},
-            "cost": _cost_line(days)}
+            "cost": _cost_line(days, release_keys)}
 
 
-def _cost_line(days):
+def _cost_line(days, keys=None):
     """One honest cost summary line (cost-reduction 1.2). A simulated figure is
-    labelled so it can never be quoted as a measured dollar."""
+    labelled so it can never be quoted as a measured dollar.
+
+    `keys` scopes the figure to a release's keys. Without it this line ignored
+    the report's release filter entirely, so a per-release readout printed the
+    WHOLE estate's spend in the same Summary table as correctly-filtered zeros:
+    measured, "Pipeline runs | 0" directly above "LLM spend | ~$13.0000 across
+    617 run(s)". Labelling the number was not enough — it sat beside scoped
+    rows, and this report is emailed and pasted into status updates, where the
+    figure travels and any caveat does not.
+    """
     try:
         import cost_report
-        rep = cost_report.report(days)
+        rep = cost_report.report(days, keys=keys)
         if not rep["runs"] or rep["simulated_share"] is None:
             return ""
         label = ("simulated" if rep["simulated_share"] == 1.0
@@ -181,8 +216,22 @@ def to_markdown(days=None, release=None):
     for i in d["queue"]:
         q_by[i["status"]] = q_by.get(i["status"], 0) + 1
     rate = f"{t['committed'] / t['runs']:.0%}" if t["runs"] else "n/a"
-    L = [f"# QA Team Report — {when}", "", f"Period: **{period}**", "",
-         "## Summary", "",
+    L = [f"# QA Team Report — {when}", "", f"Period: **{period}**", ""]
+    if d.get("malformed_reviews"):
+        L += [f"> **{len(d['malformed_reviews'])} review-board entr"
+              f"{'y is' if len(d['malformed_reviews']) == 1 else 'ies are'} "
+              f"unreadable** and excluded from every count below "
+              f"({', '.join('`%s`' % k for k in d['malformed_reviews'][:5])}"
+              f"{', …' if len(d['malformed_reviews']) > 5 else ''}). The "
+              f"review numbers are a floor, not a total.", ""]
+    if not d.get("release_known", True):
+        # C13 at the top of the document, because every zero below it is the
+        # filter matching nothing rather than a finding about the release.
+        L += [f"> **No work in this estate is tracked against release "
+              f"`{release}`.** The zeros below are that filter matching "
+              f"nothing — not a statement that the release is clear. Check the "
+              f"value (`make reviews` lists the releases in use).", ""]
+    L += ["## Summary", "",
          "| metric | value |", "| --- | --- |",
          f"| Pipeline runs | {t['runs']} |",
          f"| Committed (tests pushed) | {t['committed']} ({rate}) |",

@@ -120,8 +120,21 @@ def _pct(values, q):
     return s[min(len(s) - 1, int(round(q * (len(s) - 1))))]
 
 
-def report(days=None):
+def report(days=None, keys=None):
+    """`keys` restricts the USER-TASK rollups to those trigger keys — what a
+    release-scoped readout needs. It deliberately does NOT touch the embedding
+    and probe sections: those spend rows carry no key, are already reported
+    separately from the task total, and pretending they belong to one release
+    would be the same attribution error this parameter exists to fix.
+
+    An EMPTY collection means "no key matched", which must yield zero runs — it
+    is not the same as None (no filter), and defaulting an empty set to "all"
+    would turn a filter that matched nothing into the whole estate.
+    """
     runs = collect(days)
+    if keys is not None:
+        wanted = set(keys)
+        runs = [r for r in runs if r.get("key") in wanted]
     by_mode, by_key, by_phase, by_model, by_provider = {}, {}, {}, {}, {}
     by_basis = {}
     local_tokens = cloud_tokens = 0

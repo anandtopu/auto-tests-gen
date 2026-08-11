@@ -31,10 +31,38 @@ FILE = pathlib.Path(os.environ.get("AIQE_REVIEWS_FILE", ROOT / "reports/runs/rev
 
 
 def load():
-    # Guarded: a torn write used to make every caller RAISE — review board, wizard
-    # and run records all went down until the file was hand-edited. Corrupt files
-    # are quarantined by fs_lock, preserving the bytes for recovery.
-    return fs_lock.read_json_guarded(FILE, {})
+    """The board, with every entry guaranteed to BE an entry.
+
+    Guarded: a torn write used to make every caller RAISE — review board, wizard
+    and run records all went down until the file was hand-edited. Corrupt files
+    are quarantined by fs_lock, preserving the bytes for recovery.
+
+    That guard covers invalid JSON. It does NOT cover a valid file holding the
+    wrong SHAPE — `{"PROJ-1": "approved"}` parses fine, and every consumer then
+    calls .get() on a string. Measured: nine call sites across team_report,
+    email_notify, trace, dashboard.py and qa.py do exactly that, so one
+    hand-edited value took out the team report, the review-digest email, `make
+    reviews` and — worst — `bin/dashboard.py`, which produces NO dashboard at
+    all rather than one board being wrong.
+
+    Fixing nine callers would leave the tenth. The shape is the store's promise,
+    so it is kept here; `load_with_issues()` is for the callers that should tell
+    a human what was skipped, because a silently smaller board reads as a
+    smaller backlog.
+    """
+    return load_with_issues()[0]
+
+
+def load_with_issues():
+    """(entries, malformed_keys) — same read, but naming what it dropped."""
+    raw = fs_lock.read_json_guarded(FILE, {})
+    if not isinstance(raw, dict):
+        # The whole document is the wrong shape (a list, say). No entry is
+        # recoverable, and reporting an empty board as a clear one is the
+        # failure this module already exists to avoid.
+        return {}, ["<the review board file is not an object>"]
+    good = {k: v for k, v in raw.items() if isinstance(v, dict)}
+    return good, sorted(set(raw) - set(good))
 
 
 def save(data):

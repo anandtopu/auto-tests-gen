@@ -148,8 +148,19 @@ def to_markdown(only_repo=None):
     seen = {n: g for n, g in gaps.items() if observed(g)}
     blind = {n: g for n, g in gaps.items() if not observed(g)}
     lines = ["# Coverage gaps (harvested surface vs Test Catalog evidence)", ""]
-    if not seen:
-        lines.append("No harvestable surface found (contracts/route tables unavailable).")
+    if not gaps:
+        # Every registered repo now lands in `seen` or `blind`, so an empty
+        # result means nothing MATCHED — a different fact from "nothing is
+        # uncovered". `--repo typo` used to print "No harvestable surface
+        # found" and exit 0, which reads as a clean bill for a repo that does
+        # not exist.
+        lines.append(
+            f"No repo named `{only_repo}` is registered — that is not a "
+            f"statement about its coverage (`make repos` lists them)."
+            if only_repo else
+            "No app repos are registered, so there is no surface to compare "
+            "catalog evidence against (`bin/repos.py add-app`).")
+        return "\n".join(lines)
     for name, g in seen.items():
         lines.append(f"## {name} ({g['kind']})")
         if g["status"] == "empty":
