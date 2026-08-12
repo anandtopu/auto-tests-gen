@@ -377,3 +377,94 @@ def test_the_writable_scope_in_the_docs_is_the_gates_own():
     for d in sorted(allowed):
         assert d in scope_row[0], \
             f"the gate allows {d}/ and the user guide's scope row omits it"
+
+
+# --------------------------------------------------------------------------
+# Documented commands must exist.
+#
+# CLAUDE.md's Commands section listed `make test-catalog-paths` and no such
+# target existed, so anyone following the repo's own primary reference -- a
+# human or an agent -- got "No rule to make target". The batch PRD was worse:
+# it showed `make batch-plan` inside a runnable bash block next to two commands
+# that DO exist, and separately explained in prose that it was never built, so
+# the document contradicted itself about which of three lines a reader could
+# type. Same for `make test-batch`, whose §9 revision says "why there is no
+# `make test-batch`" two sections after a table row promising it.
+#
+# The opt-out is deliberately IN THE DOCUMENT rather than in an allow-list
+# here: the fix a reader needs is to see "NOT BUILT" where they see the
+# command. A hidden allow-list would keep the build green and leave the
+# document lying, which is the failure this pin exists to prevent.
+
+_SPAN = re.compile(r"`([^`\n]+)`")
+_FENCE = re.compile(r"^\s{0,3}```[a-z]*\n(.*?)```", re.S | re.M)
+_MAKE = re.compile(r"^make\s+([a-z][a-z0-9_-]*)")
+# Marker vocabulary for "this command does not exist". Deliberately a small
+# declared set rather than a loose match: the point is that the READER sees the
+# disclaimer, so the phrasing has to be one a reader would recognise as one.
+_NOT_BUILT = re.compile(r"not built|never built|not a target|there is no", re.I)
+
+# A metasyntactic stand-in in an example about pipe exit status, not a command
+# anyone runs. Declared with its reason rather than pattern-matched away.
+_PLACEHOLDERS = {"x"}
+
+
+def _documented_commands():
+    """(file, line, target, full command text) for every `make ...` a reader
+    could reasonably type: inline code spans that ARE a command, and lines
+    inside fenced blocks. Prose that merely contains the word 'make' is not a
+    command and is not considered."""
+    files = [ROOT / "CLAUDE.md", ROOT / "README.md"]
+    files += sorted(ROOT.glob("docs/**/*.md"))
+    for f in files:
+        if not f.exists():
+            continue
+        text = f.read_text(encoding="utf-8", errors="replace")
+        lines = text.splitlines()
+        for m in _SPAN.finditer(text):
+            n = text[:m.start()].count("\n") + 1
+            yield f, n, m.group(1).strip(), lines[n - 1] if n <= len(lines) else ""
+        for m in _FENCE.finditer(text):
+            base = text[:m.start()].count("\n") + 1
+            for i, raw in enumerate(m.group(1).splitlines()):
+                yield f, base + i + 1, raw.strip(), raw
+
+
+def _make_targets():
+    body = (ROOT / "Makefile").read_text(encoding="utf-8")
+    return set(re.findall(r"^([a-z][a-z0-9_-]*):", body, re.M))
+
+
+def test_every_documented_make_command_exists():
+    real = _make_targets()
+    assert "review" in real and "demo-pr" in real, \
+        "the Makefile parse found nothing — this pin would pass vacuously"
+    offenders = []
+    for f, line, cmd, source_line in _documented_commands():
+        m = _MAKE.match(cmd)
+        if not m:
+            continue
+        target = m.group(1)
+        if target in real or target in _PLACEHOLDERS:
+            continue
+        # `make parity-*` / `make plan-*` shorthand: the regex stops at the
+        # hyphen, so accept it when a real target carries that prefix.
+        if target.endswith("-") and any(r.startswith(target) for r in real):
+            continue
+        if _NOT_BUILT.search(source_line):
+            continue
+        offenders.append(f"{f.relative_to(ROOT).as_posix()}:{line}  make {target}")
+    assert not offenders, (
+        "documented commands that are not Makefile targets — a reader following "
+        "these gets 'No rule to make target'. Either add the target or mark the "
+        "line NOT BUILT:\n  " + "\n  ".join(offenders))
+
+
+def test_the_command_scan_actually_finds_commands():
+    """A probe: the extractor must see the commands this repo definitely
+    documents, or the pin above passes by finding nothing to check."""
+    found = {t for _, _, cmd, _ in _documented_commands()
+             for t in _MAKE.findall(cmd)}
+    for expected in ("review", "demo-pr", "test-gate"):
+        assert expected in found, \
+            f"the doc-command scan missed `make {expected}` — it is not scanning"

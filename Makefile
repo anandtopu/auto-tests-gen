@@ -83,6 +83,12 @@ test-routing-adv:
 test-observability:
 	bash tests/observability-adversarial.sh
 
+# The catalog has ONE definition of where it lives (app_paths.catalog_files).
+# CLAUDE.md listed this among the runnable commands and the target did not
+# exist, so anyone following the docs got "No rule to make target".
+test-catalog-paths:
+	python3 -m pytest registry/tests/test_catalog_paths.py -q
+
 # Smoke + adversarial UAT for the CATALOG BOOTSTRAP CHAIN. Runs the REAL
 # catalog/bootstrap/run_bootstrap.sh (isolated via AIQE_CATALOG_DIR), not the
 # demo reimplementation — the two had silently diverged because only the demo

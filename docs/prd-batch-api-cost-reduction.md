@@ -209,7 +209,7 @@ drafts. `custom_id` is `<run_id>:<key>:<phase>` — mandatory, because **results
 may return in any order**. New surface:
 
 ```bash
-make batch-plan RELEASE=24.3        # spool + submit
+make batch-plan RELEASE=24.3        # NOT BUILT (not a target) - see the slice-2 note
 make batch-status                   # what is in flight, and since when
 make batch-drain                    # materialize completed results
 ```
@@ -292,10 +292,10 @@ stops applying to exactly the workload designed to be large.
 | Slice | Content | Value |
 |---|---|---|
 | 1 | `adapters/llm/batch.sh`, capabilities/tool_policy/check, blocking mode, `pricing:` + `batch_discount`, cost basis, config + Settings, conformance | 50% on eligible phases for queued/background work |
-| 2 | Spool + `make batch-plan/status/drain`, `custom_id` correlation, envelope pricing at submit | **throughput, not extra discount** — 40 tickets in ~1h instead of ~40 sequential batches (see the §5 correction) |
+| 2 | Spool + `make batch-spool/submit/status/drain` (`make batch-plan` NOT BUILT), `custom_id` correlation, envelope pricing at submit | **throughput, not extra discount** — 40 tickets in ~1h instead of ~40 sequential batches (see the §5 correction) |
 | 3 | Wire the bootstrap classify stage and `make maintain` analysis to batch | background spend halved |
 | 4 | Optional PR-triage batching behind `include_pr_triage` | org-by-org latency call |
-| 5 | `make test-batch` adversarial suite (§9) | proof the failure modes are honest |
+| 5 | ~~`make test-batch` adversarial suite~~ NOT BUILT - §9 records why, and where the pins live instead | proof the failure modes are honest |
 
 ---
 
@@ -349,7 +349,7 @@ Superseded plan, kept for the record:
 
 <!-- original list retained below -->
 
-**Adversarial suite (`make test-batch`), mirroring `make test-providers`:**
+**Adversarial suite (`make test-batch` - NOT BUILT; retained as the original proposal), mirroring `make test-providers`:**
 
 - a batch that expires reports `expired` and **$0 not billed**, never "the phase
   produced nothing";

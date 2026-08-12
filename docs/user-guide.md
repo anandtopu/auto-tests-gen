@@ -1564,3 +1564,7 @@ entry point that nothing was running:
   [deployment.md](deployment.md#first-boot-what-a-new-deployment-seeds).
 - **`make test-observability`** — the transaction log and alert rules, including that
   an unreadable log reports `unevaluable` rather than `ok`.
+- **`make test-catalog-paths`** — the catalog has ONE definition of where it lives
+  (`app_paths.catalog_files()`). Pins the invariant rather than today's readers, so
+  a fifteenth module resolving `catalog/` itself is caught too — under a relocated
+  `AIQE_CATALOG_DIR` that module would read a catalog nobody is writing to.
