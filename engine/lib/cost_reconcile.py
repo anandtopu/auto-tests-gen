@@ -282,12 +282,18 @@ def _explain(doc):
     """
     status = str(doc.get("status") or "")
     reason = str(doc.get("reason") or "").strip()
+    # The reason the PORT supplied already names the vendor's own credential;
+    # branching on that name here would put a vendor branch in engine code,
+    # which the port boundary forbids and a pin enforces (it caught exactly
+    # that in the first version of this function). Classify on the neutral
+    # `reason_code` instead and let the echoed reason do the naming.
+    code = str(((doc.get("provider_usage") or {}).get("reason_code") or "")).strip()
     lines = []
     if status == "not-reconciled":
         lines.append(f"COST_RECONCILE: nothing was reconciled - {reason or 'reason not recorded'}")
-        if "ANTHROPIC_ADMIN_KEY" in reason:
-            lines.append("  fix: set the write-only ANTHROPIC_ADMIN_KEY (an organization "
-                         "Admin API key with read-only usage/cost scope) in Settings or .env")
+        if code == "credential-missing":
+            lines.append("  fix: configure the provider billing credential named above "
+                         "(Settings, or the same key in .env) and re-run")
         else:
             lines.append("  fix: check the provider's billing API is reachable, then re-run")
     else:

@@ -27,8 +27,10 @@ sys.path.insert(0, str(ROOT / "engine/lib"))
 import cost_reconcile                                          # noqa: E402
 
 
-def _not_reconciled(reason="ANTHROPIC_ADMIN_KEY is not configured"):
+def _not_reconciled(reason="ANTHROPIC_ADMIN_KEY is not configured",
+                    code="credential-missing"):
     return {"schema": 1, "status": "not-reconciled", "reason": reason,
+            "provider_usage": {"reason_code": code, "reason": reason},
             "notification": {"required": False, "state": "not-required"}}
 
 
@@ -40,17 +42,30 @@ def _drift_undelivered():
 
 
 def test_a_missing_credential_names_the_credential_and_the_fix():
+    """The credential name reaches the operator through the PORT's reason,
+    which this function echoes -- never from a vendor branch in engine code.
+    The first version of _explain() branched on the literal name and the
+    existing no-vendor-branch pin caught it, which is the pin working."""
     lines = " ".join(cost_reconcile._explain(_not_reconciled()))
     assert "nothing was reconciled" in lines
     assert "ANTHROPIC_ADMIN_KEY" in lines and "fix:" in lines
+    # Both branches say "fix:", so asserting only that let a mutation send a
+    # missing credential to "check the billing API is reachable" -- the wrong
+    # place, and the mirror of the failure the sibling test guards. Assert the
+    # branch that actually fired.
+    assert "configure the provider billing credential" in lines
+    assert "reachable" not in lines, \
+        "a missing credential was reported as an unreachable API"
+    src = (ROOT / "engine/lib/cost_reconcile.py").read_text(encoding="utf-8")
+    assert "ANTHROPIC_ADMIN_KEY" not in src,         "a vendor name is hardcoded in engine code again"
 
 
 def test_an_unreachable_billing_api_does_not_send_you_after_a_credential():
     """Naming the wrong fix sends the reader somewhere that is not the
     problem -- the failure mode the gate exit-code table was pinned for."""
     lines = " ".join(cost_reconcile._explain(
-        _not_reconciled("usage adapter exceeded 30s")))
-    assert "ANTHROPIC_ADMIN_KEY" not in lines
+        _not_reconciled("usage adapter exceeded 30s", code="provider-timeout")))
+    assert "credential" not in lines
     assert "reachable" in lines
 
 
