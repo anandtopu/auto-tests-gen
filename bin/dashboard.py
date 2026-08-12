@@ -2628,16 +2628,20 @@ async function refreshCost() {
       '<td>' + v.suggested_max_turns + '</td></tr>').join('') ||
       '<tr><td colspan="9"><div class="empty">No spend recorded yet.</div></td></tr>';
     const pt2 = document.querySelector('#cost-provider-table tbody');
-    if (pt2) {
+    {
+      // Mirrors cost_report.money(): `$` is reserved for a figure where EVERY
+      // contributing basis is measured. The old rule keyed on a SINGLE basis,
+      // so any mixture of non-measured bases fell through to the measured
+      // format -- this estate's `{simulated: 418, unrecorded: 20}` row printed
+      // `$1.5000` over money none of which was measured.
       const fmt = (v, bases) => {
-        const b = Object.keys(bases || {});
+        const b = Object.keys(bases || {}).filter(k => bases[k]);
         if (b.length === 1 && b[0] === 'local') return '$0 (local)';
-        if (b.length === 1 && b[0] === 'simulated') return '~$' + v.toFixed(4);
-        if (b.includes('estimated')) return '~$' + v.toFixed(4);
         if (b.length === 1 && b[0] === 'unknown') return 'unknown';
-        return '$' + v.toFixed(4);
+        if (b.length && b.every(x => x === 'reported')) return '$' + v.toFixed(4);
+        return '~$' + v.toFixed(4);
       };
-      pt2.innerHTML = Object.entries(d.by_provider || {}).sort().map(([k, v]) =>
+      if (pt2) pt2.innerHTML = Object.entries(d.by_provider || {}).sort().map(([k, v]) =>
         '<tr><td class="mono sm">' + escHtml(k) + '</td><td>' + v.calls + '</td>' +
         '<td>' + fmt(v.cost_usd, v.bases) + '</td>' +
         '<td class="sm muted">' + escHtml(Object.keys(v.bases || {}).join(', ') || '—') + '</td>' +
@@ -2650,9 +2654,11 @@ async function refreshCost() {
         (d.cloud_tokens || 0) + ' cloud — moving phases to a local provider avoids the local share.'
       : '';
     const kt = document.querySelector('#cost-keys-table tbody');
+    // Same rule as the provider table. This one carried NO basis awareness at
+    // all, so a key whose spend is entirely simulated printed a bare `$`.
     if (kt) kt.innerHTML = (d.by_key_top10 || []).map(e =>
       '<tr><td class="mono sm">' + escHtml(e.key) + '</td><td>' + e.runs + '</td>' +
-      '<td>$' + e.cost_usd.toFixed(4) + '</td></tr>').join('') ||
+      '<td>' + fmt(e.cost_usd, e.bases) + '</td></tr>').join('') ||
       '<tr><td colspan="3"><div class="empty">No keyed spend yet.</div></td></tr>';
     const sv = document.getElementById('cost-savings');
     if (sv) {

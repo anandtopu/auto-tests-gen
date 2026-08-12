@@ -120,6 +120,41 @@ def _pct(values, q):
     return s[min(len(s) - 1, int(round(q * (len(s) - 1))))]
 
 
+MEASURED_BASES = frozenset({"reported"})
+
+
+def money(cost, bases):
+    """Render a summed dollar figure WITH the basis it was arrived at.
+
+    The iron rule of this module is that a simulated number must never
+    masquerade as a measured dollar, and it kept breaking in the same place:
+    per-basis rendering was always right, and every place that SUMMED bases
+    into one number dropped the basis on the way. Four such places existed
+    when this was written -- the dashboard's provider table, its top-keys
+    table, and the markdown report's "By workflow" and "Top keys" sections --
+    all printing a bare `$` over spend that is 100% simulated on this estate.
+
+    Only `reported` is a measured dollar. `$` is therefore reserved for a
+    figure where EVERY contributing basis is measured; anything else is
+    marked, because a total mixing measured and simulated money cannot be
+    separated after the fact and must not read as if it were.
+
+    The single-basis special cases (`local`, `unknown`) match what the
+    provider table already rendered correctly, so those stay byte-identical.
+    An EMPTY basis map is provenance we could not establish, which is not the
+    same as measured (C13) -- it is marked too.
+    """
+    amount = float(cost or 0)
+    present = {b for b, n in (bases or {}).items() if n}
+    if present == {"local"}:
+        return "$0 (local)"
+    if present == {"unknown"}:
+        return "unknown"
+    if present and present <= MEASURED_BASES:
+        return f"${amount:.4f}"
+    return f"~${amount:.4f}"
+
+
 def report(days=None, keys=None):
     """`keys` restricts the USER-TASK rollups to those trigger keys — what a
     release-scoped readout needs. It deliberately does NOT touch the embedding
@@ -146,7 +181,12 @@ def report(days=None, keys=None):
 
     def add_rollup(provider, basis, cost, calls, input_tokens=0, output_tokens=0,
                    calls_known=True):
-        """One basis-preserving rollup shared by phases, probes and embeddings."""
+        """One basis-preserving rollup shared by phases, probes and embeddings.
+
+        Preserving the basis here is only half the job: every renderer that
+        SUMS these rows has to carry it through, which is what `money()` below
+        exists for.
+        """
         pv = by_provider.setdefault(provider or "unknown", {
             "calls": 0, "cost_usd": 0.0, "input_tokens": 0,
             "output_tokens": 0, "bases": {}, "calls_unknown_rows": 0})
@@ -184,6 +224,9 @@ def report(days=None, keys=None):
         # to degrade or abort" off this figure, and on a mock-heavy estate
         # the simulated total drove that prediction.
         run_measured = 0.0
+        # The basis map for THIS run, so the per-mode and per-key rollups
+        # below can be rendered with their provenance instead of a bare `$`.
+        run_bases = {}
         for p in r["phases"]:
             s = p["spend"]
             raw_cost = s.get("cost_usd")
@@ -209,6 +252,7 @@ def report(days=None, keys=None):
             else:
                 run_measured += cost
             run_cost += cost
+            run_bases[basis] = run_bases.get(basis, 0) + attempts
             if basis == "unknown":
                 unmeterable_phases.add((r["run_id"], p["name"]))
                 unmeterable_tasks.add(r["key"] or r["run_id"])
@@ -243,14 +287,19 @@ def report(days=None, keys=None):
         if user_run:
             user_run_ids.add(r["run_id"])
         if user_run:
-            by_mode.setdefault(r["mode"] or "?", {"runs": 0, "cost_usd": 0.0})
-            by_mode[r["mode"] or "?"]["runs"] += 1
-            by_mode[r["mode"] or "?"]["cost_usd"] += run_cost
+            md = by_mode.setdefault(r["mode"] or "?",
+                                    {"runs": 0, "cost_usd": 0.0, "bases": {}})
+            md["runs"] += 1
+            md["cost_usd"] += run_cost
+            for b, n in (run_bases or {}).items():
+                md["bases"][b] = md["bases"].get(b, 0) + n
         if user_run and r["key"]:
             k = by_key.setdefault(r["key"], {"runs": 0, "cost_usd": 0.0,
-                                             "measured_usd": 0.0})
+                                             "measured_usd": 0.0, "bases": {}})
             k["runs"] += 1
             k["cost_usd"] += run_cost
+            for b, n in (run_bases or {}).items():
+                k["bases"][b] = k["bases"].get(b, 0) + n
             k["measured_usd"] = round(k.get("measured_usd", 0.0)
                                       + run_measured, 6)
 
@@ -335,7 +384,11 @@ def report(days=None, keys=None):
     return {"window_days": days, "runs": len(user_run_ids),
             "total_cost_usd": round(total, 4),
             "simulated_share": round(simulated_rows / spend_rows, 3) if spend_rows else None,
-            "by_mode": {k: {"runs": v["runs"], "cost_usd": round(v["cost_usd"], 4)}
+            # `bases` travels with the figure. Dropping it here made every mode
+            # render `~$` -- the right answer for this estate by the WRONG
+            # reason, and it would have marked genuinely measured spend too.
+            "by_mode": {k: {"runs": v["runs"], "cost_usd": round(v["cost_usd"], 4),
+                            "bases": v.get("bases") or {}}
                         for k, v in by_mode.items()},
             "by_key_top10": [{"key": k, **{**v, "cost_usd": round(v["cost_usd"], 4)}}
                              for k, v in top10],
@@ -429,12 +482,14 @@ def to_markdown(rep):
     if rep["by_mode"]:
         lines.append("## By workflow")
         for k, v in sorted(rep["by_mode"].items()):
-            lines.append(f"- {k}: {v['runs']} run(s), ${v['cost_usd']:.4f}")
+            lines.append(f"- {k}: {v['runs']} run(s), "
+                         f"{money(v['cost_usd'], v.get('bases'))}")
         lines.append("")
     if rep["by_key_top10"]:
         lines.append("## Top keys")
         for e in rep["by_key_top10"]:
-            lines.append(f"- {e['key']}: {e['runs']} run(s), ${e['cost_usd']:.4f}")
+            lines.append(f"- {e['key']}: {e['runs']} run(s), "
+                         f"{money(e['cost_usd'], e.get('bases'))}")
         lines.append("")
     if rep["by_phase"]:
         # Hit-rate floor (4.2): a configured minimum makes a prefix-breaking
