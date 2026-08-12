@@ -268,6 +268,38 @@ def operate(days=30, provider=None, rows=None, notifier=None, now=None):
     return doc, external
 
 
+def _explain(doc):
+    """Human lines for an exit-75 result: WHICH situation, and the fix.
+
+    Exit 75 covers two things a reader must not confuse, so the message names
+    which one rather than pretending the code is finer-grained than it is:
+
+    * nothing was reconciled (no credential, an unreachable billing API, a
+      provider that cannot report) -- benign, and the fix is configuration;
+    * spend DID reconcile, drift was found, and the alarm could not be
+      delivered -- the urgent one, because the number is real and nobody was
+      told. (It is still published, and the Cost view shows the drift state.)
+    """
+    status = str(doc.get("status") or "")
+    reason = str(doc.get("reason") or "").strip()
+    lines = []
+    if status == "not-reconciled":
+        lines.append(f"COST_RECONCILE: nothing was reconciled - {reason or 'reason not recorded'}")
+        if "ANTHROPIC_ADMIN_KEY" in reason:
+            lines.append("  fix: set the write-only ANTHROPIC_ADMIN_KEY (an organization "
+                         "Admin API key with read-only usage/cost scope) in Settings or .env")
+        else:
+            lines.append("  fix: check the provider's billing API is reachable, then re-run")
+    else:
+        channel = (doc.get("notification") or {}).get("channel") or "the configured channel"
+        lines.append("COST_RECONCILE: spend reconciled and DRIFT was found, but the alarm "
+                     f"could not be delivered via {channel} - nobody was notified")
+        lines.append("  the drift figures are published and the dashboard Cost view shows them")
+    lines.append("  exit 75 means an external system was unavailable, not that this command "
+                 "failed; `make maintain` reports it as DEGRADED and keeps going")
+    return lines
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Compare provider and platform reported spend")
     parser.add_argument("--days", type=int, default=30)
@@ -280,6 +312,16 @@ def main(argv=None):
         print(f"COST_RECONCILE: {exc}", file=sys.stderr)
         return 1
     print(json.dumps(result, sort_keys=True))
+    if external:
+        # The JSON carries the reason and nothing says it OUT LOUD, so an
+        # operator running this gets a blob and `make: *** Error 75`, which
+        # reads as a crash. Exit 75 is deliberate -- "could not reconcile" is
+        # not success (C13) -- but a non-zero code nobody can look up is how a
+        # correct refusal gets mistaken for a broken command. `make maintain`
+        # already learned this lesson: it used to discard this text and leave a
+        # CronJob log saying only "exit 75".
+        for line in _explain(result):
+            print(line, file=sys.stderr)
     return EXTERNAL_UNAVAILABLE if external else 0
 
 

@@ -1297,6 +1297,16 @@ both figures, the provider window, and likely causes; it never corrects the
 ledger. `make maintain` runs this check nightly: provider or notification
 outages are named **DEGRADED**, while invalid configuration or a failed durable
 write is **FAILED** and makes maintenance exit non-zero.
+
+**Exit codes.** `0` reconciled (with or without drift). `1` a local error —
+unreadable evidence, invalid configuration — with the message on stderr. `75`
+an external system was unavailable: this is deliberate, because "could not
+reconcile" is not success, and `make maintain` treats it as DEGRADED and keeps
+going. Do not read a `75` as a broken command: the run prints a line naming
+which of the two situations it hit — nothing was reconciled (no credential, an
+unreachable billing API), or spend DID reconcile, drift was found, and the
+alarm could not be delivered. The second is the urgent one; its figures are
+still published and the Cost view shows the drift state.
 Set `AIQE_EXPORTS_DIR` to relocate generated exports independently; otherwise
 they follow `AIQE_STATE_DIR` and default to `reports/exports`.
 
