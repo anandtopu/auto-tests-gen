@@ -1183,6 +1183,14 @@ scenario → generated spec → gate commit → CI health. An **approved scenari
 test** is rendered outlined: a requirement someone signed off that nothing
 exercises. This is the audit artifact.
 
+The gate column can also read **`unattributed`**, which is not the same as an
+empty cell. It means the test EXISTS but its owning repository could not be
+established — the run gated several repositories and the generate contract did
+not stamp one on that test — so the platform declines to guess rather than
+invent a cross-repo link. Read it as "committed somewhere, owner unknown", never
+as "never committed"; the summary under the table names those rows and counts
+them separately from the uncovered ones.
+
 ### Risk-ranked gaps and drift alarms
 `make gaps` now orders uncovered surface by deterministic risk (mutating method,
 sensitive path token, state-addressing) with the reasons on each line — and the

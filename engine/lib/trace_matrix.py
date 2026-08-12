@@ -154,6 +154,17 @@ def build(key=None):
             # run's successful gate as if it had been committed.
             repo = (test or {}).get("repo") or (inferred_repo if test else "")
             gate = _gate_for(record, repo) if repo else {}
+            # A test we could not attribute to a repo is NOT a test that was
+            # never committed, and an empty gate cell said both. Measured on
+            # this estate: PR-orders-api-201's spec is committed (the run
+            # records carry the sha) and rendered `-`, exactly as loud as
+            # PROJ-301-S2, an approved scenario nothing exercises. In the
+            # table regulated teams read, those are opposite findings.
+            #
+            # The refusal above is right and stays -- with several gates and no
+            # `repo` stamp, guessing an owner would invent a cross-repo link.
+            # What changes is that the refusal now says so (C13).
+            unattributed = bool(test) and not repo
             file = (test or {}).get("file") or ""
             health = by_id.get(f"{repo}::{file}::{(test or {}).get('name', '')}") \
                 or by_file.get(file) or {}
@@ -165,7 +176,8 @@ def build(key=None):
                 "file": file,
                 "test_repo": repo,
                 "action": (test or {}).get("action", ""),
-                "gate_status": gate.get("status", ""),
+                "gate_status": ("unattributed" if unattributed
+                                else gate.get("status", "")),
                 "commit": (gate.get("commit") or "")[:9],
                 "run_id": record.get("run_id", ""),
                 "ci_runs": health.get("runs", ""),
@@ -278,12 +290,14 @@ def render_text(rows):
     # audit-facing report showed five unlabelled columns and the reader had to
     # guess whether "committed" was the gate or the CI. Its siblings
     # (`qa.py reviews`, `qa.py coverage`) both label their columns.
+    # 13, not 10: `unattributed` is the longest value this column can hold and
+    # a narrower field pushes every following column out of line.
     out.append(f"{'key':<20} {'scenario':<16} {'test file':<52} "
-               f"{'gate':<10} {'ci':<7}")
+               f"{'gate':<13} {'ci':<7}")
     for r in rows:
         gap = "" if r["file"] else f"   <- {_uncovered_label(r)}"
         out.append(f"{r['key']:<20} {r['scenario_id']:<16} "
-                   f"{(r['file'] or '-'):<52} {r['gate_status'] or '-':<10} "
+                   f"{(r['file'] or '-'):<52} {r['gate_status'] or '-':<13} "
                    f"{str(r['ci_last'] or '-'):<7}{gap}")
     # The count an audit actually opens with. Per-row markers make it findable;
     # they do not make it countable, and "how many approved scenarios have no
@@ -320,6 +334,18 @@ def render_text(rows):
                                         for r in other)))
     else:
         out.append(f"{len(rows)} row(s), every approved scenario has a test")
+    # `unattributed` is a word in a column until something says what it means.
+    # It is deliberately NOT counted with the uncovered rows above: these tests
+    # EXIST, and the unknown is which repository owns them, not whether they
+    # were written.
+    unattributed = [r for r in rows if r.get("gate_status") == "unattributed"]
+    if unattributed:
+        out.append(f"{len(unattributed)} of {len(rows)} row(s): test exists, "
+                   f"gate outcome UNATTRIBUTED -- the run gated several "
+                   f"repositories and the generate contract did not stamp one "
+                   f"on the test, so the owner cannot be established (this is "
+                   f"not 'never committed') -- " +
+                   ", ".join(sorted(r["file"] or r["key"] for r in unattributed)))
     return out
 
 
