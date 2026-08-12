@@ -95,8 +95,18 @@ def test_multi_gate_legacy_contract_does_not_guess_a_repo(estate):
 
     row = next(r for r in tm.build("PROJ-9")
                if r["scenario_id"] == "PROJ-9-S1")
-    assert row["test_repo"] == ""
-    assert row["gate_status"] == ""
+    assert row["test_repo"] == "", "an owner was guessed from several gates"
+    # The gate cell used to be "" here too -- the same value the test below
+    # asserts for a scenario with NO test at all. This file was pinning the
+    # conflation: a committed spec whose owner we cannot establish read exactly
+    # like a requirement nothing exercises. The no-guess INTENT above is what
+    # this test is for, and it is unchanged; the empty string was only its
+    # incidental side effect.
+    assert row["gate_status"] == "unattributed"
+    uncovered = next(r for r in tm.build("PROJ-9")
+                     if r["scenario_id"] == "PROJ-9-S2")
+    assert row["gate_status"] != uncovered["gate_status"], \
+        "a test that exists is indistinguishable from one that does not"
 
 
 def test_approved_scenario_with_no_test_still_gets_a_row(estate):
