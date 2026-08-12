@@ -12,6 +12,9 @@ other. They are cheap, and each one has already been wrong at least once.
 """
 import pathlib
 import re
+import time
+
+import pytest
 
 import yaml
 
@@ -19,7 +22,31 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _read(rel):
-    return (ROOT / rel).read_text(encoding="utf-8", errors="replace")
+    return _read_path(ROOT / rel)
+
+
+def _read_path(path, attempts=4):
+    """Read a doc, tolerating a TRANSIENT Windows file lock.
+
+    A full run failed with `PermissionError: [Errno 13]` opening a tracked
+    markdown file that exists and is readable a second later -- an antivirus or
+    indexer holding it for an instant. That is not evidence about the document,
+    and reporting it as a documentation defect sends a reader to a file with
+    nothing wrong with it.
+
+    Retry-then-RAISE, never retry-then-skip: `fs_lock.read_json_guarded` sets
+    the precedent in this repo for exactly this Windows reality, and a file we
+    genuinely cannot read must still fail the build rather than quietly drop
+    out of the scan -- a doc silently excluded from a currency check is a doc
+    whose claims stop being checked.
+    """
+    for attempt in range(attempts):
+        try:
+            return path.read_text(encoding="utf-8", errors="replace")
+        except PermissionError:
+            if attempt + 1 == attempts:
+                raise
+            time.sleep(0.15 * (attempt + 1))
 
 
 def test_claude_md_diagram_count_matches_the_file():
@@ -152,8 +179,7 @@ def _view_claims():
     for p in files:
         if not p.exists():
             continue
-        for i, line in enumerate(p.read_text(encoding="utf-8", errors="replace")
-                                 .splitlines(), 1):
+        for i, line in enumerate(_read_path(p).splitlines(), 1):
             for m in _VIEW_CLAIM.finditer(line):
                 tok = m.group(1).lower()
                 yield (p.relative_to(ROOT).as_posix(), i,
@@ -468,3 +494,23 @@ def test_the_command_scan_actually_finds_commands():
     for expected in ("review", "demo-pr", "test-gate"):
         assert expected in found, \
             f"the doc-command scan missed `make {expected}` — it is not scanning"
+
+
+def test_an_unreadable_doc_fails_the_build_after_retrying(tmp_path):
+    """The retry path is unreachable on a healthy filesystem, so pin it with a
+    target that CANNOT become readable: a directory where a file is expected
+    raises PermissionError on Windows every time.
+
+    Two things are asserted, because the first version of this helper had two
+    equivalent mutations. It must RAISE rather than hand back an empty string
+    -- a doc that silently drops out of a currency check is a doc whose claims
+    stop being checked -- and it must actually RETRY, which the elapsed time
+    proves; without that, "tolerates a transient lock" is only a comment.
+    """
+    victim = tmp_path / "locked"
+    victim.mkdir()
+    started = time.time()
+    with pytest.raises((PermissionError, IsADirectoryError)):
+        _read_path(victim)
+    assert time.time() - started > 0.4, \
+        "it gave up on the first attempt — a transient lock will still fail the run"
