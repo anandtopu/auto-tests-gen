@@ -12,7 +12,8 @@ Endpoints:
   GET  /api/queue             queue contents
   GET  /api/export/plan?key=K&format=md|html|docx|pdf   download the ticket's test plan
   GET  /api/report?days=N&release=X&format=md|html|docx|pdf   team status report
-  GET  /api/cost-statement?key=K[&format=md|csv] exact-key task spend
+  GET  /api/cost-statement?key=K[&format=md|csv][&rows=all|N] exact-key task spend
+                              (JSON rows are bounded and say so; exports are complete)
   POST /api/email/report      {"days"?,"release"?,"to"?}  email the team report
   POST /api/email/run         {"run_id","to"?}            email a run's gate summary
   POST /api/email/digest      {"to"?}                     email the pending-review digest
@@ -712,14 +713,40 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(url.query)
             key = q.get("key", [""])[0]
             fmt = q.get("format", [""])[0]
+            # A statement grows one row per phase per run, forever. Measured on
+            # this estate: 1800 rows / 808 KB for ONE key, and the dashboard
+            # reads `totals` only -- the row-level surfaces are these very md
+            # and csv exports. So the JSON view is BOUNDED by default and says
+            # so; `rows=all` opts back in. An unparseable value is refused
+            # rather than quietly defaulted, because silently ignoring an
+            # option a caller passed is how a wrong answer reads as the right
+            # one (the same rule the selection CLI learned).
+            rows_q = q.get("rows", [""])[0].strip().lower()
+            limit = cost_statement.DEFAULT_ROW_LIMIT
+            if rows_q == "all":
+                limit = None
+            elif rows_q:
+                if not rows_q.isdigit() or int(rows_q) < 1:
+                    self._send(400, {"error": "rows must be 'all' or a positive integer"})
+                    return
+                limit = int(rows_q)
             try:
                 doc = cost_statement.statement(key)
                 if fmt:
+                    # Exports carry the COMPLETE record, never the bounded view
+                    # -- a downloaded statement missing line items is a spend
+                    # audit that under-reports.
                     body = cost_statement.render(doc, fmt).encode("utf-8")
                     self._send(200, body, ctype=("text/csv; charset=utf-8"
                                if fmt == "csv" else "text/markdown; charset=utf-8"))
                 else:
-                    self._send(200, doc)
+                    view = cost_statement.bounded(doc, limit)
+                    if view["truncated"]:
+                        # The library says THAT it truncated; only the server
+                        # knows the URL that undoes it.
+                        view["complete_via"] = ("add &rows=all, or &format=csv "
+                                                "for the full record")
+                    self._send(200, view)
             except (OSError, TimeoutError, ValueError) as e:
                 self._send(400, {"error": _err(e)})
         elif url.path == "/api/trace-matrix":

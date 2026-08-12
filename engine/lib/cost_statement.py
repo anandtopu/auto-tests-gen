@@ -76,6 +76,43 @@ def statement(key, *, runs_dir=None, costs_dir=None, history_rows=None):
             "non_user_totals": _totals(non_user)}
 
 
+DEFAULT_ROW_LIMIT = 200
+
+
+def bounded(doc, limit=DEFAULT_ROW_LIMIT):
+    """A transport-sized view of a statement, with the truncation SAID.
+
+    A statement grows one row per phase per run for the life of a key and has
+    no upper bound. Measured on this estate, PROJ-301 carries 1800 rows /
+    808 KB — for ONE ticket — and nothing reads them: `bin/dashboard.py`
+    renders `totals` only, and the row-level surfaces are the md and csv
+    exports. So the JSON endpoint shipped close to a megabyte per request that
+    no consumer displays, and the figure grows with run history forever.
+
+    Truncation is only safe if the short list cannot be READ as the whole
+    list. The view therefore always carries the TRUE counts and says
+    `truncated`, because a spend record that silently drops line items
+    under-reports what a task cost — the exact shape C13 forbids. The
+    `totals` block is computed over every row and is never affected here.
+
+    `limit=None` returns everything, for a programmatic caller that wants the
+    full record. Inert below the limit: the same doc back, `truncated` False.
+    """
+    rows = doc.get("rows") or []
+    non_user = doc.get("non_user_rows") or []
+    view = dict(doc)
+    view["rows_total"] = len(rows)
+    view["non_user_rows_total"] = len(non_user)
+    if limit is None:
+        view["truncated"] = False
+        return view
+    cap = max(0, int(limit))
+    view["rows"] = rows[:cap]
+    view["non_user_rows"] = non_user[:cap]
+    view["truncated"] = len(rows) > cap or len(non_user) > cap
+    return view
+
+
 def _money(value, prefix="$"):
     return f"{prefix}{float(value or 0):.6f}"
 
