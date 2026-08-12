@@ -45,9 +45,36 @@ def _free_port():
     return port
 
 
-def _request(url, method="GET", body=None, headers=None, timeout=15):
+def _request(url, method="GET", body=None, headers=None, timeout=15,
+             attempts=3):
     """(status, body_text). A refusal is a RESULT, not an exception.
-    status 0 means the request never reached the server."""
+    status 0 means the request never reached the server.
+
+    A TRANSPORT failure is retried, because it is not evidence about the
+    server. This host intermittently stalls or resets a loopback connection --
+    reproduced with a stdlib http.server serving a same-sized body and none of
+    this project's code -- and three consecutive full runs failed here on a
+    DIFFERENT test each time. The worst of them was the auth pin, which
+    reported `POST /api/review answered 0 without a token`: status 0 is
+    "never reached the server", so that message describes a connection failure
+    as if the server had answered, in the one check where the difference
+    between "refused" and "could not ask" matters most (C13).
+
+    A retry cannot mask a real defect: a server that ACCEPTS an
+    unauthenticated request answers 200 every time, and one that is genuinely
+    dead fails every attempt. Only the intermittent transport is smoothed.
+    """
+    last = (0, "no attempt was made")
+    for attempt in range(max(1, attempts)):
+        last = _request_once(url, method, body, headers, timeout)
+        if last[0]:
+            return last
+        if attempt + 1 < max(1, attempts):
+            time.sleep(0.4 * (attempt + 1))
+    return last
+
+
+def _request_once(url, method, body, headers, timeout):
     data = body.encode() if isinstance(body, str) else body
     req = urllib.request.Request(url, data=data, method=method,
                                  headers=headers or {})
@@ -117,9 +144,12 @@ def live_server(tmp_path_factory):
         for _ in range(80):
             if proc.poll() is not None:
                 break
+            # attempts=1: this loop IS the retry. Letting _request retry here
+            # too would turn a server that never starts into a ~90s wait
+            # before the honest "no attack ran" failure.
             status, _ = _request(f"{base}/api/items",
                                  headers={"Authorization": f"Bearer {TOKEN}"},
-                                 timeout=2)
+                                 timeout=2, attempts=1)
             if status:
                 break
             time.sleep(0.25)
@@ -172,8 +202,21 @@ def test_unauthenticated_requests_are_refused(live_server, method, path, body):
     """Every mutating operation, not just the read path: an auth check that
     covers GET and forgets POST protects the least valuable surface."""
     base, _ = live_server
-    status, _ = _request(base + path, method=method, body=body,
-                         headers={"Content-Type": "application/json"})
+    status, detail = _request(base + path, method=method, body=body,
+                              headers={"Content-Type": "application/json"})
+    # "could not ask" and "was not refused" are different results, and only one
+    # of them is a security finding. Saying "answered 0" about a connection
+    # that never reached the server sends a reader hunting for a bug in the
+    # auth check.
+    #
+    # This guard is DIAGNOSTIC and cannot be mutation-tested here: on a healthy
+    # server the transport never fails, so gutting it survives every run. That
+    # is an equivalent mutation, not a weak pin -- what it changes is the
+    # sentence a human reads when the host misbehaves. The retry itself IS
+    # pinned, by test_the_transport_retry_never_invents_a_reachable_server.
+    assert status, (
+        f"{method} {path}: the request never reached the server "
+        f"({detail[:120]}) — this proved NOTHING about authentication")
     assert status == 401, f"{method} {path} answered {status} without a token"
 
 
@@ -678,3 +721,21 @@ def test_no_handler_local_shadows_a_module_level_helper_it_calls():
             assert not clash, (
                 f"{rel}:{fn.name} assigns {sorted(clash)}, shadowing the "
                 f"module-level helper(s) of the same name that it also calls")
+
+
+def test_the_transport_retry_never_invents_a_reachable_server():
+    """The retry added for this host's intermittent loopback resets must not
+    turn "the server is dead" into a pass, and must terminate.
+
+    Driven against a port nothing is listening on: every attempt fails, the
+    helper still returns status 0, and the detail names the transport error
+    rather than pretending an answer arrived."""
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()                       # nothing is listening now
+    started = time.time()
+    status, detail = _request(f"http://127.0.0.1:{port}/api/items", timeout=2)
+    assert status == 0, "a closed port reported a server answer"
+    assert detail and "no attempt was made" not in detail
+    assert time.time() - started < 60, "the retry loop did not terminate promptly"
