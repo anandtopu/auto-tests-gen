@@ -179,3 +179,29 @@ def test_the_dashboard_still_renders(tmp_path):
                        env=dict(os.environ, AIQE_DASHBOARD_OUT=str(out)))
     assert r.returncode == 0, r.stderr[-2000:]
     assert out.exists() and out.stat().st_size > 0,         "the knob was ignored — this test is writing the shared dashboard"
+
+
+def test_the_per_mode_summary_line_formats_through_the_rule():
+    """THE SITE THE FIRST SWEEP MISSED, and the most prominent number in the
+    view: the Cost headline reads `Total ~$3.0000 ... pr: 114 run(s) $3.0000`
+    -- the total correctly marked and the per-mode figure beside it bare, over
+    the same entirely-simulated money. Found by driving the page after fixing
+    the two tables below it.
+    """
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    modes = src.split("const modes = Object.entries")[1].split(".join(' · ')")[0]
+    assert "fmt(v.cost_usd, v.bases)" in modes, \
+        "the per-mode summary prints an unqualified dollar again"
+    assert "' run(s) $'" not in modes
+
+
+def test_the_formatter_is_declared_before_every_consumer():
+    """It was block-scoped inside the provider table, which is why the line
+    above it could not use it and kept a bare `$`. Declaration order IS the
+    defect here, so pin it: `fmt` must come first."""
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    decl = src.index("const fmt = (v, bases)")
+    for consumer in ("const modes = Object.entries",
+                     "cost-provider-table", "cost-keys-table"):
+        assert decl < src.index(consumer), \
+            f"fmt is declared after {consumer} — that consumer cannot use it"

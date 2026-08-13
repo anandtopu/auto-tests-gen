@@ -2584,8 +2584,20 @@ async function refreshCost() {
       : '';
     const el = document.getElementById('cost-badge');
     if (el) el.innerHTML = badge + incomplete;
+    // Mirrors cost_report.money(): `$` is reserved for a figure where EVERY
+    // contributing basis is measured. Declared HERE, above every consumer,
+    // because the first version lived inside the provider-table block and the
+    // per-mode line below it kept its bare `$` -- the most prominent number in
+    // this view, missed by the sweep that fixed the two tables under it.
+    const fmt = (v, bases) => {
+      const b = Object.keys(bases || {}).filter(k => bases[k]);
+      if (b.length === 1 && b[0] === 'local') return '$0 (local)';
+      if (b.length === 1 && b[0] === 'unknown') return 'unknown';
+      if (b.length && b.every(x => x === 'reported')) return '$' + v.toFixed(4);
+      return '~$' + v.toFixed(4);
+    };
     const modes = Object.entries(d.by_mode || {}).map(([m, v]) =>
-      escHtml(m) + ': ' + v.runs + ' run(s) $' + v.cost_usd.toFixed(4)).join(' · ');
+      escHtml(m) + ': ' + v.runs + ' run(s) ' + fmt(v.cost_usd, v.bases)).join(' · ');
     const unmeterable = d.unmeterable || {};
     const embeddingCosts = Object.entries((d.embeddings || {}).costs_by_basis || {})
       .map(([basis, value]) => escHtml(basis) + ' $' + Number(value).toFixed(6)).join(' + ');
@@ -2634,13 +2646,6 @@ async function refreshCost() {
       // so any mixture of non-measured bases fell through to the measured
       // format -- this estate's `{simulated: 418, unrecorded: 20}` row printed
       // `$1.5000` over money none of which was measured.
-      const fmt = (v, bases) => {
-        const b = Object.keys(bases || {}).filter(k => bases[k]);
-        if (b.length === 1 && b[0] === 'local') return '$0 (local)';
-        if (b.length === 1 && b[0] === 'unknown') return 'unknown';
-        if (b.length && b.every(x => x === 'reported')) return '$' + v.toFixed(4);
-        return '~$' + v.toFixed(4);
-      };
       if (pt2) pt2.innerHTML = Object.entries(d.by_provider || {}).sort().map(([k, v]) =>
         '<tr><td class="mono sm">' + escHtml(k) + '</td><td>' + v.calls + '</td>' +
         '<td>' + fmt(v.cost_usd, v.bases) + '</td>' +
