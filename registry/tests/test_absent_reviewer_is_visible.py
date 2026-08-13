@@ -250,3 +250,32 @@ def test_a_record_predating_the_reason_says_so_rather_than_inventing_one():
     assert "skipped (reason not recorded)" in md
     assert "AIQE_TEST_REVIEWER" not in md, \
         "a cause was invented for a run that never recorded one"
+
+
+# ------------------------------------------------- the fourth renderer
+
+def test_the_runs_table_tooltip_names_the_reason():
+    """FOUND BY RE-DRIVING THE PAGE after fixing the PR comment, the board CLI
+    and the wizard. The Runs table's agent-review chip showed a bare `skipped`
+    with a tooltip listing counts and policy -- all of which are zero both for
+    a reviewer that was switched off and for one that ran and found nothing.
+
+    The reason goes FIRST: it is the part a reader came for, and the counts
+    that follow cannot distinguish the two cases on their own.
+    """
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    cell = src.split("a = r.get(\"review\") or r.get(\"reviewer\")")[1].split("review_cell =")[0]
+    assert 'a.get("reason")' in cell, \
+        "the Runs table dropped the reason the run record carries"
+    assert "reason not recorded" in cell, \
+        "an unrecorded reason must say so rather than render blank"
+    # ...and only for an absence: a real verdict must not be prefixed with a
+    # caveat, or genuine findings get hidden behind text people scroll past.
+    assert 'verdict in ("skipped", "unavailable")' in cell
+
+
+def test_the_runs_table_does_not_qualify_a_real_verdict():
+    """Same over-fix guard the other three renderers carry."""
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    cell = src.split("a = r.get(\"review\") or r.get(\"reviewer\")")[1].split("review_cell =")[0]
+    assert 'if absent else ""' in cell and "if absent else" in cell

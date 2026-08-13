@@ -424,7 +424,17 @@ for r in runs[:25]:
         verdict = a.get("verdict", "unavailable")
         cls = {"approve": "success", "needs_work": "warning",
                "unavailable": "danger", "skipped": "muted"}.get(verdict, "muted")
-        tip = (f"{len(a.get('findings') or [])} finding(s), "
+        # WHY there was no review comes first. The counts are all zero for a
+        # reviewer that was switched off AND for one that ran and found
+        # nothing, so a tooltip listing only counts leaves the two
+        # indistinguishable -- the same defect already fixed in the PR
+        # comment, the board CLI and the wizard. This was the fourth
+        # renderer, found by re-driving the page after fixing the other
+        # three.
+        absent = verdict in ("skipped", "unavailable")
+        why = str(a.get("reason") or "").strip() if absent else ""
+        tip = ((f"{why or 'reason not recorded'}. " if absent else "")
+               + f"{len(a.get('findings') or [])} finding(s), "
                f"{len(a.get('unresolved') or [])} unresolved, "
                f"{a.get('loops', 0)} repair loop(s); policy {a.get('policy', 'not recorded')}. "
                "Agent context only; never a human review decision.")
