@@ -152,7 +152,7 @@ extracts what each existing test covers and correlates it to app repos.
 hand-edited. What you *can* set is `scope` — the repo's declared responsibility:
 
 ```bash
-python3 bin/repos.py scope e2e-api-tests-1 --set orders-api,payments-api
+python3 bin/repos.py scope e2e-api-tests-1 orders-api,payments-api
 ```
 
 `covers:` becomes catalog evidence ∪ scope. Use `scope` when a repo is *meant*

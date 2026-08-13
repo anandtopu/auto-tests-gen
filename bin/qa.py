@@ -46,7 +46,7 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
   bin/qa.py sql "SELECT ..."                    query the SQLite catalog index (read-only)
   bin/qa.py prune [--keep 200]                  retention: delete the oldest run
       records/diffs and artifact references beyond --keep producing runs
-  bin/qa.py run-inline "<pasted JIRA context>" [--key K] [--components a,b]
+  bin/qa.py run-inline "<pasted JIRA context>"|--file F [--key K] [--components a,b]
       [--labels x,y] [--repos r1,r2] [--type Story|Bug|Security] [--queue]
       run Workflow B from pasted text (no ticket needed); --queue enqueues
       instead of running immediately
@@ -56,6 +56,12 @@ and registry/repo-registry.yaml; mapping edits always regenerate the coverage ma
 import argparse, csv, glob, json, os, pathlib, subprocess, sys
 
 sys.stdout.reconfigure(encoding="utf-8")
+# stderr too, for the reason bin/repos.py already records: every refusal here
+# goes through sys.exit(msg), which writes to stderr, and those messages carry
+# em-dashes. Without this the CLI's REFUSALS -- the output an operator most
+# needs to read -- are encoded with the locale codec, so `qa.py quarantine
+# <unknown>` rendered `... 'no-such' — bin/qa.py sql ...` in a CI log.
+sys.stderr.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import app_paths                      # R12: mutable paths resolve here
@@ -804,9 +810,14 @@ def cmd_prune(args):
 
 def cmd_run_inline(args):
     import os, subprocess
-    import inline_ticket, work_queue
+    import inline_ticket, work_queue, text_input
+    try:
+        text = text_input.resolve(args.text, args.file, what="ticket context",
+                                  inline_hint='"<pasted JIRA context>"')
+    except text_input.TextInputError as e:
+        sys.exit(str(e))
     csv_ = lambda s: [v.strip() for v in (s or "").split(",") if v.strip()]
-    ticket = inline_ticket.build(args.text, args.key, csv_(args.components),
+    ticket = inline_ticket.build(text, args.key, csv_(args.components),
                                  csv_(args.labels), csv_(args.repos), args.type)
     path = inline_ticket.write(ticket)
     print(f"inline ticket: {ticket['key']} ({path.relative_to(ROOT)})")
@@ -1081,7 +1092,9 @@ if __name__ == "__main__":
     s.add_argument("--dir", help=argparse.SUPPRESS)   # test override
     s.set_defaults(fn=cmd_prune)
     s = sub.add_parser("run-inline")
-    s.add_argument("text")
+    s.add_argument("text", nargs="?", default=None)
+    s.add_argument("--file", help="read the ticket context from a file "
+                                  "(a large paste is awkward on argv)")
     s.add_argument("--key"); s.add_argument("--components"); s.add_argument("--labels")
     s.add_argument("--repos"); s.add_argument("--type", default="Story")
     s.add_argument("--queue", action="store_true")

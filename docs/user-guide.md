@@ -393,6 +393,19 @@ least one or the run will ask for clarification, by design). `--queue` enqueues
 instead of running. The served dashboard has the same thing: **Run from pasted JIRA
 context** (textarea + routing fields) inside *Fetch & queue work*.
 
+For anything longer than a couple of lines, put the text in a file instead —
+multi-line quoting is where this command gets fiddly, especially in PowerShell:
+
+```bash
+python3 bin/qa.py run-inline --file context.txt --key ADHOC-1 --repos orders-api
+```
+
+Give one or the other, never both: passing text *and* `--file` is refused rather
+than resolved by precedence, because silently preferring one is how the file you
+handed it gets thrown away while the command reports success. A `--file` that is
+missing, unreadable or empty is refused by name — three different fixes, so they
+are three different messages.
+
 ### Issue-type-aware generation
 
 Workflow B adapts to the ticket's issue type (from Jira's `issuetype`, the inline

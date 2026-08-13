@@ -219,12 +219,27 @@ def cmd_scope(args):
 
 def cmd_notes(args):
     import repo_admin
+    import text_input
     if args.clear:
+        # --clear beside content used to win in silence, discarding what the
+        # user passed. Two opposite intents cannot share one invocation.
+        if args.set is not None or args.file:
+            sys.exit("--clear cannot be combined with --set/--file - "
+                     "clearing and writing are opposite intents (nothing was written)")
         repo_admin.set_notes(args.name, "")
         print(f"cleared guidance for {args.name}")
+    elif args.set == "" and not args.file:
+        # An empty --set used to clear the notes as a side effect. Deleting a
+        # team's guidance is not something to do because an argument came
+        # through empty (an unset shell variable expands to exactly this).
+        sys.exit('--set "" does not clear guidance - use: '
+                 f"bin/repos.py notes {args.name} --clear")
     elif args.set is not None or args.file:
-        text = args.set if args.set is not None else \
-            pathlib.Path(args.file).read_text(encoding="utf-8")
+        try:
+            text = text_input.resolve(args.set, args.file, what="guidance",
+                                      inline_hint='--set "text"')
+        except text_input.TextInputError as e:
+            sys.exit(str(e))
         r = repo_admin.set_notes(args.name, text)
         print(f"guidance saved: {r['path']} (merged into AGENTS.md)")
     else:
