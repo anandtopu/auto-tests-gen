@@ -413,9 +413,22 @@ post-step; `clear-demo` removes it; `--factory` too; deployment.md updated.
 
 ### 8.2 Rollout flags and safe defaults — **S**
 **As an** Op, **I want** each lever behind its own flag with a documented default
-(`AIQE_CONTEXT_SCOPE`, `AIQE_PLAN_REUSE`, `AIQE_PROMPT_CACHE`, existing
-`AIQE_PHASE_CACHE`), **so that** any regression is one env var from off, per
-deployment, without a redeploy.
+(`AIQE_CONTEXT_SCOPE`, `AIQE_PLAN_REUSE`, existing `AIQE_PHASE_CACHE`), **so
+that** any regression is one env var from off, per deployment, without a
+redeploy.
+
+**Prompt caching is the exception, and it is not one env var from off.** An
+earlier draft of this AC listed `AIQE_PROMPT_CACHE` beside the three above; no
+such knob exists, and one cannot be added that means what a reader would take it
+to mean. Provider prefix caching is engaged by the SHAPE of the prompt — a
+stable cacheable prefix with the run-varying values appended last — which is why
+`run_phase.sh` appends the RUN PARAMETERS block rather than substituting
+`{{KEY}}` inline. There is no call to switch off. Setting an invented variable
+would have been the worst outcome available: no error, the run proceeds with
+caching exactly as before, and the operator believes they turned it off. The
+lever that does exist is `AIQE_PHASE_CACHE` (our own content-addressed phase
+reuse), and the observable is `make cache-probe`, which refuses to answer in
+mock mode rather than reporting an unmeasured rate.
 **AC:** flags read through the same config layering (properties < .env < env);
 Settings view exposes them; `make config` lists them; docs table in README updated.
 

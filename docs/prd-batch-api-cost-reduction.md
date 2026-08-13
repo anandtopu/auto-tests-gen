@@ -232,8 +232,14 @@ llm:
     include_pr_triage: false        # §5.3 — the org's latency decision
 ```
 
-with `AIQE_LLM_BATCH=1` as the env override and a Settings-page section, matching
-how every other provider knob is exposed.
+This block is the PRD's proposal and was **not built as written**. What shipped
+selects batch the same way every other provider is selected — `llm.provider` /
+per-phase `llm.phase_providers` in org-config, with `AIQE_LLM_PROVIDER=batch` as
+the env override — so there is no `AIQE_LLM_BATCH` knob to set. The refusals the
+block describes are real and live in the provider itself: a completion-only
+provider on an agentic phase is refused at config time, and a missing
+`ANTHROPIC_API_KEY` refuses by name rather than falling back to the paid
+synchronous path (C12).
 
 **Why `triage` and `reviewer` are eligible but not in the default list.** Both
 run *inside* a live run that someone is waiting on. `triage` opens the PR path
