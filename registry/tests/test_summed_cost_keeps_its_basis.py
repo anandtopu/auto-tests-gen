@@ -205,3 +205,39 @@ def test_the_formatter_is_declared_before_every_consumer():
                      "cost-provider-table", "cost-keys-table"):
         assert decl < src.index(consumer), \
             f"fmt is declared after {consumer} — that consumer cannot use it"
+
+
+# ------------------------------- the sections a mechanical sweep turned up
+
+def test_every_markdown_money_section_is_marked(tmp_path, monkeypatch):
+    """By phase / By model tier / By provider / By basis all summed across
+    bases with a bare `$`. Found by grepping for the SHAPE after two passes
+    of fixing sites one at a time -- reasoning about coverage is what kept
+    missing them."""
+    rep = _report(monkeypatch, _estate(tmp_path, "simulated", 0.25))
+    md = cost_report.to_markdown(rep)
+    for section, prefix in (("## By phase", "triage |"),
+                            ("## By model tier", "- m:"),
+                            ("## By provider", "- p:"),
+                            ("## All consumers by basis", "- simulated:")):
+        assert section in md, f"{section} vanished from the report"
+        line = next((l for l in md.splitlines() if l.startswith(prefix)), None)
+        assert line, f"no row found under {section} (prefix {prefix!r})"
+        assert "~$" in line, f"{section} printed a bare dollar: {line}"
+
+
+def test_a_measured_estate_is_not_hedged_in_those_sections(tmp_path, monkeypatch):
+    """The over-fix, at every one of them: a real bill must read as one."""
+    rep = _report(monkeypatch, _estate(tmp_path, "reported", 0.25))
+    md = cost_report.to_markdown(rep)
+    for prefix in ("triage |", "- m:", "- p:", "- reported:"):
+        line = next((l for l in md.splitlines() if l.startswith(prefix)), None)
+        assert line and "~$" not in line, \
+            f"measured spend was hedged: {line!r}"
+
+
+def test_the_phase_and_model_rollups_carry_a_basis(tmp_path, monkeypatch):
+    """They had none, which is why their renderers could not obey the rule."""
+    rep = _report(monkeypatch, _estate(tmp_path, "simulated", 0.25))
+    assert rep["by_phase"]["triage"].get("bases")
+    assert rep["by_model"]["m"].get("bases")

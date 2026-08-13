@@ -129,10 +129,14 @@ def money(cost, bases):
     The iron rule of this module is that a simulated number must never
     masquerade as a measured dollar, and it kept breaking in the same place:
     per-basis rendering was always right, and every place that SUMMED bases
-    into one number dropped the basis on the way. Four such places existed
-    when this was written -- the dashboard's provider table, its top-keys
-    table, and the markdown report's "By workflow" and "Top keys" sections --
-    all printing a bare `$` over spend that is 100% simulated on this estate.
+    into one number dropped the basis on the way. NINE such places were found,
+    in three passes, and the count is the point: the dashboard's provider
+    table, top-keys table and per-mode summary line, and the markdown report's
+    By workflow / Top keys / By phase / By model tier / By provider / By basis
+    sections -- every one printing a bare `$` over spend that is 100%
+    simulated on this estate. The first pass fixed four and reasoned it was
+    done; driving the page found a fifth; a mechanical grep for the SHAPE
+    found the last four. Reasoning about coverage is what kept missing them.
 
     Only `reported` is a measured dollar. `$` is therefore reserved for a
     figure where EVERY contributing basis is measured; anything else is
@@ -260,9 +264,10 @@ def report(days=None, keys=None):
             ph = by_phase.setdefault(_policy_phase(p["name"]), {
                 "calls": 0, "cost_usd": 0.0, "input_tokens": 0, "output_tokens": 0,
                 "cache_read_tokens": 0, "turns": [], "max_turns": 0,
-                "measured_costs": []})
+                "measured_costs": [], "bases": {}})
             ph["calls"] += attempts
             ph["cost_usd"] += cost
+            ph["bases"][basis] = ph["bases"].get(basis, 0) + attempts
             ph["input_tokens"] += int(s.get("input_tokens") or 0)
             ph["output_tokens"] += int(s.get("output_tokens") or 0)
             ph["cache_read_tokens"] += int(s.get("cache_read_tokens") or 0)
@@ -278,9 +283,11 @@ def report(days=None, keys=None):
                 cloud_tokens += toks
             mdl = s.get("model") or "unknown"
             m = by_model.setdefault(mdl, {"calls": 0, "cost_usd": 0.0,
-                                          "input_tokens": 0, "output_tokens": 0})
+                                          "input_tokens": 0, "output_tokens": 0,
+                                          "bases": {}})
             m["calls"] += attempts
             m["cost_usd"] += cost
+            m["bases"][basis] = m["bases"].get(basis, 0) + attempts
             m["input_tokens"] += int(s.get("input_tokens") or 0)
             m["output_tokens"] += int(s.get("output_tokens") or 0)
         total += run_cost
@@ -517,7 +524,7 @@ def to_markdown(rep):
                 rate_cell = f"{rate:.0%}{flag}"
             turns_cell = ("n/a" if v["turns_p50"] is None
                           else f"{v['turns_p50']}/{v['turns_p95']}")
-            lines.append(f"{k} | {v['calls']} | ${v['cost_usd']:.4f} | "
+            lines.append(f"{k} | {v['calls']} | {money(v['cost_usd'], v.get('bases'))} | "
                          f"{v['input_tokens']} | {v['cache_read_tokens']} | "
                          f"{rate_cell} | {turns_cell} | {v['max_turns']} | "
                          f"{v['suggested_max_turns']}")
@@ -533,7 +540,7 @@ def to_markdown(rep):
     if rep["by_model"]:
         lines.append("## By model tier")
         for k, v in sorted(rep["by_model"].items()):
-            lines.append(f"- {k}: {v['calls']} call(s), ${v['cost_usd']:.4f}, "
+            lines.append(f"- {k}: {v['calls']} call(s), {money(v['cost_usd'], v.get('bases'))}, "
                          f"{v['input_tokens']} in / {v['output_tokens']} out tokens")
         lines.append("")
     if rep.get("by_provider"):
@@ -543,7 +550,7 @@ def to_markdown(rep):
             unknown_calls = (f", {v['calls_unknown_rows']} row(s) with unknown call count"
                              if v.get("calls_unknown_rows") else "")
             lines.append(f"- {k}: {v['calls']} known call(s){unknown_calls}, "
-                         f"${v['cost_usd']:.4f} "
+                         f"{money(v['cost_usd'], v.get('bases'))} "
                          f"({bases or 'no basis recorded'}), "
                          f"{v['input_tokens']} in / {v['output_tokens']} out")
         if rep.get("local_tokens"):
@@ -554,7 +561,8 @@ def to_markdown(rep):
         lines.append("## All consumers by basis")
         for basis, value in sorted(rep["by_basis"].items()):
             lines.append(f"- {basis}: {value['rows']} row(s), "
-                         f"{value['calls']} known call(s), ${value['cost_usd']:.4f}, "
+                         f"{value['calls']} known call(s), "
+                         f"{money(value['cost_usd'], {basis: value['rows']})}, "
                          f"{value['incomplete_rows']} incomplete row(s)")
         lines.append("")
     sav = rep["phase_cache_savings_usd"]
