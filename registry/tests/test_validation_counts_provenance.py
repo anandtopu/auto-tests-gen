@@ -131,3 +131,65 @@ def test_every_validation_renderer_consults_the_rule():
             continue
         assert re.search(r"phase_provenance|_validation_caveat", src), \
             f"{rel} renders validation counts without asking phase_provenance"
+
+
+# ------------------------------------------------- the reviewer, same shape
+
+def test_a_mock_reviewers_verdict_says_it_is_a_mock():
+    """FOURTH instance, and the flag was already there.
+
+    `test_reviewer` carries `simulated` through six places -- the mock emits
+    it, the surface normalizes it, a type check guards it -- and then every
+    renderer threw it away. This module was already fixed for the ABSENT
+    reviewer; a reviewer that RAN as a mock is the state one along.
+
+    It matters more here than for a count: mock_phase.sh emits the finding
+    text "scripted mock finding: status-only assertion does not verify
+    unchanged total", and unqualified that reaches the pull request as a real
+    code-review finding, with authoritative-sounding prose behind it.
+    """
+    import test_reviewer as tr
+    line = tr.summary_line({"verdict": "needs_work", "policy": "warn",
+                            "loops": 0, "simulated": True,
+                            "findings": [{"severity": "high"}],
+                            "unresolved": [{"x": 1}]})
+    assert "SIMULATED" in line, line
+    assert "needs_work" in line, "the verdict itself must survive the qualifier"
+
+
+def test_a_real_reviewers_verdict_is_not_qualified():
+    """The over-fix. A caveat on a genuine finding is how findings get ignored."""
+    import test_reviewer as tr
+    line = tr.summary_line({"verdict": "needs_work", "policy": "warn",
+                            "loops": 0, "simulated": False,
+                            "findings": [{"severity": "high"}], "unresolved": []})
+    assert "SIMULATED" not in line, line
+
+
+def test_an_absent_reviewer_still_reports_its_reason():
+    """The earlier fix must not be displaced by this one: they are different
+    states with different fixes, and a reader acts on the difference."""
+    import test_reviewer as tr
+    line = tr.summary_line({"verdict": "skipped", "policy": "warn",
+                            "reason": "AIQE_TEST_REVIEWER is disabled",
+                            "findings": [], "unresolved": [], "loops": 0,
+                            "simulated": False})
+    assert "disabled" in line and "SIMULATED" not in line, line
+
+
+def test_the_dashboard_agent_review_chip_consults_the_flag():
+    """A mutation blanking `sim` in bin/dashboard.py survived the first pass:
+    summary_line was pinned and the chip was not.
+
+    Scoped to the agent-review block rather than the whole file, so it asserts
+    that THIS renderer consults the flag -- the defect is precisely a renderer
+    that does not. Asserting the flag is READ (rather than an exact
+    expression) keeps it from breaking on a harmless rewrite while still
+    killing the blanking mutation.
+    """
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    start = src.index("agent_review_cell = (")
+    block = src[max(0, start - 1400):src.index("</span>')", start)]
+    assert 'a.get("simulated")' in block, \
+        "the agent-review chip no longer consults the reviewer's simulated flag"
+    assert "SIMULATED" in block, "the chip stopped naming a simulated review"

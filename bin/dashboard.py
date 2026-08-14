@@ -434,13 +434,18 @@ for r in runs[:25]:
         # three.
         absent = verdict in ("skipped", "unavailable")
         why = str(a.get("reason") or "").strip() if absent else ""
+        # And a reviewer that RAN can be a mock: the flag is carried on the
+        # record and was dropped here too. The chip says so, because the
+        # findings behind it are scripted text that reads authoritative.
+        sim = (not absent) and bool(a.get("simulated"))
         tip = ((f"{why or 'reason not recorded'}. " if absent else "")
+               + ("SIMULATED: a mock reviewer, not a real review. " if sim else "")
                + f"{len(a.get('findings') or [])} finding(s), "
                f"{len(a.get('unresolved') or [])} unresolved, "
                f"{a.get('loops', 0)} repair loop(s); policy {a.get('policy', 'not recorded')}. "
                "Agent context only; never a human review decision.")
         agent_review_cell = (f'<span class="chip chip-{cls}" title="{esc(tip)}">'
-                             f'{esc(verdict)}</span>')
+                             f'{esc(verdict)}{"~" if sim else ""}</span>')
     else:
         agent_review_cell = '<span class="muted sm">—</span>'
     review_cell = chip(rstat) if rstat else '<span class="chip chip-muted">—</span>'

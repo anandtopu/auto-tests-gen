@@ -808,6 +808,15 @@ def summary_line(value):
         reason = (str(reason).replace("\r", " ").replace("\n", " ").strip()[:120]
                   if reason else "")
         qualifier = f" ({reason})" if reason else " (reason not recorded)"
+    elif value.get("simulated"):
+        # The reviewer that RAN can be a mock, and this module already carries
+        # its `simulated` flag through six places -- then every renderer threw
+        # it away, which is the shape already fixed here for the ABSENT
+        # reviewer, recurring one state along. It matters more here than for a
+        # count: mock_phase.sh emits `"scripted mock finding: status-only
+        # assertion does not verify unchanged total"`, and unqualified that
+        # reaches the PR as a real code-review finding with authoritative text.
+        qualifier = " (SIMULATED — a mock reviewer, not a real review)"
     return (f"agent review: {verdict}{qualifier} — "
             f"{len(findings)} finding(s), {len(unresolved)} unresolved, "
             f"{loops} repair loop(s); policy: {policy}")
