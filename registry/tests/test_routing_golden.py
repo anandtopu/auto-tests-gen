@@ -31,8 +31,17 @@ def test_pipeline_honors_the_resolver_skip():
         .read_text(encoding="utf-8")
     assert "RESOLVE_SKIP" in src
     i = src.index("RESOLVE_SKIP")
-    assert "exit 0" in src[i:i + 200], "the skip branch must end the run"
+    # The window is 900, not 200, because the branch now says WHICH kind of skip
+    # it was -- an empty change list is not a finding that nothing testable
+    # changed (test_empty_change_list.py). The guarantee this pin exists for is
+    # unchanged: after that message the run ENDS, before any phase. Distance was
+    # only ever a proxy for it, and a proxy that breaks when the message grows
+    # is measuring the wrong thing.
+    assert "exit 0" in src[i:i + 900], "the skip branch must end the run"
     assert i < src.index("PHASE triage"), "the skip check must run before any phase"
+    # And no LLM phase may sneak between the message and the exit.
+    assert "PHASE " not in src[i:src.index("exit 0", i)], \
+        "a phase runs after RESOLVE_SKIP is printed but before the run ends"
 
 def test_contract_change_fans_out(tmp_path):
     f = tmp_path / "changed.txt"; f.write_text("app/orders.py\nopenapi/orders.yaml\n")

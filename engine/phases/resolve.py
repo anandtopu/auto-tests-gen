@@ -25,10 +25,34 @@ def resolve_pr(reg, repo_name, changed):
     if not src:
         return dict(source_repos=[], test_repos=[], cross_repo_impact=[],
                     confidence=0.0, rationale=f"{repo_name} not in registry")
+    # An EMPTY change list is not the same fact as a change list with nothing
+    # testable in it, and the two were byte-identical here: both returned
+    # `confidence 1.0, "no testable paths changed", skip`. One is an established
+    # negative (the SCM listed 12 files and none match testable_paths); the
+    # other is the platform having learned NOTHING about the PR -- an adapter
+    # whose parse silently yielded nothing on a changed response shape, a token
+    # without permission answering 200 with an empty array, pagination misread.
+    # The pipeline aborts when `SCM changed_files` FAILS, so this is precisely
+    # the case where it SUCCEEDS and says nothing (C13).
+    #
+    # It still skips: there is genuinely nothing to generate from either way,
+    # and a legitimately empty PR (title-only edit, reverted commits) must not
+    # start asking humans questions. What changes is the CLAIM -- confidence in
+    # "this PR needs no tests" is zero when nothing was seen. `needs_clarification`
+    # is computed as `confidence < threshold and not skip`, so this cannot alter
+    # control flow; only the words a human reads.
+    if not changed:
+        return dict(source_repos=[repo_name], test_repos=[], cross_repo_impact=[],
+                    confidence=0.0, skip=True, empty_change_list=True,
+                    rationale="the SCM reported NO changed files for this PR, so "
+                              "nothing was established about it - this is not a "
+                              "finding that no testable path changed")
     testable = any(fnmatch.fnmatch(f, p) for f in changed for p in src.get("testable_paths", ["**"]))
     if not testable:
         return dict(source_repos=[repo_name], test_repos=[], cross_repo_impact=[],
-                    confidence=1.0, rationale="no testable paths changed", skip=True)
+                    confidence=1.0, skip=True, empty_change_list=False,
+                    rationale=f"no testable paths changed ({len(changed)} file(s) "
+                              f"examined)")
     sources, impact = [repo_name], []
     tests = set(test_repos_for(reg, repo_name))
     contract = src.get("contract")

@@ -781,7 +781,16 @@ fi
 # to no test repos) has nothing to sync — end here rather than spending LLM phases
 # and posting a build status for work that never existed.
 if [ "$(python3 -c "import json;d=json.load(open('out/resolve.contract.json'));print(bool(d.get('skip')) or ('$MODE'=='pr' and not d.get('test_repos')))")" = "True" ]; then
-  echo "RESOLVE_SKIP: no testable changes / no test repos resolved for ${KEY} — nothing to do."
+  # Say WHICH of the two it was. "We examined 12 files and none were testable"
+  # and "the SCM told us nothing about this PR" both ended here with the same
+  # sentence and the same green exit, and only the first is a finding.
+  if [ "$(python3 -c "import json;print(bool(json.load(open('out/resolve.contract.json')).get('empty_change_list')))")" = "True" ]; then
+    echo "RESOLVE_SKIP: the SCM reported NO changed files for ${KEY}, so nothing"
+    echo "  was established about it. Nothing was generated. If this PR does change"
+    echo "  files, the change-list call is what to check - not the routing rules."
+  else
+    echo "RESOLVE_SKIP: no testable changes / no test repos resolved for ${KEY} — nothing to do."
+  fi
   exit 0
 fi
 

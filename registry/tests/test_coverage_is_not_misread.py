@@ -84,10 +84,21 @@ def test_every_understated_entry_point_is_actually_driven():
 
 
 def test_the_check_can_tell_a_driven_file_from_an_undriven_one():
-    """Probe: a list that cannot fail is decorative."""
+    """Probe: a list that cannot fail is decorative.
+
+    The sentinel is BUILT from pieces, never written as a literal. Spelled out,
+    it lands in this file, this file becomes tracked the moment it is committed,
+    `_test_sources()` reads tracked files -- and the sweep then finds its own
+    sentinel. That is exactly what happened here: green before the commit, red
+    on the next full run. It is the SECOND time this session; the identical
+    self-reference was fixed for the env-knob sweep two iterations earlier and
+    the lesson was recorded but not APPLIED. A recorded lesson is not an applied
+    one, which is why the defence is structural rather than a note.
+    """
     sources = _test_sources()
     assert any("bin/qa.py" in s for s in sources.values())
-    assert not any("bin/no_such_entry_point.py" in s for s in sources.values())
+    sentinel = "bin/" + "no_such_entry" + "_point.py"
+    assert not any(sentinel in s for s in sources.values())
 
 
 def test_the_coveragerc_explains_what_it_does_not_measure():
@@ -123,3 +134,44 @@ def test_the_gate_threshold_is_still_declared():
     m = re.search(r"^PY_COVERAGE_MIN \?= (\d+)", mk, re.M)
     assert m, "the coverage floor is no longer declared in the Makefile"
     assert 0 < int(m.group(1)) <= 100
+
+
+# --------------------------------------------- the self-reference, structurally
+
+SWEEP_PROBES = {
+    # module that sweeps TRACKED sources : the sentinel it asserts is absent
+    "registry/tests/test_coverage_is_not_misread.py":
+        "bin/" + "no_such_entry" + "_point.py",
+    "registry/tests/test_documented_env_knobs_are_read.py":
+        "AIQE_" + "NEVER_A_REAL_KNOB",
+}
+
+
+def test_no_sweep_probe_writes_its_own_sentinel_as_a_literal():
+    """A sweep over tracked files must not be able to find its own sentinel.
+
+    Twice now: the env-knob probe, then this one. Both were green until the file
+    was COMMITTED, at which point the sweep read the tracked test source, found
+    the sentinel spelled out there, and failed on the next full run -- so the
+    failure always lands one commit after the mistake, in a run whose changes
+    look unrelated.
+
+    Checking it structurally is the only defence that survives forgetting: the
+    rule was already written down when the second one was introduced.
+    """
+    missing = []
+    for rel, sentinel in SWEEP_PROBES.items():
+        src = (ROOT / rel).read_text(encoding="utf-8")
+        if sentinel in src:
+            missing.append(f"{rel} spells out {sentinel!r} -- build it from "
+                           f"pieces so the sweep cannot match it")
+    assert not missing, "\n  ".join(missing)
+
+
+def test_that_structural_check_would_catch_a_spelled_out_sentinel(tmp_path):
+    """Probe, because a check that can only pass is decorative."""
+    f = tmp_path / "probe.py"
+    sentinel = "AIQE_" + "NEVER_A_REAL_KNOB"
+    f.write_text(f'x = "{sentinel}"\n', encoding="utf-8")
+    assert sentinel in f.read_text(encoding="utf-8"), \
+        "the detection is not looking at file contents at all"
