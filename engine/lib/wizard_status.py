@@ -20,6 +20,7 @@ just tells the page which step to light up and when to stop polling.
 CLI:  wizard_status.py <KEY>
 """
 import glob, hashlib, hmac, json, pathlib, sys
+import test_reviewer
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -228,8 +229,10 @@ def build(key, mode="pr"):
         steps.append(_step(
             "failed" if review_refused else ("skipped" if absent else "done"),
             "Agent review",
-            f"{verdict} · {len(findings)} finding(s) · "
+            f"{test_reviewer.verdict_text(agent_review)} · {len(findings)} finding(s) · "
             f"{len(unresolved)} unresolved · policy {agent_review.get('policy', 'not recorded')}"
+            + (" · SIMULATED (a mock reviewer)"
+               if test_reviewer.simulated(agent_review) else "")
             + (f" · {reason}" if absent and reason else
                " · reason not recorded" if absent else "")
         ))

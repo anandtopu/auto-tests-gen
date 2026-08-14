@@ -783,6 +783,26 @@ def recorded(record):
     return None
 
 
+def simulated(value):
+    """Did a MOCK produce this verdict? Only meaningful once it actually ran."""
+    value = value or {}
+    verdict = str(value.get("verdict") or "unavailable")
+    return verdict not in ("skipped", "unavailable") and bool(value.get("simulated"))
+
+
+def verdict_text(value, *, marker="~"):
+    """The verdict as it may be shown, marked when a mock produced it.
+
+    ONE definition, because the last pass marked `summary_line` and the
+    dashboard chip and left three more renderers -- `explain`, the wizard's
+    Agent review step, and the board CLI -- printing the bare word. Callers with
+    room for prose should say it in words instead (summary_line does); this is
+    for the columns and chips that have none.
+    """
+    verdict = str((value or {}).get("verdict") or "unavailable")
+    return f"{verdict}{marker}" if simulated(value) else verdict
+
+
 def summary_line(value):
     """One bounded line shared by PR and JIRA comments."""
     value = value or {}

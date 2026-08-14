@@ -449,6 +449,7 @@ def cmd_reviews(args):
     print(f"{'key':<22} {'status':<18} {'agent review':<18} {'release':<10} {'assigned':<12} "
           f"{'reviewer':<14} {'updated':<17} note")
     absent = {}
+    simulated_keys = []
     for key, e in sorted(data.items(), key=lambda kv: (order.get(kv[1].get("status"), 9), kv[0])):
         # An entry can exist without ever having been reviewed — `set_release`
         # records a target version before any status transition, so `updated` is
@@ -457,7 +458,9 @@ def cmd_reviews(args):
         stamp = e.get("updated") or 0
         ts = _t.strftime("%Y-%m-%d %H:%M", _t.localtime(stamp)) if stamp else "-"
         agent = test_reviewer.recorded(latest.get(key, {})) or {}
-        agent_text = agent.get("verdict") or "-"
+        agent_text = test_reviewer.verdict_text(agent) if agent.get("verdict") else "-"
+        if test_reviewer.simulated(agent):
+            simulated_keys.append(key)
         if agent.get("unresolved"):
             agent_text += f" ({len(agent['unresolved'])})"
         elif agent.get("verdict") in ("skipped", "unavailable"):
@@ -471,6 +474,12 @@ def cmd_reviews(args):
               f"{e.get('release') or '-':<10} "
               f"{e.get('assigned_to') or '-':<12} "
               f"{e.get('reviewer') or '-':<14} {ts:<17} {e.get('note', '')[:50]}")
+    if simulated_keys:
+        shown = ", ".join(simulated_keys[:6]) + (
+            f" (+{len(simulated_keys) - 6})" if len(simulated_keys) > 6 else "")
+        print(f"\nNOTE - `~` marks a SIMULATED verdict: a mock reviewer produced it, "
+              f"not a real review ({len(simulated_keys)} key(s))")
+        print(f"       {shown}")
     for reason, keys in sorted(absent.items()):
         shown = ", ".join(keys[:6]) + (f" (+{len(keys) - 6})" if len(keys) > 6 else "")
         print(f"\nNOTE - no agent review for {len(keys)} key(s): {reason}")

@@ -193,3 +193,48 @@ def test_the_dashboard_agent_review_chip_consults_the_flag():
     assert 'a.get("simulated")' in block, \
         "the agent-review chip no longer consults the reviewer's simulated flag"
     assert "SIMULATED" in block, "the chip stopped naming a simulated review"
+
+
+# ------------------------- three MORE reviewer renderers the last pass missed
+
+MOCK_REVIEW = {"verdict": "needs_work", "policy": "warn", "loops": 0,
+               "simulated": True, "findings": [{"severity": "high"}],
+               "unresolved": [{"x": 1}]}
+REAL_REVIEW = dict(MOCK_REVIEW, simulated=False)
+SKIPPED_REVIEW = {"verdict": "skipped", "policy": "warn", "findings": [],
+                  "unresolved": [], "loops": 0, "simulated": False,
+                  "reason": "AIQE_TEST_REVIEWER is disabled"}
+
+
+def test_the_marked_verdict_has_one_definition():
+    import test_reviewer as tr
+    assert tr.verdict_text(MOCK_REVIEW) == "needs_work~"
+    assert tr.verdict_text(REAL_REVIEW) == "needs_work"
+
+
+def test_an_absent_reviewer_is_never_marked_simulated():
+    """`simulated` is only meaningful once the reviewer RAN. A skipped entry
+    carrying simulated=True would otherwise pick up a marker that says a mock
+    produced a verdict there was none of."""
+    import test_reviewer as tr
+    assert tr.simulated(dict(SKIPPED_REVIEW, simulated=True)) is False
+    assert tr.verdict_text(SKIPPED_REVIEW) == "skipped"
+
+
+@pytest.mark.parametrize("rel, must_call", [
+    ("engine/lib/explain.py", "reviewer_lib.simulated"),
+    ("engine/lib/wizard_status.py", "test_reviewer.simulated"),
+    ("bin/qa.py", "test_reviewer.simulated"),
+])
+def test_every_verdict_renderer_asks_whether_it_was_a_mock(rel, must_call):
+    """The last pass marked summary_line and the dashboard chip and left these
+    three printing the bare word.
+
+    The wizard is the sharpest: it distinguishes an ABSENT reviewer in that very
+    block, with a comment explaining why, and still gave a MOCK a green tick and
+    a stub's finding count. `explain` is the next: its whole job is answering
+    why the AI did something, and its own docstring calls a fabricated rationale
+    the worst possible answer.
+    """
+    src = (ROOT / rel).read_text(encoding="utf-8")
+    assert must_call in src, f"{rel} renders a verdict without asking if it was a mock"

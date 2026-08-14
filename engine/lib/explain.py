@@ -45,7 +45,8 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-import run_progress  # noqa: E402  (shared record reading + exit-code meanings)
+import run_progress  # noqa: E402
+import test_reviewer as reviewer_lib  # noqa: E402  (shared record reading + exit-code meanings)
 import task_bundle  # noqa: E402
 import ticket_discovery  # noqa: E402
 import ticket_comment  # noqa: E402
@@ -564,8 +565,10 @@ def explain(key=None, run_id=None, root=ROOT):
         )
         decisions.append(_decision(
             "review", "What did the agent reviewer find, repair, and leave unresolved?",
-            f"{review.get('verdict', 'unavailable')} under policy "
-            f"{review.get('policy', 'not_recorded')}",
+            f"{reviewer_lib.verdict_text(review, marker='')} under policy "
+            f"{review.get('policy', 'not_recorded')}"
+            + (" - SIMULATED: a mock reviewer, not a real review"
+               if reviewer_lib.simulated(review) else ""),
             because, "run record `review`",
             caveat="This verdict is context for a human. It never sets Approved or "
                    "Changes requested on the team review board."))
