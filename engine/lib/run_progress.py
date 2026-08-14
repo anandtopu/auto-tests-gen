@@ -328,7 +328,7 @@ def _record_for(key=None, run_id=None, root=ROOT):
     return best
 
 
-def _summarize(sid, contract):
+def _summarize(sid, contract, record=None):
     if not isinstance(contract, dict):
         return ""
     if sid == "generate":
@@ -340,7 +340,9 @@ def _summarize(sid, contract):
         created = sum(1 for t in tests if t.get("action") == "created")
         return f"{created} created, {len(tests) - created} updated"
     if sid == "critic":
-        return (f"score {contract.get('score')} {contract.get('verdict', '')}"
+        import critic as critic_lib
+        return (f"score {critic_lib.score_text(contract, record)} "
+                f"{contract.get('verdict', '')}"
                 f" - {contract.get('noise_count', 0)} flagged").strip()
     if sid == "review":
         try:
@@ -349,7 +351,11 @@ def _summarize(sid, contract):
         except Exception:
             return "review evidence unavailable"
     if sid == "validate":
-        return f"{contract.get('repair_loops', 0)} repair loop(s)"
+        import phase_provenance
+        return (f"{contract.get('repair_loops', 0)} repair loop(s)"
+                + phase_provenance.caveat(
+                    phase_provenance.of("validate", record=record),
+                    what="these counts"))
     if sid == "testplan":
         return f"{len(dict_rows(contract.get('scenarios')))} scenario(s)"
     if sid == "resolve":
@@ -410,7 +416,7 @@ def _steps_from_record(rec, root=ROOT):
                      detail=skipped[st["id"]] or "no work for this phase")
         elif st["id"] in done:
             s.update(state="failed" if st["id"] == "review" and refused else "done",
-                     detail=_summarize(st["id"], done[st["id"]]))
+                     detail=_summarize(st["id"], done[st["id"]], rec))
         else:
             # The record is complete, so a phase with no contract genuinely did
             # not run - but WHY is not recorded, so it is not "pending" either.

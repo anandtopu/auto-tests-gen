@@ -81,6 +81,9 @@ def build(days=None, release=None):
 
     completed, quarantined, review_refused = [], [], []
     n_tests, n_created, n_updated, repair_loops = 0, 0, 0, []
+    # Counted, not silently dropped: a denominator that shrinks with no
+    # explanation is its own lie (the scorecard's commit-rate precedent).
+    unmeasured_loops = [0]
     for r in runs:
         key = r["trigger"]["key"]
         contracts = {p["name"]: p["contract"] for p in r.get("phases", [])}
@@ -92,7 +95,11 @@ def build(days=None, release=None):
                 n_created += 1
         v = contracts.get("validate", {})
         if v.get("repair_loops") is not None:
-            repair_loops.append(v["repair_loops"])
+            import phase_provenance
+            if phase_provenance.of("validate", record=r) == phase_provenance.MEASURED:
+                repair_loops.append(v["repair_loops"])
+            else:
+                unmeasured_loops[0] += 1
         row = {"key": key, "type": r["trigger"]["type"], "ts": r.get("ts", 0),
                "release": rel_of(key),
                "review": reviews.get(key, {}).get("status", ""),
@@ -160,7 +167,8 @@ def build(days=None, release=None):
                        "tests_generated": n_tests, "tests_created": n_created,
                        "tests_updated": n_updated,
                        "avg_repair_loops": (round(sum(repair_loops) / len(repair_loops), 2)
-                                            if repair_loops else 0)},
+                                            if repair_loops else None),
+                       "unmeasured_repair_loop_runs": unmeasured_loops[0]},
             "completed": completed, "quarantined": quarantined,
             "review_refused": review_refused,
             "pending_review": pending, "approved_in_period": sorted(approved),
@@ -206,6 +214,21 @@ def _cost_line(days, keys=None):
         return ""
 
 
+def _repair_loop_cell(totals):
+    """Averaged over MEASURED runs only, saying so when there were none.
+
+    A mock validate phase emits a constant, so averaging it reports the stub.
+    `n/a` names how many runs were excluded -- a denominator that shrinks in
+    silence is the failure this rule exists to prevent.
+    """
+    avg = totals.get("avg_repair_loops")
+    if avg is not None:
+        return str(avg)
+    skipped = totals.get("unmeasured_repair_loop_runs") or 0
+    extra = f" ({skipped} simulated run(s) excluded)" if skipped else ""
+    return f"n/a - no run with a MEASURED validate phase{extra}"
+
+
 def to_markdown(days=None, release=None):
     d = build(days, release)
     t = d["totals"]
@@ -241,7 +264,7 @@ def to_markdown(days=None, release=None):
          f"| Tests generated | {t['tests_generated']} "
          f"({t['tests_created']} new, {t['tests_updated']} extended existing) |",
          *([f"| LLM spend | {d['cost']} |"] if d.get("cost") else []),
-         f"| Avg repair loops per run | {t['avg_repair_loops']} |",
+         f"| Avg repair loops per run | {_repair_loop_cell(t)} |",
          f"| Awaiting team review | {len(d['pending_review'])} |",
          f"| Approved in period | {len(d['approved_in_period'])} |",
          f"| Queue backlog | {q_by.get('queued', 0)} queued, "

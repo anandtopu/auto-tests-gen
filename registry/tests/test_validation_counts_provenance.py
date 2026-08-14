@@ -238,3 +238,74 @@ def test_every_verdict_renderer_asks_whether_it_was_a_mock(rel, must_call):
     """
     src = (ROOT / rel).read_text(encoding="utf-8")
     assert must_call in src, f"{rel} renders a verdict without asking if it was a mock"
+
+
+# ----------------------- run progress + team report: two more validate readers
+
+def test_the_run_progress_validate_step_qualifies_a_mock():
+    import run_progress
+    rec = _record(True)
+    assert "SIMULATED" in run_progress._summarize("validate",
+                                                  {"repair_loops": 0}, rec)
+    assert "SIMULATED" not in run_progress._summarize("validate",
+                                                      {"repair_loops": 0},
+                                                      _record(False))
+
+
+def test_the_team_report_will_not_average_simulated_repair_loops():
+    """A team report is pasted into a status update, where the figure travels
+    and a caveat does not -- the same reasoning that fixed its cost line.
+
+    Averaging a mock's constant reports the stub; `n/a` NAMES how many runs
+    were excluded, because a denominator that shrinks in silence is the failure
+    this rule exists to prevent.
+    """
+    import team_report
+    cell = team_report._repair_loop_cell(
+        {"avg_repair_loops": None, "unmeasured_repair_loop_runs": 297})
+    assert cell.startswith("n/a"), cell
+    assert "297" in cell, "the excluded runs are not named"
+    assert team_report._repair_loop_cell(
+        {"avg_repair_loops": 1.5, "unmeasured_repair_loop_runs": 0}) == "1.5", \
+        "a measured average must still be reported plainly"
+
+
+def test_build_excludes_simulated_runs_from_the_repair_loop_average(monkeypatch):
+    """Pin the FILTER, not just the cell that renders it.
+
+    A mutation restoring `repair_loops.append(...)` unconditionally SURVIVED the
+    first pass, because the only pin handed `_repair_loop_cell` a made-up totals
+    dict and never exercised the collection in `build()`. Same lesson this repo
+    already records for the state stores: a read guard pinned without its write
+    path leaves the write path unpinned.
+    """
+    import team_report
+
+    def _fake_runs():
+        def run(rid, simulated, loops):
+            return {"run_id": rid, "ts": 2_000_000_000,
+                    "trigger": {"type": "pr", "key": f"PR-x-{rid}"},
+                    "gates": [], "overall": "committed",
+                    "phases": [{"name": "validate",
+                                "contract": {"passed": 2, "failed": 0,
+                                             "repair_loops": loops},
+                                "spend": {"simulated": simulated,
+                                          "cost_usd": 0.1}}]}
+        return [run("1", True, 7), run("2", True, 9)]
+
+    monkeypatch.setattr(team_report, "_runs", _fake_runs)
+    totals = team_report.build()["totals"]
+    assert totals["avg_repair_loops"] is None, \
+        "a simulated run's repair loops were averaged into the report"
+    assert totals["unmeasured_repair_loop_runs"] == 2
+
+    def _measured_runs():
+        rows = _fake_runs()
+        for row in rows:
+            row["phases"][0]["spend"]["simulated"] = False
+        return rows
+
+    monkeypatch.setattr(team_report, "_runs", _measured_runs)
+    totals = team_report.build()["totals"]
+    assert totals["avg_repair_loops"] == 8.0, \
+        "a genuinely measured average must still be reported"

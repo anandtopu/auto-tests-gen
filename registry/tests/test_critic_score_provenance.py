@@ -342,3 +342,66 @@ def test_the_runs_table_tooltip_does_not_claim_measured():
     assert "critic_lib.provenance(c, r)" in block, \
         "the Runs-table tooltip no longer derives provenance from the record"
     assert "SIMULATED" in block, "the tooltip stopped naming a simulated score"
+
+
+# ---------------- the pin that let a SIXTH renderer through, one layer down
+
+SCORE_READ = r"""\{[^}]*(?:get\(\s*['"]score['"]|\[['"]score['"]\])[^}]*\}"""
+PROVENANCE_HELPER = r"score_text|_critic_caveat|provenance|phase_provenance|\bmark\b|SIMULATED"
+INTERPOLATORS = ("bin/dashboard.py", "bin/qa.py", "engine/lib/trace.py",
+                 "engine/lib/pr_comment.py", "engine/lib/run_progress.py")
+
+
+def unqualified_score_interpolations(files=None, root=None, source=None):
+    """A score interpolated into output with no provenance helper in sight.
+
+    SCORE_FORMAT above requires a FORMAT SPEC (`:.2f`) -- which is exactly the
+    shape the fifth renderer had, and exactly why it could not see the sixth:
+    `run_progress._summarize` wrote `f"score {contract.get('score')} ..."` with
+    no spec at all. A pin shaped by the last defect misses the next one, which
+    is the same lesson two layers deep.
+
+    The window is deliberate rather than line-exact: `trace.py` and
+    `pr_comment` render the bare number and put the qualifier in WORDS on a
+    neighbouring line, which is the right call for prose surfaces and must not
+    be flagged.
+    """
+    import re
+    read, helper = re.compile(SCORE_READ), re.compile(PROVENANCE_HELPER)
+    root = root or ROOT
+    out = []
+    for rel in (files if files is not None else INTERPOLATORS):
+        lines = (source or (root / rel).read_text(encoding="utf-8")).splitlines()
+        for n, line in enumerate(lines, 1):
+            if read.search(line) and not helper.search(
+                    "\n".join(lines[max(0, n - 3):n + 3])):
+                out.append(f"{rel}:{n}  {line.strip()[:88]}")
+    return out
+
+
+def test_no_score_is_interpolated_without_a_qualifier_nearby():
+    bad = unqualified_score_interpolations()
+    assert not bad, (
+        "a critic score reaches output with no provenance qualifier:\n  "
+        + "\n  ".join(bad))
+
+
+def test_that_wider_sweep_catches_the_sixth_site_as_it_stood(tmp_path):
+    """Positive control using the ACTUAL pre-fix source of run_progress.
+
+    Pinning against the real historical line, not an invented one: the point of
+    this sweep is that it sees a shape SCORE_FORMAT could not.
+    """
+    pre_fix = (
+        '    if sid == "critic":\n'
+        '        return (f"score {contract.get(\'score\')} '
+        '{contract.get(\'verdict\', \'\')}"\n'
+        '                f" - {contract.get(\'noise_count\', 0)} flagged").strip()\n')
+    assert unqualified_score_interpolations(["x.py"], root=tmp_path,
+                                            source=pre_fix), \
+        "the wider sweep cannot see the sixth renderer as it actually stood"
+    ok = ('        return (f"score {critic_lib.score_text(contract, record)} "\n'
+          '                f"{contract.get(\'verdict\', \'\')}").strip()\n')
+    assert not unqualified_score_interpolations(["x.py"], root=tmp_path,
+                                                source=ok), \
+        "the fixed form is being flagged"
