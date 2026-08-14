@@ -1,3 +1,29 @@
+# WHAT THIS FILE DOES NOT MEASURE, said here because this is where the number
+# is produced and a reader who wonders why `bin/gen_agents_md.py` shows 0.0%
+# will open this file, not a commit message.
+#
+# No `parallel`/`concurrency` is set, so coverage sees only what runs
+# IN-PROCESS. This project's method is to DRIVE ENTRY POINTS, and the suite
+# does that in SUBPROCESSES -- so the most heavily exercised files report as
+# untested. Measured on registry/tests/test_onboard.py alone:
+#     without subprocess coverage : bin/gen_agents_md.py  "never imported", 0.0%
+#     with COVERAGE_PROCESS_START : bin/gen_agents_md.py  95%
+# Ninety-five points, from one test file. Those zeros mean NOT MEASURED, not
+# untested, and registry/tests/test_coverage_is_not_misread.py requires every
+# such entry point to be genuinely driven by some test.
+#
+# It is not simply switched on, measured across the full suite first:
+#     runtime 31:19 -> 48:20 (+55%), total 78% true, and 16 TESTS FAIL --
+# and worse, it POLLUTES THE ESTATE: those broken pipeline runs wrote three
+# quarantined PROJ-301 run records, which then failed test_export_plan on the
+# NEXT clean run, because that test reads the estate's latest run for the key.
+# A measurement run that corrupts shared state costs more than the number is
+# worth, and the failure lands somewhere unrelated hours later.
+# coverage writes into each subprocess's stdout, breaking exactly the
+# output-asserting tests that make driving work. To inspect the true number
+# anyway, accepting those failures:
+#     COVERAGE_PROCESS_START=.coveragerc python3 -m pytest registry/tests #       --cov --cov-config=.coveragerc   (with parallel=True added below)
+
 [run]
 branch = True
 source =
