@@ -405,3 +405,53 @@ def test_that_wider_sweep_catches_the_sixth_site_as_it_stood(tmp_path):
     assert not unqualified_score_interpolations(["x.py"], root=tmp_path,
                                                 source=ok), \
         "the fixed form is being flagged"
+
+
+# ------------- the caller, not just the store: what actually reaches the board
+
+def test_load_preserves_a_declared_simulated_flag(tmp_path):
+    """A producer that KNOWS it is a mock says so, and normalization must not
+    drop it -- the mock REVIEWER has always worked this way."""
+    import json
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps({"score": 0.86, "verdict": "accept",
+                             "noise_count": 0, "specs_reviewed": 2,
+                             "findings": [], "simulated": True}),
+                 encoding="utf-8")
+    assert critic_lib.load(p)["simulated"] is True
+    p.write_text(json.dumps({"score": 0.9, "verdict": "accept",
+                             "noise_count": 0, "specs_reviewed": 2,
+                             "findings": []}), encoding="utf-8")
+    assert "simulated" not in critic_lib.load(p), \
+        "an undeclared contract must stay UNKNOWN, not be stamped measured"
+
+
+def test_the_mock_critic_declares_itself():
+    """Pinned at the source: if the stub stops declaring, the whole chain below
+    silently reverts to 'provenance not recorded' for every key."""
+    src = (ROOT / "engine/phases/mock_phase.sh").read_text(encoding="utf-8")
+    block = src[src.index("  critic)"):src.index("  critic)") + 700]
+    assert '"simulated":true' in block, \
+        "the mock critic no longer declares itself a mock"
+
+
+def test_record_puts_the_provenance_on_the_board(tmp_path, monkeypatch):
+    """THE GAP THIS ITERATION FOUND, and the one my earlier pin missed.
+
+    `test_the_board_keeps_the_provenance_it_was_given` hands `set_critic` a
+    stamped signal, so it passed -- while the real caller, `critic.record()`,
+    passed the RAW contract, which carried no flag. The board therefore stored a
+    score with no provenance and `qa.py trace` answered "provenance not
+    recorded" for every key, forever. Pin the CALLER, not only the store.
+    """
+    import json
+    import review_state
+    monkeypatch.setattr(review_state, "FILE", tmp_path / "reviews.json")
+    contract = tmp_path / "critic.contract.json"
+    contract.write_text(json.dumps({"score": 0.86, "verdict": "accept",
+                                    "noise_count": 0, "specs_reviewed": 2,
+                                    "findings": [], "simulated": True}),
+                        encoding="utf-8")
+    critic_lib.record("PR-x-9", contract)
+    assert review_state.load()["PR-x-9"]["critic"]["simulated"] is True, \
+        "record() dropped the provenance on its way to the board"

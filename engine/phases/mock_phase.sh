@@ -232,7 +232,8 @@ EOF
  "specs_reviewed":2,
  "findings":[{"file":"suites/orders/${KEY}-discount-boundary.spec.js","kind":"missing",
               "severity":"low","note":"no case for a discount above the cap"}],
- "rationale":"assertions check the discounted total, not just the status code"}
+ "rationale":"assertions check the discounted total, not just the status code",
+ "simulated":true}
 EOF
     ;;
   *) echo "no mock for $PHASE"; exit 1 ;;

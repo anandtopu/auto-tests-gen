@@ -116,10 +116,19 @@ def load(path=None):
                  sum(1 for f in findings if f["kind"] in NOISE_KINDS))
     if specs:
         noise = min(noise, specs)
-    return {"score": round(score, 3),
-            "verdict": verdict_for(score),     # recomputed: thresholds are ours, not the model's
-            "noise_count": noise, "specs_reviewed": specs,
-            "findings": findings, "rationale": str(raw.get("rationale", "") or "")}
+    out = {"score": round(score, 3),
+           "verdict": verdict_for(score),      # recomputed: thresholds are ours, not the model's
+           "noise_count": noise, "specs_reviewed": specs,
+           "findings": findings, "rationale": str(raw.get("rationale", "") or "")}
+    # A producer that KNOWS it is a mock says so, and that flag has to survive
+    # normalization or it never reaches the review board: `record()` passes this
+    # signal straight to `review_state.set_critic`, which has no run record to
+    # ask later. The mock reviewer has always worked this way -- the critic did
+    # not, so the board stored a score with no provenance and `qa.py trace`
+    # answered "provenance not recorded" for every key, forever.
+    if isinstance(raw.get("simulated"), bool):
+        out["simulated"] = raw["simulated"]
+    return out
 
 
 def provenance(signal, record=None, cost_rows=None):
