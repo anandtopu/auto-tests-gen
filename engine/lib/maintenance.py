@@ -93,11 +93,19 @@ def run_steps(steps=None, retain_days=None, runner=None):
             # place the REASON exists -- `cost_reconcile` prints
             # "ANTHROPIC_ADMIN_KEY is not configured" and the summary used to
             # discard it, leaving a CronJob log saying only "exit 75".
+            # encoding= is NOT optional. Every step reconfigures its own stdout
+            # to UTF-8, and `text=True` alone decodes with the LOCALE codec --
+            # cp1252 on this host -- so a step's em-dash arrived here as `â€”`
+            # and was then re-encoded into the nightly log by our own UTF-8
+            # stdout, corrupting it permanently. Measured on `make maintain`:
+            # the coverage-drift warning naming the repos it could NOT harvest
+            # came out mangled, and that line is a CronJob's only account of
+            # what the night did. errors="replace" keeps it total either way.
             proc = subprocess.Popen([sys.executable] + argv, cwd=ROOT,
                                     stdin=subprocess.DEVNULL,
                                     stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True,
-                                    errors="replace")
+                                    encoding="utf-8", errors="replace")
             for line in proc.stdout:
                 print(line, end="", flush=True)
                 line = line.rstrip()

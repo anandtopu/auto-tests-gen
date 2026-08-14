@@ -90,10 +90,21 @@ def _is_doc(f):
 
 
 def knobs_read(files):
-    """Every AIQE_* name appearing in a non-doc tracked file."""
+    """Every AIQE_* name appearing in a tracked file the PRODUCT is made of.
+
+    registry/tests and eval are excluded, for two reasons that arrived in the
+    opposite order. The semantic one: a knob only a test mentions is not a knob
+    an operator can use, so counting it would let a doc offer something no
+    shipped code reads. The one that actually forced it: the probe below names
+    a sentinel that must NOT resolve, and once this file was committed the
+    sweep read its own sentinel out of the tracked tree and the probe failed --
+    green before the commit, red after. Measured when this was changed: the
+    exclusion drops 10 test-only names and introduces no new ghost.
+    """
     found = set()
     for f in files:
-        if _is_doc(f) or f.endswith(".example"):
+        if (_is_doc(f) or f.endswith(".example")
+                or f.startswith(("registry/tests/", "eval/"))):
             continue
         found |= set(KNOB.findall(
             (ROOT / f).read_text(encoding="utf-8", errors="replace")))
@@ -159,7 +170,11 @@ def test_the_sweep_can_see_a_ghost():
     files = _tracked()
     read = knobs_read(files)
     assert "AIQE_MOCK" in read, "the read side found nothing -- the pin is vacuous"
-    assert "AIQE_DEFINITELY_NOT_A_KNOB" not in read
+    # Built rather than written, so the sentinel cannot appear as a literal in
+    # any tracked file -- including this one. The literal version passed until
+    # the moment it was committed, at which point the sweep found its own
+    # sentinel and this assertion failed. Belt to the exclusion's brace.
+    assert ("AIQE_" + "NEVER_A_REAL_KNOB") not in read
     documented = knobs_documented(files)
     assert documented, "the doc side found nothing -- the pin is vacuous"
 

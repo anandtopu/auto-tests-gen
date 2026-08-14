@@ -52,9 +52,18 @@ for e in entries:
         hit = facts["routes"].get(norm(rt))
         if hit: repos.update(hit); methods.append("route_match")
     try:
+        # git writes commit subjects in UTF-8 by default; decoding them with the
+        # locale codec raises on the bytes cp1252 leaves undefined, and the
+        # `except` below would swallow that -- so one contributor's accented
+        # name in a commit subject silently costs this test its git_history
+        # evidence. It does not change the mapping's confidence or its repo
+        # attribution (see the note below), but evidence that vanishes without
+        # a word is what this chain must never do.
         log = subprocess.run(["git", "-C", f"workspace/bootstrap/{e['test_repo']}/repo",
                               "log", "--format=%s", "--", e["file"]],
-                             capture_output=True, text=True, timeout=30).stdout
+                             capture_output=True, text=True,
+                             encoding="utf-8", errors="replace",
+                             timeout=30).stdout
         keys = jira_keys(log)
         e["evidence"]["git_jira_keys"] = keys
         if keys: methods.append("git_history")
