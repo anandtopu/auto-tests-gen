@@ -245,3 +245,100 @@ def test_the_board_does_not_invent_a_provenance(tmp_path, monkeypatch):
     entry = review_state.load()["PR-x-2"]["critic"]
     assert "simulated" not in entry, \
         "an unrecorded provenance was stored as a definite answer"
+
+
+
+# ------------------------------------- the pin that let a fifth renderer through
+
+RENDERERS = ("bin/dashboard.py", "bin/qa.py", "engine/lib/trace.py",
+             "engine/lib/pr_comment.py")
+
+# A score READ OUT OF a signal and formatted. Narrow deliberately: a first
+# version matched any `{x:.2f}` and flagged qa.py's `average score {avg:.2f}`,
+# which is legitimate because that branch runs only after filtering to measured
+# runs. A pin that cries wolf on correct code is one somebody deletes.
+SCORE_FORMAT = (r"""(?:get\(\s*['"]score['"][^)]*\)|\[['"]score['"]\])"""
+                r"""\s*:[<>]?\d*\.\d+f""")
+
+
+def hand_formatted_scores(files=None, root=None):
+    """Renderer lines that turn a signal's score into text without the rule.
+
+    Injectable so the probe can drive THIS function over a synthetic file.
+    The first version had a probe that compiled SCORE_FORMAT itself, which
+    tests the constant and not the sweep -- gutting the sweep to a
+    never-matching pattern left the probe green. A probe must exercise the code
+    path it certifies.
+    """
+    import re
+    root = root or ROOT
+    fmt = re.compile(SCORE_FORMAT)
+    out = []
+    for rel in (files if files is not None else RENDERERS):
+        for n, line in enumerate(
+                (root / rel).read_text(encoding="utf-8").splitlines(), 1):
+            if fmt.search(line):
+                out.append(f"{rel}:{n}  {line.strip()[:90]}")
+    return out
+
+
+def test_no_renderer_formats_a_critic_score_itself():
+    """A FILE-level check cannot see a second renderer in the same file.
+
+    `test_every_renderer_asks_the_one_decision_function` asserts each file
+    mentions critic_lib somewhere -- and bin/dashboard.py has THREE critic
+    sites. Two went through the rule and the third, the Runs table's critic
+    column (the most-read view), formatted `c.get("score", 0):.2f` directly,
+    and the pin stayed green over 23 unmarked cells.
+
+    So pin the SHAPE, which is checkable per occurrence. Found by re-driving
+    the page with a query written from the DATA (every occurrence of the score
+    value) rather than from the fix -- the earlier re-drive searched for
+    `critic <n>`, the shape the OTHER cell emits, so it could not see the cell
+    that renders the bare number alone.
+    """
+    bad = hand_formatted_scores()
+    assert not bad, (
+        "a critic score is formatted without asking critic.score_text:\n  "
+        + "\n  ".join(bad))
+
+
+def test_the_shape_sweep_finds_a_planted_violation(tmp_path):
+    """Positive control, driven through the sweep itself."""
+    (tmp_path / "bad.py").write_text(
+        'cell = f\'<span>{c.get("score", 0):.2f}</span>\'\n', encoding="utf-8")
+    (tmp_path / "sub.py").write_text(
+        'cell = f"{c[\'score\']:>6.2f}"\n', encoding="utf-8")
+    (tmp_path / "good.py").write_text(
+        'cell = critic_lib.score_text(c, r)\n'
+        'print(f"average score {avg:.2f} over N runs")\n', encoding="utf-8")
+    found = hand_formatted_scores(["bad.py", "sub.py", "good.py"], root=tmp_path)
+    assert any(f.startswith("bad.py:") for f in found), \
+        "the sweep misses the exact line bin/dashboard.py had"
+    assert any(f.startswith("sub.py:") for f in found), "misses the subscript form"
+    assert not any(f.startswith("good.py:") for f in found), \
+        "flags score_text, or a legitimately measured average"
+
+
+def test_the_sweep_still_covers_every_renderer():
+    """Scope is part of the contract and a clean tree cannot defend it:
+    dropping bin/dashboard.py from the list fails nothing today, right up until
+    the next unmarked cell lands there -- which is exactly what happened."""
+    for rel in ("bin/dashboard.py", "bin/qa.py", "engine/lib/pr_comment.py",
+                "engine/lib/trace.py"):
+        assert rel in RENDERERS, f"{rel} fell out of the score sweep"
+
+
+def test_the_runs_table_tooltip_does_not_claim_measured():
+    """The score and its tooltip must agree.
+
+    A mutation pinning `cprov = "measured"` survived the first pass: the score
+    still rendered `~` because score_text derives provenance independently, so
+    only the TOOLTIP lied -- a chip reading `~0.86` whose hover text calls it a
+    measurement is worse than either alone.
+    """
+    src = (ROOT / "bin/dashboard.py").read_text(encoding="utf-8")
+    block = src[src.index("critic_cell = ") - 900:src.index("critic_cell = ")]
+    assert "critic_lib.provenance(c, r)" in block, \
+        "the Runs-table tooltip no longer derives provenance from the record"
+    assert "SIMULATED" in block, "the tooltip stopped naming a simulated score"

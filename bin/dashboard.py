@@ -413,11 +413,21 @@ for r in runs[:25]:
     if c:
         cls = {"accept": "success", "review": "warning", "weak": "danger"}.get(
             c.get("verdict"), "muted")
-        tip = (f'{c.get("verdict", "")} — {c.get("noise_count", 0)}'
+        # FIFTH renderer of this score, and the one in the Runs table -- the
+        # most-read view. The previous sweep fixed four and missed it, and the
+        # re-drive that was supposed to catch that searched for `critic <n>`,
+        # which is the shape the OTHER cell emits; this one renders the bare
+        # number alone, so a query written from the fix could not see it.
+        cprov = critic_lib.provenance(c, r)
+        cnote = {"simulated": "SIMULATED: a mock run's fixed score, not a "
+                              "measurement. ",
+                 "unknown": "Provenance not recorded: it is not known whether a "
+                            "real model scored this. "}.get(cprov, "")
+        tip = (f'{c.get("verdict", "")} — {cnote}{c.get("noise_count", 0)}'
                f'/{c.get("specs_reviewed", 0)} specs flagged noisy. '
                f'{c.get("rationale", "")} (advisory: never gates a commit)')
         critic_cell = (f'<span class="chip chip-{cls}" title="{esc(tip)}">'
-                       f'{c.get("score", 0):.2f}</span>')
+                       f'{esc(critic_lib.score_text(c, r))}</span>')
     else:
         critic_cell = '<span class="muted sm">—</span>'
     a = r.get("review") or r.get("reviewer")
