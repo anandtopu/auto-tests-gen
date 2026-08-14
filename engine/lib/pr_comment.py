@@ -96,15 +96,18 @@ def build_projection(out_dir=".", run_id="", key=""):
         critic_sig = dict(critic_sig,
                           provenance=critic_lib.provenance(critic_sig,
                                                            cost_rows=cost_rows))
+    import phase_provenance
     return delivery_projection(triage, gen, validate, gates, critic_sig,
                                review_sig, cost_rows, run_id, key,
-                               duplicates, discovery, delivery)
+                               duplicates, discovery, delivery,
+                               phase_provenance.of("validate", cost_rows=cost_rows))
 
 
 def from_record(record):
     """The same coverage-delta report, rebuilt AFTER the fact from a persisted
     run record (reports/runs/<id>.json) — the out/ scratch a live run composes
     from is gone once the next run starts. Powers GET /api/pr-coverage."""
+    import phase_provenance
     contracts = {p.get("name"): p.get("contract") or {}
                  for p in record.get("phases", [])}
     gates = [{"repo": g.get("test_repo", "?"), "status": g.get("status", "?"),
@@ -140,7 +143,9 @@ def from_record(record):
         reviewer_lib.recorded(record), cost_rows, run_id,
         record.get("trigger", {}).get("key", ""),
         record.get("duplicate_warnings") or {},
-        record.get("ticket_discovery") or {}, record.get("review_delivery"))
+        record.get("ticket_discovery") or {}, record.get("review_delivery"),
+        # The record knows: it carries the validate phase's spend.
+        phase_provenance.of("validate", record=record))
     return render_pr(projection)
 
 
@@ -177,6 +182,16 @@ def _cost_projection(rows):
             "states": states}
 
 
+def _validation_caveat(projection):
+    """The validate counts are the phase's own account, and in mock mode a
+    CONSTANT: measured on this estate, 40 of 40 runs said `2 passed` while the
+    same record's generate contract held one test. The gate's `committed`
+    status is the separate, real evidence that the specs executed."""
+    import phase_provenance
+    return phase_provenance.caveat(projection.get("validation_provenance"),
+                                   what="these counts")
+
+
 def _critic_score(sig):
     return f"{sig.get('score')}"
 
@@ -199,7 +214,7 @@ def _critic_caveat(sig):
 
 def delivery_projection(triage, gen, validate, gates, critic_sig, review_sig,
                         cost_rows, run_id, key, duplicates=None, discovery=None,
-                        delivery=None):
+                        delivery=None, validation_provenance=None):
     """One normalized statement of what a run delivered, for both channels."""
     triage = triage if isinstance(triage, dict) else {}
     gen = gen if isinstance(gen, dict) else {}
@@ -228,6 +243,7 @@ def delivery_projection(triage, gen, validate, gates, critic_sig, review_sig,
         "validation": validate if isinstance(validate, dict) else {},
         "gates": [g for g in gates if isinstance(g, dict)],
         "critic": critic_sig if isinstance(critic_sig, dict) else None,
+        "validation_provenance": validation_provenance,
         "review": review_sig if isinstance(review_sig, dict) else None,
         "cost": _cost_projection(cost_rows),
         "duplicates": [w for w in ((duplicates or {}).get("warnings") or [])
@@ -244,7 +260,7 @@ def refusal_projection(run_id, key, reason, fix, *, target="", pr_ref="",
         "run_id": str(run_id or "")[:200], "key": str(key or "")[:200],
         "tests": [], "created": 0, "updated": 0, "open_questions": [],
         "areas": [], "triage": {}, "validation": {}, "gates": [],
-        "critic": None, "review": None,
+        "critic": None, "review": None, "validation_provenance": None,
         "cost": _cost_projection(cost_rows), "duplicates": [],
         "selected_ticket": {}, "target": _safe_code(target),
         "pr_ref": _safe_code(pr_ref),
@@ -342,7 +358,8 @@ def render_pr(projection):
         lines.append(f"**Validation:** {validate.get('passed', '?')} passed, "
                      f"{failed} failed"
                      + (f", {validate.get('repair_loops')} repair loop(s)"
-                        if validate.get("repair_loops") else ""))
+                        if validate.get("repair_loops") else "")
+                     + _validation_caveat(projection))
 
     if isinstance(delivery, dict) and delivery.get("outcome") == "refused":
         lines.append("**Delivery:** refused before the deterministic gate; nothing was committed.")
@@ -423,7 +440,8 @@ def render_ticket(projection, *, max_chars=8000):
     validate = projection["validation"]
     if validate:
         lines.append(f"Validation: {validate.get('passed', '?')} passed, "
-                     f"{validate.get('failed', 0)} failed")
+                     f"{validate.get('failed', 0)} failed"
+                     + _validation_caveat(projection))
 
     delivery = projection["delivery"]
     if isinstance(delivery, dict) and delivery.get("outcome") == "refused":

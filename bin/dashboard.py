@@ -580,10 +580,18 @@ for key, r in latest_by_key.items():
     v = contracts.get("validate", {})
     if v:
         failed = v.get("failed", 0)
+        import phase_provenance
+        vprov = phase_provenance.of("validate", record=r)
+        vtip = {"simulated": "SIMULATED: these counts come from a mock run, "
+                             "not from execution",
+                "unknown": "provenance not recorded for this run"}.get(vprov, "")
         right += ('<h3>Validation</h3><div class="chips">'
-                  f'<span class="chip chip-success">{v.get("passed", "?")} passed</span>'
+                  f'<span class="chip chip-success" title="{esc(vtip)}">'
+                  f'{esc(str(phase_provenance.mark(v.get("passed", "?"), vprov)))} passed</span>'
                   f'<span class="chip chip-{"danger" if failed else "muted"}">{failed} failed</span>'
-                  f'<span class="chip chip-muted">{v.get("repair_loops", "?")} repair loops</span></div>')
+                  f'<span class="chip chip-muted">{v.get("repair_loops", "?")} repair loops</span>'
+                  + (f'<span class="chip chip-warning sm">{esc(vtip)}</span>' if vtip else "")
+                  + '</div>')
     oq = gen.get("open_questions") or contracts.get("testplan", {}).get("open_questions", [])
     if oq:
         right += "<h3>Open questions</h3>" + "".join(

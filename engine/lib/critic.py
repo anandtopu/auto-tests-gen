@@ -140,30 +140,10 @@ def provenance(signal, record=None, cost_rows=None):
     """
     if signal is None:
         return "unknown"
-    if isinstance(signal.get("simulated"), bool):
-        return "simulated" if signal["simulated"] else "measured"
-    # Not stamped: derive it from the run's own critic phase, which is where
-    # the truth lives. Only the critic phase counts -- a run whose generate was
-    # real and whose critic was mocked has a simulated SCORE.
-    # Asked of spend_history rather than read off the record: that module owns
-    # spend resolution and the build fails on a new raw reader of `["spend"]`.
-    if record:
-        import spend_history
-        sim = spend_history.phase_simulated(record, "critic")
-        if sim is not None:
-            return "simulated" if sim else "measured"
-        if any((e or {}).get("name") == "critic"
-               for e in (record.get("phases") or [])):
-            return "unknown"
-    # The LIVE composer has no record yet, only the scratch ledger, and today
-    # that row carries an empty `cost_basis` for a mock phase -- so this
-    # usually still lands on `unknown`, which is the honest answer there and
-    # not a placeholder for `measured`. It is consulted anyway so the live path
-    # improves for free the day the ledger records a basis.
-    for row in cost_rows or []:
-        if row.get("phase") == "critic" and row.get("cost_basis"):
-            return "simulated" if row["cost_basis"] == "simulated" else "measured"
-    return "unknown"
+    # One definition of the state rule, shared with the validate counts and any
+    # signal that arrives next; the score-specific rendering stays here.
+    import phase_provenance
+    return phase_provenance.of("critic", signal, record, cost_rows)
 
 
 def score_text(signal, record=None, width=None):

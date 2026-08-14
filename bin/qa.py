@@ -365,8 +365,13 @@ def cmd_artifacts(args):
 
         v = contracts.get("validate", {})
         if v:
-            print(f"\nValidation: {v.get('passed', '?')} passed, {v.get('failed', '?')} failed, "
-                  f"{v.get('repair_loops', '?')} repair loop(s)")
+            import phase_provenance
+            print(f"\nValidation: {v.get('passed', '?')} passed, "
+                  f"{v.get('failed', '?')} failed, "
+                  f"{v.get('repair_loops', '?')} repair loop(s)"
+                  + phase_provenance.caveat(
+                      phase_provenance.of("validate", record=r),
+                      what="these counts"))
 
         spends = [(s["phase"], s) for s in spend_by_run.get(str(r.get("run_id") or ""), [])]
         if spends:

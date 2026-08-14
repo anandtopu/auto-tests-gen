@@ -93,9 +93,16 @@ def to_markdown(key):
         lines += [f"| `{t['file']}` | {t.get('name', '')} | {t.get('action', '')} |"
                   for t in b["tests"]] + [""]
     if v:
+        import phase_provenance
         lines += ["## Validation", "",
                   f"{v.get('passed', '?')} passed, {v.get('failed', '?')} failed, "
-                  f"{v.get('repair_loops', '?')} repair loop(s)", ""]
+                  f"{v.get('repair_loops', '?')} repair loop(s)"
+                  # An exported plan travels outside git and gets attached to
+                  # tickets, so an unmarked simulated count is the hardest one
+                  # to correct after the fact.
+                  + phase_provenance.caveat(
+                      phase_provenance.of("validate", record=b.get("run")),
+                      what="these counts"), ""]
     committed = [g for g in b["gates"] if g.get("commit")]
     if committed:
         lines += ["## Commits", ""] + [
