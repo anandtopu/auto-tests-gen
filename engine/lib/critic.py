@@ -122,10 +122,83 @@ def load(path=None):
             "findings": findings, "rationale": str(raw.get("rationale", "") or "")}
 
 
-def summary_line(signal):
+def provenance(signal, record=None, cost_rows=None):
+    """Did a real model produce this score? 'measured' | 'simulated' | 'unknown'.
+
+    THE IRON RULE, applied to the quality signal instead of to money. The mock
+    critic emits a hardcoded `score: 0.86, verdict: accept, noise_count: 0`, and
+    every surface printed it exactly as it would print a real one -- `qa.py
+    critic` showed ten runs at `0.86 accept`, and `pr_comment` puts the same
+    figure ON THE PULL REQUEST A HUMAN MERGES FROM. `eval/scorecard.py` was
+    fixed for this and reports `n/a`; `parity_compare` excludes simulated runs
+    outright. Those two were right and five renderers were not.
+
+    Three states, not two (C13). `unknown` is for a stored signal with no run
+    record to ask -- a `review_state` entry written before this flag existed
+    carries score and verdict and nothing about where they came from, and
+    guessing `measured` there is precisely the lie being fixed.
+    """
+    if signal is None:
+        return "unknown"
+    if isinstance(signal.get("simulated"), bool):
+        return "simulated" if signal["simulated"] else "measured"
+    # Not stamped: derive it from the run's own critic phase, which is where
+    # the truth lives. Only the critic phase counts -- a run whose generate was
+    # real and whose critic was mocked has a simulated SCORE.
+    # Asked of spend_history rather than read off the record: that module owns
+    # spend resolution and the build fails on a new raw reader of `["spend"]`.
+    if record:
+        import spend_history
+        sim = spend_history.phase_simulated(record, "critic")
+        if sim is not None:
+            return "simulated" if sim else "measured"
+        if any((e or {}).get("name") == "critic"
+               for e in (record.get("phases") or [])):
+            return "unknown"
+    # The LIVE composer has no record yet, only the scratch ledger, and today
+    # that row carries an empty `cost_basis` for a mock phase -- so this
+    # usually still lands on `unknown`, which is the honest answer there and
+    # not a placeholder for `measured`. It is consulted anyway so the live path
+    # improves for free the day the ledger records a basis.
+    for row in cost_rows or []:
+        if row.get("phase") == "critic" and row.get("cost_basis"):
+            return "simulated" if row["cost_basis"] == "simulated" else "measured"
+    return "unknown"
+
+
+def score_text(signal, record=None, width=None):
+    """The score as it may be shown: bare only when a real model produced it."""
+    if not signal:
+        return "-"
+    prov = provenance(signal, record)
+    body = f"{signal['score']:.2f}" if width is None else f"{signal['score']:>{width}.2f}"
+    if prov == "measured":
+        return body
+    return ("~" + body.lstrip()) if prov == "simulated" else (body.lstrip() + "?")
+
+
+PROVENANCE_NOTE = {
+    "simulated": "~ = SIMULATED: a mock run's fixed score, not a measurement "
+                 "(unblock `make parity-pr` to measure it)",
+    "unknown": "? = provenance not recorded for this run, so it is not known "
+               "whether a real model produced the score",
+}
+
+
+def provenance_note(kinds):
+    """One footnote for whichever markers actually appear. Empty when none do.
+
+    A note printed beside a fully measured set would be the over-fix: a caveat
+    that fires on correct output is one readers learn to skip.
+    """
+    return [PROVENANCE_NOTE[k] for k in ("simulated", "unknown")
+            if k in set(kinds) and k in PROVENANCE_NOTE]
+
+
+def summary_line(signal, record=None):
     if not signal:
         return "critic: no signal"
-    bits = [f"critic: {signal['score']:.2f} {signal['verdict']}"]
+    bits = [f"critic: {score_text(signal, record)} {signal['verdict']}"]
     if signal["specs_reviewed"]:
         bits.append(f"({signal['noise_count']}/{signal['specs_reviewed']} specs flagged noisy)")
     elif signal["noise_count"]:

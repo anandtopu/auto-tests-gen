@@ -196,8 +196,13 @@ def render_text(t):
                 lines.append(f"                    gate {g['repo']}: {g['status']}{sha}")
             c = e["meta"].get("critic")
             if c:
+                import critic as critic_lib
+                prov = critic_lib.provenance(c)
+                mark = {"simulated": " SIMULATED", "unknown": " (provenance not recorded)"}.get(prov, "")
+                # Words, not a symbol: this timeline has no legend to
+                # explain a `~`, and printing both would say it twice.
                 lines.append(f"                    critic {c.get('score')} "
-                             f"{c.get('verdict')} (advisory)")
+                             f"{c.get('verdict')} (advisory){mark}")
     return "\n".join(lines)
 
 

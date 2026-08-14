@@ -175,6 +175,14 @@ def set_critic(key, critic, ts=None):
         entry = data.get(key, {"history": []})
         entry["critic"] = {"score": critic.get("score"),
                            "verdict": critic.get("verdict"),
+                           # Provenance is stored with the score because this
+                           # board outlives the run record's phases[]: without
+                           # it, `qa.py trace` can only ever say "not recorded"
+                           # and a mock's fixed score sits on the board looking
+                           # measured. Absent when the caller could not
+                           # establish it -- never defaulted to False.
+                           **({"simulated": critic["simulated"]}
+                              if isinstance(critic.get("simulated"), bool) else {}),
                            "noise_count": critic.get("noise_count", 0),
                            "specs_reviewed": critic.get("specs_reviewed", 0),
                            "findings": critic.get("findings", []),

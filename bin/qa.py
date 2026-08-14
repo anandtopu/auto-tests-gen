@@ -606,13 +606,16 @@ def cmd_critic(args):
               "The critic runs after validate when critic.enabled is set in "
               "registry/org-config.yaml (AIQE_CRITIC=0 skips it for one run).")
         return
+    import critic as critic_lib
     print(f"{'run_id':<18} {'trigger':<22} {'score':>6} {'verdict':<9} {'noise':>9} findings")
+    shown = []
     for r in runs[: args.n]:
         c = r["critic"]
+        shown.append(critic_lib.provenance(c, r))
         noise = (f"{c.get('noise_count', 0)}/{c['specs_reviewed']}"
                  if c.get("specs_reviewed") else str(c.get("noise_count", 0)))
         print(f"{r['run_id']:<18} {r['trigger']['type']}:{r['trigger']['key']:<18} "
-              f"{c['score']:>6.2f} {c['verdict']:<9} {noise:>9} "
+              f"{critic_lib.score_text(c, r, width=6):>6} {c['verdict']:<9} {noise:>9} "
               f"{len(c.get('findings', []))}")
     if args.findings:
         print()
@@ -624,9 +627,24 @@ def cmd_critic(args):
             for f in c["findings"]:
                 print(f"    [{f.get('severity', '?'):<4} {f.get('kind', '?'):<9}] "
                       f"{f.get('file', '?')}: {f.get('note', '')}")
-    avg = sum(r["critic"]["score"] for r in runs) / len(runs)
-    print(f"\naverage score {avg:.2f} over {len(runs)} scored run(s) — "
-          "advisory only, never gates a commit")
+    # The average obeys the same rule as a summed dollar: an aggregate whose
+    # inputs are not all measured must not read as a measurement. Averaging a
+    # stub's fixed 0.86 over 394 runs is how `eval/scorecard.py` came to report
+    # the fixture as a quality result.
+    provs = [critic_lib.provenance(r["critic"], r) for r in runs]
+    measured = [r for r, p in zip(runs, provs) if p == "measured"]
+    if measured:
+        avg = sum(r["critic"]["score"] for r in measured) / len(measured)
+        extra = (f" ({len(runs) - len(measured)} of {len(runs)} excluded as "
+                 f"simulated/unrecorded)" if len(measured) != len(runs) else "")
+        print(f"\naverage score {avg:.2f} over {len(measured)} MEASURED run(s)"
+              f"{extra} — advisory only, never gates a commit")
+    else:
+        print(f"\naverage score: n/a — none of the {len(runs)} scored run(s) were "
+              "measured; a mock critic emits a fixed score, so averaging them "
+              "would report the stub. Unblock `make parity-pr` to measure it.")
+    for note in critic_lib.provenance_note(provs):
+        print(note)
 
 
 def cmd_plan(args):

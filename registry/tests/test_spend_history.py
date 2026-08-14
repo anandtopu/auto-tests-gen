@@ -86,6 +86,31 @@ def test_cost_report_includes_abort_only_ledger_and_never_double_counts(tmp_path
     assert "total is incomplete" in cost_report.to_markdown(report)
 
 
+def _code_only(source):
+    """Source with comments removed, so this sweep cannot match prose.
+
+    It flagged `engine/lib/critic.py` for a COMMENT that named the very token
+    the rule forbids -- in a module whose code had just been rewired to go
+    through `spend_history` precisely to satisfy this pin. A rule that fires on
+    an explanation of itself teaches people to stop writing the explanation.
+    CLAUDE.md records the same trap for the prompt-placeholder pin, which strips
+    shell comments for the same reason.
+
+    Tokenized rather than cut at the first `#`, so a `#` inside a string
+    literal cannot silently truncate a line and hide a real access. A file that
+    will not tokenize is returned unchanged -- failing safe means still
+    scanning it.
+    """
+    import io
+    import tokenize
+    try:
+        return "".join(
+            tok.string if tok.type != tokenize.COMMENT else ""
+            for tok in tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return source
+
+
 def test_historical_spend_consumers_cannot_resolve_raw_sources():
     """A newly added consumer must use spend_rows(), not become a ninth reader."""
     production = list((ROOT / "engine/lib").glob("*.py")) + list((ROOT / "bin").glob("*.py"))
@@ -93,7 +118,7 @@ def test_historical_spend_consumers_cannot_resolve_raw_sources():
     raw_ledger_allowed = {"spend_history.py", "spend_ledger.py"}
     direct_spend = ('get("spend")', "get('spend')", '["spend"]', "['spend']")
     for path in production:
-        source = path.read_text(encoding="utf-8")
+        source = _code_only(path.read_text(encoding="utf-8"))
         if any(token in source for token in direct_spend):
             assert path.name in raw_record_allowed, path
         if ("costs_dir(" in source
@@ -103,3 +128,20 @@ def test_historical_spend_consumers_cannot_resolve_raw_sources():
 
     for relative in ("engine/lib/parity_compare.py", "engine/lib/pr_comment.py", "bin/qa.py"):
         assert "spend_history.spend_rows" in (ROOT / relative).read_text(encoding="utf-8")
+
+
+def test_the_comment_stripper_hides_prose_and_nothing_else():
+    """The hardening needs its own pin in both directions.
+
+    Weakening it to hide a real access would silently retire the boundary this
+    module exists to defend, and a sweep that has stopped catching anything
+    reads exactly like a clean codebase.
+    """
+    assert '["spend"]' in _code_only('x = phase["spend"]\n'), \
+        "a real raw access stopped being visible"
+    assert '["spend"]' not in _code_only('# discussed ["spend"] in prose\ny = 1\n'), \
+        "the sweep is matching comments again"
+    # A `#` inside a string must not truncate the line and swallow what follows.
+    assert '["spend"]' in _code_only('s = "a#b"\nz = p["spend"]\n')
+    # Unparseable input fails SAFE: still scanned, never silently skipped.
+    assert "((" in _code_only("def broken((:\n")

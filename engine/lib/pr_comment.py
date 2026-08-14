@@ -88,6 +88,14 @@ def build_projection(out_dir=".", run_id="", key=""):
         cost_rows = budget.read_ledger(out / "out/cost.tsv")
     except Exception:
         pass
+    if critic_sig:
+        # The score travels with its provenance from here on: five renderers
+        # printed a mock's fixed 0.86 exactly as they would print a measured
+        # score, and one of them posts it on the pull request.
+        import critic as critic_lib
+        critic_sig = dict(critic_sig,
+                          provenance=critic_lib.provenance(critic_sig,
+                                                           cost_rows=cost_rows))
     return delivery_projection(triage, gen, validate, gates, critic_sig,
                                review_sig, cost_rows, run_id, key,
                                duplicates, discovery, delivery)
@@ -105,7 +113,10 @@ def from_record(record):
     critic_sig = None
     c = contracts.get("critic") or {}
     if isinstance(c.get("score"), (int, float)) and c.get("verdict"):
-        critic_sig = {"score": c["score"], "verdict": c["verdict"]}
+        import critic as critic_lib
+        critic_sig = {"score": c["score"], "verdict": c["verdict"],
+                      "provenance": critic_lib.provenance(
+                          record.get("critic") or c, record)}
     run_id = str(record.get("run_id") or "")
     historical = [row for row in spend_history.spend_rows()
                   if row["run_id"] == run_id]
@@ -164,6 +175,26 @@ def _cost_projection(rows):
             states[basis] = states.get(basis, 0) + 1
     return {"totals": {k: round(v, 6) for k, v in totals.items()},
             "states": states}
+
+
+def _critic_score(sig):
+    return f"{sig.get('score')}"
+
+
+def _critic_caveat(sig):
+    """Say it in words, not a symbol.
+
+    A PR comment is prose a human skims once on the way to merging, so `~`
+    would carry none of the meaning it carries in a cost table beside a legend.
+    Silent for a measured score: a caveat on correct output is one readers
+    learn to skip, which is how the real ones stop landing.
+    """
+    prov = sig.get("provenance")
+    if prov == "simulated":
+        return " - SIMULATED (a mock run's fixed score, not a measurement)"
+    if prov == "unknown":
+        return " - provenance not recorded, so it is not known whether a real model scored this"
+    return ""
 
 
 def delivery_projection(triage, gen, validate, gates, critic_sig, review_sig,
@@ -328,8 +359,9 @@ def render_pr(projection):
 
     # Advisory signal + spend — context, never verdicts.
     if critic_sig:
-        lines.append(f"- 🔍 critic (advisory): {critic_sig['score']} "
-                     f"{critic_sig['verdict']}")
+        lines.append(f"- 🔍 critic (advisory): "
+                     f"{_critic_score(critic_sig)} {critic_sig['verdict']}"
+                     f"{_critic_caveat(critic_sig)}")
     if review_sig:
         lines.append(f"- 🧭 {reviewer_lib.summary_line(review_sig)}")
     lines.extend(_cost_lines(projection["cost"], markdown=True))
@@ -428,8 +460,9 @@ def render_ticket(projection, *, max_chars=8000):
         lines.append(f"Reviewer: {reviewer_lib.summary_line(projection['review'])}")
     critic = projection.get("critic")
     if critic:
-        lines.append(f"Critic (advisory): {critic.get('score')} "
-                     f"{_safe_code(critic.get('verdict'))}")
+        lines.append(f"Critic (advisory): {_critic_score(critic)} "
+                     f"{_safe_code(critic.get('verdict'))}"
+                     f"{_critic_caveat(critic)}")
     lines.extend(_cost_lines(projection["cost"]))
     if projection["open_questions"]:
         lines.append(f"Open questions: {len(projection['open_questions'])} "

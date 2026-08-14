@@ -19,6 +19,7 @@ import app_paths, env_flag, glossary, spec_workflow
 import run_progress                      # R12: mutable paths resolve here
 from registry import load_registry
 import review_state, test_health, work_queue
+import critic as critic_lib
 
 esc = html.escape
 
@@ -716,8 +717,15 @@ for _tk in trace_lib.keys()[:12]:
             if c:
                 ccls = {"accept": "success", "review": "warning",
                         "weak": "danger"}.get(c.get("verdict"), "muted")
-                bits += (f'<span class="chip chip-{ccls} sm" title="advisory — never gates">'
-                         f'critic {c.get("score")}</span>')
+                cprov = critic_lib.provenance(c, r)
+                ctip = {"simulated": "advisory — never gates. SIMULATED: a mock "
+                                     "run's fixed score, not a measurement",
+                        "unknown": "advisory — never gates. Provenance not "
+                                   "recorded: it is not known whether a real "
+                                   "model scored this"}.get(
+                    cprov, "advisory — never gates")
+                bits += (f'<span class="chip chip-{ccls} sm" title="{esc(ctip)}">'
+                         f'critic {esc(critic_lib.score_text(c, r))}</span>')
             files = "".join(f'<div class="mono sm muted">{esc(x.get("file", "?"))} '
                             f'({esc(x.get("action", "?"))})</div>'
                             for x in run_progress.dict_rows(m.get("tests"))[:6])

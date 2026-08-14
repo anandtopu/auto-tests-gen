@@ -235,6 +235,17 @@ if os.path.exists("out/context-retries.tsv"):
         record["context_retries"] = retries
 signal = critic_lib.load()
 if signal:
+    # Stamp the provenance HERE, where the critic phase's spend is in hand, so
+    # it travels with the score instead of being re-derived by each renderer.
+    # `review_state` stores this signal and has no phases[] to consult later --
+    # that is exactly how a mock's fixed 0.86 reached a PR comment looking like
+    # a measurement.
+    prov = critic_lib.provenance(signal, record)
+    if prov != "unknown":
+        # Stamped only when the answer is DEFINITE. Writing `simulated: False`
+        # for an unknown would convert "we cannot tell" into "a real model did
+        # this" -- the same lie one direction over, and permanent once stored.
+        signal = dict(signal, simulated=(prov == "simulated"))
     record["critic"] = signal
 reviewer = reviewer_lib.load()
 # B4/B3: total, run-scoped evidence even when the phase was skipped or

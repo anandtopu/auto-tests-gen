@@ -183,3 +183,22 @@ def spend_rows(days=None, runs_dir=None, costs_dir=None):
     cutoff = time.time() - days * 86400 if days is not None else 0
     return sorted((row for row in rows.values() if row["ts"] >= cutoff),
                   key=lambda row: (row["ts"], row["run_id"], row["phase"]))
+
+
+def phase_simulated(record, phase):
+    """Was this phase's spend simulated? True / False / None if not established.
+
+    Spend resolution lives in this module by design -- `test_spend_history`
+    fails the build on a ninth consumer that reads `["spend"]` off a record --
+    and `critic.provenance` needs exactly one bit out of it: did a real model
+    do the work. So the raw access stays here and the caller asks a question.
+
+    `None` is a state, not a fallback (C13). A phase recorded with NO spend
+    block cannot vouch for anything, and reading its silence as "not simulated"
+    is how a stub's fixed score comes to look like a measurement.
+    """
+    for entry in (record or {}).get("phases") or []:
+        if entry.get("name") == phase:
+            spend = entry.get("spend") or {}
+            return bool(spend.get("simulated")) if spend else None
+    return None
