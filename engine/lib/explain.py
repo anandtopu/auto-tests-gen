@@ -229,6 +229,13 @@ def explain(key=None, run_id=None, root=ROOT):
         if resolve.get("source_repos"):
             because.insert(0, "changed app repo(s): "
                               + ", ".join(resolve["source_repos"]))
+        for repo in resolve.get("uncovered_sources") or []:
+            because.append(f"{repo}: NO test repo covers it, so this run "
+                           f"generated nothing for it (onboard a test repo, or "
+                           f"extend an existing repo's `scope`)")
+        for repo in resolve.get("layer_filtered_sources") or []:
+            because.append(f"{repo}: covered, but excluded by a restrict_layers "
+                           f"label on this ticket - deliberate, not a gap")
         if why:
             because.append(f"rule that fired: {why}")
         else:

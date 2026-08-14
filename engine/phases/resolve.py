@@ -69,8 +69,15 @@ def resolve_pr(reg, repo_name, changed):
             tests.update(ui)
             impact.append({"cause": f"contract change in {contract}",
                            "consumer": consumer, "test_repos": ui})
+    # Same question on the PR path: a contract fan-out can pull in a consumer
+    # that nothing covers, and the run would generate for the others and say
+    # nothing about it. `layers` is not restricted here, so there is no
+    # layer-filtered state to report -- an empty list, not a missing key, so
+    # every consumer reads one shape.
+    uncovered = sorted(s for s in sources if not test_repos_for(reg, s))
     return dict(source_repos=sources, test_repos=sorted(tests), cross_repo_impact=impact,
                 confidence=1.0 if tests else 0.4,
+                uncovered_sources=uncovered, layer_filtered_sources=[],
                 rationale="registry rule: repo->coverage" + (" + contract fan-out" if impact else ""))
 
 def resolve_jira(reg, key, components, labels, linked_repos):
@@ -102,11 +109,30 @@ def resolve_jira(reg, key, components, labels, linked_repos):
     if layers is not None:
         layers = sorted(layers)
     tests = set()
+    # WHICH implicated repos will receive NOTHING, and why. Measured on the
+    # shipped registry: a `Catalog` ticket resolves three source repos and ONE
+    # test repo, because admin-portal-ui and catalog-api are covered by nothing
+    # -- and the contract said only `test_repos: [e2e-ui-tests-1], confidence
+    # 0.85`, so a reader reasonably concludes the ticket is covered. The
+    # platform KNEW and did not say; `make coverage` warns at estate level,
+    # which is not the moment this matters.
+    #
+    # Two states, not one, because the fixes differ (C13): a repo covered by
+    # NOTHING needs a test repo onboarded or its `scope` extended, while a repo
+    # dropped by a `restrict_layers` label was excluded ON PURPOSE and is
+    # usually correct. Collapsing them would send someone to onboard a repo
+    # that is already covered.
+    uncovered, layer_filtered = [], []
     for s in sources:
-        tests.update(test_repos_for(reg, s, layers=layers))
+        allowed = test_repos_for(reg, s, layers=layers)
+        tests.update(allowed)
+        if not allowed:
+            (layer_filtered if test_repos_for(reg, s) else uncovered).append(s)
     conf = 0.95 if linked_repos else (0.85 if sources else 0.2)
     return dict(source_repos=sorted(sources), test_repos=sorted(tests), cross_repo_impact=[],
                 confidence=conf if tests else min(conf, 0.4),
+                uncovered_sources=sorted(uncovered),
+                layer_filtered_sources=sorted(layer_filtered),
                 rationale=f"components={components} labels={labels} linked={linked_repos}")
 
 if __name__ == "__main__":

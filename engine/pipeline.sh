@@ -711,6 +711,10 @@ if [ "$MODE" = "pr" ] || [ "$PR_PLAN" = "1" ]; then
   # P0: the actual patch, not just the file list — triage reviews real hunks
   SCM diff "$REPO" "$PR" > out/pr.diff 2>/dev/null || : > out/pr.diff
   python3 engine/phases/resolve.py pr "$REPO" --changed-files out/changed.txt > out/resolve.contract.json
+  # Name the repos this run will generate NOTHING for. The platform knows at
+  # routing time and used to say it only at estate level (`make coverage`),
+  # which is not the moment it matters for THIS change.
+  python3 engine/lib/uncovered_note.py out/resolve.contract.json || true
   if [ "$PR_PLAN" = "1" ]; then
     [ -f out/issue-guidance.md ] || cp prompts/issue-types/Story.md out/issue-guidance.md
     : > out/confluence.md
