@@ -84,7 +84,7 @@ commit in another.
 | 5 | `TESTS_FAILED` | The generated specs ran against the provisioned environment and failed |
 | 6 | `GATE_REFUSED` | Working directory is not a standalone test repo (safety backstop) |
 | 7 | `PUSH_FAILED` | Commit succeeded but the push to the configured remote failed |
-| 8 | `SPEC_UNSATISFIED` | An approved spec scenario is uncovered and unwaived (`spec.enforce: strict`) |
+| 8 | `SPEC_UNSATISFIED` | An approved spec scenario is uncovered and unwaived, **or** the spec no longer matches what was approved (`SPEC_CHANGED_SINCE_APPROVAL`) — both under `spec.enforce: strict` |
 | 9 | `LINT_FAILED` | The test repo's own `commands.lint` exited non-zero. This is the LINTER's verdict on the generated code — not a scope, secret or mapping finding |
 | 10 | `ENV_PROVISION_FAILED` | The app under test never came up, so the tests were never executed. **Nothing is known about whether they pass** |
 | 11 | `SPEC_CHECK_FAILED` | The spec check itself could not run, so it reached no verdict. This is NOT a finding that a scenario is uncovered — fix the checker, not the spec |

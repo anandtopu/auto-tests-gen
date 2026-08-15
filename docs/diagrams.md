@@ -633,7 +633,7 @@ flowchart TD
   AMB -->|yes| STOP["exit 65 NEEDS_CLARIFICATION<br/>question posted on the ticket<br/><b>ask, never guess</b>"]
   AMB -->|no| RA{"requirements<br/>approved?"}
 
-  RA -.->|"gate ON: refuses"| WAITR["planning blocked<br/>make requirements-approve"]
+  RA -.->|"gate ON: refuses when not approved,<br/>OR when the approved file was<br/>edited afterwards (requirements_sha)"| WAITR["planning blocked<br/>make requirements-approve"]
   RA ==>|"gate OFF (default):<br/>proceeds, advisory"| PLAN
 
   PLAN["plan<br/>testplan phase + read-only adversary<br/>-> specs/KEY/testplan.yaml"]
@@ -641,7 +641,9 @@ flowchart TD
   APPR --> TESTS["tests<br/>testdata -> generate -> validate<br/>each test stamped scenario_id"]
   TESTS --> GATE["gate<br/>the ONLY commit/push path"]
 
-  GATE --> SC{"spec_check<br/>every approved scenario<br/>covered or waived?"}
+  GATE --> SIG{"spec_check FIRST:<br/>does the spec still match<br/>the signed spec_sha?"}
+  SIG -.->|"no — edited after approval"| UNSIGNED["SPEC_CHANGED_SINCE_APPROVAL<br/>coverage is NOT enforced against<br/>a spec nobody signed —<br/>re-approve or restore"]
+  SIG ==>|"yes (or no sha recorded:<br/>unrecoverable, enforce as before)"| SC{"spec_check<br/>every approved scenario<br/>covered or waived?"}
   SC -.->|"enforce=strict: exit 8"| REFUSE["commit REFUSED<br/>names the uncovered scenario"]
   SC -.->|"enforce=warn"| WARN["reported, commit proceeds"]
   SC ==>|"enforce=off (default)"| COMMIT

@@ -184,3 +184,30 @@ def test_the_ui_and_the_gate_now_agree(estate):
 
     assert plan_state.approval_confirmation(KEY)["signed"] is False
     assert any("SPEC_CHANGED" in f for f in spec_check.check(KEY, REPO, [])[0])
+
+
+# ------------------------------------------------ the docs say what it does
+
+def test_the_signature_check_is_documented_where_operators_look():
+    """The gate exit-code table drifted once already and was only caught
+    because a pin was added for it. A signature check nobody can look up is a
+    refusal an operator cannot act on."""
+    guide = (ROOT / "docs/user-guide.md").read_text(encoding="utf-8")
+    row = next((l for l in guide.splitlines()
+                if l.startswith("| 8 |")), "")
+    assert row, "the exit-8 row vanished from the gate protocol table"
+    assert "SPEC_CHANGED_SINCE_APPROVAL" in row, \
+        "exit 8 now has two causes and the table names only one"
+
+
+def test_the_sdd_diagram_shows_the_signature_check():
+    """docs/diagrams.md documented approval SIGNING the spec and then showed
+    the gate checking only coverage — it drew the defect. Keeping it in sync
+    is this repo's stated rule when gate behaviour changes."""
+    diagrams = (ROOT / "docs/diagrams.md").read_text(encoding="utf-8")
+    assert "spec_sha" in diagrams, "the diagram no longer mentions the signature"
+    assert "SPEC_CHANGED_SINCE_APPROVAL" in diagrams, \
+        "the SDD diagram shows coverage enforcement without the signature " \
+        "check that now runs first"
+    assert "requirements_sha" in diagrams, \
+        "the requirements gate's signature check is undrawn"
