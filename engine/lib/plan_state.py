@@ -599,20 +599,30 @@ def set_requirements_status(key, status, by=""):
         e["requirements_status"] = status
         entry = {"requirements": status, "by": by, "ts": time.time()}
         if status == "approved":
-            try:
-                import hashlib
-                import spec_store
-                p = spec_store.requirements_path(key)
-                if p.exists():
-                    h = hashlib.sha256(p.read_bytes()).hexdigest()
-                    e["requirements_sha"] = h
-                    entry["requirements_sha"] = h
-            except Exception:
-                pass
+            h = _requirements_sha(key)
+            if h:
+                e["requirements_sha"] = h
+                entry["requirements_sha"] = h
         e.setdefault("history", []).append(entry)
         state[key] = e
         _save(state)
     return state[key]
+
+
+def _requirements_sha(key):
+    """sha256 of the key's requirements.yaml, or "" if it cannot be read.
+
+    ONE definition, used by the approval that SIGNS and by the gate that
+    CHECKS -- if the two ever hashed different bytes the gate would refuse
+    every approved key, which is a worse failure than the one being fixed.
+    """
+    try:
+        import hashlib
+        import spec_store
+        p = spec_store.requirements_path(key)
+        return hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else ""
+    except Exception:
+        return ""
 
 
 def require_requirements(key, pr_target=False):
@@ -627,12 +637,40 @@ def require_requirements(key, pr_target=False):
                 "reason": "PR-keyed plans use diff + fused ticket context"}
     if not _requirements_gate_on():
         return None
-    st = get(key).get("requirements_status")
+    entry = get(key)
+    st = entry.get("requirements_status")
     if st != "approved":
         import sdd_messages
         raise SystemExit(sdd_messages.refusal(
             "requirements_gate", key=key, status=st or "absent")["text"])
-    return get(key)
+    # THE SIGNATURE, not just the status -- the sibling of the same hole found
+    # in engine/gate/spec_check.py. `set_requirements_status` stores
+    # `requirements_sha` over the approved bytes and only the UI ever compared
+    # it, so a document edited after approval still satisfied the gate whose
+    # whole purpose is that "a plan may only be authored over VALIDATED
+    # requirements".
+    #
+    # `write_requirements_from_contract` already refuses to overwrite an
+    # approved file, so the pipeline cannot cause this -- MEASURED, that route
+    # leaves the sha intact. What is unguarded is an out-of-band change: a text
+    # editor, a branch switch or merge (specs/ is tracked), or a state-bundle
+    # import. Reproduced with a VALID two-requirement document, one of which
+    # nobody approved: the gate proceeded.
+    signed_sha = str(entry.get("requirements_sha") or "")
+    current_sha = _requirements_sha(key)
+    if signed_sha and current_sha and not hmac.compare_digest(signed_sha,
+                                                              current_sha):
+        raise SystemExit(
+            f"REQUIREMENTS_CHANGED_SINCE_APPROVAL: specs/{key}/requirements.yaml "
+            f"no longer matches what was approved (signed {signed_sha[:12]}, "
+            f"now {current_sha[:12]}). Planning over an unapproved document is "
+            f"exactly what this gate exists to prevent — re-validate with "
+            f"`make requirements-approve KEY={key}`, or restore the approved "
+            f"file.")
+    # A missing hash on either side is UNRECOVERABLE, not a mismatch: keys
+    # approved before the field existed carry none, and refusing them would
+    # block every legacy plan on evidence nobody can produce.
+    return entry
 
 
 def require_approved(key):
