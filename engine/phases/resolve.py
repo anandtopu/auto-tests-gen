@@ -20,10 +20,31 @@ import argparse, fnmatch, json, pathlib, sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "lib"))
 from registry import load_registry, load_org_config, source_repo, test_repos_for
 
+# Every resolution answers the SAME shape. The main PR return already said so
+# in a comment -- "an empty list, not a missing key, so every consumer reads
+# one shape" -- and four returns disagreed: the unregistered-repo and the two
+# SKIP branches carried no `uncovered_sources`/`layer_filtered_sources`/
+# `unknown_label_rules`, while the two full returns carried no `skip`. Nothing
+# crashes today because every consumer happens to use `.get()`, which is
+# exactly how a field teaches the next reader that it "only sometimes exists".
+# Same reasoning as R4: a guard present in one branch and absent from its
+# sibling is a guard that gets lost.
+# Built fresh per call, never a shared module-level dict: `dict(_EMPTY)` is a
+# SHALLOW copy, so every resolution would hand out THE SAME list objects and
+# one run's `uncovered_sources.append(...)` would leak into the next. Caught by
+# this fix's own defensive pin, which is the reason to write one.
+def _resolution(**fields):
+    """One shape, whatever the branch. Explicit values always win."""
+    out = {"skip": False, "empty_change_list": False, "uncovered_sources": [],
+           "layer_filtered_sources": [], "unknown_label_rules": []}
+    out.update(fields)
+    return out
+
+
 def resolve_pr(reg, repo_name, changed):
     src = source_repo(reg, repo_name)
     if not src:
-        return dict(source_repos=[], test_repos=[], cross_repo_impact=[],
+        return _resolution(source_repos=[], test_repos=[], cross_repo_impact=[],
                     confidence=0.0, rationale=f"{repo_name} not in registry")
     # An EMPTY change list is not the same fact as a change list with nothing
     # testable in it, and the two were byte-identical here: both returned
@@ -42,14 +63,14 @@ def resolve_pr(reg, repo_name, changed):
     # is computed as `confidence < threshold and not skip`, so this cannot alter
     # control flow; only the words a human reads.
     if not changed:
-        return dict(source_repos=[repo_name], test_repos=[], cross_repo_impact=[],
+        return _resolution(source_repos=[repo_name], test_repos=[], cross_repo_impact=[],
                     confidence=0.0, skip=True, empty_change_list=True,
                     rationale="the SCM reported NO changed files for this PR, so "
                               "nothing was established about it - this is not a "
                               "finding that no testable path changed")
     testable = any(fnmatch.fnmatch(f, p) for f in changed for p in src.get("testable_paths", ["**"]))
     if not testable:
-        return dict(source_repos=[repo_name], test_repos=[], cross_repo_impact=[],
+        return _resolution(source_repos=[repo_name], test_repos=[], cross_repo_impact=[],
                     confidence=1.0, skip=True, empty_change_list=False,
                     rationale=f"no testable paths changed ({len(changed)} file(s) "
                               f"examined)")
@@ -75,7 +96,7 @@ def resolve_pr(reg, repo_name, changed):
     # layer-filtered state to report -- an empty list, not a missing key, so
     # every consumer reads one shape.
     uncovered = sorted(s for s in sources if not test_repos_for(reg, s))
-    return dict(source_repos=sources, test_repos=sorted(tests), cross_repo_impact=impact,
+    return _resolution(source_repos=sources, test_repos=sorted(tests), cross_repo_impact=impact,
                 confidence=1.0 if tests else 0.4,
                 uncovered_sources=uncovered, layer_filtered_sources=[],
                 unknown_label_rules=[],
@@ -152,7 +173,7 @@ def resolve_jira(reg, key, components, labels, linked_repos):
         if not allowed:
             (layer_filtered if test_repos_for(reg, s) else uncovered).append(s)
     conf = 0.95 if linked_repos else (0.85 if sources else 0.2)
-    return dict(source_repos=sorted(sources), test_repos=sorted(tests), cross_repo_impact=[],
+    return _resolution(source_repos=sorted(sources), test_repos=sorted(tests), cross_repo_impact=[],
                 confidence=conf if tests else min(conf, 0.4),
                 uncovered_sources=sorted(uncovered),
                 layer_filtered_sources=sorted(layer_filtered),
