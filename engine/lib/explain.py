@@ -45,6 +45,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+import record_caveats  # noqa: E402  (what the record says it is missing)
 import run_progress  # noqa: E402
 import test_reviewer as reviewer_lib  # noqa: E402  (shared record reading + exit-code meanings)
 import task_bundle  # noqa: E402
@@ -622,12 +623,25 @@ def explain(key=None, run_id=None, root=ROOT):
             because.append(f"{g.get('test_repo')}: {g.get('status')} "
                            f"({name}) — {meaning}")
         committed = [g for g in gates if g.get("status") == "committed"]
+        # `len(gates)` is the DENOMINATOR of the headline answer, and it is the
+        # count of rows that survived parsing — so a torn gate_results.tsv line
+        # turns "1 of 2 committed" into "1 of 1 committed", which reads as a
+        # complete run. This file already refuses to do that twelve lines above
+        # for comment receipts; the gate block did not.
+        short = record_caveats.gates_note(rec)
+        answer = f"{len(committed)} of {len(gates)} repo(s) committed"
+        if short:
+            answer += " — OF THE RESULTS THAT SURVIVED PARSING, not of the run"
+            because.append(short)
+        gate_caveat = ("The gate is deterministic and is the ONLY step that "
+                       "commits or pushes. No LLM phase can influence its "
+                       "verdict.")
+        if short:
+            gate_caveat = short + ". " + gate_caveat
         decisions.append(_decision(
-            "gate", "Why were the tests committed, or not?",
-            f"{len(committed)} of {len(gates)} repo(s) committed",
+            "gate", "Why were the tests committed, or not?", answer,
             because, "run record gates[] + the gate's documented exit codes",
-            caveat="The gate is deterministic and is the ONLY step that commits "
-                   "or pushes. No LLM phase can influence its verdict."))
+            caveat=gate_caveat))
 
     # Damaged inputs are named even where nothing above claimed absence. Most
     # of these reads fold a bad file into `{}`, which costs a decision row

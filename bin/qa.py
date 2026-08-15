@@ -184,6 +184,10 @@ def cmd_status(args):
             + (f"@{g['commit'][:7]}" if g.get("commit") else "")
             + ("" if g["exit_code"] == 0 else f"(exit {g['exit_code']})")
             for g in r.get("gates", [])) or "-"
+        # A short list must not read as the complete one, even in a table cell.
+        import record_caveats
+        if record_caveats.gates_note(r):
+            gates += "  [INCOMPLETE]"
         key = r["trigger"]["key"]
         trig = f"{r['trigger']['type']}:{key}"
         e = reviews.get(key, {})
@@ -396,6 +400,11 @@ def cmd_artifacts(args):
                       f"{count('cache_read_tokens'):>8} {count('turns'):>5}")
 
         print("\nCommits & diffs:")
+        # run_record records when gate result lines were lost to a torn write,
+        # and every renderer showed the survivors as the complete set.
+        import record_caveats
+        for line in record_caveats.caveats(r):
+            print(f"  ! {line}")
         for g in r.get("gates", []):
             line = f"  {g['test_repo']}: {g['status']}"
             if g.get("commit"):

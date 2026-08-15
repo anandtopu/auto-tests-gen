@@ -21,6 +21,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import spend_history  # noqa: E402
+import record_caveats  # noqa: E402  (what the record says it is missing)
 import run_progress  # noqa: E402
 import test_reviewer as reviewer_lib  # noqa: E402
 import ticket_discovery  # noqa: E402
@@ -58,6 +59,7 @@ def build_projection(out_dir=".", run_id="", key=""):
     delivery = reviewer_lib.load_delivery(out / "out/review-delivery.json")
 
     gates = []
+    malformed_gates = 0
     tsv = out / "out/gate_results.tsv"
     if tsv.exists():
         for line in tsv.read_text(encoding="utf-8").splitlines():
@@ -70,6 +72,12 @@ def build_projection(out_dir=".", run_id="", key=""):
                 gates.append({"repo": parts[0], "status": parts[1],
                               "exit_code": exit_code,
                               "sha": parts[3] if len(parts) > 3 else ""})
+            elif line.strip():
+                # A torn line used to vanish here with no count kept, so the
+                # comment posted ON THE PULL REQUEST showed the survivors as
+                # the complete set. run_record counts the same loss; this path
+                # had nothing to consult because it parses the TSV itself.
+                malformed_gates += 1
 
     critic_sig = None
     try:
@@ -100,7 +108,8 @@ def build_projection(out_dir=".", run_id="", key=""):
     return delivery_projection(triage, gen, validate, gates, critic_sig,
                                review_sig, cost_rows, run_id, key,
                                duplicates, discovery, delivery,
-                               phase_provenance.of("validate", cost_rows=cost_rows))
+                               phase_provenance.of("validate", cost_rows=cost_rows),
+                               record_caveats.gates_note_for(malformed_gates))
 
 
 def from_record(record):
@@ -145,7 +154,8 @@ def from_record(record):
         record.get("duplicate_warnings") or {},
         record.get("ticket_discovery") or {}, record.get("review_delivery"),
         # The record knows: it carries the validate phase's spend.
-        phase_provenance.of("validate", record=record))
+        phase_provenance.of("validate", record=record),
+        record_caveats.gates_note(record))
     return render_pr(projection)
 
 
@@ -214,8 +224,15 @@ def _critic_caveat(sig):
 
 def delivery_projection(triage, gen, validate, gates, critic_sig, review_sig,
                         cost_rows, run_id, key, duplicates=None, discovery=None,
-                        delivery=None, validation_provenance=None):
-    """One normalized statement of what a run delivered, for both channels."""
+                        delivery=None, validation_provenance=None,
+                        gates_note=""):
+    """One normalized statement of what a run delivered, for both channels.
+
+    `gates_note` says the gate list is SHORT. It travels in the projection
+    rather than being re-derived per channel, because the comment posted on
+    the pull request and the one replayed from the record must not be able to
+    disagree about how complete the list is.
+    """
     triage = triage if isinstance(triage, dict) else {}
     gen = gen if isinstance(gen, dict) else {}
     validate = validate if isinstance(validate, dict) else {}
@@ -242,6 +259,7 @@ def delivery_projection(triage, gen, validate, gates, critic_sig, review_sig,
         "triage": triage if isinstance(triage, dict) else {},
         "validation": validate if isinstance(validate, dict) else {},
         "gates": [g for g in gates if isinstance(g, dict)],
+        "gates_note": str(gates_note or ""),
         "critic": critic_sig if isinstance(critic_sig, dict) else None,
         "validation_provenance": validation_provenance,
         "review": review_sig if isinstance(review_sig, dict) else None,
@@ -261,6 +279,7 @@ def refusal_projection(run_id, key, reason, fix, *, target="", pr_ref="",
         "tests": [], "created": 0, "updated": 0, "open_questions": [],
         "areas": [], "triage": {}, "validation": {}, "gates": [],
         "critic": None, "review": None, "validation_provenance": None,
+        "gates_note": "",
         "cost": _cost_projection(cost_rows), "duplicates": [],
         "selected_ticket": {}, "target": _safe_code(target),
         "pr_ref": _safe_code(pr_ref),
@@ -368,6 +387,11 @@ def render_pr(projection):
         for fix in (delivery.get("fixes") or [])[:4]:
             lines.append(f"- Fix: {_safe_code(fix)}")
 
+    # BOTH channels say it, and this is the one a developer merges from. The
+    # first version of this fix patched only render_ticket -- the wrong
+    # composer, which is the trap this file's own history already records.
+    if projection.get("gates_note"):
+        lines.append(f"- ⚠️ {projection['gates_note']}")
     for g in gates:
         mark = {"committed": "✅", "no_changes": "➖", "quarantined": "❌"}.get(
             g["status"], "•")
@@ -452,6 +476,8 @@ def render_ticket(projection, *, max_chars=8000):
             lines.append(f"Fix: {_safe_code(fix)}")
 
     branch = f"test/{key}-ai-qe"
+    if projection.get("gates_note"):
+        lines.append(f"NOTE: {projection['gates_note']}")
     for gate in projection["gates"]:
         repo = _safe_code(gate.get("repo") or "?")
         status = _safe_code(gate.get("status") or "unknown").lower()

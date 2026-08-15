@@ -17,6 +17,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import app_paths, env_flag, glossary, spec_workflow
 import run_progress                      # R12: mutable paths resolve here
+import record_caveats                    # what a run record says it is missing
 from registry import load_registry
 import review_state, test_health, work_queue
 import critic as critic_lib
@@ -406,6 +407,12 @@ for r in runs[:25]:
                if g.get("status") == "quarantined" and g.get("log") else "")
         repo_stack += (f'<div class="gate-line"><span class="mono sm repo">'
                        f'{esc(g["test_repo"])}</span>{chip(g["status"])}{sha}{log}</div>')
+    # run_record counts gate lines it could not parse precisely so this list
+    # cannot read as the complete set, and every renderer ignored the count.
+    _short = record_caveats.gates_note(r)
+    if _short:
+        repo_stack += (f'<div class="gate-line sm warning-fg">! '
+                       f'{esc(_short)}</div>')
     # Advisory critic score. Rendered next to (never instead of) the gate outcome —
     # the point is that a "weak" score sits beside a green "committed" without
     # contradicting it, because it did not and cannot gate the commit.
