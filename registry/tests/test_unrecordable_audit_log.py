@@ -245,6 +245,36 @@ def test_the_activity_loader_asks_the_decision_functions():
             f"however correct the function it stopped asking"
 
 
+def test_the_observability_diagram_does_not_draw_the_impossible_path():
+    """Diagram 19 drew `DEG --> UNEV` as a plain edge: the writer's degradation
+    flag reaching the alert evaluator. That path exists only inside ONE
+    process, so the picture was documenting the defect - the same way the SDD
+    diagram drew approval signing the spec and then drew the gate ignoring the
+    signature. A reader designing against it would conclude the evaluator is
+    already told, and they would have been wrong."""
+    d = (ROOT / "docs/diagrams.md").read_text(encoding="utf-8")
+    i = d.index("## 19. Observability")
+    section = d[i:d.index("## 20.", i)]
+    # SCOPED TO THE FENCE, not the section. The prose beneath this diagram
+    # QUOTES the old edge while explaining why it was wrong, so a
+    # section-wide check fires on its own explanation - the trap this repo
+    # already records for the spend-history boundary pin and the prompt
+    # placeholder sweep. It cost a false kill here: the pin failed on
+    # unmutated code, and a suite that always fails "kills" every mutation
+    # without being evidence about any of them.
+    j = section.index("```mermaid")
+    fence = section[j:section.index("```", j + 3)]
+    assert "DEG --> UNEV" not in fence, \
+        "the diagram again draws the writer's flag reaching the evaluator as " \
+        "if it crossed processes"
+    assert "PROCESS-LOCAL" in fence, \
+        "the diagram no longer says health.degraded stops at its own process"
+    assert "log_state()" in fence, \
+        "the diagram does not show the state the READERS actually consult"
+    assert "LS -.-> EVAL" in fence, \
+        "the evaluator no longer consults the reader state in the picture"
+
+
 def _ev_functions():
     """The Activity view's two decision functions, lifted out of the page
     script so they can be RUN. Source-text assertions cannot tell a branch that

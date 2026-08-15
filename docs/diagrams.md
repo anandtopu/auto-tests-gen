@@ -585,15 +585,20 @@ flowchart TD
   PIPE --> RED
   CRON --> RED
   RED --> LOG[("reports/events/&lt;date&gt;.jsonl<br/>append-only, one line per event")]
-  RED -.->|"write fails"| DEG["health.degraded = true<br/>reported ONCE, every drop counted"]
+  RED -.->|"write fails"| DEG["health.degraded = true<br/>reported ONCE, every drop counted<br/>PROCESS-LOCAL — travels no further"]
 
   LOG --> VIEW["Activity view + /api/events<br/>filters, CSV (formula-defused)"]
   LOG --> CLI["bin/qa.py events"]
   LOG --> EVAL{"alert rule<br/>N hits in window?"}
 
+  PATH[/"the log PATH itself"/] -.-> LS["log_state()<br/>ok / misconfigured / unwritable / absent<br/>establishable WITHOUT writing"]
+  LS -.-> VIEW
+  LS -.-> CLI
+  LS -.-> EVAL
+
   EVAL -->|"threshold crossed"| FIRE["alert.fired"]
   EVAL -->|"condition cleared"| RES["alert.resolved"]
-  EVAL -.->|"log unreadable<br/>or degraded"| UNEV["status = unevaluable<br/>NAMES what was lost — never 'ok'"]
+  EVAL -.->|"log unreadable, degraded,<br/>or not being written at all"| UNEV["status = unevaluable<br/>NAMES what was lost — never 'ok'"]
 
   FIRE --> CD{"inside cooldown?"}
   CD -->|yes| HOLD["state kept, message suppressed<br/>(a flap notifies once)"]
@@ -606,11 +611,23 @@ flowchart TD
   SEND -->|"after 2 retries"| FAILE["notify.failed<br/>'could not tell you' ≠ 'nothing happened'"]
   OKE --> LOG
   FAILE --> LOG
-  DEG --> UNEV
+  DEG -.->|"same process only"| UNEV
 
   classDef honest stroke-dasharray: 4 3;
-  class DEG,UNEV,FAILE,HOLD honest;
+  class DEG,UNEV,FAILE,HOLD,LS honest;
 ```
+
+**Why `log_state()` exists beside `health()`.** This diagram used to draw
+`DEG --> UNEV` as a plain edge, and that path only exists **inside one
+process**. `health().degraded` is a module global set by `emit()`; the three
+readers — the view, the CLI and the evaluator — are separate processes that
+have emitted nothing, so it is always false for them however broken the log is.
+Measured: with a file sitting where the events directory must be, the CLI
+printed "no transactions match" and every rule reported `ok`. `log_state()` is
+what a reader can establish from the path *without writing to it*, which is the
+constraint that shapes it — a read-only surface must not create a probe file to
+discover whether it could. `ok` therefore means "no problem was found", never
+"the log is complete".
 
 **Test-fire skips the retry path entirely.** A human pressing Test wants to know
 whether the channel works right now; a retry that hides a transient failure
