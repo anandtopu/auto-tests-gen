@@ -11,6 +11,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import app_paths  # noqa: E402  # R12: mutable paths resolve here
 import review_state  # noqa: E402
+import phase_provenance  # noqa: E402  (one definition of measured|simulated)
 
 
 def _has_measured_spend(run):
@@ -38,7 +39,7 @@ def pct(x):
     return f"{x:.0%}"
 
 
-def commit_rate_line(runs):
+def commit_rate_line(runs, measured=None):
     """The commit-rate sentence, with check-only runs excluded and NAMED.
 
     A `would_commit` run passed every gate check and was told not to push
@@ -61,11 +62,23 @@ def commit_rate_line(runs):
         return (f"Commit rate: n/a — all {len(runs)} run(s) ran with the gate in "
                 f"check-only mode (AIQE_GATE_CHECK_ONLY), which commits nothing "
                 f"by design. Unset it to measure.")
+    # This figure is NOT downgraded to n/a on a simulated estate, and that is
+    # deliberate: `make demo-pr` is "mock LLM, real gate/env/git", so the gate
+    # genuinely lints, executes the changed specs and decides. A `committed`
+    # status is real evidence — about THE GATE. What it is not is evidence
+    # about model quality, and sitting beside three `n/a` lines that ARE about
+    # model quality invites exactly that reading. So the scope is named rather
+    # than the number hedged; marking a real measurement `~` is the lie that
+    # teaches readers to ignore the marker everywhere else.
+    scope = ""
+    if measured is not None and not measured:
+        scope = ("; this measures THE GATE's verdict (which runs for real even "
+                 "on mock runs), not the quality of what the model wrote")
     return (f"Commit rate: {pct(committed / scored)} of {scored} runs "
             f"({quarantined} quarantined, {review_refused} review-refused)"
             + (f"; {withheld} excluded: the gate ran in check-only mode "
                f"(AIQE_GATE_CHECK_ONLY), so they say nothing about commit rate"
-               if withheld else ""))
+               if withheld else "") + scope)
 
 # --- routing accuracy (benchmark replays) ---------------------------------------
 # Only a row carrying routing_ok is a replay result. Eval outputs share this
@@ -178,8 +191,9 @@ for f in glob.glob(str(ROOT / "reports/runs/*.json")):
     except (json.JSONDecodeError, OSError):
         pass
 if runs:
-    print(commit_rate_line(runs))
+    print(commit_rate_line(runs, measured=any(_has_measured_spend(r) for r in runs)))
     loops, validated, created, updated = [], 0, 0, 0
+    sim_validated = 0          # runs whose validate phase was a mock
     sim_actions = 0            # generated tests from runs that were SIMULATED
     for r in runs:
         # The same "metered" test the cost line uses: a real LLM call reports a
@@ -190,8 +204,22 @@ if runs:
         for p in r.get("phases", []):
             c = p["contract"]
             if p["name"] == "validate" and "repair_loops" in c:
-                loops.append(c["repair_loops"])
-                validated += 1
+                # `mock_phase.sh` emits the CONSTANT repair_loops: 0, so
+                # averaging every run reported the stub as a measurement —
+                # `Repair loops: 0.00 avg over 552 validated runs` on an estate
+                # where nothing measured a repair loop. team_report was fixed
+                # for exactly this and the scorecard, the platform's own
+                # quality report, was missed. The correct test was already
+                # computed three lines above for the generate branch.
+                #
+                # Asked PER PHASE, not per run: a run whose generate was real
+                # and whose validate was mocked has a simulated repair count,
+                # which is the rule phase_provenance exists to answer.
+                if phase_provenance.of("validate", record=r) == "measured":
+                    loops.append(c["repair_loops"])
+                    validated += 1
+                else:
+                    sim_validated += 1
             if p["name"] == "generate":
                 for t in c.get("tests", []):
                     if not metered:
@@ -200,7 +228,14 @@ if runs:
                     created += t.get("action") == "created"
                     updated += t.get("action") == "updated"
     if loops:
-        print(f"Repair loops: {sum(loops) / len(loops):.2f} avg over {validated} validated runs")
+        print(f"Repair loops: {sum(loops) / len(loops):.2f} avg over "
+              f"{validated} MEASURED validated run(s)")
+    elif sim_validated:
+        # Naming the excluded count, because a denominator that shrinks in
+        # silence is the failure this rule exists to prevent.
+        print(f"Repair loops: n/a - no run with a MEASURED validate phase "
+              f"({sim_validated} simulated run(s) excluded). Unblock "
+              f"`make parity-pr` to measure it.")
     # Update-vs-create is a claim about JUDGEMENT — did the agent extend an
     # existing suite instead of duplicating it? It was computed over every run,
     # and on a mock estate the generate stub always reports "created", so the
