@@ -17,6 +17,12 @@ import fs_lock
 # exercise a live server without touching the real estate's health data.
 FILE = app_paths.catalog_health(ROOT)
 FLAKY_BAND = (0.05, 0.95)      # sometimes-passing => flaky
+# A test cannot be called flaky on one or two runs: one failure out of one is
+# indistinguishable from a test that is simply broken. `ingest` has always
+# required this, and it is named here because the SURFACES need it too — a
+# surface that reports "no flaky tests" without saying whether anything had
+# enough runs to judge is reporting an inability to establish as a negative.
+MIN_RUNS_TO_JUDGE = 3
 
 
 class UnsafeXML(ValueError):
@@ -110,6 +116,52 @@ def load():
     return load_with_issues()[0]
 
 
+def flakiness_state(health=None):
+    """(state, detail) — what can honestly be said about flakiness right now.
+
+    FOUND BY DRIVING use case 6. `qa.py flaky` printed "no flaky tests detected
+    (needs CI history — ... run: bin/qa.py ingest-results <junit.xml>)"
+    IMMEDIATELY AFTER a successful ingest, with two tests' history on disk: the
+    empty-store message was serving a populated store, telling an operator to do
+    the thing they had just done. `team_report` was the worse instance, as the
+    sibling usually is — `Flaky tests from CI ingest: none` is an estate-health
+    row a lead reads as "the suite is stable", printed two lines below that same
+    file's correct "N repo(s) NOT checked — that count excludes them" treatment
+    of unobservable coverage. The honest sibling was in the adjacent line.
+
+    Three states, because they need three different actions (C13):
+
+      no_history   nothing has ever been ingested. Nothing is established, and
+                   the fix is to wire CI up.
+      insufficient tests have history, but none has reached MIN_RUNS_TO_JUDGE.
+                   A test that failed once out of once is not flaky — it may
+                   simply be broken — so the fix is more runs, not more setup.
+      established  at least one test could be judged and none is in the band.
+                   This alone is a real "no flaky tests".
+
+    `flaky` (a non-empty list) is the fourth outcome and is returned as its own
+    state so a caller never has to re-derive it.
+    """
+    health = load() if health is None else health
+    flaky = sorted(t for t, h in health.items() if h.get("flaky"))
+    if flaky:
+        return "flaky", {"flaky": flaky, "judged": _judged(health)}
+    if not health:
+        return "no_history", {"flaky": [], "judged": 0}
+    judged = _judged(health)
+    if not judged:
+        return "insufficient", {"flaky": [], "judged": 0, "tracked": len(health),
+                                "need": MIN_RUNS_TO_JUDGE}
+    return "established", {"flaky": [], "judged": judged, "tracked": len(health)}
+
+
+def _judged(health):
+    """How many tests have enough runs for a flaky verdict to mean anything."""
+    return sum(1 for h in health.values()
+               if isinstance(h.get("runs"), int) and not isinstance(h.get("runs"), bool)
+               and h["runs"] >= MIN_RUNS_TO_JUDGE)
+
+
 def load_with_issues():
     """(health, malformed_test_ids) — the same read, naming what it dropped."""
     raw = fs_lock.read_json_guarded(FILE, {})
@@ -181,7 +233,7 @@ def ingest(path):
             h["pass_rate"] = round(1 - h["failures"] / h["runs"], 3)
             h["last_status"] = "passed" if passed else "failed"
             h["flaky"] = FLAKY_BAND[0] < (h["failures"] / h["runs"]) < FLAKY_BAND[1] \
-                and h["runs"] >= 3
+                and h["runs"] >= MIN_RUNS_TO_JUDGE
             h["updated"] = time.time()
             health[test_id] = h
             matched += 1

@@ -1009,10 +1009,22 @@ def cmd_flaky(args):
     first. Feeds the quarantine decision — which stays a HUMAN call."""
     import test_health
     health = test_health.load()
+    state, d = test_health.flakiness_state(health)
     rows = [(tid, h) for tid, h in health.items() if h.get("flaky")]
+    if state == "no_history":
+        print("no CI results have been ingested, so nothing is known about "
+              "flakiness (POST JUnit results to /hooks/ci/results or run: "
+              "bin/qa.py ingest-results <junit.xml>)")
+        return
+    if state == "insufficient":
+        print(f"{d['tracked']} test(s) have CI history, but none has the "
+              f"{d['need']} runs needed to judge flakiness — this is NOT "
+              f"'no flaky tests', it is 'not enough runs to tell'. Keep "
+              f"ingesting results.")
+        return
     if not rows:
-        print("no flaky tests detected (needs CI history — POST JUnit results to "
-              "/hooks/ci/results or run: bin/qa.py ingest-results <junit.xml>)")
+        print(f"no flaky tests among the {d['judged']} test(s) with enough runs "
+              f"to judge ({d['tracked']} tracked)")
         return
     quarantined = {e["test_id"] for _, e in load_catalog()
                    if e.get("mapping", {}).get("quarantined")}

@@ -228,6 +228,15 @@ python3 bin/qa.py unquarantine "<test_id>"
 
 CI can also POST JUnit XML straight to the receiver (token-gated, 5 MB cap).
 
+**"No flaky tests" means one of three things, and they are said differently.**
+A test needs at least three runs before flakiness can be judged at all — one
+failure out of one run is indistinguishable from a test that is simply broken.
+So the answer is either *no CI results have ever been ingested* (wire CI up),
+*tests have history but none has enough runs yet* (keep ingesting — nothing is
+established), or *none of the N tests that could be judged is flaky*, which is
+the only one that is genuinely good news. The team report's estate-health row
+says `NOT KNOWN` for the first two rather than `none`.
+
 **What quarantine does — and does not do.** It is a *catalog tag*. The platform
 prints an exclusion line for you to apply in your own CI; **it never edits a test
 repo's config.** The gate still gates changed specs. Nothing is silently disabled

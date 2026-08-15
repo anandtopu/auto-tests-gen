@@ -148,7 +148,12 @@ def build(days=None, release=None):
         s = e["mapping"]["status"]
         by_status[s] = by_status.get(s, 0) + 1
     health = test_health.load()
-    flaky = sorted(t for t, h in health.items() if h.get("flaky"))
+    # `flaky_state` travels with the list because "none" has three meanings and
+    # a lead reads this row as "the suite is stable". Same rule this function
+    # already applies to unobservable coverage a few lines down.
+    flaky_state, _fd = test_health.flakiness_state(health)
+    flaky_detail = _fd
+    flaky = _fd["flaky"]
     # Observed repos only. An unharvestable repo contributes no `uncovered`
     # entries, so summing it in would quietly fold "we could not look" into a
     # total a lead reads as "this is how much is uncovered".
@@ -178,8 +183,31 @@ def build(days=None, release=None):
             "per_day": dict(sorted(per_day.items(), reverse=True)),
             "catalog": {"total": len(catalog), "by_status": by_status,
                         "coverage_gaps": gaps,
-                        "coverage_unchecked": gaps_unchecked, "flaky": flaky},
+                        "coverage_unchecked": gaps_unchecked, "flaky": flaky,
+                        "flaky_state": flaky_state,
+                        "flaky_detail": flaky_detail},
             "cost": _cost_line(days, release_keys)}
+
+
+def _flaky_line(c):
+    """The estate-health row, extracted so the rule is testable against a
+    fabricated counts dict rather than only against whatever this estate
+    happens to hold — the precedent `_repair_loop_cell` set in this file.
+
+    "none" is reserved for the one state that earns it: tests were judged and
+    none was flaky. The other two say what is missing, because a lead reads
+    this line as "the suite is stable" and acts on it.
+    """
+    if c.get("flaky"):
+        return ", ".join(f"`{f}`" for f in c["flaky"])
+    state = c.get("flaky_state")
+    d = c.get("flaky_detail") or {}
+    if state == "no_history":
+        return "**NOT KNOWN** — no CI results have ever been ingested"
+    if state == "insufficient":
+        return (f"**NOT KNOWN** — {d.get('tracked', 0)} test(s) have history but "
+                f"none has the {d.get('need', 3)} runs needed to judge")
+    return f"none (of {d.get('judged', 0)} test(s) with enough runs to judge)"
 
 
 def _cost_line(days, keys=None):
@@ -344,8 +372,7 @@ def to_markdown(days=None, release=None):
           + (f"; **{len(c['coverage_unchecked'])} repo(s) NOT checked** "
              f"({', '.join(c['coverage_unchecked'])}) — that count excludes them"
              if c.get("coverage_unchecked") else ""),
-          f"- Flaky tests from CI ingest: "
-          + (", ".join(f"`{f}`" for f in c["flaky"]) if c["flaky"] else "none"), ""]
+          f"- Flaky tests from CI ingest: " + _flaky_line(c), ""]
     return "\n".join(L)
 
 
