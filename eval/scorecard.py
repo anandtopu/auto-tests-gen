@@ -93,7 +93,19 @@ for f in glob.glob("eval/results/*.json"):
         pass
 if res:
     routing = sum(r["routing_ok"] for r in res) / len(res)
-    print(f"Routing accuracy: {pct(routing)} across {len(res)} fixtures (target ≥95%)")
+    # How many FIELDS the score rests on, not just how many fixtures. It used
+    # to compare `test_repos` alone, so two resolutions that agree on an empty
+    # list but disagree about WHY scored identically.
+    fields = sorted({f for r in res for f in (r.get("compared") or [])})
+    unchecked = sorted({f"{pathlib.Path(r['fixture']).stem}.{k}"
+                        for r in res for k in (r.get("unchecked_expectations") or [])})
+    print(f"Routing accuracy: {pct(routing)} across {len(res)} fixtures "
+          f"(target ≥95%; comparing {', '.join(fields) or 'nothing'})")
+    if unchecked:
+        # A declared expectation nothing reads is the written-but-unread shape
+        # this benchmark exists to catch in the product; it must not hide here.
+        print(f"  NOT CHECKED: {', '.join(unchecked)} — declared in a fixture, "
+              f"answered by no resolution field")
 else:
     print("Routing accuracy: n/a — run `make eval` after adding benchmark fixtures")
 

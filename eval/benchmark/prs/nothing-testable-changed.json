@@ -1,0 +1,16 @@
+{
+ "mode": "pr",
+ "repo": "orders-api",
+ "pr": 102,
+ "changed_files": [
+  "README.md",
+  "docs/runbook.md"
+ ],
+ "expected": {
+  "test_repos": [],
+  "skip": true,
+  "empty_change_list": false,
+  "confidence": 1.0
+ },
+ "_why": "An ESTABLISHED negative: the SCM listed files and none matched testable_paths, so confidence is 1.0. A resolution that skipped because it saw NOTHING would agree on test_repos and disagree on empty_change_list and confidence - which is precisely the distinction the old harness, comparing test_repos alone, could not see."
+}
