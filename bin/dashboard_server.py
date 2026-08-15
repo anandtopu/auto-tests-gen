@@ -517,8 +517,13 @@ class Handler(BaseHTTPRequestHandler):
                     out.append(",".join(_csv_cell(r.get(c)) for c in cols))
                 return self._send(200, ("\n".join(out) + "\n").encode("utf-8"),
                                   "text/csv; charset=utf-8")
+            # `health` is this server process's own write record; `log_state`
+            # is what a reader can establish about the log being written AT
+            # ALL. Both ride along: a server that has never emitted reports
+            # degraded=False however broken the log is.
             self._send(200, {"events": rows, "corrupt": corrupt,
-                             "health": event_log.health()})
+                             "health": event_log.health(),
+                             "log_state": event_log.log_state()})
         elif url.path == "/api/items":
             # Mode-aware: a pending PLAN-ONLY item must not mark the ticket's
             # full-run Queue button as already queued (and vice versa).

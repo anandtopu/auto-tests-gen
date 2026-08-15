@@ -221,7 +221,13 @@ to CSV. Secrets are redacted at write time by a key denylist plus a length
 ceiling.
 
 If the log could not be fully written, this view says the history is
-**incomplete** rather than showing a convincing partial list.
+**incomplete** rather than showing a convincing partial list. If it is not being
+written *at all* — something other than a directory at the log path, or a path
+that refuses writes — it says that too, and an empty table reads "no audit trail
+is being kept; this is NOT evidence that nothing happened" instead of the
+ordinary "nothing matched". The two need different fixes, so they are different
+sentences. What this view will not tell you is that the log is *complete*:
+establishing that would mean writing to it, and a read-only view does not.
 
 ## Alerts
 

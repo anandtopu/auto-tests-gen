@@ -434,6 +434,18 @@ transaction), request bodies, and any secret value. A Settings change records
 labelled INCOMPLETE rather than presented as a full history. A partial audit
 trail that looks complete is worse than an obviously broken one.
 
+Two different failures, said differently because you fix them differently. A
+process that dropped events while running reports how many it lost. A log that
+is **not being recorded at all** — something other than a directory sitting at
+the path, or a directory that refuses writes — is reported by every reader,
+including `bin/qa.py events`, the Activity view and the alert evaluator, which
+marks each rule `unevaluable` rather than `ok`. An empty list under that
+condition is *not* evidence that nothing happened, and it says so. What the
+platform will not claim is the reverse: nothing here proves the log is
+*complete*, only that no problem could be found — establishing completeness
+would mean writing to the log to find out, and a read-only view must not do
+that.
+
 ## 13. Get told when something goes wrong, without being spammed
 
 Define rules over that log in the dashboard's **Alerts** view: a kind, an

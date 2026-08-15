@@ -253,6 +253,11 @@ def evaluate(now=None, notify=True, commit=True):
     out, changed, digest_lines = [], False, []
 
     health = event_log.health()
+    # `make maintain` evaluates in its own process, which has emitted nothing,
+    # so health()["degraded"] is always False here — an unwritable log used to
+    # yield zero events and every rule reported `ok`, which is precisely the
+    # "broken log reads as a healthy estate" the branch below exists to stop.
+    log_state = event_log.log_state()
     since = _iso(now - datetime.timedelta(minutes=MAX_WINDOW_MINUTES))
     try:
         events, corrupt = event_log.read(limit=MAX_SCAN, since=since)
@@ -269,12 +274,18 @@ def evaluate(now=None, notify=True, commit=True):
 
         # 3.4 — an evaluator that cannot see the data says so. Reporting "ok"
         # here would mean a broken log reads as a healthy estate.
-        if read_error or corrupt or health.get("degraded"):
+        if (read_error or corrupt or health.get("degraded")
+                or event_log.unrecordable(log_state)):
             reason = read_error or (
                 f"{corrupt} unreadable event line(s); the window may be incomplete"
                 if corrupt else
                 f"this process dropped {health.get('dropped')} event(s); "
-                f"the window may be incomplete")
+                f"the window may be incomplete" if health.get("degraded") else
+                # ASCII: this reason is delivered by email and printed by
+                # `qa.py alerts`, and an em dash renders as a replacement
+                # character on a cp1252 console.
+                f"the transaction log is not being recorded: "
+                f"{log_state['reason']}; this rule can see nothing")
             out.append({"id": rule["id"], "name": rule["name"],
                         "status": "unevaluable", "reason": reason,
                         "problems": problems})

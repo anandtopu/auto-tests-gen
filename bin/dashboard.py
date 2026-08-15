@@ -262,6 +262,14 @@ try:
     if _el.health()["degraded"]:
         tiles.append(("!", "transaction log INCOMPLETE — events were dropped",
                       "activity", True))
+    # This generator never emits, so health()'s process-local flag above can
+    # only ever be False here. An unrecordable log also yields zero events, so
+    # without this the Overview simply shows no transaction tile at all —
+    # absence of a warning reading as an absence of a problem (C13).
+    _ls = _el.log_state()
+    if _el.unrecordable(_ls):
+        tiles.append(("!", "transaction log is NOT being recorded — "
+                      "no audit trail is being kept", "activity", True))
 except Exception:
     pass
 
@@ -2519,6 +2527,25 @@ refreshAlerts();
 onEnter('alerts', refreshAlerts);
 
 // ---- activity: the transaction log (observability 2.1-2.3)
+// These two are separated out so they can be EXECUTED by a test rather than
+// merely read as source text. The whole point of them is a branch, and a pin
+// that greps for the strings passes just as happily when the branch is dead —
+// which is how a mutation disabling this survived its first pass.
+function evUnrecordable(ls) {
+  // The server process may never have emitted, so the payload's `health.degraded`
+  // stays false however broken the log is. `log_state` is what a READER can
+  // establish. `absent` is deliberately NOT unrecordable: a fresh estate has no
+  // directory yet and nothing has happened.
+  return !!ls && (ls.state === 'misconfigured' || ls.state === 'unwritable');
+}
+function evEmptyMessage(ls) {
+  // Two readings of one empty table, with opposite meanings for an auditor.
+  return evUnrecordable(ls)
+    ? 'No audit trail is being kept — this empty list is NOT evidence that ' +
+      'nothing happened.'
+    : 'No transactions match. The log starts when the platform next does ' +
+      'something — it is not backfilled.';
+}
 async function refreshActivity() {
   const tb = document.querySelector('#ev-table tbody');
   if (!served || !tb) return;
@@ -2539,14 +2566,18 @@ async function refreshActivity() {
       notes.push('this process could not write ' + d.health.dropped +
                  ' event(s) — the list below is INCOMPLETE');
     }
+    const blind = evUnrecordable(d.log_state);
+    if (blind) {
+      notes.push('the transaction log is NOT being recorded — ' +
+                 d.log_state.reason);
+    }
     if (warn) {
       warn.textContent = notes.join(' · ');
       warn.style.display = notes.length ? '' : 'none';
     }
     if (!d.events.length) {
-      tb.innerHTML = '<tr><td colspan="7" class="muted">No transactions match. ' +
-        'The log starts when the platform next does something — it is not backfilled.' +
-        '</td></tr>';
+      tb.innerHTML = '<tr><td colspan="7" class="muted">' +
+        evEmptyMessage(d.log_state) + '</td></tr>';
       return;
     }
     // Every cell escaped: `actor` arrives from an SSO header and `target` from a

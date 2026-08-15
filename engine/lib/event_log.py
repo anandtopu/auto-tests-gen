@@ -246,9 +246,78 @@ def emit(kind, actor=None, source="pipeline", target=None, run_id=None,
 def health():
     """Whether this process has been able to log. Surfaced so a UI can say
     'the log is incomplete' rather than showing a convincing but partial
-    history — principle 3, never present unmeasured as measured."""
+    history — principle 3, never present unmeasured as measured.
+
+    PROCESS-LOCAL BY CONSTRUCTION, which is why `log_state()` exists beside it:
+    the writers are pipeline phases and HTTP handlers, and every READER of this
+    log (`qa.py events`, the dashboard's Activity view, `alert_rules.evaluate`)
+    is a different process that has emitted nothing. `degraded` is therefore
+    always False in a reader, so it can never answer the question a reader is
+    actually asking.
+    """
     return {"degraded": _degraded_reported, "dropped": _dropped,
             "dir": str(events_dir())}
+
+
+def log_state(access=os.access):
+    """What a READER can establish about whether this log is being written.
+
+    docs/use-cases.md §12 promises that "if the log could not be written, the
+    view and the CLI say so — the list is labelled INCOMPLETE rather than
+    presented as a full history". `health()` cannot keep that promise across
+    processes (see its docstring), so an unwritable log made `qa.py events`
+    print "no transactions match" and every alert rule report `ok` — an
+    established negative about an estate nobody was recording. C13.
+
+    Four states, because the fixes differ:
+
+      ok            no problem could be established. NOT a claim that the log
+                    is complete — only a write proves that, and a read-only
+                    surface must not write to find out.
+      misconfigured something that is not a directory sits at the log path, so
+                    no event can ever be recorded here.
+      unwritable    the directory (or the parent that would hold it) refuses
+                    writes — the read-only-rootfs shape.
+      absent        no log directory yet. Normal on a fresh estate: nothing has
+                    happened, rather than nothing could be recorded.
+
+    `access` is injectable because a Windows dev host cannot produce a
+    genuinely read-only directory — `os.access(d, W_OK)` reports True for one —
+    so that branch is exercised by driving this function, not by chmod. The
+    asymmetry is the safe direction: on the Linux containers where the
+    read-only rootfs actually bites, os.access answers correctly, and an
+    over-optimistic dev host raises no false alarm.
+    """
+    d = events_dir()
+    out = {"state": "ok", "dir": str(d), "reason": None}
+    if d.exists() and not d.is_dir():
+        out["state"] = "misconfigured"
+        out["reason"] = (f"{d} exists and is not a directory, so no event can "
+                         f"be recorded (set AIQE_EVENTS_DIR, or remove it)")
+        return out
+    # The nearest existing ancestor is what decides whether the directory could
+    # be created at all; checking only `d` reports a missing tree as fine.
+    probe = d
+    while not probe.exists() and probe.parent != probe:
+        probe = probe.parent
+    if not access(probe, os.W_OK):
+        out["state"] = "unwritable"
+        out["reason"] = (f"{probe} refuses writes, so events cannot be "
+                         f"recorded (check the volume mount and AIQE_EVENTS_DIR)")
+        return out
+    if not d.exists():
+        out["state"] = "absent"
+        out["reason"] = f"{d} does not exist yet; it is created by the first event"
+    return out
+
+
+def unrecordable(state=None):
+    """The one-bit question every reader asks: can this log be written RIGHT
+    NOW? True only for a state we ESTABLISHED is broken — `absent` is not one
+    (a fresh estate has no directory and nothing to record yet), and neither is
+    `ok`, which claims no more than that no problem was found."""
+    s = state or log_state()
+    return s["state"] in ("misconfigured", "unwritable")
 
 
 def _files():

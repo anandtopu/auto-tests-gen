@@ -950,7 +950,13 @@ def cmd_events(args):
                                    outcome=args.outcome or None,
                                    run_id=args.run or None)
     health = event_log.health()
-    if not rows:
+    # A reader is never the process that wrote these events, so health()'s
+    # process-local `degraded` is always False here. log_state() answers what
+    # THIS process can establish: an unrecordable log makes an empty list mean
+    # "nobody was recording", which is the opposite of "nothing happened".
+    log_state = event_log.log_state()
+    blind = event_log.unrecordable(log_state)
+    if not rows and not blind:
         print("no transactions match. The log starts when the platform next "
               "does something — it is not backfilled.")
     for r in rows:
@@ -961,6 +967,11 @@ def cmd_events(args):
     # cost report follows about unmeasured spend.
     if corrupt:
         print(f"\n({corrupt} unreadable line(s) skipped)", file=sys.stderr)
+    if blind:
+        print(f"\nWARNING: the transaction log is NOT being recorded — "
+              f"{log_state['reason']}. Nothing above is a complete history, "
+              f"and an empty list is not evidence that nothing happened.",
+              file=sys.stderr)
     if health["degraded"]:
         print(f"\nWARNING: this process could not write {health['dropped']} "
               f"event(s) — the list above is INCOMPLETE.", file=sys.stderr)
