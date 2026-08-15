@@ -153,14 +153,24 @@ def test_no_unchecked_section_when_everything_was_harvested(rooted, monkeypatch)
 
 # ------------------------------------------------------------- the invariant
 
-# gen_agents_md is exempt WITH the evidence, not by assertion: it runs its own
-# harvest() and already prints "contract `x` not available locally" for the
-# unharvestable case (AGENTS.md lines 27 and 32 on this estate). Its only use of
+# gen_agents_md is exempt WITH the evidence, not by assertion: its only use of
 # compute() is `gaps.get(name, {}).get("uncovered", [])` to mark [NO TEST] on
-# surface it harvested ITSELF, so an unobserved repo contributes an empty set
-# to a list that is empty anyway.
-_EXEMPT = {"bin/gen_agents_md.py": "has its own harvest and its own honest "
-                                   "not-available-locally branch"}
+# surface harvest() returned, so an unobserved repo contributes an empty set to
+# a list that is empty anyway.
+#
+# THE EARLIER VERSION OF THIS ENTRY WAS HALF TRUE AND HID A LIVE DEFECT. It
+# said the module "has its own harvest and its own honest not-available-locally
+# branch", citing AGENTS.md lines 27 and 32 — which are the UNREADABLE case.
+# The same branch also served the UNDECLARED case, where "not available locally
+# (clone appears at workspace/src/ during runs)" sends the reader to wait for a
+# clone that can never produce a file nothing is registered to look for. That
+# own harvest is now gone (it delegates here), and the rendering per state is
+# pinned behaviourally by test_agents_md_harvest_states.py rather than asserted
+# in this comment — an allow-list justified by prose is one nobody re-checks.
+_EXEMPT = {"bin/gen_agents_md.py": "only reads `uncovered` for surface "
+                                   "harvest() already returned; per-state "
+                                   "rendering pinned by "
+                                   "test_agents_md_harvest_states.py"}
 
 
 def test_every_consumer_of_compute_honours_observed():

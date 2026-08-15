@@ -7,7 +7,7 @@ harvested contracts/route tables (workspace/src/ first, demo/ fallback), org-con
 Regenerated automatically by: pipeline runs, bin/onboard.sh, bin/repos.py,
 bin/qa.py mapping edits, and catalog bootstrap. Manual: make agents.
 """
-import json, os, pathlib, re, sys, time
+import json, os, pathlib, sys, time
 
 sys.stdout.reconfigure(encoding="utf-8")
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -39,18 +39,25 @@ for f in app_paths.catalog_files(ROOT):
 
 
 def harvest(r):
-    """Endpoints (backend) or routes (frontend) from the freshest available clone."""
-    art = r.get("contract") if r["type"] == "backend" else r.get("route_table")
-    if not art:
-        return []
-    for base in (ROOT / "workspace/src" / r["name"], ROOT / "demo" / r["name"]):
-        p = base / art
-        if p.exists():
-            text = p.read_text(encoding="utf-8", errors="ignore")
-            if r["type"] == "backend":
-                return re.findall(r"^\s{2}(/[^:\s]+):", text, re.M)
-            return re.findall(r"path:\s*['\"]([^'\"]+)", text)
-    return []
+    """(surface, detail) — delegates to coverage_gaps.harvest, the ONE
+    definition of how a repo's surface is read and of what to say when it
+    cannot be.
+
+    This used to be a second, near-identical implementation that collapsed all
+    three non-harvested outcomes into `[]`, and the caller then printed one
+    sentence for every one of them: "contract `?` not available locally (clone
+    appears at workspace/src/ during runs)". MEASURED against a repo registered
+    the way `upsert_app` leaves one (kind + url are the only required fields,
+    so a fresh onboard declares no artifact): that sentence sends the reader to
+    wait for a clone that can never produce the file, because nothing is
+    registered to look for — while coverage_gaps said, about the same repo,
+    "no contract is registered ... register one with bin/repos.py". Two
+    surfaces over one fact with OPPOSITE fixes (C13), and this is the state a
+    repo is in immediately after onboarding, which is when AGENTS.md is first
+    read.
+    """
+    surface, _status, detail = coverage_gaps.harvest(r)
+    return surface, detail
 
 
 def covering(name):
@@ -107,23 +114,22 @@ L.append("")
 for r in reg["source_repositories"]:
     if r["type"] != "backend":
         continue
-    eps = harvest(r)
+    eps, why = harvest(r)
     if eps:
         L.append(f"- **{r['name']}** (`{r['contract']}`): " + annotated(r["name"], eps))
     else:
-        L.append(f"- **{r['name']}**: contract `{r.get('contract', '?')}` not available locally "
-                 "(clone appears at workspace/src/ during runs)")
+        L.append(f"- **{r['name']}**: {why}")
 L.append("")
 L.append("### UI routes (harvested from route tables; [NO TEST] = coverage gap)")
 L.append("")
 for r in reg["source_repositories"]:
     if r["type"] != "frontend":
         continue
-    routes = harvest(r)
+    routes, why = harvest(r)
     if routes:
         L.append(f"- **{r['name']}** (`{r['route_table']}`): " + annotated(r["name"], routes))
     else:
-        L.append(f"- **{r['name']}**: route table `{r.get('route_table', '?')}` not available locally")
+        L.append(f"- **{r['name']}**: {why}")
 L.append("")
 
 L.append("## E2E test repositories")
