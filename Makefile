@@ -155,6 +155,7 @@ hook-server:
 config:               # which properties file is loaded + which keys it sets (names only)
 	python3 engine/lib/props_file.py
 	@python3 engine/lib/org_config_check.py
+	@python3 engine/lib/registry_key_check.py
 
 check-integrations:   # read-only connectivity check for every configured system
 	python3 engine/lib/integration_check.py $(WHICH)
