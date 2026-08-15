@@ -12,6 +12,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine" / "lib"))
 import coverage_drift
+import delivery
 
 
 def _drift(tmp_path, monkeypatch, counts, blind=None):
@@ -30,7 +31,8 @@ def test_the_first_run_establishes_a_baseline_and_alarms_on_nothing(tmp_path, mo
     """Otherwise every new estate pages someone on its first night."""
     _drift(tmp_path, monkeypatch, {"api": 3, "ui": 1})
     fired = []
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: fired.append(m) or True)
+    monkeypatch.setattr(coverage_drift, "_notify",
+                        lambda m: fired.append(m) or delivery.SENT)
     r = coverage_drift.check(notify=True)
     assert r["baseline"] is True and r["grew"] == {}
     assert fired == [], "alarmed on the baseline run"
@@ -38,12 +40,13 @@ def test_the_first_run_establishes_a_baseline_and_alarms_on_nothing(tmp_path, mo
 
 def test_growth_is_reported_and_shrinkage_is_quiet(tmp_path, monkeypatch):
     _drift(tmp_path, monkeypatch, {"api": 3})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: True)
+    monkeypatch.setattr(coverage_drift, "_notify", lambda m: delivery.SENT)
     coverage_drift.check(notify=True)                      # baseline
 
     fired = []
     _drift(tmp_path, monkeypatch, {"api": 6})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: fired.append(m) or True)
+    monkeypatch.setattr(coverage_drift, "_notify",
+                        lambda m: fired.append(m) or delivery.SENT)
     r = coverage_drift.check(notify=True)
     assert r["grew"] == {"api": (3, 6)}
     assert len(fired) == 1 and "3->6" in fired[0]
@@ -51,7 +54,8 @@ def test_growth_is_reported_and_shrinkage_is_quiet(tmp_path, monkeypatch):
     # Good news needs no alarm.
     fired.clear()
     _drift(tmp_path, monkeypatch, {"api": 2})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: fired.append(m) or True)
+    monkeypatch.setattr(coverage_drift, "_notify",
+                        lambda m: fired.append(m) or delivery.SENT)
     r = coverage_drift.check(notify=True)
     assert r["shrank"] == {"api": (6, 2)} and fired == []
 
@@ -60,12 +64,13 @@ def test_a_new_repo_is_not_growth(tmp_path, monkeypatch):
     """Onboarding a repo with uncovered surface is not a regression, and paging
     someone for it teaches them to ignore the alarm."""
     _drift(tmp_path, monkeypatch, {"api": 3})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: True)
+    monkeypatch.setattr(coverage_drift, "_notify", lambda m: delivery.SENT)
     coverage_drift.check(notify=True)
 
     fired = []
     _drift(tmp_path, monkeypatch, {"api": 3, "brand-new": 9})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: fired.append(m) or True)
+    monkeypatch.setattr(coverage_drift, "_notify",
+                        lambda m: fired.append(m) or delivery.SENT)
     r = coverage_drift.check(notify=True)
     assert r["grew"] == {} and fired == []
 
@@ -80,12 +85,12 @@ def test_a_failed_notification_does_not_lose_the_alarm(tmp_path, monkeypatch):
     reports it again until it actually lands.
     """
     _drift(tmp_path, monkeypatch, {"api": 3})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: True)
+    monkeypatch.setattr(coverage_drift, "_notify", lambda m: delivery.SENT)
     coverage_drift.check(notify=True)                      # baseline at 3
 
     # Growth, with the channel down.
     _drift(tmp_path, monkeypatch, {"api": 6})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: False)
+    monkeypatch.setattr(coverage_drift, "_notify", lambda m: delivery.FAILED)
     r = coverage_drift.check(notify=True)
     assert r["grew"] == {"api": (3, 6)} and r["delivered"] is False
     stored = json.loads((tmp_path / "drift.json").read_text(encoding="utf-8"))
@@ -95,7 +100,8 @@ def test_a_failed_notification_does_not_lose_the_alarm(tmp_path, monkeypatch):
     # Next run, channel back: it must report the SAME growth, not silence.
     fired = []
     _drift(tmp_path, monkeypatch, {"api": 6})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: fired.append(m) or True)
+    monkeypatch.setattr(coverage_drift, "_notify",
+                        lambda m: fired.append(m) or delivery.SENT)
     r = coverage_drift.check(notify=True)
     assert r["grew"] == {"api": (3, 6)}, "the alarm was lost"
     assert len(fired) == 1
@@ -107,12 +113,13 @@ def test_notify_false_never_delivers(tmp_path, monkeypatch):
     """Computing a report must not page anyone — the same rule the alert rules
     follow, so a dashboard render is never an alerting event."""
     _drift(tmp_path, monkeypatch, {"api": 3})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: True)
+    monkeypatch.setattr(coverage_drift, "_notify", lambda m: delivery.SENT)
     coverage_drift.check(notify=True)
 
     fired = []
     _drift(tmp_path, monkeypatch, {"api": 9})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: fired.append(m) or True)
+    monkeypatch.setattr(coverage_drift, "_notify",
+                        lambda m: fired.append(m) or delivery.SENT)
     r = coverage_drift.check(notify=False)
     assert r["grew"] == {"api": (3, 9)} and fired == []
     # And with no delivery attempted, the baseline still advances — nothing was
@@ -125,13 +132,14 @@ def test_counts_not_sets_so_a_rename_is_not_drift(tmp_path, monkeypatch):
     """Documented design: a renamed surface would churn a set diff into noise,
     while "3 uncovered last night, 6 now" is the sentence a lead acts on."""
     _drift(tmp_path, monkeypatch, {"api": 2})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: True)
+    monkeypatch.setattr(coverage_drift, "_notify", lambda m: delivery.SENT)
     coverage_drift.check(notify=True)
 
     fired = []
     # Same COUNT, entirely different surface names underneath.
     _drift(tmp_path, monkeypatch, {"api": 2})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: fired.append(m) or True)
+    monkeypatch.setattr(coverage_drift, "_notify",
+                        lambda m: fired.append(m) or delivery.SENT)
     r = coverage_drift.check(notify=True)
     assert r["grew"] == {} and fired == []
 
@@ -149,14 +157,15 @@ def test_an_unobservable_repo_keeps_its_baseline_so_growth_is_still_caught(
     estate the alarm had been watching for two nights.
     """
     _drift(tmp_path, monkeypatch, {"payments-api": 2})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: True)
+    monkeypatch.setattr(coverage_drift, "_notify", lambda m: delivery.SENT)
     coverage_drift.check(notify=True)                      # baseline at 2
 
     # Night 2: the clone is not there. Nothing was measured about this repo.
     _drift(tmp_path, monkeypatch, {},
            blind={"payments-api": "contract not available locally"})
     fired = []
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: fired.append(m) or True)
+    monkeypatch.setattr(coverage_drift, "_notify",
+                        lambda m: fired.append(m) or delivery.SENT)
     r = coverage_drift.check(notify=True)
     assert r["unobserved"] == {"payments-api": "contract not available locally"}
     assert r["grew"] == {} and r["shrank"] == {} and fired == [], \
@@ -180,7 +189,7 @@ def test_an_unobservable_repo_is_never_counted_as_zero_uncovered(tmp_path, monke
     closing. compute() now returns those repos (so callers can see them), which
     is exactly what makes this mistake easy to make."""
     _drift(tmp_path, monkeypatch, {"api": 5})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: True)
+    monkeypatch.setattr(coverage_drift, "_notify", lambda m: delivery.SENT)
     coverage_drift.check(notify=True)
 
     _drift(tmp_path, monkeypatch, {}, blind={"api": "not available locally"})
@@ -209,7 +218,7 @@ def test_a_run_that_checked_nothing_says_so(tmp_path, monkeypatch, capsys):
     container harvests nothing. That used to print "baseline established for 0
     repo(s)" every night — an alarm that could never fire, reporting success."""
     _drift(tmp_path, monkeypatch, {}, blind={"api": "not available locally"})
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: True)
+    monkeypatch.setattr(coverage_drift, "_notify", lambda m: delivery.SENT)
     coverage_drift.check(notify=True)
     out = capsys.readouterr().out
     assert "NOTHING was checked" in out
@@ -222,6 +231,7 @@ def test_a_corrupt_state_file_is_treated_as_a_baseline(tmp_path, monkeypatch):
     (tmp_path / "drift.json").write_text("{not json", encoding="utf-8")
     _drift(tmp_path, monkeypatch, {"api": 4})
     fired = []
-    monkeypatch.setattr(coverage_drift, "_notify", lambda m: fired.append(m) or True)
+    monkeypatch.setattr(coverage_drift, "_notify",
+                        lambda m: fired.append(m) or delivery.SENT)
     r = coverage_drift.check(notify=True)
     assert r["baseline"] is True and fired == []

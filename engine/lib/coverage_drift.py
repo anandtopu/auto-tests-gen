@@ -24,6 +24,7 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import fs_lock
+import delivery
 import env_flag                     # AIQE_MOCK means what it says
 
 FILE = pathlib.Path(os.environ.get("AIQE_DRIFT_FILE")
@@ -63,13 +64,15 @@ def check(notify=False):
     # the baseline moved on, and the next run saw no growth — the alarm was
     # lost permanently. "Could not tell you" is not "nothing happened", the
     # same rule the alert rules already follow.
-    delivered = True
+    # `sent` unless we actually tried: nothing to deliver is not a failure.
+    state = delivery.SENT
     if prev and grew and notify:
-        delivered = _notify(
+        state = _notify(
             "Coverage drift: uncovered surface grew in "
             + ", ".join(f"{r} ({was}->{is_})" for r, (was, is_) in sorted(grew.items()))
             + " — see make gaps")
 
+    delivered = delivery.landed(state)
     counts = dict(now)
     if not delivered:
         for r in grew:
@@ -88,7 +91,8 @@ def check(notify=False):
     fs_lock.write_json_atomic(FILE, {"counts": counts, "checked": time.time()})
 
     report = {"baseline": not prev, "grew": grew, "shrank": shrank,
-              "counts": now, "delivered": delivered, "unobserved": blind}
+              "counts": now, "delivered": delivered, "delivery": state,
+              "unobserved": blind}
     if blind:
         print("coverage drift: NOT CHECKED for " + ", ".join(sorted(blind))
               + " — their surface could not be harvested, so this run says "
@@ -113,9 +117,11 @@ def check(notify=False):
     if grew:
         for r, (was, is_) in sorted(grew.items()):
             print(f"COVERAGE DRIFT: {r} uncovered surface grew {was} -> {is_}")
-        if notify and not delivered:
-            print("COVERAGE DRIFT: could not deliver the notification — "
-                  "baseline NOT advanced, so the next run will report it again")
+        # Two ways an alarm reaches nobody, and they send an operator to
+        # different places: a broken channel, or mock mode.
+        note = delivery.note(state, "the drift notification")
+        if notify and note:
+            print("COVERAGE DRIFT: " + note)
     else:
         print("coverage drift: no growth"
               + (f"; improved: {', '.join(sorted(shrank))}" if shrank else ""))
@@ -123,9 +129,14 @@ def check(notify=False):
 
 
 def _notify(msg):
-    """Through the Notify port, mock-aware, best-effort. Returns whether it was
-    DELIVERED — an unreachable channel must not fail maintenance, but it must
-    not look like a successful alarm either."""
+    """Through the Notify port, mock-aware, best-effort. Returns a
+    `delivery` state — sent / simulated / failed.
+
+    It used to return a BOOL, and the mock adapter exits 0, so a run in mock
+    mode (the deployed default: `AIQE_MOCK: "1"` in the OpenShift ConfigMap)
+    counted as delivered and ADVANCED THE BASELINE past an alarm nobody
+    received. See engine/lib/delivery.py for the measurement.
+    """
     import work_queue
     mock = env_flag.mock()
     adapter = ROOT / ("adapters/mock/notify.sh" if mock else "adapters/notify/slack.sh")
@@ -133,11 +144,13 @@ def _notify(msg):
         r = subprocess.run([work_queue.bash_exe(), str(adapter), "post", msg],
                            cwd=ROOT, stdin=subprocess.DEVNULL, timeout=30,
                            capture_output=True)
-        return r.returncode == 0
+        # The SAME `mock` that chose the adapter decides what may be claimed;
+        # re-reading the environment could answer differently.
+        return delivery.outcome(r.returncode, mock=mock)
     except Exception:                      # noqa: BLE001
         # Still best-effort — an unreachable channel must not fail maintenance —
         # but the CALLER now learns it failed instead of the failure vanishing.
-        return False
+        return delivery.FAILED
 
 
 if __name__ == "__main__":

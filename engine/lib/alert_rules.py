@@ -406,14 +406,14 @@ def deliver(msg, channel="slack", recipients=(), rule_name="", retries=None):
                 time.sleep(RETRY_BACKOFF[min(attempt - 1, len(RETRY_BACKOFF) - 1)])
             last = attempt == attempts
             if _attempt_one(adapter, msg, recipients, channel, rule_name,
-                            attempt, last, work_queue):
+                            attempt, last, work_queue, mock):
                 ok_any = True
                 break
     return ok_any
 
 
 def _attempt_one(adapter, msg, recipients, channel, rule_name, attempt, last,
-                 work_queue):
+                 work_queue, mock):
     """One delivery attempt. Records only the OUTCOME that matters: a success,
     or the final failure. Recording every intermediate retry would bury the
     signal under noise from a channel that was merely slow."""
@@ -434,10 +434,18 @@ def _attempt_one(adapter, msg, recipients, channel, rule_name, attempt, last,
                            capture_output=True, env=env)
         sent = r.returncode == 0
         if sent or last:
+            # `simulated` rides along because `adapter.name` is "notify.sh" for
+            # the mock and "slack.sh" for the real one — a distinction nobody
+            # reading an audit trail can be expected to know. The COOLDOWN is
+            # deliberately still consumed by a simulated send: unlike the drift
+            # baselines, `last_notified` exists to protect a human from spam,
+            # and under mock there is no human to protect. Recording it is a
+            # labelling fix here, not a state-machine change.
             event_log.emit("notify.sent" if sent else "notify.failed",
                            source="cron", target=rule_name or adapter.name,
                            outcome="ok" if sent else "failed",
                            detail={"adapter": adapter.name, "channel": channel,
+                                   "simulated": bool(mock),
                                    "rc": r.returncode, "attempts": attempt + 1})
         return sent
     except Exception as e:                      # noqa: BLE001

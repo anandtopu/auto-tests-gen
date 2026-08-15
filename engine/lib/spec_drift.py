@@ -22,6 +22,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import delivery
 import env_flag                     # AIQE_MOCK means what it says
 import sdd_messages
 
@@ -100,27 +101,30 @@ def check(notify=False):
         # again: a channel outage lost the alarm permanently. Identical to the
         # coverage-drift bug — "notify once per change" is only safe if the
         # change is committed once the notification actually lands.
-        delivered = True
+        state = delivery.SENT
         if notify and approved and changed and stale:
             messages = [sdd_messages.refusal(
                 "drift_stale", key=key, scenario=scenario_id,
                 surfaces=stale_surfaces.get(scenario_id))["text"]
                 for scenario_id in stale]
-            delivered = _notify("\n".join(messages))
+            state = _notify("\n".join(messages))
 
         # An undelivered alarm leaves the previous state in place so the next
-        # run reports it again. Resolution still records: `delivered` starts
-        # True and only the notify branch can clear it, and that branch needs a
+        # run reports it again. Resolution still records: `state` starts `sent`
+        # and only the notify branch can change it, and that branch needs a
         # non-empty `stale` — so when drift clears there is nothing to have
         # failed. (An earlier version spelled that out as `delivered or not
         # stale`; the second clause is unreachable, and a condition that cannot
         # be exercised is the kind of thing this codebase keeps finding.)
+        # `simulated` counts as undelivered here for the same reason `failed`
+        # does: nobody was told.
+        delivered = delivery.landed(state)
         if changed and delivered:
             _record(key, stale, stale_surfaces)
         if stale:
             results.append({"key": key, "stale": stale, "approved": approved,
                             "stale_surfaces": stale_surfaces,
-                            "delivered": delivered})
+                            "delivered": delivered, "delivery": state})
     return results
 
 
@@ -144,22 +148,31 @@ def _record(key, stale, stale_surfaces=None):
 
 
 def _notify(msg):
-    """Returns whether it was DELIVERED. Still best-effort — an unreachable
-    channel must not fail maintenance — but the caller now learns it failed
-    instead of the failure vanishing into a bare `except: pass`."""
+    """Returns a `delivery` state — sent / simulated / failed. Still
+    best-effort: an unreachable channel must not fail maintenance, but the
+    caller learns what happened instead of the failure vanishing into a bare
+    `except: pass`.
+
+    It returned a BOOL, and the mock adapter exits 0 — so under the deployed
+    default (`AIQE_MOCK: "1"`) a stale scenario was RECORDED as reported to a
+    human who was never told, and "notify once per change" then guaranteed
+    silence. The comment beside the caller already calls this "identical to the
+    coverage-drift bug"; it was identical in this direction too.
+    """
     try:
         import work_queue
         adapter = ROOT / ("adapters/mock/notify.sh"
                           if env_flag.mock()
                           else "adapters/notify/slack.sh")
+        mock = env_flag.mock()
         if not adapter.exists():
-            return False
+            return delivery.FAILED
         r = subprocess.run([work_queue.bash_exe(), str(adapter), "post", msg],
                            cwd=ROOT, capture_output=True,
                            stdin=subprocess.DEVNULL, timeout=30)
-        return r.returncode == 0
+        return delivery.outcome(r.returncode, mock=mock)
     except Exception:                      # noqa: BLE001
-        return False
+        return delivery.FAILED
 
 
 def main(argv):

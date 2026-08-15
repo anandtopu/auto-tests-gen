@@ -14,6 +14,7 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 
+import delivery
 import spec_drift as sd  # noqa: E402
 import spec_store as ss  # noqa: E402
 import plan_state as ps  # noqa: E402
@@ -78,7 +79,8 @@ def test_approved_drift_notifies_once_per_change(estate, monkeypatch):
     # answer deliberately means "not delivered, so do not advance the state".
     # `list.append` returns None, so the original stub would read as a failed
     # send and make this test's own scenario re-alarm.
-    monkeypatch.setattr(sd, "_notify", lambda msg: sent.append(msg) or True)
+    monkeypatch.setattr(sd, "_notify",
+                        lambda msg: sent.append(msg) or delivery.SENT)
     sd.check(notify=True)
     assert len(sent) == 1 and "K-1-S2" in sent[0]
     assert sent[0] == sdd_messages.refusal(
@@ -96,7 +98,8 @@ def test_changed_vanished_surface_realarms_even_when_scenario_id_is_unchanged(
     seed([scenario])
     ps.set_status("K-1", "approved", "lead")
     sent = []
-    monkeypatch.setattr(sd, "_notify", lambda msg: sent.append(msg) or True)
+    monkeypatch.setattr(sd, "_notify",
+                        lambda msg: sent.append(msg) or delivery.SENT)
 
     monkeypatch.setattr(sd, "_current_surface",
                         lambda: {"orders-api": {"/v1/legacy/rebates"}})
@@ -153,7 +156,7 @@ def test_an_undelivered_drift_alarm_is_retried_not_lost(estate, monkeypatch):
                         lambda: {"orders-api": {"/v1/orders/*"}})
 
     # Channel down.
-    monkeypatch.setattr(sd, "_notify", lambda msg: False)
+    monkeypatch.setattr(sd, "_notify", lambda msg: delivery.FAILED)
     r = sd.check(notify=True)
     assert r and r[0]["delivered"] is False
     assert "stale_scenarios" not in ps.get("K-1"), \
@@ -161,7 +164,8 @@ def test_an_undelivered_drift_alarm_is_retried_not_lost(estate, monkeypatch):
 
     # Channel back: the SAME drift must be reported again.
     sent = []
-    monkeypatch.setattr(sd, "_notify", lambda msg: sent.append(msg) or True)
+    monkeypatch.setattr(sd, "_notify",
+                        lambda msg: sent.append(msg) or delivery.SENT)
     sd.check(notify=True)
     assert len(sent) == 1, "the alarm was lost"
     assert ps.get("K-1")["stale_scenarios"] == ["K-1-S2"], \
@@ -181,7 +185,7 @@ def test_resolution_is_recorded_even_though_nobody_is_notified(estate, monkeypat
     ps.set_status("K-1", "approved", "lead")
     monkeypatch.setattr(sd, "_current_surface",
                         lambda: {"orders-api": {"/v1/orders/*"}})
-    monkeypatch.setattr(sd, "_notify", lambda msg: True)
+    monkeypatch.setattr(sd, "_notify", lambda msg: delivery.SENT)
     sd.check(notify=True)
     assert ps.get("K-1")["stale_scenarios"] == ["K-1-S2"]
 
@@ -199,15 +203,18 @@ def test_the_real_notify_reports_delivery(tmp_path, monkeypatch):
     claimed success would pass all of them."""
     monkeypatch.setattr(sd, "ROOT", tmp_path)
     # No adapter on disk: nothing was sent, so it must not claim it was.
-    assert sd._notify("hello") is False
+    assert sd._notify("hello") == delivery.FAILED
 
-    # A mock adapter that exits 0 is a delivery; one that exits 1 is not.
+    # A mock adapter that exits 0 is NOT a delivery. This assertion used to
+    # read `is True` and said so in as many words -- it encoded the belief this
+    # module was fixed for: nothing left the machine, so the alarm state must
+    # not advance. A real adapter exiting 0 is the only `sent`.
     ad = tmp_path / "adapters" / "mock"
     ad.mkdir(parents=True)
     (ad / "notify.sh").write_text("#!/usr/bin/env bash\nexit 0\n",
                                   encoding="utf-8", newline="\n")
     monkeypatch.setenv("AIQE_MOCK", "1")
-    assert sd._notify("hello") is True
+    assert sd._notify("hello") == delivery.SIMULATED
     (ad / "notify.sh").write_text("#!/usr/bin/env bash\nexit 1\n",
                                   encoding="utf-8", newline="\n")
-    assert sd._notify("hello") is False
+    assert sd._notify("hello") == delivery.FAILED
