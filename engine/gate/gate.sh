@@ -172,7 +172,11 @@ if [ -n "$SPECS" ]; then
     # rather than the code alone: with-env passes the test command's own status
     # through, so a test that happens to exit 7 must not be misread as a
     # provisioning failure.
-    if grep -qE '^(APP_REPO_NOT_FOUND|APP_START_FAILED)' "$REPORT_DIR/${KEY}-${TREPO}.log"; then
+    # ENV_CONFIG_INVALID is the third way the environment never comes up: a
+    # missing or misspelt `test_env` key. It used to raise a bare Python
+    # KeyError with no marker, so it landed in the else-branch and was reported
+    # as TESTS_FAILED -- the exact misreading this branch exists to prevent.
+    if grep -qE '^(APP_REPO_NOT_FOUND|APP_START_FAILED|ENV_CONFIG_INVALID)' "$REPORT_DIR/${KEY}-${TREPO}.log"; then
       echo "ENV_PROVISION_FAILED (the app under test never came up; the generated"
       echo "  tests were never executed, so nothing is known about them)"
       tail -5 "$REPORT_DIR/${KEY}-${TREPO}.log"

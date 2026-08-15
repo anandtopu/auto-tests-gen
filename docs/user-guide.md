@@ -86,7 +86,7 @@ commit in another.
 | 7 | `PUSH_FAILED` | Commit succeeded but the push to the configured remote failed |
 | 8 | `SPEC_UNSATISFIED` | An approved spec scenario is uncovered and unwaived, **or** the spec no longer matches what was approved (`SPEC_CHANGED_SINCE_APPROVAL`) — both under `spec.enforce: strict` |
 | 9 | `LINT_FAILED` | The test repo's own `commands.lint` exited non-zero. This is the LINTER's verdict on the generated code — not a scope, secret or mapping finding |
-| 10 | `ENV_PROVISION_FAILED` | The app under test never came up, so the tests were never executed. **Nothing is known about whether they pass** |
+| 10 | `ENV_PROVISION_FAILED` | The app under test never came up, so the tests were never executed. **Nothing is known about whether they pass.** Three causes, each named in the log: `APP_REPO_NOT_FOUND` (the app repo/entry is not on disk), `APP_START_FAILED` (it started but never became ready), `ENV_CONFIG_INVALID` (the repo's `.ai-qe/config.yaml` has no usable `test_env`) |
 | 11 | `SPEC_CHECK_FAILED` | The spec check itself could not run, so it reached no verdict. This is NOT a finding that a scenario is uncovered — fix the checker, not the spec |
 | 64 | `INVALID_ARG` | The key or test-repo name was rejected before anything ran |
 | 124 | *(imposed by the pipeline)* | The gate exceeded `AIQE_GATE_TIMEOUT_SEC` (default 1200) and was stopped — nearly always the repo's own lint or test command not returning. Nothing was committed and **this is not a test failure** |

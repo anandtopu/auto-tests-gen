@@ -218,6 +218,35 @@ grep -q "commands.test" /tmp/gate-adv.log   && pass "the refusal names the missi
 grep -q "'tests'" /tmp/gate-adv.log   && pass "the refusal shows the keys it DID find"   || { echo "FAIL the refusal does not show the typo"; fail=1; }
 cd "$ROOT"
 
+# 20. A repo config whose `test_env` key is misspelt. The environment can then
+# never be provisioned -- and the gate classifies env failure by MARKER, so a
+# bare Python KeyError (no marker) fell through to TESTS_FAILED: the operator
+# is told their generated tests failed when nothing was ever executed. That is
+# precisely the misreading the ENV_PROVISION_FAILED branch exists to prevent,
+# and it covered only two of the three ways the env fails to come up.
+setup
+python3 - <<'PYEOF'
+import pathlib, yaml
+p = pathlib.Path(".ai-qe/config.yaml")
+c = yaml.safe_load(p.read_text(encoding="utf-8"))
+env = c.get("test_env") or {}
+if "mode" in env:
+    env["moode"] = env.pop("mode")            # one character
+c["test_env"] = env
+p.write_text(yaml.safe_dump(c), encoding="utf-8")
+PYEOF
+git add .ai-qe/config.yaml >/dev/null 2>&1
+git commit -qm "misspell test_env.mode" >/dev/null 2>&1
+printf 'const {test}=require("node:test");
+test("ok", async()=>{});
+'   > suites/orders/noenv.spec.js
+echo '{"file":"suites/orders/noenv.spec.js","mapping":{"status":"confirmed"}}'   >> catalog/generated.jsonl
+run_gate ADV-NOENV; rc=$?
+check 10 $rc "a misspelt test_env is ENV_PROVISION_FAILED, not TESTS_FAILED"
+grep -q "ENV_CONFIG_INVALID" /tmp/gate-adv.log   && pass "the refusal names the config, not the tests"   || { echo "FAIL the log does not carry ENV_CONFIG_INVALID"; fail=1; }
+grep -q "test_env.mode" /tmp/gate-adv.log   && pass "the refusal names the missing key"   || { echo "FAIL the refusal does not name test_env.mode"; fail=1; }
+cd "$ROOT"
+
 rm -rf workspace/tests
 # The count an operator reads, and the only reliable one: static
 # counting gave 6 or 14 depending on the pattern, because check() is
