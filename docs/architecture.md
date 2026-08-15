@@ -1,7 +1,7 @@
 # Solution Architecture Document
 ## AI-Driven Test Engineering Workflow PoC — OpenHands + Claude Code
 
-**Version:** 2.9 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md). **v2.5** adds §5.17 (the transaction log, alert rules and notifications). **v2.6** adds §5.18 (spec-driven adoption — the workflow as a state machine, a generated governance page, coverage subtraction that counts but refuses to price, and two UI-layer defects found by driving the served page). **v2.7** adds §5.19 (the dominant defect class — an inability to establish a fact reported as an established negative — promoted to constitution clause C13). **v2.8** adds §5.20 (the operator-facing layer — progress with an explicit `unknown` state, explanation from what was recorded, rate-limited retry, and selective approval that never claims a committed test is gone) and §5.21 (the efficiency inventory: what is held with evidence, what is unmeasured and why). **v2.9** adds §5.22 (the deployed shape: entry points nothing executed, manifests that disagreed with the scripts they were meant to run, the untrusted request boundary in front of the trigger ingress, and the test suite that was writing into the operator's estate — C13 at deployment scale)
+**Version:** 2.10 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md). **v2.5** adds §5.17 (the transaction log, alert rules and notifications). **v2.6** adds §5.18 (spec-driven adoption — the workflow as a state machine, a generated governance page, coverage subtraction that counts but refuses to price, and two UI-layer defects found by driving the served page). **v2.7** adds §5.19 (the dominant defect class — an inability to establish a fact reported as an established negative — promoted to constitution clause C13). **v2.8** adds §5.20 (the operator-facing layer — progress with an explicit `unknown` state, explanation from what was recorded, rate-limited retry, and selective approval that never claims a committed test is gone) and §5.21 (the efficiency inventory: what is held with evidence, what is unmeasured and why). **v2.9** adds §5.22 (the deployed shape: entry points nothing executed, manifests that disagreed with the scripts they were meant to run, the untrusted request boundary in front of the trigger ingress, and the test suite that was writing into the operator's estate — C13 at deployment scale). **v2.10** adds §5.5.2 (an enforcement point verifies the signature it enforces — both signed artefacts were compared only by the UI while the two points that refuse work never asked) and §5.5.3 (a configuration key nothing reads is silent — the measured effect of one mistyped key in each of the three config files, and why two of the known-key sets are derived differently)
 **Author:** QA / AI Quality Engineering Team
 **Estate note:** The original design target assumed six E2E repositories (3 API, 3 UI). The checked-in reference estate is registry-driven; at this revision `registry/repo-registry.yaml` declares **5 source repositories and 3 test repositories (2 API, 1 UI)**. Fixed six-repository counts below describe the original rollout plan, not a platform limit.
 **Scope:** Proof of Concept — Agentic SDLC test generation workflow across a **multi-repository estate**: multiple UI repos, multiple backend/API repos, and an original target estate of 6 E2E test repositories (3 API, 3 UI). The checked-in reference estate is summarized above and runtime inventory comes from the registry. v2.0 adds the **Test Catalog & Mapping subsystem** (bootstrap + continuous mapping of existing tests) and a **pluggable Integration & Extensibility layer** (Jira, Bitbucket, GitHub, Slack, Splunk, and future tools), and restructures the solution as a reusable, customizable platform. v2.1 extends the integration layer with **Confluence (knowledge source + publishing)**, **Jenkins (CI/CD trigger, execution, and results feedback)**, and a documented onboarding pattern for any additional SDLC tool.
@@ -409,6 +409,75 @@ Two independent guards, because either alone leaves a gap:
 2. **Commands are read from the COMMITTED config** (`git show HEAD:.ai-qe/config.yaml`), never the working tree — so a modification arriving by any other route still cannot steer the current run. A repo whose config is uncommitted is refused (exit 6) with the reason.
 
 Guard 2 alone would only *delay* the injection by one run: the gate would commit the malicious config and the next run would execute it. Constitution clause C1 states both properties; two assertions in `tests/gate-adversarial.sh` pin them — the attack must be refused **and** the planted command must never run.
+
+#### 5.5.2 An enforcement point verifies the signature it enforces (v2.10)
+
+Approval **signs** its artifact: `plan_state` stores `spec_sha` over the approved
+`specs/<KEY>/testplan.yaml` and `requirements_sha` over the approved
+`requirements.yaml`. Both were stored from the day approvals were signed, and both
+were compared **only by the UI** — `approval_confirmation` reported `signed: false`
+and the wizard showed it, while the two points that actually *refuse* work never
+asked.
+
+Measured against an isolated estate: approve a one-scenario spec, append a second
+out of band, and the gate reported `UNCOVERED_SCENARIO: …-S2 — approved but
+uncovered` for a scenario no reviewer had seen — because `approved_ids` was built
+from the spec file *as it is now*, not from what was signed. The same shape one
+layer up: `require_requirements` gated on `requirements_status == "approved"` and
+never compared the hash.
+
+Both now verify before enforcing:
+
+* **The spec gate** (`spec_check`) returns a single `SPEC_CHANGED_SINCE_APPROVAL`
+  finding and deliberately **not** the obligations beneath it — every one of those
+  is derived from a spec nobody signed, so listing them would keep telling a
+  reviewer to waive work that was never proposed.
+* **The requirements gate** refuses with the state named and both ways out
+  (`make requirements-approve`, or restore the approved file).
+
+A **missing** hash on either side is `unrecoverable`, never a mismatch: keys
+approved before the field existed carry none, and refusing them would block every
+legacy plan on evidence nobody can produce. Signing and checking share one hash
+function — if they ever hashed different bytes the gate would refuse *every*
+approved key, which is worse than the defect.
+
+Reachability is bounded and stated rather than implied: edits through the
+platform's own paths already revoke approval (and `write_requirements_from_contract`
+refuses to overwrite an approved file), so this needs an out-of-band change — a
+direct edit of the tracked spec, a branch switch or merge, or a state-bundle
+import. `spec.enforce` also ships `off`. That bounds the blast radius; it does not
+make it safe, because the defect goes live exactly when a team turns enforcement on
+and starts trusting it.
+
+#### 5.5.3 A configuration key nothing reads is silent (v2.10)
+
+C12 says configuration is explicit with no silent fallback. The *value* side is
+defended (`spec_check.mode()` complains about an unusable `spec.enforce`; the
+resolver reports an unknown label-rule key). The *key* side was defended nowhere,
+and the consequences are silent by construction:
+
+| file | typo | measured effect |
+|---|---|---|
+| `registry/org-config.yaml` | `budgets:` → `budget:` | every workflow envelope drops to 0.0 — no queue warning, no degradation ladder, no config spend ceiling |
+| `registry/repo-registry.yaml` | `covers:` → `cover:` | routing resolves **no** test repo; runs generate nothing |
+| `registry/repo-registry.yaml` | `testable_paths:` mistyped | falls back to `["**"]` — every changed file counts as testable |
+| `.ai-qe/config.yaml` | `commands.test` mistyped | gate refuses (exit 6) naming the key and showing the keys it *did* find |
+| `.ai-qe/config.yaml` | `test_env.mode` mistyped | `ENV_CONFIG_INVALID` → exit 10, **not** `TESTS_FAILED` |
+
+The first three are **checks an operator runs** (`make config`), not gates: 30
+modules open `org-config.yaml` themselves rather than going through
+`registry.load_org_config`, so there is no single load point to validate at — and a
+configuration complaint must never break the command someone ran to diagnose the
+configuration. The last two are gate refusals, because the gate is about to execute
+those values.
+
+The two known-key sets are derived differently on purpose. Org-config's is pinned
+against the shipped file **both** ways, since a declared section that no longer
+exists is an allow-list excusing a ghost. The registry's is taken from
+`repo_admin.upsert_app`/`upsert_test` — the writer *is* the schema — and only the
+shipped-keys-must-be-known direction is asserted, because `stash_project` is a
+legitimate optional field this estate does not use and deriving the set from one
+sample would warn every Stash deployment about a key the platform itself writes.
 
 ### 5.6 Trigger Architecture — Two Interchangeable Paths
 
