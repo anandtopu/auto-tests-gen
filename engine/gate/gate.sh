@@ -47,12 +47,41 @@ CFG_YAML=$(git show "HEAD:$CFG" 2>/dev/null) || {
   echo "GATE_REFUSED: $CFG is not committed — the gate will not take its"
   echo "  lint/test commands from an uncommitted config. Commit it first."
   exit 6; }
+# A missing or misspelt command key used to surface as a raw Python KeyError
+# traceback, and `set -e` then aborted with exit 1 — a code that appears
+# NOWHERE in this gate's documented protocol, from the component that holds the
+# push credential. Measured: `commands.test` mistyped as `tests` printed
+# "KeyError: 'test'" and named neither the file nor the fix. It already failed
+# CLOSED, which is right; what was missing is the sentence. Exit 6 is the
+# existing GATE_REFUSED code and the sibling case (a config that is not
+# committed) already uses it, so this adds no new code to the protocol.
 _cmd() {
-  printf '%s' "$CFG_YAML" | python3 -c \
-    "import sys,yaml;print((yaml.safe_load(sys.stdin) or {})['commands']['$1'])"
+  printf '%s' "$CFG_YAML" | python3 -c '
+import sys, yaml
+key, cfg = sys.argv[1], sys.argv[2]
+try:
+    doc = yaml.safe_load(sys.stdin) or {}
+except Exception as exc:
+    sys.exit(f"GATE_REFUSED: {cfg} is committed but is not valid YAML ({exc}). "
+             f"The gate will not guess the commands it executes.")
+if not isinstance(doc, dict):
+    sys.exit(f"GATE_REFUSED: {cfg} is not a mapping, so it declares no "
+             f"commands. The gate will not guess the commands it executes.")
+cmds = doc.get("commands")
+if not isinstance(cmds, dict):
+    sys.exit(f"GATE_REFUSED: {cfg} has no `commands:` section, so there is no "
+             f"`{key}` command to run. Add commands.lint and commands.test.")
+value = cmds.get(key)
+if not isinstance(value, str) or not value.strip():
+    sys.exit(f"GATE_REFUSED: {cfg} declares no `commands.{key}`. It has: "
+             f"{sorted(cmds)} — check the spelling. Running no {key} step is "
+             f"not the same as passing it, so the gate refuses rather than "
+             f"committing tests nothing verified.")
+print(value)
+' "$1" "$CFG"
 }
-LINT_CMD=$(_cmd lint)
-TEST_CMD=$(_cmd test)
+LINT_CMD=$(_cmd lint) || exit 6
+TEST_CMD=$(_cmd test) || exit 6
 
 CHANGED=$(git diff --name-only HEAD; git ls-files --others --exclude-standard)
 CHANGED=$(echo "$CHANGED" | sed '/^$/d')

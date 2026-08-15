@@ -188,6 +188,36 @@ run_gate ADV-LINTRC; rc=$?
 check 9 $rc "a linter exiting 2 is LINT_FAILED, not SCOPE_VIOLATION"
 cd "$ROOT"
 
+# 17. A repo config that declares no `commands.test`. It already failed CLOSED
+# (KeyError -> set -e), which is the right direction; what it did NOT do was
+# say so. Measured before the fix: a raw Python traceback reading
+# "KeyError: 'test'", naming neither the file nor the fix, and an exit status
+# of 1 -- a code that appears nowhere in this gate's documented protocol.
+# Running no test step is not the same as passing it, so the refusal has to be
+# legible in the component that holds the push credential.
+setup
+python3 - <<'PYEOF'
+import pathlib, yaml
+p = pathlib.Path(".ai-qe/config.yaml")
+c = yaml.safe_load(p.read_text(encoding="utf-8"))
+c["commands"]["tests"] = c["commands"].pop("test")     # one character
+p.write_text(yaml.safe_dump(c), encoding="utf-8")
+PYEOF
+git add .ai-qe/config.yaml >/dev/null 2>&1
+git commit -qm "misspell commands.test" >/dev/null 2>&1
+printf 'const {test}=require("node:test");
+test("ok", async()=>{});
+'   > suites/orders/nocmd.spec.js
+echo '{"file":"suites/orders/nocmd.spec.js","mapping":{"status":"confirmed"}}'   >> catalog/generated.jsonl
+run_gate ADV-NOCMD; rc=$?
+check 6 $rc "a config with no commands.test is GATE_REFUSED, not exit 1"
+# run_gate sends BOTH streams to /tmp/gate-adv.log, so the refusal is read
+# from there; capturing `$(run_gate ...)` returns nothing and would assert on
+# an empty string forever.
+grep -q "commands.test" /tmp/gate-adv.log   && pass "the refusal names the missing key"   || { echo "FAIL the refusal does not name commands.test"; fail=1; }
+grep -q "'tests'" /tmp/gate-adv.log   && pass "the refusal shows the keys it DID find"   || { echo "FAIL the refusal does not show the typo"; fail=1; }
+cd "$ROOT"
+
 rm -rf workspace/tests
 # The count an operator reads, and the only reliable one: static
 # counting gave 6 or 14 depending on the pattern, because check() is

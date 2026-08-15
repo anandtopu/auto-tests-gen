@@ -82,7 +82,7 @@ commit in another.
 | 3 | `SECRET_PATTERN` | Credential-looking string in new content |
 | 4 | `UNMAPPED_TEST` | New spec without a catalog sidecar entry in the same commit (born-mapped rule) |
 | 5 | `TESTS_FAILED` | The generated specs ran against the provisioned environment and failed |
-| 6 | `GATE_REFUSED` | Working directory is not a standalone test repo (safety backstop) |
+| 6 | `GATE_REFUSED` | Working directory is not a standalone test repo (safety backstop), the repo's `.ai-qe/config.yaml` is not committed, or it declares no `commands.lint`/`commands.test` (running no test step is not the same as passing it) |
 | 7 | `PUSH_FAILED` | Commit succeeded but the push to the configured remote failed |
 | 8 | `SPEC_UNSATISFIED` | An approved spec scenario is uncovered and unwaived, **or** the spec no longer matches what was approved (`SPEC_CHANGED_SINCE_APPROVAL`) — both under `spec.enforce: strict` |
 | 9 | `LINT_FAILED` | The test repo's own `commands.lint` exited non-zero. This is the LINTER's verdict on the generated code — not a scope, secret or mapping finding |
