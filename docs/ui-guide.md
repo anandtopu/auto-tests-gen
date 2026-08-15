@@ -104,11 +104,23 @@ JIRA context for a ticket that does not exist yet. A pasted Stash/Bitbucket/
 GitHub PR URL is parsed into its project and slug — on Stash the URL carries the
 project key, which is otherwise a per-repo registry field you would have to know.
 
-Queue intake **warns** when a key's measured history exceeds its effective
+Queue intake **warns**, under the key in the table, and never refuses. Two
+warnings can fire and both are shown when both apply.
+
+*This will cost a lot* — the key's measured history exceeds its effective
 budget envelope. When generated-test review is active, the warning spells out
 the base cap plus provisional agent-review uplift; plan-only and disabled/off
-review retain the base. It does not refuse: the envelope is a planning number,
-not a permission.
+review retain the base. The envelope is a planning number, not a permission.
+
+*This will produce nothing* — no E2E test repo covers the app repo a PR run
+targets, so the run resolves no test repo and generates nothing. It names the
+fix (onboard a test repo, or add the repo to an existing one's `scope`), and
+where a covered consumer exists it says so rather than overclaiming: a
+contract change still fans out to consumers.
+
+Until this section was written the warning was set at intake, stored, and
+served by `/api/queue` — and the row template rendered every other field, so
+no operator ever saw one. A warning nobody is shown is not a warning.
 
 ## Test plans
 

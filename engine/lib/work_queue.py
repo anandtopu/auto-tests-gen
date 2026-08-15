@@ -283,12 +283,64 @@ def add(mode, target, pr=None, release="", requested_by="", inline_file=None,
             item.update(metadata)
         if ticket:
             item["ticket"] = ticket
-        warning = _envelope_warning(mode, target, pr)
+        # Both warnings, never one: they are about different things (this will
+        # cost a lot / this will produce nothing) and dropping either because
+        # the other fired would hide the one the operator needed.
+        warning = " · ".join(w for w in (_coverage_warning(mode, target, pr),
+                                         _envelope_warning(mode, target, pr)) if w)
         if warning:
             item["warning"] = warning
         items.append(item)
         save(items)
     return item, True
+
+
+def _coverage_warning(mode, target, pr=None):
+    """A WARNING (never a refusal) when NO E2E test repo covers the app repo
+    this PR run targets — the run will resolve no test repo and generate
+    nothing.
+
+    MEASURED before this existed: queueing a PR run for a repo nothing covers
+    produced an item byte-identical in shape to one for a fully covered repo.
+    The operator gets `status: queued` and silence, because the runner is a
+    background subprocess whose console nobody reads. Intake already warned
+    about a PROBABILISTIC thing (spend history vs envelope) and said nothing
+    about this, which is knowable with certainty at the moment of typing --
+    the same "validate at INTAKE, not minutes later" reasoning that put the
+    repo and PR-number checks here.
+
+    It is a WARNING and not a refusal for a reason the wording has to respect:
+    a contract change fans out to `consumed_by` consumers, so a PR touching
+    this repo's contract can still generate tests into a COVERED consumer's
+    test repo. That possibility is named rather than glossed, and where no
+    consumer is covered either the sentence is unqualified -- two situations,
+    two different degrees of certainty (C13).
+
+    Best-effort: an unreadable registry means no warning, never a guess.
+    """
+    if not (mode == "pr" or (mode == "plan" and pr)):
+        return ""                      # target is a ticket key, not an app repo
+    try:
+        from registry import load_registry, test_repos_for
+        reg = load_registry()
+        if test_repos_for(reg, target):
+            return ""                  # covered: say nothing on a healthy queue
+        src = next((r for r in reg["source_repositories"]
+                    if r["name"] == target), None)
+        if src is None:
+            return ""                  # not an app repo; intake already refused
+        fanout = sorted(c for c in src.get("consumed_by", [])
+                        if test_repos_for(reg, c))
+    except Exception:
+        return ""
+    fix = (f"onboard a test repo, or add {target} to an existing test repo's "
+           f"scope (bin/repos.py scope <test-repo> {target})")
+    if fanout:
+        return (f"no E2E test repo covers {target}, so this run generates "
+                f"nothing for it unless the PR changes its contract (which "
+                f"fans out to {', '.join(fanout)}) — {fix}")
+    return (f"no E2E test repo covers {target} and no covered consumer can "
+            f"receive a fan-out, so this run will generate nothing — {fix}")
 
 
 def _envelope_warning(mode, target, pr=None):

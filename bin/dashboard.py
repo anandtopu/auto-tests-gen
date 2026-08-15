@@ -1606,7 +1606,17 @@ async function refreshQueue() {
       return '<tr><td class="mono sm muted">' + escHtml(i.id) + '</td>' +
         '<td><span class="chip chip-' + cls + '">' + escHtml(lb + extra) + '</span></td>' +
         '<td><span class="pill">' + escHtml(i.mode) + '</span></td>' +
-        '<td class="strong">' + escHtml(keyOf(i)) + '</td>' +
+        // work_queue sets i.warning at INTAKE ("this key already overspends its
+        // envelope", "nothing covers this repo, so the run generates nothing")
+        // and NO surface rendered it — the store kept it and the API served it,
+        // so the whole feature stopped at this template. Same shape as the alert
+        // rule whose recipients the backend honoured and the row had no field
+        // for. It goes under the key rather than in a new column: QUEUE_COLS and
+        // the empty-state colspan are pinned to agree, and a warning is not
+        // worth breaking that over.
+        '<td class="strong">' + escHtml(keyOf(i)) +
+          (i.warning ? '<div class="sm warning-fg">! ' + escHtml(i.warning) + '</div>' : '') +
+        '</td>' +
         '<td class="mono sm muted">' + escHtml(i.release || '—') + '</td>' +
         attrs +
         '<td class="muted">' + escHtml(i.requested_by || '—') + '</td>' +

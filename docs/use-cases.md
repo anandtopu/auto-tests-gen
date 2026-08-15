@@ -266,6 +266,21 @@ run full quality or the run aborts. Active generated-test review adds the
 configured provisional allowance to PR/JIRA/tests envelopes; queue warnings
 show the effective base-plus-review cap.
 
+**Queue warnings** appear under the key in the Run queue table, and never
+refuse the run. Two can fire, and both are shown when both apply:
+
+* *this will cost a lot* — the key's **measured** spend history already exceeds
+  its workflow envelope.
+* *this will produce nothing* — no E2E test repo covers the app repo a PR run
+  targets, so the run resolves no test repo. The fix is to onboard a test repo
+  or add the app repo to an existing one's `scope`; writing a scenario first
+  produces nothing. Where a **covered** consumer exists, the warning says the
+  run generates nothing *unless the PR changes this repo's contract*, because a
+  contract change fans out to consumers — that is a real possibility and the
+  message does not claim otherwise.
+
+A queue with neither problem shows no warnings at all.
+
 ---
 
 ## 8. Switch LLM provider
