@@ -186,9 +186,17 @@ WARNING - no E2E coverage mapped for: admin-portal-ui, catalog-api, payments-api
 NOTE - test repos with empty coverage (run bootstrap?): e2e-api-tests-2
 ```
 
-Three different problems, and the distinctions matter:
+Four different problems, and the distinctions matter:
 
 * **no coverage mapped** — nothing tests that app repo. Real gap.
+* **a gap you cannot place** — a repo has uncovered surface *and* no test repo
+  covers it, so every gap line in `make gaps` carries **NO test repo covers this
+  app repo … generated NOWHERE** instead of the ordinary *prioritize a scenario
+  here*, with one summary NOTE per repo. The fix is a different one: onboard a
+  test repo, or add the app repo to an existing test repo's `scope` — writing a
+  scenario first produces nothing, because the run resolves no test repo to
+  generate it into. Where coverage cannot be established at all (an unreadable
+  registry), the report says so and claims neither answer.
 * **empty coverage** — the test repo exists but its catalog is empty. Usually
   means bootstrap has not run, not that the tests are missing.
 * **surface NOT checked** — `make gaps` ends with a *Repos whose surface was NOT

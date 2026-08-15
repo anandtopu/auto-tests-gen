@@ -13,7 +13,7 @@ import app_paths
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "engine/lib"))
-from registry import load_registry
+from registry import load_registry, test_repos_for
 
 
 def norm(path):
@@ -143,6 +143,24 @@ def compute(only_repo=None):
     return out
 
 
+def placeability(names):
+    """{repo: True|False|None} — could a scenario written for this repo be
+    generated anywhere at all?
+
+    None is a real answer and not a convenience: it means we could not
+    establish coverage, which is NOT "nothing covers it" (C13). The two send a
+    reader to opposite places — one to write a scenario, the other to onboard a
+    test repo that may already exist. A registry we cannot read also must not
+    take down `make gaps` entirely, the way one malformed run record used to
+    take down the whole dashboard.
+    """
+    try:
+        reg = load_registry()
+        return {n: bool(test_repos_for(reg, n)) for n in names}
+    except Exception:
+        return {n: None for n in names}
+
+
 def to_markdown(only_repo=None):
     gaps = compute(only_repo)
     seen = {n: g for n, g in gaps.items() if observed(g)}
@@ -161,19 +179,42 @@ def to_markdown(only_repo=None):
             "No app repos are registered, so there is no surface to compare "
             "catalog evidence against (`bin/repos.py add-app`).")
         return "\n".join(lines)
+    # "Prioritize a scenario here" is advice you can only ACT on if some test
+    # repo covers the app repo. Measured on the shipped registry: catalog-api
+    # has a real gap at /v1/catalog/search and NOTHING covers it, so following
+    # that advice generates nothing -- and this file is injected as context into
+    # triage/testplan/generate/adversary, so the model is told the same
+    # impossible thing. Two gaps, two different fixes (C13): write a scenario,
+    # versus give the repo a test repo first.
+    placeable = placeability(seen)
+
     for name, g in seen.items():
         lines.append(f"## {name} ({g['kind']})")
         if g["status"] == "empty":
             lines.append(f"- (none) {g['detail']}")
         for s in g["covered"]:
             lines.append(f"- [covered] {s}")
+        if placeable[name] is None:
+            advice = ("coverage gap: whether any test repo covers this app "
+                      "repo could not be established, so this report cannot "
+                      "say where a scenario would be generated")
+        elif placeable[name]:
+            advice = "coverage gap: prioritize a scenario here"
+        else:
+            advice = ("coverage gap: NO test repo covers this app repo, so a "
+                      "scenario written here would be generated NOWHERE -- "
+                      "onboard a test repo or add it to an existing repo's "
+                      "`scope` first")
         # Highest risk first, with the reasons on the line — generation and the plan
         # adversary read this file, so the ordering nudges what gets covered first.
         for item in g.get("uncovered_ranked") or [
                 {"surface": s, "score": 1, "reasons": []} for s in g["uncovered"]]:
             why = f" ({', '.join(item['reasons'])})" if item["reasons"] else ""
             lines.append(f"- [NO TEST] (risk {item['score']}){why} {item['surface']}"
-                         f"  <- coverage gap: prioritize a scenario here")
+                         f"  <- {advice}")
+        if placeable[name] is False and (g.get("uncovered_ranked") or g["uncovered"]):
+            lines.append(f"- NOTE: every gap above is unplaceable until "
+                         f"{name} is covered by some test repo.")
         lines.append("")
     if blind:
         # NOT a gap list. An absent section used to be indistinguishable from a
