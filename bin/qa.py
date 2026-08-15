@@ -158,6 +158,7 @@ def _run_record_files():
 
 
 def cmd_status(args):
+    import record_caveats
     runs = []
     for f in _run_record_files():
         try:
@@ -185,7 +186,6 @@ def cmd_status(args):
             + ("" if g["exit_code"] == 0 else f"(exit {g['exit_code']})")
             for g in r.get("gates", [])) or "-"
         # A short list must not read as the complete one, even in a table cell.
-        import record_caveats
         if record_caveats.gates_note(r):
             gates += "  [INCOMPLETE]"
         key = r["trigger"]["key"]
@@ -285,6 +285,7 @@ def _runs_for_key(key):
 
 
 def cmd_artifacts(args):
+    import record_caveats
     """Everything a run generated for one PR key or JIRA story, newest run first."""
     all_spend = spend_history.spend_rows()
     spend_by_run = {}
@@ -402,7 +403,6 @@ def cmd_artifacts(args):
         print("\nCommits & diffs:")
         # run_record records when gate result lines were lost to a torn write,
         # and every renderer showed the survivors as the complete set.
-        import record_caveats
         for line in record_caveats.caveats(r):
             print(f"  ! {line}")
         for g in r.get("gates", []):
