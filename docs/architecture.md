@@ -507,9 +507,10 @@ routing_hints:
   jira_component_map:                    # JIRA Component → repos
     Checkout: [web-storefront-ui, orders-api]
     Catalog:  [web-storefront-ui, admin-portal-ui, catalog-api]
-  jira_label_map:
-    api-only: { restrict_test_repos: [e2e-api-tests] }
-    ui-only:  { restrict_test_repos: [e2e-ui-tests] }
+  jira_label_map:                        # `restrict_layers`, NOT repo names:
+    api-only: { restrict_layers: [api] }  # the resolver reads this key only,
+    ui-only:  { restrict_layers: [ui] }   # and reports any other as applying
+                                          # NOTHING rather than ignoring it.
 ```
 
 The registry gives the system three derived structures: a **service dependency graph** (`consumes_services`/`consumed_by`), a **coverage map** (source repo → test repo(s)), and **JIRA routing hints** (component/label → repos). Registry changes go through PR review — routing behavior is auditable and testable (golden tests: trigger fixture in → expected repo set out). Each E2E test repo also carries a hand-managed **`scope`** (the app repos it is declared responsible for — many app repos to one test repo); `covers[]` is regenerated as *catalog evidence ∪ scope*, so a newly-mapped repo routes immediately without hand-editing the generated coverage. Registry edits go through `bin/repos.py` / `engine/lib/repo_admin.py` or the dashboard **Repositories** view (both validate references, re-run the routing goldens, and regenerate `AGENTS.md`) — see §8.1.

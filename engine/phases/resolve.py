@@ -78,6 +78,7 @@ def resolve_pr(reg, repo_name, changed):
     return dict(source_repos=sources, test_repos=sorted(tests), cross_repo_impact=impact,
                 confidence=1.0 if tests else 0.4,
                 uncovered_sources=uncovered, layer_filtered_sources=[],
+                unknown_label_rules=[],
                 rationale="registry rule: repo->coverage" + (" + contract fan-out" if impact else ""))
 
 def resolve_jira(reg, key, components, labels, linked_repos):
@@ -100,9 +101,31 @@ def resolve_jira(reg, key, components, labels, linked_repos):
     # yields no test repos, which caps confidence at 0.4 -- below the 0.8
     # threshold -- so the run asks a human instead of guessing. That is the
     # documented behaviour for "we cannot tell", reached without a special case.
+    # A label rule key we do not understand is REPORTED, never ignored.
+    # docs/architecture.md documented this map as `restrict_test_repos`, which
+    # nothing has ever read -- so an operator following the design doc authored
+    # `api-only: {restrict_test_repos: [...]}`, the rule matched no known key,
+    # `layers` stayed None, and the label restricted NOTHING. Measured: that
+    # configuration routes an api-only ticket to the UI test repo as well. A
+    # missing make target errors and a missing flag exits 2; an unread ROUTING
+    # key silently WIDENS what gets generated, which is the direction nobody
+    # notices (C13, and the same reasoning as C12's no-silent-fallback rule).
+    KNOWN_LABEL_KEYS = {"restrict_layers"}
+    unknown_rules = []
     layers = None
     for l in labels:
         r = hints.get("jira_label_map", {}).get(l, {})
+        if not isinstance(r, dict):
+            # A rule that is not a mapping is bad config, not a reason to crash
+            # the phase that decides where tests go. `"restrict_layers" in r`
+            # raises TypeError on a scalar and answers a SUBSTRING question on a
+            # string, so this normalizes before either. Reported, not swallowed:
+            # a malformed rule applied nothing, and that must not read as no
+            # rule having been asked for.
+            unknown_rules.append(f"{l}.<not a mapping>")
+            r = {}
+        for k in sorted(set(r) - KNOWN_LABEL_KEYS):
+            unknown_rules.append(f"{l}.{k}")
         if "restrict_layers" in r:
             rl = set(r["restrict_layers"])
             layers = rl if layers is None else (layers & rl)
@@ -133,6 +156,7 @@ def resolve_jira(reg, key, components, labels, linked_repos):
                 confidence=conf if tests else min(conf, 0.4),
                 uncovered_sources=sorted(uncovered),
                 layer_filtered_sources=sorted(layer_filtered),
+                unknown_label_rules=sorted(set(unknown_rules)),
                 rationale=f"components={components} labels={labels} linked={linked_repos}")
 
 if __name__ == "__main__":
@@ -152,4 +176,11 @@ if __name__ == "__main__":
                            [r for r in a.linked_repos.split(",") if r])
     th = load_org_config()["resolution"]["confidence_threshold"]
     out["needs_clarification"] = out["confidence"] < th and not out.get("skip")
+    # stderr, so the JSON on stdout stays machine-readable: a rule key nobody
+    # reads applied NO restriction, and silence there reads as "no restriction
+    # was asked for".
+    for rule in out.get("unknown_label_rules") or []:
+        print(f"[routing] jira_label_map rule `{rule}` is not a key this "
+              f"resolver understands, so it applied NOTHING. Known keys: "
+              f"restrict_layers", file=sys.stderr)
     print(json.dumps(out, indent=2))
