@@ -827,13 +827,34 @@ PLAN_CHIP = {"draft": ("draft", "muted"), "in_review": ("✎ in review", "warnin
              "approved": ("✓ approved", "success"),
              "changes_requested": ("✗ changes requested", "danger")}
 plan_rows = ""
+def _linked_chip(p):
+    """Three states, because a green tick is a claim about a real ticket.
+
+    A demo estate attaches through `adapters/mock/tracker.sh`; rendering the
+    same tick there says a JIRA ticket carries the plan when nothing left the
+    machine. `None` is UNRECOVERABLE (recorded before the flag existed), not
+    an excuse to guess "real".
+    """
+    if not p.get("linked"):
+        return '<span class="muted">—</span>'
+    sim = p.get("linked_simulated")
+    if sim is True:
+        return ('<span class="chip chip-warning" title="attached through the '
+                'MOCK tracker adapter — no real ticket has this">~ linked '
+                '(simulated)</span>')
+    if sim is None:
+        return ('<span class="chip chip-muted" title="this attachment predates '
+                'delivery provenance; whether it reached a real tracker was '
+                'not recorded">linked (provenance not recorded)</span>')
+    return '<span class="chip chip-success">✓ linked</span>'
+
+
 for p in plan_state.summary():
     lbl, cls = PLAN_CHIP.get(p["status"], (p["status"] or "—", "muted"))
     plan_rows += (
         f'<tr><td class="strong">{esc(p["key"])}</td>'
         f'<td><span class="chip chip-{cls}">{esc(lbl)}</span></td>'
-        f'<td>' + ('<span class="chip chip-success">✓ linked</span>' if p["linked"]
-                   else '<span class="muted">—</span>') + '</td>'
+        f'<td>' + _linked_chip(p) + '</td>'
         f'<td class="mono sm muted">{esc(p["generated_run"] or "—")}</td>'
         f'<td class="sm muted">{esc(p["note"] or "")}</td>'
         f'<td class="right"><button class="btn btn-sm plan-open" '
@@ -2829,6 +2850,22 @@ const PLAN_CHIP = { draft: ['draft', 'muted'], in_review: ['✎ in review', 'war
   approved: ['✓ approved', 'success'], changes_requested: ['✗ changes requested', 'danger'] };
 let planKey = null;
 let planRevision = null;
+// The SERVED plan table renders the same fact as the static one above, and it
+// was the second renderer this fix nearly missed -- found by grepping for the
+// rendered STRING rather than for the code just patched. Three states: a green
+// tick is a claim that a real ticket carries the plan.
+function planLinkedChip(p) {
+  if (!p.linked) return '<span class="muted">—</span>';
+  if (p.linked_simulated === true) {
+    return '<span class="chip chip-warning" title="attached through the MOCK ' +
+           'tracker adapter — no real ticket has this">~ linked (simulated)</span>';
+  }
+  if (p.linked_simulated === null || p.linked_simulated === undefined) {
+    return '<span class="chip chip-muted" title="this attachment predates ' +
+           'delivery provenance">linked (provenance not recorded)</span>';
+  }
+  return '<span class="chip chip-success">✓ linked</span>';
+}
 function planChip(s) {
   const [lb, cls] = PLAN_CHIP[s] || [s || '—', 'muted'];
   return '<span class="chip chip-' + cls + '">' + escHtml(lb) + '</span>';
@@ -2841,7 +2878,7 @@ async function refreshPlans() {
     body.innerHTML = plans.length ? plans.map(p =>
       '<tr><td class="strong">' + escHtml(p.key) + '</td>' +
       '<td>' + planChip(p.status) + '</td>' +
-      '<td>' + (p.linked ? '<span class="chip chip-success">✓ linked</span>' : '<span class="muted">—</span>') + '</td>' +
+      '<td>' + planLinkedChip(p) + '</td>' +
       '<td class="mono sm muted">' + escHtml(p.generated_run || '—') + '</td>' +
       '<td class="sm muted">' + escHtml(p.note || '') + '</td>' +
       '<td class="right"><button class="btn btn-sm plan-open" data-key="' + escHtml(p.key) + '">Review</button></td></tr>'

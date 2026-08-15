@@ -292,7 +292,7 @@ def attach_to_jira(key, fmt="pdf", by=""):
     # nothing to annotate; that is not an error.
     try:
         import plan_state
-        plan_state.mark_linked(key, ref, by)
+        plan_state.mark_linked(key, ref, by, simulated=mock)
     except SystemExit:
         pass                                     # no plan state entry for this key
     return ref

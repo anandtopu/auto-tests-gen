@@ -66,6 +66,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine/lib"))
 import app_paths                      # R12: mutable paths resolve here
 from registry import load_registry
+import plan_state as plan_state_lib
 import review_state
 import test_reviewer
 import spend_history
@@ -692,8 +693,11 @@ def cmd_plan(args):
         print(f"{'key':<16} {'status':<18} {'linked':<7} {'tests run':<18} note")
         for r in rows:
             print(f"{r['key']:<16} {r['status']:<18} "
-                  f"{'yes' if r['linked'] else '-':<7} "
+                  f"{plan_state_lib.linked_cell(r):<7} "
                   f"{str(r['generated_run'] or '-'):<18} {r['note']}")
+        if any(r.get("linked") and r.get("linked_simulated") for r in rows):
+            print("\n~ = attached through the MOCK tracker adapter; no real "
+                  "ticket has this plan.")
     elif act == "edit":
         if not args.file:
             sys.exit("edit needs --file <path> with the new plan markdown")

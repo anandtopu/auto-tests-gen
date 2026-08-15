@@ -21,6 +21,7 @@ import hashlib, hmac, json, os, pathlib, re, sys, time
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import app_paths                      # R12: mutable paths resolve here
+import env_flag                      # mock vs real delivery, declared at record time
 import fs_lock
 
 # Path overrides let tests (and the CLI under test) run against a scratch store
@@ -473,8 +474,17 @@ def save_plan(key, text, by="", expected_revision=None):
         return e
 
 
-def mark_linked(key, ref, by=""):
-    """Record that the approved plan was linked to its tracker ticket."""
+def mark_linked(key, ref, by="", simulated=None):
+    """Record that the approved plan was linked to its tracker ticket.
+
+    `simulated` is the PRODUCER declaring itself, the pattern the mock reviewer
+    established and the critic score was retrofitted with: the caller runs the
+    Tracker port and therefore knows whether it reached JIRA or
+    `adapters/mock/tracker.sh`, and re-deriving that in each renderer is how
+    there came to be five that did not. Stamped CONDITIONALLY — an unknown
+    stays unknown, because writing `simulated: False` for a delivery we cannot
+    vouch for converts "we cannot tell" into "a real ticket has this attached".
+    """
     key = validate_key(key)
     with fs_lock.lock(FILE):
         state = load()
@@ -482,6 +492,8 @@ def mark_linked(key, ref, by=""):
         if e is None:
             raise SystemExit(f"no plan state for {key}")
         e["linked"] = {"ref": ref, "by": by, "ts": time.time()}
+        if simulated is not None:
+            e["linked"]["simulated"] = bool(simulated)
         e.setdefault("history", []).append(
             {"status": e.get("status", "?"), "by": by,
              "note": f"linked to tracker: {ref}", "ts": time.time()})
@@ -687,6 +699,29 @@ def require_approved(key):
     return e
 
 
+def linked_cell(row, yes="yes", no="-"):
+    """The ONE rendering of "is this plan on the ticket?" for narrow columns.
+
+    Three states, not two (C13): attached for real, attached only through the
+    MOCK tracker adapter, and not attached. A board reading `yes` after a demo
+    run says a real JIRA ticket carries the plan when nothing left the machine
+    — the same lie the critic score and the reviewer verdict were telling until
+    their producers started declaring themselves.
+
+    `simulated` absent means UNRECOVERABLE, not real: entries recorded before
+    the flag existed cannot be re-derived, and guessing "real" is the direction
+    that invents a delivery.
+    """
+    if not row.get("linked"):
+        return no
+    sim = row.get("linked_simulated")
+    if sim is True:
+        return f"~{yes}"
+    if sim is None:
+        return f"{yes}?"
+    return yes
+
+
 def summary():
     """All plans with status + whether the markdown/contract exist."""
     state = load()
@@ -704,6 +739,10 @@ def summary():
                     "by": e.get("by", ""), "note": e.get("note", ""),
                     "updated": e.get("updated", 0),
                     "linked": bool(e.get("linked")),
+                    # The flag TRAVELS with the fact. `bool(e.get("linked"))`
+                    # is where the provenance was being dropped: every renderer
+                    # downstream reads this projection, not the entry.
+                    "linked_simulated": (e.get("linked") or {}).get("simulated"),
                     "generated_run": e.get("generated_run"),
                     "has_plan": has_plan})
     return out
@@ -753,7 +792,7 @@ if __name__ == "__main__":
     elif a[0] == "list":
         for p in summary():
             print(f"{p['key']:<16} {p['status']:<18} "
-                  f"{'linked' if p['linked'] else '-':<7} {p['note']}")
+                  f"{linked_cell(p, yes='linked'):<8} {p['note']}")
     elif a[0] == "set":
         print(json.dumps(set_status(a[1], a[2], opt("--by"), opt("--note")), indent=2))
     else:
@@ -833,7 +872,13 @@ def post_ticket_comment(key):
     with fs_lock.lock(FILE):
         state = load()
         if key in state:
+            # Same producer-declares-itself rule as mark_linked. This `result`
+            # string is BUILT HERE rather than echoed from the adapter, so
+            # unlike an attachment ref it carries no `[mock-...]` marker of its
+            # own — nothing downstream could have told a real comment from a
+            # simulated one.
             state[key]["commented"] = {"ts": time.time(),
-                                       "result": result[:300]}
+                                       "result": result[:300],
+                                       "simulated": bool(env_flag.mock())}
             _save(state)
     return {"comment": text, "result": result, "receipt": receipt}

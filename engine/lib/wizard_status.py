@@ -274,6 +274,13 @@ def build(key, mode="pr"):
             detail = (commented.get("result") or "comment posted on the ticket")[:80]
         else:
             detail = ""
+        # An attachment ref happens to echo the adapter's own `[mock-...]`
+        # prefix; the comment result is BUILT by plan_state and carries no such
+        # marker, so a simulated comment read exactly like a real one. Say it
+        # either way rather than relying on prose the adapter chose.
+        if (linked or {}).get("simulated") is True or \
+                (commented or {}).get("simulated") is True:
+            detail = (detail + " — MOCK tracker: no real ticket was updated").strip()
         steps.append(_step("done" if (linked or commented) else "pending",
                            "Link plan + tests to the ticket", detail))
 
