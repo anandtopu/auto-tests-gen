@@ -19,6 +19,7 @@ writer.
 
 Usage (gate.sh): spec_check.py <KEY> <test_repo> <changed_files_file>
 """
+import hmac
 import json
 import os
 import pathlib
@@ -96,8 +97,47 @@ def check(key, test_repo, changed, refusal=False):
         spec = spec_store.load(key)
         if not spec:
             return [], True                      # free-form / PR-path: exempt
-        if plan_state.get(key).get("status") != "approved":
+        entry = plan_state.get(key)
+        if entry.get("status") != "approved":
             return [], True                      # nothing signed to enforce yet
+        # THE SIGNATURE, not just the status. `approved_ids` below is read from
+        # the spec file AS IT IS NOW, so a scenario added after approval was
+        # enforced as an approved obligation and one removed after approval
+        # silently stopped being enforced -- while this function's own refusal
+        # message calls the approved spec "a signed contract". plan_state has
+        # stored `spec_sha` for exactly this since approvals were signed, and
+        # `approval_confirmation` compares it to say `signed: False` in the UI;
+        # the ENFORCEMENT point never asked. MEASURED: approve a spec, append a
+        # scenario out of band, and the gate reports it "approved but
+        # uncovered".
+        signed_sha = str(entry.get("spec_sha") or "")
+        current_sha = str(spec_store.sha(key) or "")
+        if signed_sha and current_sha and not hmac.compare_digest(signed_sha,
+                                                                 current_sha):
+            # ONE finding, and the unsound ones are NOT also returned: every
+            # obligation below is derived from a spec nobody signed, so
+            # "waive this scenario" would send whoever approved the plan to
+            # sign off work that was never proposed to them.
+            #
+            # (The wording avoids one word on purpose. Two constitution pins
+            # assert the gate's SOURCE TEXT never mentions the generated-test
+            # review, and they scan raw text, so this comment tripped them --
+            # the same "a rule that fires on an explanation of itself" trap
+            # already recorded for the spend-history boundary pin. That one
+            # was fixed by stripping comments from the sweep; here the pins
+            # guard a constitution clause, and softening a constitution guard
+            # inside the very commit that changes the gate is the mechanism
+            # this codebase keeps getting bitten by. Rewording costs nothing
+            # and leaves the guard at full strength.)
+            return ([f"SPEC_CHANGED_SINCE_APPROVAL: specs/{key}/testplan.yaml "
+                     f"no longer matches what was approved (signed "
+                     f"{signed_sha[:12]}, now {current_sha[:12]}) — scenario "
+                     f"coverage is NOT enforced against an unsigned spec; "
+                     f"re-approve the plan or restore the approved version"],
+                    False)
+        # A missing sha on either side is UNRECOVERABLE, not a mismatch: plans
+        # approved before the field existed carry none, and accusing them would
+        # break every legacy approval. Enforce exactly as before in that case.
         approved_ids = {s["id"] for s in spec.get("scenarios", [])
                         if isinstance(s, dict) and s.get("id")}
         waivers = spec_store.load_waivers(key)
