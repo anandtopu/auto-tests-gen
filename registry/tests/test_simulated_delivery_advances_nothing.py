@@ -155,14 +155,65 @@ def test_nothing_to_deliver_is_not_a_failed_delivery(tmp_path, monkeypatch):
 
 
 def test_the_drift_siblings_share_one_definition():
-    """THE INVARIANT. Two modules had the identical bug because each carried
-    its own bool; a third notify-gated alarm must not reinvent it."""
-    for rel in ("engine/lib/coverage_drift.py", "engine/lib/spec_drift.py"):
+    """THE INVARIANT, and it caught a THIRD site on the next review pass.
+
+    `vector_index._notify_once` gates a once-per-day suppression marker on
+    delivery, and its own comment named the other two as "the same shape" -
+    then read the mock adapter's exit 0 as delivery like both of them. The
+    first sweep listed it as a notify site and classified it report-only
+    WITHOUT READING IT; the composition review found it by reading. Measured
+    under AIQE_MOCK=1: the marker was written, so "the embed budget stopped the
+    index refreshing" was suppressed for the rest of the day, told to nobody,
+    while retrieval silently degraded to lexical.
+    """
+    for rel in ("engine/lib/coverage_drift.py", "engine/lib/spec_drift.py",
+                "engine/lib/vector_index.py"):
         src = (ROOT / rel).read_text(encoding="utf-8")
         assert "delivery.landed(" in src, \
             f"{rel} decides delivery for itself instead of asking delivery.py"
         assert "return r.returncode == 0" not in src, \
             f"{rel} still reads an adapter exit code as delivery"
+
+
+def _vector_index(tmp_path, monkeypatch, mock):
+    import importlib
+    monkeypatch.setenv("AIQE_MOCK", "1" if mock else "0")
+    import vector_index
+    importlib.reload(vector_index)
+    monkeypatch.setattr(vector_index, "SPEND", tmp_path / "embed-spend.json")
+    return vector_index
+
+
+def _markers(vi):
+    d = json.loads(vi.SPEND.read_text(encoding="utf-8")) if vi.SPEND.exists() else {}
+    return [k for k in d if k.startswith("notified-")]
+
+
+def test_a_simulated_embed_cap_alert_writes_no_suppression_marker(tmp_path,
+                                                                   monkeypatch):
+    """THE THIRD SITE, driven. The marker suppresses this message for the rest
+    of the day; writing it for a send that reached nobody means the operator is
+    never told the index stopped refreshing, while retrieval silently degrades
+    to the lexical fallback."""
+    vi = _vector_index(tmp_path, monkeypatch, mock=True)
+    vi._notify_once("daily embed cap reached - refresh is partial")
+    assert _markers(vi) == [], \
+        "a mock delivery suppressed tomorrow morning's only warning"
+
+
+def test_a_real_send_still_suppresses_the_repeat(tmp_path, monkeypatch):
+    """THE OVER-FIX DIRECTION: the marker exists so a real channel is not
+    pinged once per batch, and losing it would turn one alarm into a storm."""
+    vi = _vector_index(tmp_path, monkeypatch, mock=False)
+    # AIQE_MOCK=0 selects adapters/notify/slack.sh, which exists in the tree;
+    # only the SEND is faked, so the real branch is exercised end to end.
+    import subprocess
+
+    class _R:
+        returncode = 0
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _R())
+    vi._notify_once("daily embed cap reached")
+    assert _markers(vi), "a delivered alert no longer suppresses its repeat"
 
 
 def test_the_spec_drift_record_is_gated_on_a_real_send():

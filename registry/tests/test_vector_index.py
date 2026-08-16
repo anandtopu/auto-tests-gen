@@ -175,17 +175,40 @@ def test_the_once_a_day_marker_is_only_set_after_delivery(tmp_path, monkeypatch)
     assert not spend.exists() or f"notified-{vi._day()}" not in json.loads(
         spend.read_text(encoding="utf-8")), "a day was marked without a delivery"
 
-    # A working adapter marks the day, and the second call stays silent.
-    ad = tmp_path / "adapters" / "mock"
-    ad.mkdir(parents=True)
-    calls = tmp_path / "calls.txt"
-    (ad / "notify.sh").write_text(
-        f'#!/usr/bin/env bash\necho x >> "{calls.as_posix()}"\nexit 0\n',
+    # A MOCK adapter exiting 0 is NOT a delivery. This assertion used to expect
+    # the marker and said "a working adapter marks the day" -- it encoded the
+    # belief this module was later fixed for, the same way test_spec_drift's
+    # did. Under AIQE_MOCK=1 (the deployed default) nothing left the machine,
+    # so suppressing the rest of the day's warnings would tell nobody while
+    # retrieval degraded to lexical.
+    mock_ad = tmp_path / "adapters" / "mock"
+    mock_ad.mkdir(parents=True)
+    mock_calls = tmp_path / "mock-calls.txt"
+    (mock_ad / "notify.sh").write_text(
+        f'#!/usr/bin/env bash\necho x >> "{mock_calls.as_posix()}"\nexit 0\n',
         encoding="utf-8", newline="\n")
     monkeypatch.setenv("AIQE_MOCK", "1")
     vi._notify_once("budget stopped the refresh")
+    assert mock_calls.exists(), "the mock adapter was not even invoked"
+    assert not spend.exists() or f"notified-{vi._day()}" not in json.loads(
+        spend.read_text(encoding="utf-8")), \
+        "a simulated send suppressed the rest of the day's warnings"
+
+    # A REAL adapter marks the day, and the second call stays silent. That
+    # idempotence is what the marker is for, and losing it would turn one alarm
+    # into one per batch.
+    real_ad = tmp_path / "adapters" / "notify"
+    real_ad.mkdir(parents=True)
+    calls = tmp_path / "calls.txt"
+    (real_ad / "slack.sh").write_text(
+        f'#!/usr/bin/env bash\necho x >> "{calls.as_posix()}"\nexit 0\n',
+        encoding="utf-8", newline="\n")
+    monkeypatch.setenv("AIQE_MOCK", "0")
+    vi._notify_once("budget stopped the refresh")
     assert calls.exists() and len(calls.read_text().split()) == 1
     assert json.loads(spend.read_text(encoding="utf-8"))[f"notified-{vi._day()}"]
+    vi._notify_once("budget stopped the refresh")
+    assert len(calls.read_text().split()) == 1, "the marker stopped suppressing"
 
     vi._notify_once("budget stopped the refresh")
     assert len(calls.read_text().split()) == 1, "notified twice in one day"

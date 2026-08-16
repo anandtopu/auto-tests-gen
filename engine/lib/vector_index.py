@@ -34,6 +34,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import embeddings
+import delivery
 import env_flag  # AIQE_MOCK means what it says
 import fs_lock
 import knowledge_chunks
@@ -347,23 +348,29 @@ def _notify_once(msg):
     # that the embed budget stopped the index refreshing — was skipped for the
     # rest of the day and retrieval quietly degraded to lexical with nobody
     # told. Same shape as the coverage-drift and spec-drift alarms.
-    delivered = False
+    #
+    # ...and the same THIRD STATE they were both missing: the mock adapter
+    # exits 0, so under `AIQE_MOCK=1` (the deployed default) this wrote the
+    # suppression marker for a message that reached nobody. Measured. `delivery`
+    # is the one definition; only a real send may advance durable state.
+    state = delivery.FAILED
     try:
         import subprocess
 
         import work_queue
+        mock = env_flag.mock()
         adapter = ROOT / ("adapters/mock/notify.sh"
-                          if env_flag.mock()
+                          if mock
                           else "adapters/notify/slack.sh")
         if adapter.exists():
             r = subprocess.run([work_queue.bash_exe(), str(adapter), "post",
                                 f"[ai-qe] {msg}"], cwd=ROOT,
                                capture_output=True,
                                stdin=subprocess.DEVNULL, timeout=30)
-            delivered = r.returncode == 0
+            state = delivery.outcome(r.returncode, mock=mock)
     except Exception:                      # noqa: BLE001
-        delivered = False                  # best-effort, but not a silent one
-    if not delivered:
+        state = delivery.FAILED            # best-effort, but not a silent one
+    if not delivery.landed(state):
         return                             # no marker: the next run retries
     with fs_lock.lock(SPEND):
         current = fs_lock.read_json_guarded(SPEND, {})
