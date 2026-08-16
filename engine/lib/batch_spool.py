@@ -263,30 +263,70 @@ def batches():
     `_write` preserves them on disk, because an unreadable record may be the
     only trace of a batch someone is being billed for.
     """
+    return batches_with_issues()[0]
+
+
+def batches_with_issues():
+    """(records, unreadable) - the same read, NAMING what it dropped.
+
+    The docstring above says a malformed record may be the only trace of a
+    batch someone is being billed for, and then drops it from the list every
+    surface iterates. `make batch-status` prints one line per record, so an
+    all-malformed spool and an empty one produced the IDENTICAL blank screen -
+    on the command that answers "is there money in flight?". C13, and the same
+    read-guard-hides-the-evidence shape `review_state.load_with_issues` and
+    `test_health.load_with_issues` already exist to prevent.
+
+    `unreadable` counts rather than names, because a record we cannot parse has
+    no id to name it by - the honest answer is a count, exactly as the work
+    queue reports its own unusable items.
+    """
     doc = _read(BATCHES, {"batches": []})
     rows = doc.get("batches") if isinstance(doc, dict) else None
-    return [b for b in rows if isinstance(b, dict)] if isinstance(rows, list) else []
+    if not isinstance(rows, list):
+        # A document of the wrong shape is not "no batches": we could not read
+        # the spool at all, and saying nothing would be the loudest lie here.
+        return [], (0 if doc in ({}, {"batches": []}) else 1)
+    good = [b for b in rows if isinstance(b, dict)]
+    return good, len(rows) - len(good)
 
 
 def status():
-    """Per in-flight batch: what the API says, without guessing."""
+    """Per in-flight batch: what the API says, without guessing.
+
+    Every field is read DEFENSIVELY. `isinstance(b, dict)` upstream proves the
+    record is an object, not that it is complete: `len(b["requests"])` raised
+    KeyError on a record carrying only an id, which is exactly what a submit
+    whose record write was interrupted would leave behind - the
+    BATCH_SUBMITTED_BUT_UNRECORDED shape this module exists to make visible.
+    One such record took down the whole command, hiding every healthy batch
+    beside it.
+    """
     out = []
     for b in batches():
+        bid = b.get("id")
+        n = len(b.get("requests") or [])
+        if not isinstance(bid, str) or not bid:
+            # No id means we cannot ask the API about it and cannot name it;
+            # report it rather than drop it, because the record itself may be
+            # the only trace of a batch that is billing.
+            out.append({"id": "<no id recorded>", "state": "unknown",
+                        "requests": n,
+                        "detail": "this record has no batch id, so its state "
+                                  "cannot be queried"})
+            continue
         if b.get("drained"):
-            out.append({"id": b["id"], "state": "drained",
-                        "requests": len(b["requests"])})
+            out.append({"id": bid, "state": "drained", "requests": n})
             continue
         try:
-            resp = _call("GET", f"{BASE}/v1/messages/batches/{b['id']}")
+            resp = _call("GET", f"{BASE}/v1/messages/batches/{bid}")
             state = resp.get("processing_status") or "unknown"
         except Exception as e:
             # C13: we could not ask. That is not "still running" and not "done".
-            out.append({"id": b["id"], "state": "unknown",
-                        "requests": len(b["requests"]),
+            out.append({"id": bid, "state": "unknown", "requests": n,
                         "detail": f"could not reach the API: {e}"})
             continue
-        out.append({"id": b["id"], "state": state,
-                    "requests": len(b["requests"]),
+        out.append({"id": bid, "state": state, "requests": n,
                     "results_url": resp.get("results_url")})
     return out
 
@@ -434,9 +474,24 @@ def main(argv):
             return 0
         print(f"submitted {rec['id']} with {len(rec['requests'])} request(s)")
     elif cmd == "status":
-        for s in status():
+        rows = status()
+        for s in rows:
             extra = f" -- {s['detail']}" if s.get("detail") else ""
             print(f"{s['id']}  {s['state']}  ({s['requests']} request(s)){extra}")
+        _, unreadable = batches_with_issues()
+        if not rows and not unreadable:
+            # Silence was the third reading of this screen. An operator who has
+            # just submitted a batch and mistyped AIQE_BATCH_DIR saw exactly
+            # what an operator with nothing in flight saw.
+            # ASCII: printed to a maintenance console, which is cp1252 here.
+            print(f"no batches recorded in {BATCHES}: nothing is in flight. "
+                  f"Submit one with: make batch-submit")
+        if unreadable:
+            print(f"WARNING: {unreadable} batch record(s) in {BATCHES} could "
+                  f"NOT be read, so this list is INCOMPLETE. They are kept on "
+                  f"disk; an unreadable record may be the only trace of a "
+                  f"batch that was submitted and is being billed.",
+                  file=sys.stderr)
     elif cmd == "drain":
         res = drain()
         counts = summarize(res)
