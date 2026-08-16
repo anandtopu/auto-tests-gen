@@ -169,7 +169,12 @@ def test_legacy_image_owned_members_are_accepted_but_never_restored(tmp_path,
     dest.mkdir()
     monkeypatch.setattr(sb, "ROOT", dest)
     result = sb.import_bundle(legacy, replace=True)
-    assert result["skipped"] == [rel]
+    # REFUSED, not "skipped because it exists": this member is frozen
+    # configuration the importer declines on principle, and the destination is
+    # empty. The two counters were one until a restore summary called a
+    # refusal "kept existing" on the single line a DR operator reads.
+    assert result["refused"] == [rel]
+    assert result["skipped"] == []
     assert not (dest / rel).exists()
 
 

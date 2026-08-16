@@ -414,7 +414,7 @@ def import_bundle(bundle, replace=False, dry_run=False, force=False):
         raise SystemExit("a pipeline run holds out/.pipeline.lock — rewriting state "
                          "under a live run risks a half-imported estate. Wait for it "
                          "to finish, or pass --force if the lock is stale.")
-    written, skipped = [], []
+    written, skipped, refused = [], [], []
     artifact_mutex = app_paths.artifacts_dir(ROOT) / ".mutation"
     # Preflight the SAME open archive before acquiring a state lock or creating a
     # destination directory. A corrupt member used to be skipped after earlier
@@ -437,7 +437,12 @@ def import_bundle(bundle, replace=False, dry_run=False, force=False):
                     continue
                 rel = m.name[len("state/"):]
                 if _frozen_import(rel):
-                    skipped.append(rel)
+                    # NOT "kept because it exists": this member is CODE, refused
+                    # on principle whatever the destination holds. Counting it
+                    # with the merge skips told a restoring operator that a file
+                    # was already present when it was declined -- two reasons,
+                    # one number, on the one line a DR restore prints.
+                    refused.append(rel)
                     continue
             # Refuse anything that escapes the root: a bundle is untrusted input
             # (they get emailed and attached to tickets — see the module header).
@@ -470,7 +475,8 @@ def import_bundle(bundle, replace=False, dry_run=False, force=False):
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_bytes(data)
                 written.append(rel)
-    return {"written": written, "skipped": skipped, "mismatched": [],
+    return {"written": written, "skipped": skipped, "refused": refused,
+            "mismatched": [],
             "mode": "replace" if replace else "merge", "dry_run": dry_run}
 
 
@@ -501,8 +507,14 @@ def main(argv):
         r = import_bundle(argv[2], replace="--replace" in argv,
                           dry_run="--dry-run" in argv, force="--force" in argv)
         verb = "would write" if r["dry_run"] else "wrote"
-        print(f"{r['mode']} import: {verb} {len(r['written'])} file(s), "
-              f"kept {len(r['skipped'])} existing")
+        line = (f"{r['mode']} import: {verb} {len(r['written'])} file(s), "
+                f"kept {len(r['skipped'])} existing")
+        # A member declined because it is CODE is a different fact from one
+        # kept because the destination already has it, and only one of them
+        # means "your data was already there".
+        if r.get("refused"):
+            line += f", refused {len(r['refused'])} code path(s)"
+        print(line)
         if r["mismatched"]:
             print(f"REJECTED {len(r['mismatched'])} file(s) whose checksum did not "
                   f"match the manifest: {', '.join(r['mismatched'][:5])}")
