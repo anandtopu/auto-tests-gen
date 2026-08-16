@@ -119,9 +119,55 @@ def sync_repo(repo, ref=None):
 
 
 def sync_all(ref=None):
-    results = [sync_repo(r["name"], ref) for r in known_repos()]
-    return {"repos": len(results), "with_guidance": sum(1 for r in results if r["files"]),
+    """Sync every repo, BEST-EFFORT per repo.
+
+    This was a list comprehension over `sync_repo`, which raises SystemExit on
+    an unreachable SCM. MEASURED with one repo's fetch failing on a 7-repo
+    estate: it aborted at repo 4, three repos were synced, THREE WERE NEVER
+    ATTEMPTED, and the caller saw one error naming one repo. `make maintain`
+    then reported the step degraded with that repo's name, which reads as "one
+    repo is stale" when four are - and this guidance is merged into AGENTS.md
+    and injected into every authoring phase, so stale here means the model is
+    told yesterday's conventions.
+
+    One repo's outage must not decide whether the others refresh. The same rule
+    the bootstrap chain already follows for unreadable app repos, and the same
+    reason `maintenance` keeps its steps independent.
+
+    `sync_repo` itself still RAISES: an operator who asked for one repo wants
+    that failure loudly, not folded into a summary.
+    """
+    results, failed = [], []
+    for r in known_repos():
+        try:
+            results.append(sync_repo(r["name"], ref))
+        except SystemExit as e:                # noqa: PERF203 - per-repo isolation
+            # Recorded so `status()` can show WHY a repo is stale rather than
+            # only that its timestamp is old.
+            _record_failure(r["name"], str(e))
+            failed.append({"repo": r["name"], "error": str(e)[:300]})
+    return {"repos": len(results), "failed": failed,
+            "with_guidance": sum(1 for r in results if r["files"]),
             "results": results}
+
+
+def _record_failure(repo, error):
+    """Leave the last successful sync intact and note the failure beside it.
+
+    Clearing `files`/`synced_at` would make a repo that synced fine yesterday
+    look like one that never synced at all - losing the very evidence that says
+    how stale the cached guidance actually is.
+    """
+    try:
+        with fs_lock.lock(STATE):
+            s = load_state()
+            e = dict(s.get(repo) or {})
+            e["last_error"] = error[:300]
+            e["last_error_at"] = time.time()
+            s[repo] = e
+            _save_state(s)
+    except Exception:                          # noqa: BLE001
+        pass                                   # bookkeeping must not mask the outage
 
 
 def synced_files(repo):
@@ -153,6 +199,8 @@ def status():
         e = s.get(r["name"], {})
         out.append({**r, "files": e.get("files", []), "missing": e.get("missing", []),
                     "synced_at": e.get("synced_at"), "source": e.get("source", ""),
+                    "last_error": e.get("last_error", ""),
+                    "last_error_at": e.get("last_error_at"),
                     "cached": [f["path"] for f in synced_files(r["name"])]})
     return out
 
@@ -176,6 +224,12 @@ if __name__ == "__main__":
         for x in r["results"]:
             if x["files"]:
                 print(f"  {x['repo']}: {', '.join(x['files'])}")
+        # A partial sync that reports only its successes reads as a complete
+        # one. These repos keep serving yesterday's cached guidance into every
+        # authoring phase, and nothing else says so.
+        for f in r.get("failed") or []:
+            print(f"  NOT SYNCED {f['repo']}: {f['error']} "
+                  f"(its cached guidance is now stale)", file=sys.stderr)
     elif a[0] == "status":
         for x in status():
             when = (time.strftime("%Y-%m-%d %H:%M", time.localtime(x["synced_at"]))
