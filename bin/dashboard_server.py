@@ -68,6 +68,7 @@ UI_SCHEMA = 3
 # with the authenticated user, e.g. X-Forwarded-User. Empty = SSO off.
 SSO_HEADER = os.environ.get("AIQE_SSO_HEADER", "").strip()
 sys.path.insert(0, str(ROOT / "engine/lib"))
+import token_auth
 import adoption_levels, alert_rules, demo_data, email_notify, event_log, export_plan, \
     guidance_sync, inline_ticket, integration_check, openhands_client, \
     openhands_events, openhands_mode, plan_state, pr_url, repo_admin, \
@@ -370,20 +371,26 @@ class Handler(BaseHTTPRequestHandler):
                 self.user = ident
                 return True
             # fall through: a Bearer token may still authenticate an API client
-            if UI_TOKEN and self.headers.get("Authorization", "") == f"Bearer {UI_TOKEN}":
+            if UI_TOKEN and token_auth.bearer_matches(
+                    self.headers.get("Authorization", ""), UI_TOKEN):
                 self.user = "token-client"
                 return True
             return False
         if not UI_TOKEN:
             return True
         q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        self._set_cookie = q.get("token", [""])[0] == UI_TOKEN
+        self._set_cookie = token_auth.matches(q.get("token", [""])[0], UI_TOKEN)
         if self._set_cookie:
             return True
-        if self.headers.get("Authorization", "") == f"Bearer {UI_TOKEN}":
+        if token_auth.bearer_matches(self.headers.get("Authorization", ""),
+                                     UI_TOKEN):
             return True
         cookies = self.headers.get("Cookie", "")
-        return f"aiqe_token={UI_TOKEN}" in cookies.replace(" ", "").split(";")
+        # Compared per cookie rather than by substring, so the token is
+        # matched in constant time like the other two carriers.
+        return any(c.startswith("aiqe_token=")
+                   and token_auth.matches(c[len("aiqe_token="):], UI_TOKEN)
+                   for c in cookies.replace(" ", "").split(";"))
 
     def _deny(self):
         if SSO_HEADER:

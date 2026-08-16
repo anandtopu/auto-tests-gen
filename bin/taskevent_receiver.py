@@ -43,6 +43,7 @@ import fs_lock  # noqa: E402
 import http_body  # noqa: E402
 import openhands_events  # noqa: E402
 import placeholder_secrets  # noqa: E402
+import token_auth  # noqa: E402
 import work_queue  # noqa: E402
 
 TOKEN = os.environ.get("AIQE_HOOK_TOKEN", "")
@@ -193,9 +194,10 @@ class Handler(BaseHTTPRequestHandler):
         send arbitrary headers, so Bearer is the form it can express."""
         if not TOKEN:
             return True
-        if self.headers.get("X-AIQE-Token", "") == TOKEN:
+        if token_auth.matches(self.headers.get("X-AIQE-Token", ""), TOKEN):
             return True
-        return self.headers.get("Authorization", "") == f"Bearer {TOKEN}"
+        return token_auth.bearer_matches(self.headers.get("Authorization", ""),
+                                         TOKEN)
 
     def do_POST(self):
         if not self._authed():
