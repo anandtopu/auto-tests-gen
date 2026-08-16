@@ -93,14 +93,33 @@ clauses:
         test: test_reuse_end_to_end_with_provenance
   - id: C10
     statement: >-
-      A simulated cost figure can never masquerade as a measured dollar -
-      labels everywhere, savings print n/a until measured runs exist.
+      A SIMULATED result can never masquerade as a real one. This holds for
+      every signal a mock can produce - spend, the critic score, validation
+      counts, the reviewer verdict, and delivery to an external system - not
+      only for money: labels everywhere, rates and savings print n/a until
+      measured runs exist, and a simulated delivery advances no durable alarm
+      state. Where provenance was never recorded the answer is UNKNOWN, never
+      "real".
     category: honesty
     pins:
       - file: registry/tests/test_cost_telemetry.py
         test: test_simulated_share_is_visible
       - file: registry/tests/test_spend_controls.py
         test: test_baseline_refuses_simulated_runs
+      - file: registry/tests/test_scorecard_honesty.py
+        test: test_a_measured_cost_claim_is_backed_by_real_spend
+      - file: registry/tests/test_critic_score_provenance.py
+        test: test_a_mock_critic_phase_is_simulated
+      - file: registry/tests/test_critic_score_provenance.py
+        test: test_a_real_critic_phase_is_measured
+      - file: registry/tests/test_validation_counts_provenance.py
+        test: test_a_mock_validate_phase_is_simulated
+      - file: registry/tests/test_delivery_provenance.py
+        test: test_the_narrow_column_has_three_states
+      - file: registry/tests/test_delivery_provenance.py
+        test: test_a_real_delivery_is_never_qualified
+      - file: registry/tests/test_simulated_delivery_advances_nothing.py
+        test: test_only_a_real_send_may_advance_state
   - id: C11
     statement: >-
       A structured spec has ONE source of truth - the reviewer's markdown is a
