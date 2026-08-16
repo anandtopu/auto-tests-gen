@@ -1,7 +1,7 @@
 # Solution Architecture Document
 ## AI-Driven Test Engineering Workflow PoC — OpenHands + Claude Code
 
-**Version:** 2.10 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md). **v2.5** adds §5.17 (the transaction log, alert rules and notifications). **v2.6** adds §5.18 (spec-driven adoption — the workflow as a state machine, a generated governance page, coverage subtraction that counts but refuses to price, and two UI-layer defects found by driving the served page). **v2.7** adds §5.19 (the dominant defect class — an inability to establish a fact reported as an established negative — promoted to constitution clause C13). **v2.8** adds §5.20 (the operator-facing layer — progress with an explicit `unknown` state, explanation from what was recorded, rate-limited retry, and selective approval that never claims a committed test is gone) and §5.21 (the efficiency inventory: what is held with evidence, what is unmeasured and why). **v2.9** adds §5.22 (the deployed shape: entry points nothing executed, manifests that disagreed with the scripts they were meant to run, the untrusted request boundary in front of the trigger ingress, and the test suite that was writing into the operator's estate — C13 at deployment scale). **v2.10** adds §5.5.2 (an enforcement point verifies the signature it enforces — both signed artefacts were compared only by the UI while the two points that refuse work never asked) and §5.5.3 (a configuration key nothing reads is silent — the measured effect of one mistyped key in each of the three config files, and why two of the known-key sets are derived differently)
+**Version:** 2.11 | **Date:** August 2026 | **Status:** Proposed — v2.2 added §5.11 (state integrity & portability) and §5.12 (cost architecture); v2.3 added §5.13 (retrieval & reuse subsystem — telemetry, knowledge chunks, vector index behind an Embedding port, RAG-scoped phase context, semantic plan reuse, spend controls) and ADR-9. **v2.4** adds §5.5.1 (the gate takes no orders from what a run produced), §5.14 (LLM Runner port — provider independence), §5.15 (attribution & routing integrity) and §5.16 (structured per-repo facts), and records four adversarial review rounds in [requirements-hardening.md](requirements-hardening.md). **v2.5** adds §5.17 (the transaction log, alert rules and notifications). **v2.6** adds §5.18 (spec-driven adoption — the workflow as a state machine, a generated governance page, coverage subtraction that counts but refuses to price, and two UI-layer defects found by driving the served page). **v2.7** adds §5.19 (the dominant defect class — an inability to establish a fact reported as an established negative — promoted to constitution clause C13). **v2.8** adds §5.20 (the operator-facing layer — progress with an explicit `unknown` state, explanation from what was recorded, rate-limited retry, and selective approval that never claims a committed test is gone) and §5.21 (the efficiency inventory: what is held with evidence, what is unmeasured and why). **v2.9** adds §5.22 (the deployed shape: entry points nothing executed, manifests that disagreed with the scripts they were meant to run, the untrusted request boundary in front of the trigger ingress, and the test suite that was writing into the operator's estate — C13 at deployment scale). **v2.10** adds §5.5.2 (an enforcement point verifies the signature it enforces — both signed artefacts were compared only by the UI while the two points that refuse work never asked) and §5.5.3 (a configuration key nothing reads is silent — the measured effect of one mistyped key in each of the three config files, and why two of the known-key sets are derived differently). **v2.11** adds §5.23 (provenance: how a simulated result is stopped from reading as a real one - the five signals a mock fabricates, the four rules that keep them marked, and the two alarm baselines that advanced on a delivery reaching nobody; C13's neighbour and its opposite)
 **Author:** QA / AI Quality Engineering Team
 **Estate note:** The original design target assumed six E2E repositories (3 API, 3 UI). The checked-in reference estate is registry-driven; at this revision `registry/repo-registry.yaml` declares **5 source repositories and 3 test repositories (2 API, 1 UI)**. Fixed six-repository counts below describe the original rollout plan, not a platform limit.
 **Scope:** Proof of Concept — Agentic SDLC test generation workflow across a **multi-repository estate**: multiple UI repos, multiple backend/API repos, and an original target estate of 6 E2E test repositories (3 API, 3 UI). The checked-in reference estate is summarized above and runtime inventory comes from the registry. v2.0 adds the **Test Catalog & Mapping subsystem** (bootstrap + continuous mapping of existing tests) and a **pluggable Integration & Extensibility layer** (Jira, Bitbucket, GitHub, Slack, Splunk, and future tools), and restructures the solution as a reusable, customizable platform. v2.1 extends the integration layer with **Confluence (knowledge source + publishing)**, **Jenkins (CI/CD trigger, execution, and results feedback)**, and a documented onboarding pattern for any additional SDLC tool.
@@ -1726,6 +1726,72 @@ evidence and the docstring says so.
 The common thread across all four is **C13 at deployment scale**: a step that did not
 run, a file that was not archived, a request that was never answered and a metric
 computed from the wrong population all reported themselves as normal operation.
+
+### 5.23 Provenance: how a simulated result is stopped from reading as a real one (v2.11)
+
+§5.19 is about a fact the platform **could not establish**. This section is its
+neighbour and its opposite: a fact that is perfectly well established — and is a
+fact about the **stub** rather than about the product. Both are honesty clauses
+(C13 and C10) and the distinction is what makes each actionable: one sends you
+to find out, the other sends you to a real run.
+
+`AIQE_MOCK=1` is the demo default and the OpenShift ConfigMap default, so on a
+by-the-book deployment every signal below is produced by a stub.
+
+**The five signals a mock can fabricate.** Each was found separately, each by
+driving a surface rather than reading it, and each had the same shape: the
+producer knew, and every renderer downstream re-derived — or simply dropped —
+the answer.
+
+| Signal | What a mock emits | Where it surfaced unmarked |
+|---|---|---|
+| spend | `AIQE_MOCK_PHASE_COST` | cost report headline, team report, queue envelope warning |
+| critic score | constant `0.86` | 6 renderers incl. the PR comment a human merges from |
+| validation counts | constant `2 passed, 0 failed` | 5 renderers incl. the exported plan attached to tickets |
+| reviewer verdict | scripted finding text | comment channels, dashboard chip, wizard, `explain` |
+| delivery | `[mock-jira]`, `adapters/mock/notify.sh` | plan board, agent context, **and two alarm baselines** |
+
+**The architecture, in four rules.** They exist because each was arrived at by
+getting it wrong first:
+
+1. **The producer declares itself.** The code that selects the adapter or runs
+   the phase is the only place that *knows*; `env_flag.mock()` is already in
+   hand there. Re-deriving downstream is how there came to be six renderers of
+   one score, none of which agreed to mark it.
+2. **The flag travels with the fact.** It is stamped onto the record or the
+   store entry beside the value, and carried through every projection —
+   `plan_state.summary()`'s `bool(e.get("linked"))` is exactly where one was
+   being dropped, with the store itself perfectly correct.
+3. **One decision function per signal, and renderers ask it.**
+   `phase_provenance.of`, `critic.provenance`, `test_reviewer.verdict_text`,
+   `plan_state.linked_cell`, `delivery.outcome`.
+4. **Unknown is a state, not a default.** Runs and entries recorded before a
+   flag existed cannot be re-derived. Guessing "real" invents a measurement;
+   guessing "simulated" libels one. Both over-fix directions are pinned.
+
+**Delivery is the sharp one, and not only because of labelling.** For the first
+four signals a mock produces a wrong *number*. For delivery it produces a wrong
+*claim about someone else's system* — "the ticket has your test plan attached" is
+checkable by the reader, and false. Worse, two alarms **advance durable state**
+on delivery by design: `coverage_drift` moves its baseline and `spec_drift`
+records a scenario as reported, each so that an undelivered alarm is raised
+again. Both read the mock adapter's exit 0 as delivery, so on the deployed
+default a drift alarm fired, reached nobody, and moved the baseline past
+itself — the alarm was lost permanently, through the one path the two-state
+design never modelled. `engine/lib/delivery.py` is the single definition of
+`sent | simulated | failed`; only `sent` may advance state, and `simulated`
+keeps its own message because "you are in mock mode" and "your channel is
+broken" send an operator to different places.
+
+**What is deliberately NOT changed.** `alert_rules` consumes its notification
+cooldown on a simulated send. That cooldown exists to protect a *human* from
+spam and under mock there is no human to protect; not consuming it would only
+re-post to a log nobody reads. It gets the label, not the state change, and the
+reason is pinned so it is not "fixed" later by pattern-matching.
+
+C10 now names all five signals with pins across each — it was scoped to cost
+alone while five signals were enforcing it, which meant the generated governance
+page understated the guarantee and a deleted pin on four of them broke no build.
 
 ## 6. Scalability, Reliability, Efficiency, Maintainability — Deep Dive
 
